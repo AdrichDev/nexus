@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus — Calcetines técnicos deportivos</title>
+  <meta name="description" content="Calcetines deportivos fabricados en España de forma sostenible. Cero ampollas, cero rozaduras: solo kilómetros." />
+
+  <!-- Tipografía: Archivo (display atlético) + Inter (texto) — Google Fonts, gratis -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Three.js 0.160.0 fijado vía importmap (jsDelivr, gratuito) -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <!-- GSAP 3.12.5 + ScrollTrigger y Lenis 1.1.14 (todo gratuito) -->
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js"></script>
+</head>
+<body>
+
+  <!-- Canvas WebGL fijo detrás del contenido -->
+  <canvas id="scene" aria-hidden="true"></canvas>
+  <!-- Fallback 2D si no hay WebGL -->
+  <div id="fallback-bg" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <a href="#inicio" class="brand" aria-label="Nexus — inicio">nexus<span class="brand-dot">.</span></a>
+    <nav aria-label="Navegación principal">
+      <a href="#colecciones">Colecciones</a>
+      <a href="#tecnologia">Tecnología</a>
+      <a href="#kilometros">Kilómetros</a>
+      <a href="#tienda" class="nav-cta">Ver calcetines</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ── 1 · HERO: ¿qué es y por qué me importa? ── -->
+    <section id="inicio" class="panel hero" data-scene="hero">
+      <div class="panel-inner">
+        <p class="badge reveal">🇪🇸 Fabricados en España · Sostenibles</p>
+        <h1 class="reveal">
+          Cero ampollas.<br />
+          Cero rozaduras.<br />
+          <span class="accent-text">Solo kilómetros.</span>
+        </h1>
+        <p class="lede reveal">
+          Calcetines técnicos para running, trail, ciclismo y cross training.
+          Tejido transpirable que evacúa el sudor y un ajuste que se olvida de que existe.
+        </p>
+        <div class="cta-row reveal">
+          <a href="#colecciones" class="btn btn-solid">Encuentra tu Nexus →</a>
+          <a href="#tecnologia" class="btn btn-ghost">Cómo lo conseguimos</a>
+        </div>
+        <ul class="trust-chips reveal" aria-label="Garantías">
+          <li>⭐ 4.739 reseñas verificadas</li>
+          <li>🧵 Hecho en Madrid</li>
+          <li>🚚 Envío gratis +55€</li>
+          <li>♻️ Producción sostenible</li>
+        </ul>
+        <p class="scroll-hint reveal" aria-hidden="true">Desliza para dar la primera zancada ↓</p>
+      </div>
+    </section>
+
+    <!-- ── Marquesina deportiva (CSS puro) ── -->
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track">
+        <span>Running</span><span class="dot">●</span><span>Trail</span><span class="dot">●</span><span>Ciclismo</span><span class="dot">●</span><span>Cross Training</span><span class="dot">●</span><span>Pádel</span><span class="dot">●</span><span>Made in Spain</span><span class="dot">●</span><span>Transpirable</span><span class="dot">●</span><span>Ajuste perfecto</span><span class="dot">●</span>
+        <span>Running</span><span class="dot">●</span><span>Trail</span><span class="dot">●</span><span>Ciclismo</span><span class="dot">●</span><span>Cross Training</span><span class="dot">●</span><span>Pádel</span><span class="dot">●</span><span>Made in Spain</span><span class="dot">●</span><span>Transpirable</span><span class="dot">●</span><span>Ajuste perfecto</span><span class="dot">●</span>
+      </div>
+    </div>
+
+    <!-- ── 2 · COLECCIONES: ¿cuál es el mío? ── -->
+    <section id="colecciones" class="panel collections" data-scene="collections">
+      <div class="panel-inner">
+        <p class="kicker reveal">Encuentra tu Nexus perfecto</p>
+        <h2 class="reveal">Un colorway para cada <span class="accent-text">zancada</span></h2>
+        <p class="section-sub reveal">Los calcetines que orbitan la escena llevan los colores reales de la colección.</p>
+        <div class="cards">
+          <article class="card reveal" style="--c:#f5d000">
+            <img src="https://www.nexus.com/cdn/shop/files/DES_AMARILLO.jpg?v=1773040503&amp;width=600" alt="Calcetines Do Epic Shit amarillo fluor" loading="lazy" />
+            <span class="card-tag">Running</span>
+            <h3>Do Epic Shit</h3>
+            <p>El top ventas. Amarillo fluor, fucsia, turquesa, blanco o negro.</p>
+            <span class="price">desde 16,60&nbsp;€</span>
+          </article>
+          <article class="card reveal" style="--c:#7ac143">
+            <img src="https://www.nexus.com/cdn/shop/files/TR01_6.jpg?v=1776835631&amp;width=600" alt="Calcetines de trail TR01 verde" loading="lazy" />
+            <span class="card-tag">Trail</span>
+            <h3>TR01 — All-terrain</h3>
+            <p>El calcetín de trail todoterreno. Refuerzos donde el sendero aprieta.</p>
+            <span class="price">desde 17,45&nbsp;€</span>
+          </article>
+          <article class="card reveal" style="--c:#12b5a9">
+            <img src="https://www.nexus.com/cdn/shop/files/SMILE_PRODUCTO_PRINCIPAL_06.jpg?v=1782112894&amp;width=600" alt="Calcetines S-miles Quarter azul" loading="lazy" />
+            <span class="card-tag">Novedad</span>
+            <h3>S-miles Quarter</h3>
+            <p>Caña quarter, sonrisa incluida. Ocho colores para hacer match con tus zapas.</p>
+            <span class="price">18,50&nbsp;€</span>
+          </article>
+          <article class="card reveal" style="--c:#ff6a5c">
+            <img src="https://www.nexus.com/cdn/shop/files/eesetial_nuevos_1_545460ec-08d0-4e1c-a5f9-e1ce0e099ec4.jpg?v=1772190273&amp;width=600" alt="Calcetines Essential coral" loading="lazy" />
+            <span class="card-tag">Diario</span>
+            <h3>Essentials</h3>
+            <p>Los básicos técnicos de todos los días: denim, coral, fluor, morado…</p>
+            <span class="price">desde 15,60&nbsp;€</span>
+          </article>
+          <article class="card reveal" style="--c:#e5289e">
+            <img src="https://www.nexus.com/cdn/shop/files/NEXUS_STUDIO_de9eb200-a450-4958-87f1-9b91bdd8fa20.jpg?v=1781167988&amp;width=600" alt="Nexus Studio — calcetines personalizados" loading="lazy" />
+            <span class="card-tag">Personalizados</span>
+            <h3>Nexus Studio</h3>
+            <p>Tus colores, tu logo, tu patrón. Diseñamos y fabricamos tu calcetín.</p>
+            <span class="price">Pide tu diseño</span>
+          </article>
+          <article class="card reveal" style="--c:#171717">
+            <img src="https://www.nexus.com/cdn/shop/files/FADE2.jpg?v=1779364805&amp;width=600" alt="Calcetines Fade" loading="lazy" />
+            <span class="card-tag">Packs</span>
+            <h3>Crea tu pack</h3>
+            <p>Combina tus modelos favoritos y ahorra en cada par.</p>
+            <span class="price">Tú eliges</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 3 · TECNOLOGÍA: ¿por qué no salen ampollas? ── -->
+    <section id="tecnologia" class="panel tech" data-scene="tech">
+      <div class="panel-inner">
+        <p class="kicker reveal">Tecnología</p>
+        <h2 class="reveal">Diseñados para que tus pies <span class="accent-text">no se enteren</span></h2>
+        <p class="section-sub reveal">Plano cerrado: mira el tejido de cerca mientras el aire lo atraviesa.</p>
+        <div class="features">
+          <article class="feature reveal">
+            <span class="feature-icon">💨</span>
+            <h3>Transpirable de verdad</h3>
+            <p>Tejido que evacúa el sudor y mantiene el pie seco en sesiones largas e intensas.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-icon">🧦</span>
+            <h3>Ajuste sin fricción</h3>
+            <p>Compresión en su justa medida: ni se mueve ni aprieta. Adiós a ampollas y rozaduras.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-icon">🇪🇸</span>
+            <h3>Hecho en España</h3>
+            <p>Fabricación propia en Madrid con materiales de alta calidad y producción sostenible.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 4 · KILÓMETROS: prueba social en forma de sendero ── -->
+    <section id="kilometros" class="panel stats" data-scene="stats">
+      <div class="panel-inner">
+        <p class="kicker reveal">La comunidad</p>
+        <h2 class="reveal">Kilómetros que <span class="accent-text">hablan por nosotros</span></h2>
+        <p class="section-sub reveal">La cámara recorre el sendero: cada hito es real.</p>
+        <div class="stat-grid">
+          <div class="stat reveal"><span class="stat-n">400.569</span><span class="stat-l">pares vendidos</span></div>
+          <div class="stat reveal"><span class="stat-n">53.800</span><span class="stat-l">clientes satisfechos</span></div>
+          <div class="stat reveal"><span class="stat-n">89M</span><span class="stat-l">km acumulados</span></div>
+          <div class="stat reveal"><span class="stat-n">4.739</span><span class="stat-l">reseñas verificadas</span></div>
+        </div>
+        <blockquote class="quote reveal">
+          «Cero ampollas, pies secos y súper cómodo en todas mis carreras. Son los únicos que utilizo.»
+          <cite>— Reseña verificada, junio 2026</cite>
+        </blockquote>
+      </div>
+    </section>
+
+    <!-- ── 5 · CTA FINAL ── -->
+    <section id="tienda" class="panel final" data-scene="final">
+      <div class="panel-inner narrow">
+        <p class="kicker reveal">Última zancada</p>
+        <h2 class="reveal">Lo diferente te hace <span class="accent-text">único</span></h2>
+        <p class="section-sub reveal">
+          Elige tu diseño, haz match con tus zapatillas y corre sin pensar en tus pies.
+        </p>
+        <div class="cta-row reveal">
+          <a href="https://www.nexus.com/collections" class="btn btn-solid btn-big">Ver todos los calcetines →</a>
+        </div>
+        <p class="form-note reveal">Envío gratis a partir de 55€ · Devolución sencilla · Pago seguro</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p><strong>nexus</strong> — Calcetines técnicos deportivos, fabricados en Madrid.</p>
+    <p>© 2026 Nexus · <a href="https://www.nexus.com/pages/aviso-legal-y-politica-de-privacidad">Privacidad</a> · <a href="https://www.nexus.com/pages/cookies">Cookies</a></p>
+  </footer>
+
+  <script type="module" src="main.js"></script>
+
+  <!-- Guardia de arranque: si el módulo 3D no inicia, muestra el motivo en pantalla -->
+  <script>
+    (function () {
+      window.addEventListener("error", function (e) {
+        window.__WB_LAST_ERROR = (e.message || "") + (e.filename ? " @ " + e.filename : "");
+      }, true);
+      setTimeout(function () {
+        if (window.__WB_BOOTED) return;
+        var isFile = location.protocol === "file:";
+        var box = document.createElement("div");
+        box.style.cssText =
+          "position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);z-index:99;" +
+          "max-width:34rem;padding:1rem 1.4rem;border-radius:0.8rem;font:600 0.8rem/1.5 system-ui;" +
+          "background:#2a1212;border:1px solid #ef4444;color:#fecaca;text-align:left";
+        box.innerHTML = isFile
+          ? "⚠️ <b>La escena 3D no puede iniciar con file://</b><br>Ejecuta en esta carpeta:<br><code>npx serve -l 5501 .</code> y abre <code>http://localhost:5501</code>"
+          : "⚠️ <b>La escena 3D no ha iniciado.</b><br>" +
+            (window.__WB_LAST_ERROR
+              ? "Error: <code>" + window.__WB_LAST_ERROR + "</code>"
+              : "Posible bloqueo de CDN (adblock/red). Revisa la consola (F12) y comprueba acceso a cdn.jsdelivr.net");
+        document.body.appendChild(box);
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,111 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  nexus — LO QUE NUNCA SE SUBE
+#
+#  El repositorio es PRIVADO, pero este archivo se ha escrito como si fuera
+#  público: un repo se hace público con dos clics, y un secreto que ya está en
+#  el historial de git no se borra cambiando el archivo — hay que reescribir el
+#  historial y rotar la credencial.
+#
+#  Revisado a fondo el 2026-07-25, antes del primer commit. Lo que se encontró
+#  y NO estaba cubierto por la versión anterior queda marcado con «★».
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Entorno virtual y basura de compilación ───────────────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.spec.bak
+
+# ── Datos de ejecución: tablero, memoria, registros, caché de voz, evidencias ─
+data/
+!data/.gitkeep
+
+# ── SECRETOS Y CREDENCIALES ───────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+config/settings.json
+config/secrets.json
+config/google_credentials.json
+config/google_credentials.OLD.json
+config/google_token.json
+config/spotify_token.json
+config/mcp_servers.json
+config/docker-compose.yml
+config/ha-compose.yml
+config/*token*.json
+config/*credential*.json
+config/*secret*.json
+# ★ LAS COPIAS TAMBIÉN. config/secrets.json.bak y config/settings.json.bak
+#   pesaban exactamente lo mismo que los originales (mismo contenido) y NO
+#   estaban excluidos: se habrían subido con las claves dentro.
+*.bak
+*.bak_v*
+*.backup
+*.old
+*.OLD.json
+# (Se conservan a propósito los ejemplos: *.example.json y n8n_flujo_ejemplo.json)
+
+# ── Claves de firma y certificados ────────────────────────────────────────────
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+*.crt
+movil/*.keystore
+
+# ── ★ MATERIAL PERSONAL: audio, vídeo y transcripciones ───────────────────────
+#   «Audios ruben» y las notas de voz de WhatsApp están en la carpeta PADRE
+#   (fuera de este repositorio), así que ya quedan fuera por posición. Esto lo
+#   blinda por si algún día se mueven aquí dentro.
+*.wav
+*.mp3
+*.ogg
+*.opus
+*.m4a
+*.aac
+*.flac
+*.mp4
+*.mov
+*.mkv
+*.webm
+Audios*/
+audios*/
+Audio*.wav
+transcripts*.json
+**/WhatsApp*
+
+# ── ★ Volcados, empaquetados y artefactos sueltos ─────────────────────────────
+*_b64.txt
+*.b64
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.rar
+*.apk
+*.aab
+*.exe
+*.msi
+*.log
+movil/install_log.txt
+diagnostico.txt
+
+# ── Sistema operativo y editores ──────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

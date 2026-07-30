@@ -1,0 +1,1199 @@
+"""Minion Google Workspace — Gmail, Calendar y Tasks REALES vía OAuth2.
+
+La cuenta se conecta con config/google_credentials.json (ver SKILL.md).
+Si faltan librerías o credenciales, responde con las instrucciones exactas.
+Todas las llamadas a Google son síncronas → se ejecutan en un hilo aparte.
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import datetime as dt
+import re
+from pathlib import Path
+
+CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+CREDS_FILE = CONFIG_DIR / "google_credentials.json"
+TOKEN_FILE = CONFIG_DIR / "google_token.json"
+
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",     # LEER + marcar leído/no leído + papelera (antes readonly)
+    "https://www.googleapis.com/auth/gmail.send",       # ENVIAR correos
+    "https://www.googleapis.com/auth/calendar.events",  # CREAR/editar eventos (antes readonly)
+    "https://www.googleapis.com/auth/tasks",            # CREAR/editar tareas (antes readonly)
+]
+# OJO: al ampliar scopes (calendar/tasks de solo-lectura → escritura), el token viejo
+# ya no cubre los permisos nuevos. _get_creds() detecta que el token no es superset de
+# SCOPES, lo borra y relanza la autorización UNA vez (igual que al añadir «enviar»).
+
+# Puerto FIJO para el redirect de OAuth. Con puerto aleatorio (port=0) el
+# redirect_uri cambia cada vez (127.0.0.1:55599…) y es IMPOSIBLE registrarlo en
+# Google → Error 400 redirect_uri_mismatch. Con un puerto fijo, el redirect es
+# estable y registrable.
+# OJO: usamos la IP de loopback 127.0.0.1, NO «localhost». Google DESACONSEJA
+# «localhost» para el flujo de loopback y muchos clientes «Aplicación web» lo
+# RECHAZAN aunque lo registres → por eso fallaba. 127.0.0.1 sí lo acepta (es lo
+# que usa también el callback de Spotify que ya funciona).
+OAUTH_PORT = 8765
+REDIRECT_HOST = "127.0.0.1"
+REDIRECT_URI = f"http://{REDIRECT_HOST}:{OAUTH_PORT}/"
+
+SKILL = {
+    "name": "Google (Gmail/Calendar)",
+    "description": "Gmail, Calendar y Tasks reales por OAuth2: lee, cuenta, resume, envía y borra correos; triaje con IA que crea tareas; eventos que se crean, mueven y cancelan",
+    # ORDEN IMPORTA (el router prueba los patterns en orden de este dict):
+    # lo más específico primero para que «de quién son», «cuántos sin leer»,
+    # «resume» o «envía» NO caigan en el patrón genérico de listar correos.
+    "patterns": {
+        "open_email": r"(?:[aá]bre(?:me)?|l[eé]e(?:me)?|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?)\s+el\s+(?:correo|mail|e-?mail)\s+(?:n[úu]mero\s+)?(?P<n>\d+)",
+        "send_email": r"(?:env[ií]a(?:le|me)?|m[aá]nda(?:le|me)?|escr[ií]be(?:le)?|redacta(?:\s+y\s+env[ií]a)?)\s+(?:un\s+|una\s+)?(?:correo|mail|e-?mail|email|mensaje\s+de\s+correo)\b",
+        # CREAR evento en Google Calendar (necesita mención de evento/cita/reunión/agenda/
+        # calendario para no chocar con el LISTADO de calendario 'gcal'). Va ANTES de gcal.
+        "create_event": r"(?:cr[eé]a(?:me)?|a[ñn][aá]de(?:me)?|agr[eé]ga(?:me)?|ap[uú]nta(?:me)?|ag[eé]nda(?:me)?|pon(?:me)?|mete(?:me)?|\bprograma(?:me)?|\bres[eé]rva(?:me)?)\b[^.\n]{0,30}\b(?:evento|cita|reuni[oó]n|recordatorio)\b"
+                        r"|(?:a[ñn][aá]de|ap[uú]nta|ag[eé]nda|mete|cr[eé]a)(?:me)?\b[^.\n]{0,40}\b(?:al|en\s+(?:el|mi|google))\s+calendario\b",
+        # CREAR tarea en Google Tasks (To-Do). Exige mención de google/to-do/tasks para NO
+        # secuestrar «crea la tarea X» del tablero interno. Va ANTES de gtasks.
+        "create_task": r"(?:cr[eé]a(?:me)?|a[ñn][aá]de(?:me)?|agr[eé]ga(?:me)?|ap[uú]nta(?:me)?|pon(?:me)?|mete(?:me)?)\b[^.\n]{0,40}\b(?:to-?do|google\s+tasks?|tareas?\s+de\s+google|lista\s+de\s+google)\b",
+        # TRIAGE: ¿algo URGENTE en los correos (sin leer)? → analiza por detrás y reporta.
+        "email_urgent": r"(?:correos?|mails?|e-?mails?|emails?|bandeja|gmail)\b[^.\n]{0,20}\b(?:urgentes?|que\s+corran?\s+prisa)\b"
+                        r"|\b(?:urgentes?|que\s+corra?\s+prisa|urgencias?)\b[^.\n]{0,20}\b(?:correos?|mails?|e-?mails?|emails?|bandeja|gmail)\b"
+                        r"|\balgo\s+urgente\b[^.\n]{0,20}\b(?:correo|mail|email|bandeja|gmail)\b",
+        # TRIAGE-ACCIÓN: ¿algo IMPORTANTE que TRATAR/gestionar? / crea tareas de los correos.
+        "email_actions": r"(?:algo|hay\s+algo)\b[^.\n]{0,40}\b(?:que\s+(?:tratar|gestionar|atender|hacer|responder)|importante\s+que\s+(?:tratar|gestionar|atender|hacer))\b[^.\n]{0,20}\b(?:correos?|mails?|e-?mails?|emails?|bandeja)\b"
+                         r"|(?:cr[eé]a(?:me)?|gen[eé]ra(?:me)?|s[aá]ca(?:me)?|convi[eé]rte(?:me)?|prepara(?:me)?)\b[^.\n]{0,30}\btareas?\b[^.\n]{0,25}\b(?:correos?|mails?|e-?mails?|emails?|bandeja)\b"
+                         r"|(?:cr[eé]a(?:me)?|convi[eé]rte(?:me)?|p[aá]sa(?:me)?|transforma)\b[^.\n]{0,20}\b(?:correos?|mails?|bandeja)\b[^.\n]{0,20}\b(?:en\s+|a\s+)?tareas?\b"
+                         r"|(?:de|con)\s+(?:los\s+|mis\s+)?correos?\b[^.\n]{0,25}\b(?:cr[eé]a(?:me)?|s[aá]ca(?:me)?)\b[^.\n]{0,15}\btareas?\b"
+                         r"|(?:anal[ií]za(?:me)?|procesa|gestiona(?:me)?|organiza(?:me)?|despacha(?:me)?|haz\s+triaje\s+de)\b[^.\n]{0,25}\b(?:los\s+|mis\s+)?(?:correos?|mails?|e-?mails?|emails?|bandeja)\b"
+                         # «crea tareas de lo urgente/importante» (nexus lo sugiere así,
+                         # sin decir «correos» — antes NO casaba y el LLM decía «hecho» sin hacer NADA)
+                         r"|(?:cr[eé]a(?:me)?|gen[eé]ra(?:me)?|s[aá]ca(?:me)?|prepara(?:me)?|haz(?:me)?)\b[^.\n]{0,25}\btareas?\b[^.\n]{0,30}\b(?:lo\s+)?(?:urgentes?|importantes?|prioritari[oa]s?|que\s+corran?\s+prisa)\b",
+        "summarize_emails": r"(?:res[uú]me(?:me)?|haz(?:me)?\s+un\s+resumen)\b[^.\n]{0,40}\b(?:correos?|mails?|e-?mails?|bandeja|gmail)\b(?:[^.\n]{0,15}?(?P<n>\d+))?",
+        # MARCAR COMO NO LEÍDO (deshacer). VA ANTES que mark_read: si no, «marca … como
+        # NO leído» casaría «leído» de mark_read ignorando el «no».
+        "mark_unread": r"(?:m[aá]rca(?:los|lo|me|r)?|pon(?:los|lo|me)?|dej[aá](?:los|melos)?|devu[eé]lve(?:los|me)?)\b[^.\n]{0,25}\b(?:como\s+)?(?:no\s+le[ií]d[oa]s?|sin\s+leer)\b",
+        # MARCAR COMO LEÍDO (CRUD Gmail): «pon los correos como leídos», «marca todo
+        # como leído». Va ANTES de 'emails' para NO caer en listar/leer en voz.
+        "mark_read": r"(?:pon(?:me|los|lo|los\s+correos)?|m[aá]rca(?:me|los|lo|r)?|dej[aá](?:los|melos)?|"
+                     r"impone|deja)\b[^.\n]{0,30}\b(?:como\s+)?le[ií]d[oa]s?\b"
+                     r"|\ble[ií]d[oa]s?\b[^.\n]{0,20}\b(?:los\s+|todos?\s+los\s+)?(?:correos?|mails?|e-?mails?)\b"
+                     r"|marcar?\s+(?:todo|todos?)\b[^.\n]{0,20}\ble[ií]d[oa]s?\b",
+        # BORRAR / ARCHIVAR correos (CRUD Gmail): a la papelera (recuperable).
+        "delete_email": r"(?:b[oó]rra(?:me)?|elimina(?:me)?|qu[ií]ta(?:me)?|suprime|archiva(?:me)?|tira|manda\s+a\s+la\s+papelera|echa\s+a\s+la\s+papelera)\b"
+                        r"[^.\n]{0,20}\b(?:el\s+|los\s+|ese\s+|este\s+|mis\s+|todos?\s+los\s+)?"
+                        r"(?:correos?|mails?|e-?mails?)\b(?:[^.\n]{0,20}?(?P<n>\d+))?(?P<rest>.+)?",
+        # BORRAR / CANCELAR un evento del calendario (CRUD Calendar)
+        "delete_event": r"(?:b[oó]rra(?:me)?|elimina(?:me)?|qu[ií]ta(?:me)?|cancela(?:me)?|an[uú]la(?:me)?|desconvoca)\b"
+                        r"[^.\n]{0,25}\b(?:el\s+|la\s+|mi\s+|ese\s+|esa\s+)?"
+                        r"(?:evento|cita|reuni[oó]n|recordatorio|mentor[ií]a)\b(?P<what>.+)?",
+        # MOVER / REPROGRAMAR un evento (CRUD Calendar)
+        "edit_event": r"(?:mu[eé]ve(?:me)?|cambia(?:me)?|reprograma(?:me)?|aplaza|adelanta|retrasa|atrasa|edita|posp[oó]n)\b"
+                      r"[^.\n]{0,25}\b(?:el\s+|la\s+|mi\s+)?(?:evento|cita|reuni[oó]n|mentor[ií]a)\b(?P<what2>.+)?",
+        # QUIÉN / DE QUIÉN son los correos (sin leer) → SOLO remitentes+asunto, NUNCA el
+        # cuerpo. Va ANTES que unread_count/emails: «de quiénes son los correos que tengo
+        # sin leer» antes se colaba a conversación (LLM) y soltaba TODO desde memoria.
+        "unread_from": r"cu[aá]l(?:es)?\b[^.\n]{0,30}\b(?:correos?|mails?|e-?mails?|emails?)\b"
+                       r"|(?:de\s+)?qui[eé]n(?:es)?\s+(?:son|me\s+(?:ha|han)\s+(?:escrito|mandado|enviado)|tengo)\b[^.\n]{0,35}\b(?:correos?|mails?|e-?mails?|emails?)\b"
+                       r"|\b(?:correos?|mails?|e-?mails?|emails?)\b[^.\n]{0,25}\bde\s+qui[eé]n(?:es)?\b"
+                       r"|(?:de\s+)?qui[eé]n(?:es)?\s+son\s+(?:los\s+|mis\s+)?(?:correos?|mails?|e-?mails?|emails?)\b"
+                       r"|\bqui[eé]n(?:es)?\s+me\s+(?:ha|han)\s+(?:escrito|mandado|enviado)\b"
+                       r"|\b(?:dime|dame|lista)\s+(?:los\s+)?remitentes\b",
+        # CUÁNTOS (sin leer) → número exacto + total de la bandeja. Tolera «cuántos correos
+        # tengo sin leer», «cuántos tengo sin leer», «número de correos».
+        "unread_count": r"cu[aá]nt[oa]s?\b[^.\n]{0,20}\b(?:correos?|mails?|e-?mails?|emails?|sin\s+leer)\b"
+                        r"|(?:dame|dime|dete)\s+el\s+n[uú]mero\s+de\s+(?:correos?|mails?|e-?mails?|emails?)"
+                        r"|n[uú]mero\s+de\s+(?:correos?|mails?|e-?mails?|emails?)"
+                        r"|\b(?:correos?|mails?|e-?mails?|emails?)\s+sin\s+leer\b",
+        # LISTAR/LEER correos. OJO: NADA de casar la conjunción «que» (era el BUG del
+        # bucle: «no te he dicho QUE me leas CORREOS» disparaba lectura). Verbos de
+        # lectura reales, e interrogativos SOLO pegados al sustantivo (qué correos).
+        "emails": r"(?:l[eé]e(?:me|r)?|ver|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|dime|dame|revisa|mira|comprueba|consulta|[eé]cha(?:le|me)?\s+un\s+(?:ojo|vistazo)(?:\s+a)?)\b[^.\n]{0,25}\b(?:correos?|mails?|e-?mails?|gmail|bandeja(?:\s+de\s+entrada)?)\b"
+                  r"|\b(?:qu[eé]|cu[aá]les?)\s+(?:correos?|mails?|e-?mails?)\b"
+                  r"|\bqu[eé]\s+tengo\s+en\s+(?:el\s+correo|la\s+bandeja|el\s+gmail|gmail)\b"
+                  r"|\b(?:hay|tengo)\s+(?:\w+\s+){0,1}(?:correos?|mails?|e-?mails?)\b"
+                  r"|\b(?:correos?|mails?|e-?mails?)\b[^.\n]{0,18}(?:pendientes?|nuevos?|importantes?|recientes?)\b",
+        "gcal": r"(?:qu[eé]\s+tengo|mira|ver|mu[eé]stra(?:me)?|dime|dame|revisa|acceso\s+a|abre|consulta|tienes|hay|c[oó]mo\s+est[aá]|ense[ñn]a(?:me)?)\b[^.\n]{0,25}\b(agenda|calendario|eventos?|citas?)\b"
+                r"|\b(mi|la|el)\s+(agenda|calendario)\b|\bagenda\s+de\s+google\b|\bpr[oó]ximos\s+eventos\b|\bqu[eé]\s+tengo\s+(hoy|ma[ñn]ana|esta\s+semana|el\s+\w+)\b",
+        "gtasks": r"\btareas\s+de\s+google\b|\bgoogle\s+tasks?\b|\bto-?do\s+de\s+google\b"
+                  r"|\bqu[eé]\s+(?:tengo|hay)\s+en\s+(?:el|mi)\s+to-?do\b",
+    },
+}
+
+_last_emails: list[dict] = []
+
+SETUP_MSG = (
+    "Google aún no está conectado. Pasos: 1) console.cloud.google.com → proyecto nuevo → "
+    "habilita las APIs de Gmail, Calendar y Tasks. 2) Credenciales → ID de cliente OAuth "
+    "→ tipo «App de escritorio» (IMPORTANTE: NO «Aplicación web» — la de escritorio acepta "
+    "cualquier localhost SIN registrar nada). 3) Pantalla de consentimiento OAuth: en modo "
+    "«Prueba» añade TU cuenta de Google como «Usuario de prueba» (si no, Google bloquea el "
+    "acceso). 4) Pega el Client ID y el Client Secret en ⚙ (sección Google) y yo genero el "
+    "archivo solo, o descarga el JSON como config/google_credentials.json. "
+    "5) pip install google-api-python-client google-auth-oauthlib. "
+    "Guía completa en skills/google_workspace/SKILL.md"
+)
+
+# Mensaje único y claro para el error «Acceso bloqueado: la solicitud de esta app
+# no es válida» (Error 400: redirect_uri_mismatch / invalid_request). Es SIEMPRE
+# configuración del cliente OAuth, nunca de nexus.
+BLOCKED_MSG = (
+    "Google dice «Acceso bloqueado: la solicitud de esta app no es válida» "
+    "(Error 400: redirect_uri_mismatch). NO es un fallo de nexus, es el cliente "
+    "OAuth. En console.cloud.google.com → APIs y servicios → Credenciales → tu "
+    "cliente:\n"
+    f"  • Si es «Aplicación web»: en «URIs de redirección autorizadas» (¡NO en "
+    f"«Orígenes autorizados de JavaScript»!) añade EXACTAMENTE, con la barra final: "
+    f"{REDIRECT_URI}  — usa 127.0.0.1, NO «localhost» (Google ya no lo acepta bien). "
+    "Guarda y espera 1-2 min a que propague.\n"
+    "  • LO MÁS FÁCIL: crea un cliente NUEVO de tipo «App de escritorio» (acepta "
+    "cualquier 127.0.0.1 sin registrar nada) y pega su Client ID/Secret en ⚙.\n"
+    "  • Y en «Pantalla de consentimiento OAuth», modo Prueba → añádete como "
+    "«Usuario de prueba».\n"
+    "Después borra config/google_token.json y vuelve a pedírmelo."
+)
+
+
+def _client_kind() -> str:
+    """'installed' (App de escritorio), 'web' (App web) o '' si no se puede leer.
+    Un cliente 'web' EXIGE registrar el redirect exacto → causa habitual del bloqueo."""
+    try:
+        import json
+        data = json.loads(CREDS_FILE.read_text(encoding="utf-8"))
+        if "installed" in data:
+            return "installed"
+        if "web" in data:
+            return "web"
+    except Exception:
+        pass
+    return ""
+
+
+def _get_creds():
+    """Devuelve credenciales OAuth válidas (refresca o lanza el flujo si hace falta).
+    Usa un PUERTO FIJO y un TIMEOUT para no colgar el asistente si no autorizas."""
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    creds = None
+    if TOKEN_FILE.exists():
+        # Los permisos CONCEDIDOS se leen del ARCHIVO del token (la librería pisa
+        # creds.scopes con los pedidos, así que no sirve para comparar). Si el token
+        # no tiene todos los permisos actuales (p.ej. se añadió ENVIAR correos), se
+        # borra y se reautoriza — si no, Google da RefreshError: invalid_scope.
+        granted: list = []
+        try:
+            import json as _json
+            granted = _json.loads(TOKEN_FILE.read_text(encoding="utf-8")).get("scopes", [])
+        except Exception:
+            granted = []
+        if granted and not set(SCOPES).issubset(set(granted)):
+            try:
+                TOKEN_FILE.unlink()
+            except Exception:
+                pass
+        else:
+            creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    # refrescar token caducado; si Google lo rechaza (invalid_scope/invalid_grant),
+    # el token no sirve → se borra y se pasa al flujo de autorización
+    if creds and not creds.valid and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+            TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
+        except Exception:
+            creds = None
+            try:
+                TOKEN_FILE.unlink()
+            except Exception:
+                pass
+    if not creds or not creds.valid:
+        kind = _client_kind()
+        try:
+            from backend.core.events import bus
+            if kind == "web":
+                bus.emit_sync("log", {"level": "warn",
+                    "msg": "Google: tu cliente OAuth es de tipo «Aplicación web». Si sale "
+                           f"«Acceso bloqueado: solicitud no válida», añade {REDIRECT_URI} "
+                           "(con la barra final) a las URIs de redirección autorizadas, o "
+                           "—mejor— crea uno de tipo «App de escritorio»."})
+            else:
+                bus.emit_sync("log", {"level": "info",
+                    "msg": "Google: abriendo el navegador para autorizar (una sola vez). "
+                           "Si sale «Acceso bloqueado», tu cliente debe ser «App de "
+                           "escritorio» y tu cuenta debe estar como «Usuario de prueba»."})
+        except Exception:
+            pass
+        flow = InstalledAppFlow.from_client_secrets_file(
+            str(CREDS_FILE), SCOPES, redirect_uri=REDIRECT_URI)
+        # timeout: si no autorizas en 2 min, corta en vez de colgar el asistente
+        try:
+            creds = flow.run_local_server(port=OAUTH_PORT, open_browser=True,
+                                          timeout_seconds=120, host=REDIRECT_HOST,
+                                          success_message="Autorizado. Cierra esta pestaña "
+                                          "y vuelve a nexus.")
+        except TypeError:            # versiones antiguas sin timeout_seconds
+            creds = flow.run_local_server(port=OAUTH_PORT, open_browser=True)
+        TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
+    return creds
+
+
+def _fetch_emails(limit: int = 5, only_unread: bool = False) -> list[dict]:
+    from googleapiclient.discovery import build
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    kw = {"userId": "me", "labelIds": ["INBOX"], "maxResults": limit}
+    if only_unread:                       # solo los NO leídos (para «de quién son los sin leer»)
+        kw["q"] = "is:unread"
+    res = svc.users().messages().list(**kw).execute()
+    out = []
+    for item in res.get("messages", []):
+        msg = svc.users().messages().get(userId="me", id=item["id"],
+                                         format="metadata",
+                                         metadataHeaders=["From", "Subject"]).execute()
+        headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
+        out.append({"id": item["id"],
+                    "from": re.sub(r"<.*?>", "", headers.get("From", "?")).strip(),
+                    "subject": headers.get("Subject", "(sin asunto)"),
+                    "snippet": msg.get("snippet", "")[:120],
+                    "unread": "UNREAD" in msg.get("labelIds", [])})
+    return out
+
+
+def _read_email(msg_id: str) -> str:
+    from googleapiclient.discovery import build
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    msg = svc.users().messages().get(userId="me", id=msg_id, format="full").execute()
+
+    def _extract(part) -> str:
+        if part.get("mimeType") == "text/plain" and part["body"].get("data"):
+            return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8", "replace")
+        for sub in part.get("parts", []):
+            text = _extract(sub)
+            if text:
+                return text
+        return ""
+
+    return _extract(msg["payload"]) or msg.get("snippet", "(sin contenido de texto)")
+
+
+def _fetch_events(limit: int = 6, tmin: str | None = None, tmax: str | None = None) -> list[dict]:
+    from googleapiclient.discovery import build
+    svc = build("calendar", "v3", credentials=_get_creds(), cache_discovery=False)
+    kw = {"calendarId": "primary", "maxResults": limit,
+          "singleEvents": True, "orderBy": "startTime",
+          "timeMin": tmin or dt.datetime.now(dt.timezone.utc).isoformat()}
+    if tmax:
+        kw["timeMax"] = tmax
+    res = svc.events().list(**kw).execute()
+    out = []
+    for ev in res.get("items", []):
+        start = ev["start"].get("dateTime", ev["start"].get("date", ""))
+        out.append({"when": start[:16].replace("T", " "),
+                    "what": ev.get("summary", "(sin título)")})
+    return out
+
+
+_MES_NUM = {"enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+            "julio": 7, "agosto": 8, "septiembre": 9, "setiembre": 9, "octubre": 10,
+            "noviembre": 11, "diciembre": 12}
+
+
+def _month_range(text: str) -> tuple[str, str, str] | None:
+    """Si la orden pide un MES («de julio», «este mes»), devuelve (inicio, fin,
+    nombre) del mes COMPLETO en UTC; None si no pide mes."""
+    t = text.lower()
+    mm = re.search(r"\b(" + "|".join(_MES_NUM) + r")\b", t)
+    if not mm and not re.search(r"\beste\s+mes\b|\bdel\s+mes\b|\bel\s+mes\b", t):
+        return None
+    now = dt.datetime.now(dt.timezone.utc)
+    month = _MES_NUM[mm.group(1)] if mm else now.month
+    name = mm.group(1) if mm else "este mes"
+    year = now.year
+    start = dt.datetime(year, month, 1, tzinfo=dt.timezone.utc)
+    end = dt.datetime(year + (1 if month == 12 else 0),
+                      1 if month == 12 else month + 1, 1, tzinfo=dt.timezone.utc)
+    return start.isoformat(), end.isoformat(), name
+
+
+def _fetch_tasks(limit: int = 10) -> list[str]:
+    from googleapiclient.discovery import build
+    svc = build("tasks", "v1", credentials=_get_creds(), cache_discovery=False)
+    lists_ = svc.tasklists().list(maxResults=3).execute().get("items", [])
+    out = []
+    for tl in lists_:
+        for t in svc.tasks().list(tasklist=tl["id"], showCompleted=False,
+                                  maxResults=limit).execute().get("items", []):
+            out.append(t.get("title", ""))
+    return [t for t in out if t][:limit]
+
+
+def _count_unread() -> tuple[int, int | None]:
+    """(sin leer, total) de la BANDEJA DE ENTRADA — el MISMO número que ve Adri.
+    OJO: la app de Gmail cuenta CONVERSACIONES (threads), no mensajes; antes
+    usábamos messagesUnread (33) y su app marcaba 31 → «nunca lee el valor
+    exacto». threadsUnread/threadsTotal, con messages* de respaldo."""
+    from googleapiclient.discovery import build
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    inbox = svc.users().labels().get(userId="me", id="INBOX").execute()
+    unread = inbox.get("threadsUnread")
+    total = inbox.get("threadsTotal")
+    if unread is None:
+        unread = inbox.get("messagesUnread", 0)
+    if total is None:
+        total = inbox.get("messagesTotal")
+    return unread or 0, total
+
+
+# ---------------------- CRUD Gmail: marcar leído/no leído, borrar ----------------------
+def _mark_read(ids: list[str] | None = None) -> int:
+    """Marca como LEÍDOS (quita la etiqueta UNREAD). Si ids es None, TODOS los no
+    leídos de la bandeja. Devuelve cuántos hilos marcó."""
+    from googleapiclient.discovery import build
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    if ids is None:
+        res = svc.users().messages().list(userId="me", labelIds=["INBOX"],
+                                          q="is:unread", maxResults=500).execute()
+        ids = [m["id"] for m in res.get("messages", [])]
+    if not ids:
+        return 0
+    for i in range(0, len(ids), 900):          # batchModify admite 1000/llamada
+        svc.users().messages().batchModify(
+            userId="me", body={"ids": ids[i:i + 900],
+                               "removeLabelIds": ["UNREAD"]}).execute()
+    return len(ids)
+
+
+def _mark_unread(ids: list[str]) -> int:
+    """Vuelve a marcar como NO leídos (añade UNREAD)."""
+    from googleapiclient.discovery import build
+    if not ids:
+        return 0
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    svc.users().messages().batchModify(
+        userId="me", body={"ids": ids, "addLabelIds": ["UNREAD"]}).execute()
+    return len(ids)
+
+
+def _trash_emails(ids: list[str]) -> int:
+    """Manda correos a la PAPELERA (recuperable 30 días — no borrado permanente)."""
+    from googleapiclient.discovery import build
+    if not ids:
+        return 0
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    n = 0
+    for mid in ids:
+        try:
+            svc.users().messages().trash(userId="me", id=mid).execute()
+            n += 1
+        except Exception:
+            pass
+    return n
+
+
+def _search_email_ids(query: str, limit: int = 25) -> list[str]:
+    """IDs de correos que casan una búsqueda Gmail («from:banco», «older_than:30d»…)."""
+    from googleapiclient.discovery import build
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    res = svc.users().messages().list(userId="me", q=query, maxResults=limit).execute()
+    return [m["id"] for m in res.get("messages", [])]
+
+
+# ---------------------- CRUD Calendar: buscar, borrar, editar ----------------------
+def _find_events(query: str = "", limit: int = 10) -> list[dict]:
+    """Próximos eventos (opcionalmente filtrados por texto). Devuelve
+    [{id, summary, start, when}] para localizar cuál borrar/editar."""
+    import datetime as _dt
+    from googleapiclient.discovery import build
+    svc = build("calendar", "v3", credentials=_get_creds(), cache_discovery=False)
+    now = _dt.datetime.utcnow().isoformat() + "Z"
+    kw = {"calendarId": "primary", "timeMin": now, "maxResults": limit,
+          "singleEvents": True, "orderBy": "startTime"}
+    if query.strip():
+        kw["q"] = query.strip()
+    items = svc.events().list(**kw).execute().get("items", [])
+    out = []
+    for ev in items:
+        st = ev.get("start", {})
+        start = st.get("dateTime") or st.get("date") or ""
+        out.append({"id": ev.get("id", ""), "summary": ev.get("summary", "(sin título)"),
+                    "start": start, "when": start[:16].replace("T", " ")})
+    return out
+
+
+def _delete_event(event_id: str) -> bool:
+    from googleapiclient.discovery import build
+    svc = build("calendar", "v3", credentials=_get_creds(), cache_discovery=False)
+    svc.events().delete(calendarId="primary", eventId=event_id).execute()
+    return True
+
+
+def _patch_event(event_id: str, start: str | None = None, end: str | None = None,
+                 summary: str | None = None) -> bool:
+    """Cambia hora/título de un evento (mover/reprogramar/renombrar)."""
+    from googleapiclient.discovery import build
+    svc = build("calendar", "v3", credentials=_get_creds(), cache_discovery=False)
+    body: dict = {}
+    if summary:
+        body["summary"] = summary
+    if start:
+        body["start"] = {"dateTime": start, "timeZone": _TZ}
+        body["end"] = {"dateTime": end or start, "timeZone": _TZ}
+    if not body:
+        return False
+    svc.events().patch(calendarId="primary", eventId=event_id, body=body).execute()
+    return True
+
+
+def _send_gmail(to: str, subject: str, body: str) -> str:
+    """Envía un correo REAL desde la cuenta del operador. Devuelve el id."""
+    from email.mime.text import MIMEText
+    from googleapiclient.discovery import build
+    svc = build("gmail", "v1", credentials=_get_creds(), cache_discovery=False)
+    m = MIMEText(body, _charset="utf-8")
+    m["to"] = to
+    m["subject"] = subject
+    raw = base64.urlsafe_b64encode(m.as_bytes()).decode()
+    sent = svc.users().messages().send(userId="me", body={"raw": raw}).execute()
+    return sent.get("id", "")
+
+
+# ================== CREAR eventos / tareas (ESCRITURA) ==================
+_TZ = "Europe/Madrid"     # Adri está en España; para eventos con hora
+_DIAS = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3,
+         "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
+_TIME_RX = re.compile(
+    r"\ba\s+las\s+(\d{1,2})(?:[:.](\d{2}))?\s*(?:h|horas)?\s*"
+    r"(?:de\s+la\s+(mañana|tarde|noche)|(am|pm))?", re.IGNORECASE)
+
+
+def _parse_when(text: str):
+    """De una orden natural saca (start, end, all_day). start/end en ISO.
+    all_day=True → start/end son fechas (YYYY-MM-DD). None si no hay fecha clara."""
+    low = text.lower()
+    today = dt.date.today()
+    date_ = None
+    m = re.search(r"\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b", low)
+    if m:
+        d, mo = int(m.group(1)), int(m.group(2))
+        y = int(m.group(3)) if m.group(3) else (today.year if (mo, d) >= (today.month, today.day) else today.year + 1)
+        y = y + 2000 if y < 100 else y
+        try:
+            date_ = dt.date(y, mo, d)
+        except ValueError:
+            date_ = None
+    if not date_:
+        m = re.search(r"\b(\d{1,2})\s+de\s+(" + "|".join(_MES_NUM) + r")\b", low)
+        if m:
+            d, mo = int(m.group(1)), _MES_NUM[m.group(2)]
+            y = today.year if (mo, d) >= (today.month, today.day) else today.year + 1
+            try:
+                date_ = dt.date(y, mo, d)
+            except ValueError:
+                date_ = None
+    if not date_:
+        if "pasado mañana" in low:
+            date_ = today + dt.timedelta(days=2)
+        elif "mañana" in low or "manana" in low:
+            date_ = today + dt.timedelta(days=1)
+        elif re.search(r"\bhoy\b", low):
+            date_ = today
+        else:
+            for name, wd in _DIAS.items():
+                if re.search(rf"\b(?:el\s+|este\s+|pr[oó]ximo\s+)?{name}\b", low):
+                    delta = (wd - today.weekday()) % 7 or 7
+                    date_ = today + dt.timedelta(days=delta)
+                    break
+    if not date_:
+        return None
+    tm = _TIME_RX.search(low)
+    if tm:
+        h, mnt = int(tm.group(1)), int(tm.group(2) or 0)
+        franja = (tm.group(3) or "").lower()
+        ampm = (tm.group(4) or "").lower()
+        if franja in ("tarde", "noche") and h < 12:
+            h += 12
+        if ampm == "pm" and h < 12:
+            h += 12
+        h = min(h, 23)
+        start = dt.datetime(date_.year, date_.month, date_.day, h, mnt)
+        end = start + dt.timedelta(hours=1)
+        return start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds"), False
+    return date_.isoformat(), (date_ + dt.timedelta(days=1)).isoformat(), True
+
+
+def _create_event(summary: str, start: str, end: str | None = None,
+                  description: str = "", all_day: bool = False) -> str:
+    """Crea un evento REAL en el calendario principal. Devuelve el enlace."""
+    from googleapiclient.discovery import build
+    svc = build("calendar", "v3", credentials=_get_creds(), cache_discovery=False)
+    if all_day:
+        d0 = dt.date.fromisoformat(start)
+        body = {"summary": summary, "description": description,
+                "start": {"date": start},
+                "end": {"date": end or (d0 + dt.timedelta(days=1)).isoformat()}}
+    else:
+        body = {"summary": summary, "description": description,
+                "start": {"dateTime": start, "timeZone": _TZ},
+                "end": {"dateTime": end or start, "timeZone": _TZ}}
+    ev = svc.events().insert(calendarId="primary", body=body).execute()
+    return ev.get("htmlLink", "")
+
+
+def _create_task(title: str, due_date: str | None = None, notes: str = "") -> str:
+    """Crea una tarea REAL en Google Tasks (lista por defecto). due_date = YYYY-MM-DD."""
+    from googleapiclient.discovery import build
+    svc = build("tasks", "v1", credentials=_get_creds(), cache_discovery=False)
+    body: dict = {"title": title[:1000]}
+    if notes:
+        body["notes"] = notes[:2000]
+    if due_date:
+        # Google Tasks quiere RFC3339; usa solo la parte de fecha.
+        body["due"] = f"{due_date}T00:00:00.000Z"
+    t = svc.tasks().insert(tasklist="@default", body=body).execute()
+    return t.get("id", "")
+
+
+def _create_everywhere(title: str, due_date: str | None, notes: str,
+                       priority: str = "alta") -> str:
+    """Crea la tarea en GOOGLE (Calendar si hay fecha, si no Tasks) Y en el TABLERO
+    INTERNO de nexus. Devuelve un texto con los destinos donde quedó guardada."""
+    dests = []
+    try:
+        if due_date:
+            _create_event(title, due_date, None, notes, all_day=True)
+            dests.append("Google Calendar")
+        else:
+            _create_task(title, None, notes)
+            dests.append("Google Tasks (To-Do)")
+    except Exception as exc:                                   # noqa: BLE001
+        dests.append(f"(Google falló: {type(exc).__name__})")
+    try:
+        from backend.core import board
+        board.add_task(title, due=due_date, priority=priority, tag="correo")
+        dests.append("tablero interno")
+    except Exception as exc:                                   # noqa: BLE001
+        dests.append(f"(tablero falló: {type(exc).__name__})")
+    return " + ".join(dests) if dests else "ningún destino"
+
+
+async def _email_urgent_job(ctx, channel: str) -> dict:
+    """URGENTES EN 2º PLANO: lee los no-leídos con cuerpo, decide con el LLM cuáles
+    corren prisa y AVISA al terminar por el canal de origen (chat + voz en el PC,
+    Telegram si vino de ahí). Regla de Adri: TODO lo de segundo plano avisa al acabar."""
+    global _last_emails
+    from backend.core.events import bus
+    try:
+        msgs, unread, total = await _load_unread_bodies(30)
+        if not unread:
+            reply = "✅ Revisión terminada: 0 sin leer, nada urgente."
+            corto = "Revisión terminada: nada urgente."
+        else:
+            _last_emails = msgs
+            analysis = await _analyze_emails(msgs)
+            urg = [(msgs[a["i"]], a) for a in analysis if a.get("urgente")]
+            ambito = ("" if len(msgs) >= unread
+                      else f" (analizados los {len(msgs)} más recientes)")
+            if not urg:
+                reply = (f"✅ Revisión terminada: de tus {unread} sin leer{ambito}, "
+                         "ninguno parece urgente.")
+                corto = f"Revisión terminada: {unread} sin leer y nada urgente."
+            else:
+                lines = [f"🔴 {m['from']} — «{m['subject']}»" +
+                         (f" · {a.get('motivo','')}" if a.get('motivo') else "")
+                         for m, a in urg]
+                reply = (f"✅ Revisión terminada — de tus {unread} sin leer{ambito}, "
+                         f"{len(urg)} urgente(s):\n" + "\n".join(lines) +
+                         "\n\n¿Te creo tareas para tratarlos? Di «crea tareas de lo importante del correo».")
+                corto = f"Revisión terminada: {len(urg)} urgentes de {unread} sin leer."
+    except Exception as exc:                                   # noqa: BLE001
+        reply = f"❌ La revisión de urgentes ha fallado: {type(exc).__name__}: {exc}"
+        corto = "La revisión de correos ha fallado."
+    await bus.emit("chat", {"user": "[correos urgentes]", "reply": reply,
+                            "provider": "minion:google_workspace",
+                            "skill": "google_workspace", "channel": channel})
+    if channel == "pc":
+        try:
+            from backend.core import tts
+            await tts.speak(corto)
+        except Exception:
+            pass
+    if channel == "telegram":
+        try:
+            from backend.core.telegram_bridge import send_telegram
+            await send_telegram(reply)
+        except Exception:
+            pass
+    return {"reply": reply}
+
+
+async def _email_actions_job(ctx, channel: str) -> dict:
+    """ANÁLISIS DE CORREOS EN SEGUNDO PLANO (orden de Adri: «analiza» = hazlo por
+    detrás y ACTÚA). Lee no-leídos, decide accionables con el LLM, crea tareas
+    (Google + tablero) y entrega el resultado por el CANAL de origen."""
+    global _last_emails
+    from backend.core.events import bus
+    try:
+        msgs, unread, total = await _load_unread_bodies(30)
+        if not unread:
+            reply = "He revisado la bandeja: sin correos nuevos, nada que convertir en tareas."
+        else:
+            _last_emails = msgs
+            analysis = await _analyze_emails(msgs)
+            acts = [(msgs[a["i"]], a) for a in analysis if a.get("accionable")]
+            if not acts:
+                ambito = "" if len(msgs) >= unread else f" (los {len(msgs)} más recientes)"
+                reply = (f"He analizado tus {unread} correos sin leer{ambito} y ninguno pide "
+                         "una acción concreta: no he creado tareas.")
+            else:
+                creadas = []
+                for m, a in acts:
+                    titulo = (a.get("tarea") or "").strip() or f"Tratar correo de {m['from']}: {m['subject']}"
+                    fecha = (a.get("fecha") or "").strip() or None
+                    prio = "alta" if (a.get("urgente") or a.get("importancia") == "alta") else "media"
+                    notas = f"De {m['from']} — Asunto: {m['subject']}"
+                    destinos = await asyncio.to_thread(_create_everywhere, titulo, fecha, notas, prio)
+                    creadas.append((titulo, fecha, destinos))
+                lines = [f"• {t}" + (f" (para {f})" if f else "") + f"  → {d}" for t, f, d in creadas]
+                n_ok = sum(1 for _t2, _f2, d in creadas
+                           if ("tablero interno" in d) or ("Google" in d and "falló" not in d))
+                if n_ok == 0:
+                    reply = (f"Análisis hecho, preparé {len(creadas)} tarea(s)… pero NO pude "
+                             "GUARDAR ninguna:\n" + "\n".join(lines) +
+                             "\n\nCasi seguro falta aceptar la autorización de ESCRITURA de "
+                             "Google en el navegador del PC.")
+                else:
+                    aviso = ""
+                    if not any("Google" in d and "falló" not in d for _t2, _f2, d in creadas):
+                        aviso = ("\n\n⚠ En Google no pude guardarlas (autorización pendiente); "
+                                 "en tu tablero SÍ están.")
+                    reply = (f"Análisis de correos terminado — {n_ok} tarea(s) creadas:\n"
+                             + "\n".join(lines) + aviso)
+    except Exception as exc:                                   # noqa: BLE001
+        reply = f"El análisis de correos ha fallado: {type(exc).__name__}: {exc}"
+    await bus.emit("chat", {"user": "[análisis de correos]", "reply": reply,
+                            "provider": "minion:google_workspace",
+                            "skill": "google_workspace", "channel": channel})
+    # AVISO al terminar (regla de Adri: todo lo de 2º plano avisa). Voz en el PC.
+    if channel == "pc":
+        try:
+            from backend.core import tts
+            await tts.speak("Análisis de correos terminado.")
+        except Exception:
+            pass
+    if channel == "telegram":
+        try:
+            from backend.core.telegram_bridge import send_telegram
+            await send_telegram(reply)
+        except Exception:
+            pass
+    return {"reply": reply}
+
+
+async def _ack(ctx, msg: str) -> None:
+    """Acuse INMEDIATO: pinta y DICE «dame un segundo…» antes del análisis pesado, para
+    que no haya silencio mientras nexus lee los correos por detrás."""
+    try:
+        await ctx["bus"].emit("chat", {"user": "", "reply": msg,
+                                       "provider": "minion:google_workspace",
+                                       "skill": "google_workspace"})
+    except Exception:
+        pass
+    try:
+        from backend.core import tts
+        await tts.speak(msg)
+    except Exception:
+        pass
+
+
+def _parse_json_array(raw: str, n: int) -> list:
+    """Extrae un array JSON de la respuesta del LLM (tolera ```json y texto alrededor)."""
+    import json
+    t = (raw or "").strip()
+    t = re.sub(r"```(?:json)?", "", t).strip().strip("`").strip()
+    m = re.search(r"\[.*\]", t, re.DOTALL)
+    if m:
+        t = m.group(0)
+    try:
+        data = json.loads(t)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+async def _analyze_emails(msgs: list[dict]) -> list[dict]:
+    """El LLM clasifica CADA correo por CONTEXTO (asunto+contenido): urgente, importancia,
+    accionable, título de tarea y fecha si la implica. Devuelve la lista JSON parseada."""
+    from backend.core import llm
+    partes = []
+    for i, m in enumerate(msgs):
+        cuerpo = (m.get("body") or m.get("snippet") or "")[:700]
+        partes.append(f'[{i}] De: {m["from"]}\nAsunto: {m["subject"]}\nContenido: {cuerpo}')
+    digest = "\n\n".join(partes)
+    hoy = dt.date.today().isoformat()
+    system = (
+        f"Eres un clasificador de correos. Hoy es {hoy}. Analiza CADA correo por su CONTEXTO "
+        "(asunto + contenido), no por palabras sueltas. Devuelve SOLO un JSON válido: un array "
+        "con un objeto por correo, en el MISMO orden, con estas claves exactas: "
+        '{"i": entero (índice del correo), "urgente": true|false, "importancia": "alta"|"media"|"baja", '
+        '"accionable": true|false, "tarea": "título breve en imperativo de lo que hay que hacer, o cadena vacía", '
+        '"fecha": "YYYY-MM-DD si el correo implica una fecha/plazo, o cadena vacía", '
+        '"motivo": "5-10 palabras"}. '
+        "urgente = necesita atención hoy/mañana, hay un plazo inminente, o hay consecuencias por no actuar. "
+        "accionable = el correo te pide hacer algo concreto (pagar, responder, revisar, confirmar, agendar). "
+        "NO inventes fechas: pon fecha solo si aparece o se implica claramente. Responde ÚNICAMENTE el JSON, sin texto extra."
+    )
+    try:
+        raw, _prov = await llm.ask_llm(digest, system=system)
+    except Exception:
+        return []
+    out = _parse_json_array(raw, len(msgs))
+    # saneado: quedarnos con índices válidos
+    clean = []
+    for a in out:
+        try:
+            idx = int(a.get("i"))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < len(msgs):
+            clean.append({**a, "i": idx})
+    return clean
+
+
+async def _load_unread_bodies(max_n: int = 30) -> tuple[list[dict], int, int | None]:
+    """Trae los NO leídos con su CUERPO leído (para poder analizar por contexto)."""
+    unread, total = await asyncio.to_thread(_count_unread)
+    if not unread:
+        return [], 0, total
+    msgs = await asyncio.to_thread(_fetch_emails, min(unread, max_n), True)
+    for m in msgs:
+        try:
+            m["body"] = await asyncio.to_thread(_read_email, m["id"])
+        except Exception:
+            m["body"] = m.get("snippet", "")
+    return msgs, unread, total
+
+
+def _parse_send(text: str) -> tuple[str, str, str]:
+    """Extrae (destinatario, asunto, cuerpo) de una orden en lenguaje natural:
+    «envía un correo a x@y.com con asunto Reunión diciendo que llego tarde»."""
+    to_m = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", text)
+    to = to_m.group(0) if to_m else ""
+    subj_m = re.search(
+        r"con\s+(?:el\s+)?asunto\s+[«\"']?([^«»\"'\n]+?)[»\"']?"
+        r"(?=\s+(?:dici[eé]ndo|que\s+diga|con\s+el\s+(?:texto|cuerpo|mensaje)|y\s+(?:cuerpo|texto)|:)|$)",
+        text, re.IGNORECASE)
+    subject = subj_m.group(1).strip() if subj_m else ""
+    body_m = re.search(
+        r"(?:dici[eé]ndo(?:le|les)?\s+(?:que\s+)?|que\s+(?:le\s+)?diga\s+(?:que\s+)?"
+        r"|con\s+el\s+(?:texto|cuerpo|mensaje)\s+|(?:cuerpo|texto|mensaje):\s*)(.+)$",
+        text, re.IGNORECASE | re.DOTALL)
+    body = body_m.group(1).strip() if body_m else ""
+    return to, subject, body
+
+
+async def _llm_text(order: str) -> str:
+    """Pide texto al cerebro de nexus; '' si solo está el mock."""
+    try:
+        from backend.core import llm
+        reply, prov = await llm.ask_llm(order)
+        if prov != "mock" and reply:
+            return reply.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _write_creds(cid: str, csec: str) -> None:
+    import json
+    CREDS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CREDS_FILE.write_text(json.dumps({"installed": {
+        "client_id": cid, "client_secret": csec,
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": [REDIRECT_URI, "http://127.0.0.1", f"http://localhost:{OAUTH_PORT}/"],
+    }}, indent=2), encoding="utf-8")
+
+
+def _ensure_credentials(ctx) -> bool:
+    """Genera google_credentials.json desde el client_id/secret de ⚙. Si el archivo
+    ya existe pero su client_id NO coincide con el de ⚙ (cambiaste de cliente —p.ej.
+    de «web» a «escritorio»—), lo REGENERA y borra el token para reautorizar con el
+    nuevo. Así cambiar de credenciales en ⚙ «simplemente funciona»."""
+    cid = ctx["settings"].secret("google_client_id")
+    csec = ctx["settings"].secret("google_client_secret")
+    if CREDS_FILE.exists():
+        file_cid = ""
+        try:
+            import json
+            data = json.loads(CREDS_FILE.read_text(encoding="utf-8"))
+            file_cid = (data.get("installed") or data.get("web") or {}).get("client_id", "")
+        except Exception:
+            pass
+        if cid and csec and file_cid and cid != file_cid:
+            _write_creds(cid, csec)          # cambió el cliente → regenerar
+            try:
+                TOKEN_FILE.unlink()          # y forzar reautorización con el nuevo
+            except Exception:
+                pass
+        return True
+    if cid and csec:
+        _write_creds(cid, csec)
+        return True
+    return False
+
+
+async def handle(intent: str, text: str, match, ctx) -> dict:
+    global _last_emails
+    # Diagnóstico preciso: distinguir librerías que faltan de credenciales que faltan
+    try:
+        import googleapiclient  # noqa: F401
+        import google_auth_oauthlib  # noqa: F401
+    except ImportError:
+        return {"reply": "No puedo hablar con Google porque FALTAN LAS LIBRERÍAS en el "
+                         "entorno (no es problema de tus credenciales). Arréglalo con: "
+                         "`pip install google-api-python-client google-auth-oauthlib` "
+                         "dentro del venv, o simplemente vuelve a ejecutar run.bat que "
+                         "ahora lo instala solo."}
+    if not _ensure_credentials(ctx):
+        return {"reply": SETUP_MSG + " — O más fácil: pega el Client ID y el Client "
+                         "Secret en ⚙ (sección Google) y yo genero el archivo solo."}
+
+    try:
+        if intent == "unread_count":
+            # «cuántos» = SOLO cantidades, números pelados (orden de Adri).
+            unread, total = await asyncio.to_thread(_count_unread)
+            extra = f" · {total} en la bandeja" if total is not None else ""
+            return {"reply": f"{unread} sin leer{extra}."}
+
+        if intent == "unread_from":
+            # SOLO remitente + asunto de los NO leídos. Nada de cuerpo/contenido (era el bug:
+            # al preguntar «de quién son» soltaba remitente+asunto+CONTENIDO de todos).
+            unread, total = await asyncio.to_thread(_count_unread)
+            if not unread:
+                return {"reply": "No tienes correos sin leer ahora mismo. Bandeja al día."}
+            shown = min(unread, 12)
+            _last_emails = await asyncio.to_thread(_fetch_emails, shown, True)  # only_unread (global)
+            if not _last_emails:
+                return {"reply": f"Tienes {unread} correos sin leer, pero Gmail no me ha "
+                                 "devuelto la lista ahora mismo. Reinténtalo en un momento."}
+            lines = [f"{i+1}. {m['from']} — «{m['subject']}»"
+                     for i, m in enumerate(_last_emails)]
+            recorte = "" if unread <= len(_last_emails) else \
+                f" (los {len(_last_emails)} más recientes)"
+            # «cuáles» = SOLO remitente y asunto (orden de Adri): ni cuerpo ni consejos.
+            return {"reply": f"{unread} sin leer{recorte}:\n" + "\n".join(lines)}
+
+        if intent == "mark_read":
+            # CRUD Gmail: marcar como leídos. Si dice «el correo N», solo ese; si no, TODOS.
+            mnum = re.search(r"\b(\d+)\b", text)
+            if mnum and _last_emails:
+                idx = int(mnum.group(1)) - 1
+                if 0 <= idx < len(_last_emails):
+                    n = await asyncio.to_thread(_mark_read, [_last_emails[idx]["id"]])
+                    return {"reply": f"Marcado como leído: «{_last_emails[idx]['subject']}»."}
+            n = await asyncio.to_thread(_mark_read, None)   # todos los no leídos
+            return {"reply": f"Hecho: {n} correo(s) marcados como leídos. Bandeja al día."
+                    if n else "No había correos sin leer; nada que marcar."}
+
+        if intent == "mark_unread":
+            if not _last_emails:
+                return {"reply": "No tengo una lista reciente de correos para marcar como no "
+                                 "leídos. Di «cuáles correos tengo» y luego «marca el N como no leído»."}
+            mnum = re.search(r"\b(\d+)\b", text)
+            ids = ([_last_emails[int(mnum.group(1)) - 1]["id"]] if mnum
+                   and 0 <= int(mnum.group(1)) - 1 < len(_last_emails)
+                   else [m["id"] for m in _last_emails])
+            n = await asyncio.to_thread(_mark_unread, ids)
+            return {"reply": f"Marcado(s) {n} correo(s) como NO leídos otra vez."}
+
+        if intent == "delete_email":
+            # CRUD Gmail: a la papelera (recuperable 30 días). «borra el correo N»,
+            # «borra los correos de <remitente>», «borra los correos de más de 30 días».
+            mnum = None
+            try:
+                mnum = match.group("n")
+            except Exception:
+                mnum = None
+            if mnum and _last_emails:
+                idx = int(mnum) - 1
+                if 0 <= idx < len(_last_emails):
+                    m = _last_emails[idx]
+                    n = await asyncio.to_thread(_trash_emails, [m["id"]])
+                    return {"reply": f"🗑 A la papelera: «{m['subject']}» de {m['from']} "
+                                     "(recuperable 30 días)."}
+            # por criterio: «de <remitente>» → búsqueda Gmail; «antiguos/más de N días»
+            rest = ""
+            try:
+                rest = (match.group("rest") or "")
+            except Exception:
+                rest = ""
+            q = None
+            mfrom = re.search(r"\bde\s+([^\s,.;]+(?:\s+[^\s,.;]+){0,2})", rest or text, re.I)
+            mdays = re.search(r"m[aá]s\s+de\s+(\d+)\s+d[ií]as|(\d+)\s+d[ií]as|antiguos?", text, re.I)
+            if re.search(r"antiguos?|viejos?", text, re.I) or mdays:
+                dias = 30
+                if mdays and (mdays.group(1) or mdays.group(2)):
+                    dias = int(mdays.group(1) or mdays.group(2))
+                q = f"older_than:{dias}d in:inbox"
+            elif mfrom:
+                q = f"from:{mfrom.group(1).strip()}"
+            if not q:
+                return {"reply": "Dime QUÉ correos borrar: «borra el correo 2», «borra los "
+                                 "correos de Amazon» o «borra los correos de más de 30 días». "
+                                 "Van a la papelera (recuperables 30 días), no se pierden."}
+            ids = await asyncio.to_thread(_search_email_ids, q, 50)
+            if not ids:
+                return {"reply": f"No he encontrado correos que casen con eso ({q})."}
+            n = await asyncio.to_thread(_trash_emails, ids)
+            return {"reply": f"🗑 {n} correo(s) a la papelera ({q}). Recuperables 30 días."}
+
+        if intent == "delete_event":
+            what = ""
+            try:
+                what = (match.group("what") or "").strip(" .,;:")
+            except Exception:
+                what = ""
+            evs = await asyncio.to_thread(_find_events, what, 10)
+            if not evs:
+                return {"reply": f"No encuentro ningún evento próximo{(' de «' + what + '»') if what else ''} "
+                                 "en tu calendario para borrar."}
+            if what and len(evs) > 1:
+                # varios candidatos → los enseño para que precise
+                lines = [f"{i+1}. {e['summary']} ({e['when']})" for i, e in enumerate(evs[:6])]
+                return {"reply": "Hay varios que encajan; dime el número: cancela el evento N.\n"
+                                 + "\n".join(lines), "data": {"events": evs}}
+            ev = evs[0]
+            await asyncio.to_thread(_delete_event, ev["id"])
+            return {"reply": f"🗑 Cancelado en tu calendario: «{ev['summary']}» ({ev['when']})."}
+
+        if intent == "edit_event":
+            what = ""
+            try:
+                what = (match.group("what2") or "").strip(" .,;:")
+            except Exception:
+                what = ""
+            # nueva hora/fecha del texto (reutiliza el parser de create_event)
+            when = _parse_when(text)
+            evs = await asyncio.to_thread(_find_events, re.sub(
+                r"\b(?:a\s+las?\s+\d.*|el\s+\w+|ma[ñn]ana|hoy)\b", "", what, flags=re.I).strip(), 10)
+            if not evs:
+                return {"reply": "No encuentro ese evento en tu calendario para moverlo. "
+                                 "Di «mueve la reunión con X al jueves a las 10»."}
+            ev = evs[0]
+            if not when or not when[0]:
+                return {"reply": f"¿A qué día y hora muevo «{ev['summary']}»? "
+                                 "Ej.: «mueve esa reunión al viernes a las 17»."}
+            start, end, all_day = when
+            await asyncio.to_thread(_patch_event, ev["id"], None if all_day else start,
+                                    None if all_day else end)
+            return {"reply": f"📅 Movido: «{ev['summary']}» → {start[:16].replace('T', ' ')}."}
+
+        if intent == "email_urgent":
+            # EN SEGUNDO PLANO (orden de Adri): acuse ya, análisis por detrás y
+            # AVISO por el canal de origen cuando termine — como email_actions.
+            from backend.core.jobs import jobs as job_mgr
+            _chan = ctx.get("channel", "pc")
+            await job_mgr.submit("Revisar correos urgentes",
+                                 lambda c=_chan: _email_urgent_job(ctx, c), kind="correo")
+            return {"reply": "Voy a ello en segundo plano: reviso tus correos sin leer y "
+                             "te aviso en cuanto termine con lo urgente."}
+
+        if intent == "email_actions":
+            # EN SEGUNDO PLANO (orden de Adri): acuse inmediato, análisis por detrás,
+            # resultado por el canal que lo pidió.
+            from backend.core.jobs import jobs as job_mgr
+            _chan = ctx.get("channel", "pc")
+            await job_mgr.submit("Correos: análisis y tareas",
+                                 lambda c=ctx, ch=_chan: _email_actions_job(c, ch),
+                                 kind="correo")
+            return {"reply": "Voy a ello en segundo plano: analizo los correos sin leer y "
+                             "convierto en tareas lo que pida acción. Sigo contigo — te "
+                             "traigo el resultado en cuanto acabe."}
+
+        if intent == "create_event":
+            when = _parse_when(text)
+            # título = lo que queda tras quitar el disparador y la fecha/hora
+            titulo = re.sub(
+                r"^\s*(?:crea(?:me)?|a[ñn][aá]de(?:me)?|agr[eé]ga(?:me)?|ap[uú]nta(?:me)?|"
+                r"ag[eé]nda(?:me)?|pon(?:me)?|mete(?:me)?)\s+(?:un\s+|una\s+)?"
+                r"(?:evento|cita|reuni[oó]n|recordatorio)?\s*(?:de|para|:)?\s*", "", text, flags=re.IGNORECASE)
+            titulo = re.sub(r"\b(?:al|en\s+(?:el|mi|google))\s+calendario\b", "", titulo, flags=re.IGNORECASE)
+            titulo = _TIME_RX.sub("", titulo)
+            titulo = re.sub(r"\b(?:el\s+|para\s+el\s+|para\s+|este\s+|pr[oó]ximo\s+)?"
+                            r"(?:hoy|ma[ñn]ana|pasado\s+ma[ñn]ana|lunes|martes|mi[eé]rcoles|jueves|"
+                            r"viernes|s[aá]bado|domingo|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
+                            r"\d{1,2}\s+de\s+\w+)\b", "", titulo, flags=re.IGNORECASE).strip(" ,.:-")
+            if not titulo:
+                titulo = "Evento"
+            if not when:
+                return {"reply": "¿Para cuándo lo pongo? Dime la fecha (y hora si quieres): "
+                                 "«crea un evento reunión con Rubén el viernes a las 17:00»."}
+            start, end, all_day = when
+            try:
+                _link = await asyncio.to_thread(_create_event, titulo, start, end, "", all_day)
+            except Exception as exc:                              # noqa: BLE001
+                raise exc
+            # espejo en el tablero interno (con la fecha del evento)
+            try:
+                from backend.core import board
+                await asyncio.to_thread(board.add_task, titulo,
+                                        start[:10], "media", "agenda")
+            except Exception:
+                pass
+            cuando = (f"el {start[:10]} a las {start[11:16]}" if not all_day
+                      else f"el {start} (todo el día)")
+            return {"reply": f"📅 Evento creado en tu Google Calendar: «{titulo}» {cuando}. "
+                             "Lo he reflejado también en tu tablero. Si te arrepientes, "
+                             "di «cancela ese evento» y desaparece."}
+
+        if intent == "create_task":
+            when = _parse_when(text)
+            fecha = when[0][:10] if when else None
+            titulo = re.sub(
+                r"^\s*(?:crea(?:me)?|a[ñn][aá]de(?:me)?|ap[uú]nta(?:me)?|mete(?:me)?)\s+(?:una\s+|la\s+)?"
+                r"tarea\s*(?:de|para|:)?\s*", "", text, flags=re.IGNORECASE)
+            titulo = re.sub(r"\b(?:en\s+(?:el\s+|mi\s+)?)?(?:to-?do|google\s+tasks?|"
+                            r"tareas?\s+de\s+google|lista\s+de\s+google)\b", "", titulo, flags=re.IGNORECASE)
+            titulo = re.sub(r"\b(?:para\s+el\s+|para\s+|el\s+)?"
+                            r"(?:hoy|ma[ñn]ana|pasado\s+ma[ñn]ana|lunes|martes|mi[eé]rcoles|jueves|"
+                            r"viernes|s[aá]bado|domingo|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
+                            r"\d{1,2}\s+de\s+\w+)\b", "", titulo, flags=re.IGNORECASE).strip(" ,.:-")
+            if not titulo:
+                return {"reply": "¿Qué tarea añado? «crea una tarea en el to-do: pagar al proveedor el viernes»."}
+            try:
+                await asyncio.to_thread(_create_task, titulo, fecha,
+                                        "Creada desde nexus")
+            except Exception as exc:                              # noqa: BLE001
+                raise exc
+            try:
+                from backend.core import board
+                await asyncio.to_thread(board.add_task, titulo, fecha, "media", "to-do")
+            except Exception:
+                pass
+            extra = f" (para el {fecha})" if fecha else ""
+            return {"reply": f"✔ Tarea añadida a tu Google To-Do: «{titulo}»{extra}. "
+                             "También la tienes en tu tablero interno. Di «tareas de "
+                             "google» cuando quieras repasar la lista."}
+
+        if intent == "send_email":
+            to, subject, body = _parse_send(text)
+            if not to:
+                return {"reply": "¿A qué dirección lo envío? Dímelo así: «envía un correo a "
+                                 "nombre@dominio.com con asunto X diciendo Y»."}
+            if not body:
+                # sin cuerpo explícito → el cerebro lo redacta a partir de la orden
+                body = await _llm_text(
+                    "Redacta SOLO el cuerpo del correo que pide esta orden (español, "
+                    "breve, natural, sin asunto ni despedidas raras; fírmalo como "
+                    f"{ctx['settings'].get('operator_name', 'el operador')}): {text}")
+            if not body:
+                return {"reply": "Dime qué quieres que ponga: «… diciendo <mensaje>»."}
+            if not subject:
+                subject = " ".join(body.split()[:7]) + ("…" if len(body.split()) > 7 else "")
+            await asyncio.to_thread(_send_gmail, to, subject, body)
+            return {"reply": f"✔ Enviado a {to} — asunto «{subject}»:\n{body[:300]}"}
+
+        if intent == "summarize_emails":
+            try:
+                n = match.group("n")
+            except Exception:
+                n = None
+            if n:                                   # resumen de UN correo concreto
+                if not _last_emails:
+                    _last_emails = await asyncio.to_thread(_fetch_emails, 5)
+                i = int(n)
+                if i < 1 or i > len(_last_emails):
+                    return {"reply": "Ese número no está en la última lista. Pídeme "
+                                     "«lee mis correos» y luego «resume el correo N»."}
+                m = _last_emails[i - 1]
+                cuerpo = await asyncio.to_thread(_read_email, m["id"])
+                resumen = await _llm_text(
+                    "Resume este correo en 2-3 frases, súper concreto (quién, qué pide, "
+                    f"fechas/cifras):\nDe: {m['from']}\nAsunto: {m['subject']}\n{cuerpo[:3000]}")
+                return {"reply": resumen or f"Correo de {m['from']} — «{m['subject']}»: "
+                                            f"{m['snippet']}"}
+            _last_emails = await asyncio.to_thread(_fetch_emails, 5)
+            if not _last_emails:
+                return {"reply": "Bandeja de entrada limpia. Nada que resumir."}
+            listado = "\n".join(f"- {m['from']}: {m['subject']} — {m['snippet']}"
+                                for m in _last_emails)
+            resumen = await _llm_text(
+                "Resume estos correos en 3-4 frases, súper concreto (remitentes, qué "
+                "piden, qué urge):\n" + listado)
+            return {"reply": resumen or "Resumen de la bandeja:\n" + listado}
+
+        if intent == "emails":
+            # Por defecto SOLO los NO leídos. Los ya leídos solo si lo pides explícitamente
+            # («todos», «leídos») → así no te suelta correos viejos que ya habías visto.
+            quiere_leidos = bool(re.search(r"\ble[ií]d[oa]s?\b|\btod[oa]s\b|\btoda\s+la\s+bandeja\b",
+                                           text, re.IGNORECASE))
+            _last_emails = await asyncio.to_thread(_fetch_emails, 6, not quiere_leidos)
+            if not _last_emails:
+                return {"reply": "No tienes correos sin leer. Bandeja al día." if not quiere_leidos
+                                 else "Bandeja de entrada limpia. Nada nuevo, operador."}
+            lines = [f"{i+1}. {'●' if m['unread'] else '○'} {m['from']}: "
+                     f"{m['subject']} — {m['snippet']}"
+                     for i, m in enumerate(_last_emails)]
+            unread = sum(1 for m in _last_emails if m["unread"])
+            cab = ("Correos sin leer" if not quiere_leidos else "Últimos correos") + \
+                  (f" ({unread} sin leer)" if quiere_leidos else "")
+            return {"reply": f"{cab}:\n" + "\n".join(lines) +
+                             "\n\nDi «abre el correo N» para leer uno."}
+
+        if intent == "open_email":
+            n = int(match.group("n"))
+            if not _last_emails or n < 1 or n > len(_last_emails):
+                return {"reply": "Primero pídeme «lee mis correos» y luego el número."}
+            body = await asyncio.to_thread(_read_email, _last_emails[n - 1]["id"])
+            m = _last_emails[n - 1]
+            return {"reply": f"Correo de {m['from']} — «{m['subject']}»:\n{body[:900]}"}
+
+        if intent == "gcal":
+            rango = _month_range(text)
+            if rango:                                # «todas las citas de julio»
+                tmin, tmax, nombre = rango
+                events = await asyncio.to_thread(_fetch_events, 50, tmin, tmax)
+                if not events:
+                    return {"reply": f"No tienes ninguna cita en {nombre}."}
+                lines = [f"• {e['when']} — {e['what']}" for e in events]
+                return {"reply": f"Tienes {len(events)} citas en {nombre}:\n" + "\n".join(lines)}
+            events = await asyncio.to_thread(_fetch_events, 6)
+            if not events:
+                return {"reply": "Calendario despejado: nada en el horizonte. Si quieres "
+                                 "estrenarlo, di «crea un evento reunión con Rubén el "
+                                 "viernes a las 17» y te lo agendo."}
+            lines = [f"• {e['when']} — {e['what']}" for e in events]
+            return {"reply": "📅 Próximos eventos (Google Calendar):\n" + "\n".join(lines) +
+                             "\n\nDi «mueve la reunión al viernes a las 17» o «cancela el "
+                             "evento X» y lo dejo hecho."}
+
+        if intent == "gtasks":
+            tasks = await asyncio.to_thread(_fetch_tasks, 10)
+            if not tasks:
+                return {"reply": "Tu Google Tasks está en blanco: cero pendientes. Di «crea "
+                                 "una tarea en el to-do: pagar al proveedor el viernes» y "
+                                 "estreno la lista."}
+            return {"reply": "Tus tareas de Google:\n" + "\n".join(f"• {t}" for t in tasks) +
+                             "\n\nDi «crea una tarea en el to-do: …» si quieres añadir otra."}
+
+    except FileNotFoundError:
+        return {"reply": SETUP_MSG}
+    except Exception as exc:
+        msg = str(exc).lower()
+        # «Acceso bloqueado / solicitud no válida» = Error 400 del cliente OAuth.
+        blocked = any(k in msg for k in (
+            "redirect_uri", "mismatch", "invalid_request", "invalid request",
+            "access blocked", "acceso bloqueado", "no es válida", "not valid",
+            "400", "timeout", "timed out", "invalid_client", "unauthorized"))
+        if blocked:
+            return {"reply": BLOCKED_MSG}
+        if "access_denied" in msg or "verif" in msg or "test user" in msg or "usuario de prueba" in msg:
+            return {"reply":
+                    "Google bloqueó el acceso porque la app está sin verificar. En "
+                    "console.cloud.google.com → «Pantalla de consentimiento OAuth», con la "
+                    "app en modo «Prueba», añade tu cuenta de Google en «Usuarios de prueba». "
+                    "Luego borra config/google_token.json y reintenta."}
+        return {"reply": f"Google respondió con un error: {type(exc).__name__}: {exc}. "
+                         "Si es de autorización, borra config/google_token.json y reintenta."}
+
+    return {"reply": "Esa orden de Google no la tengo mapeada. Prueba «lee mis correos», "
+                     "«cuántos correos sin leer», «qué tengo en el calendario» o "
+                     "«tareas de google»."}

@@ -1,0 +1,75 @@
+{
+  "name": "nexus - WhatsApp y flujos",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nexus",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "nexus-webhook",
+      "name": "Webhook nexus",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.body.action }}",
+              "rightValue": "whatsapp",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ]
+        }
+      },
+      "id": "nexus-if",
+      "name": "¿Es WhatsApp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "content": "## CAMBIA ESTE NODO\nSustitúyelo por tu proveedor real de WhatsApp:\n- Evolution API (self-hosted, gratis)\n- WhatsApp Business Cloud (nodo oficial de n8n)\n- Twilio\nCampos disponibles: {{ $json.body.to }} y {{ $json.body.message }}",
+        "height": 220,
+        "width": 320
+      },
+      "id": "nexus-note",
+      "name": "Nota",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [660, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8177/api/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "text", "value": "=apunta que el flujo n8n procesó: {{ $json.body.message || $json.body.flow }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "nexus-callback",
+      "name": "Avisar a nexus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 420]
+    }
+  ],
+  "connections": {
+    "Webhook nexus": { "main": [[{ "node": "¿Es WhatsApp?", "type": "main", "index": 0 }]] },
+    "¿Es WhatsApp?": { "main": [
+      [{ "node": "Avisar a nexus", "type": "main", "index": 0 }],
+      [{ "node": "Avisar a nexus", "type": "main", "index": 0 }]
+    ] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

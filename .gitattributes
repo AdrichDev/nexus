@@ -1,0 +1,17 @@
+# Normaliza los finales de linea: en el repositorio siempre LF, en tu disco lo
+# que use Windows. Sin esto, git avisa en cada archivo ("LF will be replaced by
+# CRLF") y el primer commit sale con ruido.
+* text=auto eol=lf
+
+# Binarios: que git no intente convertirlos ni hacerles diff.
+*.png binary
+*.ico binary
+*.bmp binary
+*.wav binary
+*.ogg binary
+*.apk binary
+*.keystore binary
+*.exe binary
+
+# Los .bat los ejecuta Windows: mejor con CRLF en el disco.
+*.bat text eol=crlf

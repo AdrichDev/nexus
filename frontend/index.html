@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>nexus — centro de mando</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/command.css?v=25">
+</head>
+<body>
+
+<!-- ============ ARRANQUE (secuencia épica) ============ -->
+<div id="boot-overlay">
+  <div class="boot-grid"></div>
+  <div class="boot-scan"></div>
+  <div class="boot-stage">
+    <div class="boot-core">
+      <div class="boot-ring r1"></div>
+      <div class="boot-ring r2"></div>
+      <div class="boot-ring r3"></div>
+      <div class="boot-sweep"></div>
+      <div class="boot-badge">
+        <img src="/static/logo.png" alt="nexus" class="boot-logo-img" onload="this.nextElementSibling.style.display='none'" onerror="this.remove()">
+        <svg viewBox="0 0 100 100" class="wlogo"><g fill="#eafcff"><rect x="15" y="13" width="19" height="74" rx="9"/><rect x="66" y="13" width="19" height="74" rx="9"/><polygon points="15,13 34,13 85,87 66,87"/></g></svg>
+      </div>
+    </div>
+    <div class="boot-title">nexus</div>
+    <div class="boot-subtitle">WIDE-BAND INTELLIGENT KNOWLEDGE SYSTEM</div>
+  </div>
+  <pre id="boot-log"></pre>
+  <div id="boot-bar"><div id="boot-fill"></div><span id="boot-pct">0%</span></div>
+</div>
+
+<div id="app" class="hidden">
+  <!-- ============ BARRA LATERAL ============ -->
+  <aside id="sidebar">
+    <div class="brand pywebview-drag-region">
+      <img src="/static/logo.png" alt="nexus" class="brand-logo-img" onload="this.nextElementSibling.style.display='none'" onerror="this.remove()">
+      <svg viewBox="0 0 100 100" width="44" height="34" class="wlogo"><g fill="var(--cy)"><rect x="15" y="13" width="19" height="74" rx="9"/><rect x="66" y="13" width="19" height="74" rx="9"/><polygon points="15,13 34,13 85,87 66,87"/></g></svg>
+      <div><h1>nexus</h1><span>CENTRO DE MANDO</span></div>
+    </div>
+    <nav id="nav">
+      <a data-view="command" class="active"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 5h7v14H4zM14 5h6v6h-6zM14 14h6v5h-6z"/></svg><span>Centro de mando</span></a>
+      <a data-view="aicore"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2.1 2.1M16.9 16.9L19 19M19 5l-2.1 2.1M7.1 16.9L5 19"/></svg><span>Núcleo IA</span></a>
+      <a data-view="contentos"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" opacity=".35"/></svg><span>Content OS</span></a>
+      <a data-view="home"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg><span>Dispositivos</span> <b id="nav-home"></b></a>
+      <a data-view="skills"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span>Habilidades</span> <b id="nav-skills"></b></a>
+      <a data-view="knowledge"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><path d="M6.6 7.2l3.7 3.4M17.4 7.2l-3.7 3.4M6.6 16.8l3.7-3.4M17.4 16.8l-3.7-3.4"/></svg><span>Nodos de conocimiento</span></a>
+      <a data-view="tasks"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11M15 9v11"/></svg><span>Tareas</span> <b id="nav-tasks"></b></a>
+      <a data-view="jobs"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="13" width="7" height="7" rx="1.5"/><rect x="14" y="13" width="7" height="7" rx="1.5"/></svg><span>Multitarea</span> <b id="nav-jobs"></b></a>
+      <a data-view="calendar"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Agenda</span></a>
+      <a data-view="memory"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg><span>Memoria</span></a>
+      <a data-view="hardware"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span>Estado del equipo</span></a>
+      <a data-view="monitor"><svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12h4l2.5-7 4 14L16 12h5"/></svg><span>Monitor del sistema</span></a>
+    </nav>
+    <div id="voice-status">
+      <span class="vs-label">ESTADO DE VOZ</span>
+      <div id="orb" title="Hablar (F9)">
+        <canvas id="reactor-mini"></canvas>
+        <div class="orb-mic">🎙</div>
+      </div>
+      <div class="vs-state" id="vs-state">Toca para hablar</div>
+      <div class="mute-row">
+        <button id="btn-mute-ai" title="Silenciar a nexus">🔇 IA</button>
+        <button id="btn-mute-me" title="Mutearme (que no me oiga)">🎙⛔ YO</button>
+      </div>
+      <button id="btn-auto" class="focus-btn">∞ MICRO ABIERTO</button>
+    </div>
+  </aside>
+
+  <!-- ============ PRINCIPAL ============ -->
+  <div id="main">
+    <header id="topbar" class="pywebview-drag-region">
+      <div class="sys-status"><span class="dot ok"></span> ESTADO <b id="sys-word">ÓPTIMO</b></div>
+      <div class="clock-wrap"><div id="date"></div><div id="clock">00:00:00</div></div>
+      <!-- specs v23 (T15): el tiempo vive en el header, no ocupa una pantalla -->
+      <button id="wx" class="wx hidden" title="Tiempo (pulsa para máx/mín)" aria-label="Tiempo"></button>
+      <div class="top-right">
+        <select id="model-badge" title="Modelo activo"></select>
+        <button id="btn-link" title="Vincular el móvil (QR)">📱</button>
+        <button id="btn-config" title="Configuración">⚙</button>
+        <div class="operator"><span id="op-name">Operador</span><i>◉</i></div>
+        <div class="win-btns">
+          <button id="btn-min" title="Minimizar">—</button>
+          <button id="btn-max" title="Maximizar">▢</button>
+          <button id="btn-close" title="Cerrar">✕</button>
+        </div>
+      </div>
+    </header>
+    <div id="views"></div>
+  </div>
+
+  <!-- ============ BARRA INFERIOR ============ -->
+  <footer id="talkbar">
+    <div class="tb-side left"><span id="loc">—</span></div>
+    <button id="talk-btn">
+      <span class="tb-wave" id="wave-l"><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span>
+      <span class="tb-txt"><b>HABLA CON NEXUS</b><small id="talk-sub">pulsa o di «despierta nexus»</small></span>
+      <span class="tb-wave" id="wave-r"><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span>
+    </button>
+    <div class="tb-side right"><button id="btn-briefing">▷ Informe del día</button></div>
+  </footer>
+</div>
+
+<!-- ============ CONFIG ============ -->
+<div id="config-modal" class="hidden"><div class="modal-box" id="config-body"></div></div>
+<div id="dev-modal" class="hidden"><div class="dev-mbox">
+  <div class="dev-mhead"><span id="dev-mic" class="dev-mic">📟</span>
+    <div class="dev-mtx"><b id="dev-mtitle">Dispositivo</b><span id="dev-msub"></span></div>
+    <button id="dev-mclose" class="dev-mclose">✕</button></div>
+  <div id="dev-mbody" class="dev-mbody"></div>
+  <div id="dev-mmsg" class="dev-mmsg"></div>
+</div></div>
+
+<!-- ============ PANEL LATERAL DE NODO ============ -->
+<div id="node-panel" class="hidden">
+  <div class="np-head"><h3 id="np-title">—</h3><button id="np-close">✕</button></div>
+  <div id="np-body"></div>
+</div>
+
+<script src="/static/js/qrcode.min.js"></script>
+<script src="/static/js/reactor.js"></script>
+<script src="/static/js/charts.js"></script>
+<script src="/static/js/command.js?v=25"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "llm_provider": "ollama",
+  "ollama_url": "http://localhost:11434",
+  "ollama_model": "llama3.1",
+  "cloud_base_url": "https://api.openai.com/v1",
+  "cloud_model": "gpt-4o-mini",
+  "tts_engine": "auto",
+  "tts_voice": "Rachel",
+  "stt_engine": "auto",
+  "whisper_model": "small",
+  "hotkey": "f9",
+  "memory_backend": "auto",
+  "palette": "neon-green",
+  "operator_name": "TU NOMBRE"
+}

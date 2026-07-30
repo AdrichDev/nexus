@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#070e18;color:#22d3ee;font-family:monospace;height:100vh;overflow:hidden;
+    display:flex;flex-direction:column;align-items:center}
+  h1{font-size:15px;letter-spacing:3px;padding:16px;text-align:center}
+  #cam{position:relative;width:92vw;max-width:480px;aspect-ratio:1;overflow:hidden;
+    border:2px solid #2a6b82;border-radius:12px}
+  video{width:100%;height:100%;object-fit:cover}
+  #frame{position:absolute;inset:12%;border:2px solid #22d3ee;border-radius:10px;
+    box-shadow:0 0 0 999px rgba(7,14,24,.45);animation:pulse 1.6s infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 999px rgba(7,14,24,.45),0 0 22px #22d3ee}}
+  #msg{padding:16px;font-size:12px;color:#7fe9f7;text-align:center;line-height:1.6}
+  button{margin-top:8px;background:transparent;border:1px solid #2a6b82;color:#22d3ee;
+    font-family:inherit;font-size:13px;padding:10px 22px;border-radius:6px}
+</style>
+</head>
+<body>
+<h1>◈ APUNTA AL QR DE nexus</h1>
+<div id="cam"><video id="v" autoplay playsinline muted></video><div id="frame"></div></div>
+<div id="msg">En el PC: botón 📱 (arriba a la derecha del centro de mando) → sale el QR.<br>
+Funciona aunque el móvil no esté en la misma WiFi.</div>
+<button onclick="WabiksNative.cancelScan && WabiksNative.cancelScan()">CANCELAR</button>
+<canvas id="c" style="display:none"></canvas>
+<script src="jsQR.js"></script>
+<script>
+(function () {
+  const v = document.getElementById('v');
+  const c = document.getElementById('c');
+  const msg = document.getElementById('msg');
+  let done = false;
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+    .then((stream) => { v.srcObject = stream; requestAnimationFrame(tick); })
+    .catch(() => { msg.textContent = 'Sin permiso de cámara. Dale permiso a nexus en Ajustes → Apps.'; });
+  function tick() {
+    if (done) return;
+    if (v.readyState === v.HAVE_ENOUGH_DATA) {
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      const img = ctx.getImageData(0, 0, c.width, c.height);
+      const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        done = true;
+        msg.textContent = '✔ QR leído — vinculando…';
+        if (window.WabiksNative && WabiksNative.linked) WabiksNative.linked(code.data);
+        return;
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+})();
+</script>
+</body>
+</html>

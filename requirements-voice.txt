@@ -1,0 +1,13 @@
+# ================= nexus — VOZ REAL (opcional) =================
+# Se instala APARTE del requirements.txt para que, si falla, no rompa
+# la instalación del resto del programa.
+#
+# ⚠ IMPORTANTE: faster-whisper (ctranslate2) AÚN NO soporta Python 3.13/3.14.
+#   Usa un venv con Python 3.11 o 3.12:
+#     1) Instala Python 3.12 desde python.org (marca "Add to PATH")
+#     2) Borra la carpeta .venv del proyecto
+#     3) Doble clic en run.bat  (detecta el 3.12 automáticamente)
+#
+faster-whisper>=1.0
+sounddevice>=0.4
+numpy>=1.26

@@ -1,0 +1,77 @@
+# ================= nexus — dependencias =================
+# Núcleo (obligatorias)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+pydantic>=2.6
+python-dotenv>=1.0
+
+# Escritorio (ventana HUD)
+pywebview>=5.0
+
+# Sistema / hardware
+psutil>=5.9
+
+# Matemáticas
+sympy>=1.12
+
+# Memoria Postgres (contenedor nexus)
+psycopg2-binary>=2.9
+
+# Voz — TTS local + reproducción
+pyttsx3>=2.90
+playsound==1.2.2
+
+# Hotkey global F9 (Windows)
+keyboard>=0.13
+
+# Capturas de pantalla
+mss>=9.0
+
+# Papelera segura
+send2trash>=1.8
+
+# Imágenes (análisis básico)
+pillow>=10.0
+
+# ---------- VOZ REAL ----------
+# ⚠ Movida a requirements-voice.txt (se instala aparte): faster-whisper no
+#   soporta aún Python 3.13/3.14 y si falla aquí, pip aborta TODO el lote
+#   y te quedas sin Google, edge-tts, yt-dlp... (eso es lo que te pasó).
+#   run.bat la instala solo si puede.
+
+# ---------- Google real (Gmail/Calendar/Tasks) ----------
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2
+
+# ---------- Voces neuronales GRATIS (Microsoft Edge) ----------
+edge-tts>=6.1
+
+# ---------- Content OS (descargar/transcribir reels de inspiración) ----------
+yt-dlp>=2024.1
+
+# ---------- OPCIONALES ----------
+# Descomenta para fotos con webcam:
+# opencv-python>=4.9
+# Descomenta para BDs externas MySQL / MongoDB (skill datos):
+# pymysql>=1.1
+# pymongo>=4.6
+# Descomenta para palabra de activación precisa (en vez de whisper):
+# pvporcupine>=3.0
+# pyaudio>=0.2.13
+qrcode          # QR de vinculación del móvil
+
+# ---------- Skill Chrome (leer pestañas via CDP) ----------
+websockets>=12
+
+# ---------- LECTURA REAL DE DOCUMENTOS (specs v23, TAREA 18) ----------
+# Sin estas, «lee el documento X.docx / X.pdf» contesta «falta la librería»
+# en vez de leerlo. Son las que exigen las specs como mínimo.
+python-docx>=1.1
+pdfplumber>=0.11
+openpyxl>=3.1
+
+# ---------- PRUEBAS END-TO-END (specs v23, TAREA 22) — solo desarrollo ----------
+# Instálalas cuando quieras ejecutar tests/e2e/run_e2e.py:
+#   pip install playwright && python -m playwright install chromium
+# playwright>=1.44

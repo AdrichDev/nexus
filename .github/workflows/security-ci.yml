@@ -1,0 +1,68 @@
+# ============================================================
+#  nexus — Escaneo de seguridad automático
+#  Corre en cada push / PR y una vez por semana (lunes 06:00 UTC).
+#  Los runners de GitHub SÍ tienen red, así que Trivy funciona aquí
+#  (a diferencia del sandbox de Cowork). pip-audit audita las
+#  dependencias de Python contra la base OSV/PyPI.
+# ============================================================
+name: seguridad
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'   # lunes 06:00 UTC
+  workflow_dispatch: {}    # botón para lanzarlo a mano
+
+permissions:
+  contents: read
+  security-events: write   # para subir el SARIF a la pestaña Security
+
+jobs:
+  dependencias:
+    name: pip-audit (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Auditar dependencias
+        run: |
+          pip-audit -r requirements.txt --progress-spinner off
+          pip-audit -r requirements-voice.txt --progress-spinner off
+          # Si generas requirements.lock, descomenta para el escaneo exacto:
+          # pip-audit -r requirements.lock --progress-spinner off
+
+  trivy:
+    name: Trivy (vuln + secretos + misconfig)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy filesystem (tabla en el log)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: '1'   # el CI FALLA ante HIGH/CRITICAL (pon '0' para solo informar)
+      # (El paso que generaba el SARIF tambien queda fuera: sin subida no sirve
+      #  de nada y duplica el tiempo del escaneo.)
+      # ── SARIF a la pestana Security ────────────────────────────────────────
+      # DESACTIVADO a proposito: este repositorio es PRIVADO, y subir SARIF a la
+      # pestana Security de un repo privado necesita GitHub Advanced Security
+      # (de pago). Con el repo privado este paso fallaria en cada ejecucion y
+      # pondria el CI en rojo sin que hubiera ningun problema real.
+      # La tabla de Trivy del paso anterior YA sale en el log del job, y el job
+      # falla igual ante HIGH/CRITICAL. Si algun dia haces publico el repo,
+      # descomenta esto y vuelve a tener la pestana Security.
+      #
+      # - name: Subir SARIF
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   if: always()
+      #   with:
+      #     sarif_file: trivy-results.sarif
