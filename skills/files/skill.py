@@ -199,20 +199,15 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 except Exception:
                     content = ""
         name = _re.sub(r'[<>:"/\\|?*\n\r]', "", name).strip() or "documento nexus"
-        # extensión: cualquier tipo (word, txt, md, csv, json…)
+        # EXTENSIÓN: la que pidas; si no pides ninguna, .md (norma de Adri,
+        # 30/07/2026). El criterio vive en backend/core/files_io.formato_pedido
+        # para que no vuelva a haber una skill escribiendo .txt y otra .md.
         KNOWN = ("docx", "txt", "md", "csv", "json", "html", "py", "log", "xml", "ini", "yaml", "yml")
-        ext = ".txt"
-        me = _re.search(r"\.(docx|txt|md|csv|json|html|py|log|xml|ini|yaml|yml)\b", low)
+        from backend.core.files_io import formato_pedido
+        ext = formato_pedido(low)
+        me = _re.search(r"\.(py|log|xml|ini|yaml|yml)\b", low)
         if me:
             ext = "." + me.group(1)
-        elif "word" in low:
-            ext = ".docx"
-        elif "markdown" in low:
-            ext = ".md"
-        elif "csv" in low:
-            ext = ".csv"
-        elif "json" in low:
-            ext = ".json"
         if "." in name and name.rsplit(".", 1)[-1].lower() in KNOWN:   # nombre ya trae extensión
             ext = "." + name.rsplit(".", 1)[-1].lower()
             name = name.rsplit(".", 1)[0].strip() or "documento nexus"

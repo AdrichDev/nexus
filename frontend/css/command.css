@@ -1064,6 +1064,16 @@ textarea.ac-in{resize:vertical;min-height:44px}
 .ac-rt{margin-top:8px;font-size:11px;line-height:1.45;color:var(--txt-dim)}
 .ac-rt b{color:var(--ok)}
 .ac-rt.bad b{color:var(--warn,#ffb020)}
+/* ── Apartado APIS de la configuración (todas las claves en un sitio) ────── */
+.api-grupo{margin:14px 0 6px;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--cy);border-bottom:1px solid var(--line);padding-bottom:4px}
+.api-grupo:first-child{margin-top:4px}
+.api-fila{display:block;margin-bottom:9px}
+.api-lbl{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:3px}
+.api-estado{font-size:9.5px;letter-spacing:.4px;padding:1px 7px;border-radius:20px;border:1px solid}
+.api-estado.si{color:var(--ok);border-color:var(--ok)}
+.api-estado.no{color:var(--txt-dim);border-color:var(--line)}
+.api-pie{display:block;margin-top:3px;font-size:10.5px;color:var(--txt-dim);line-height:1.4}
 @media (max-width:1100px){.ac-cards{grid-template-columns:1fr}}
 
 /* ===== Asistente guiado de Home Assistant (3 pasos) ===== */
@@ -1105,6 +1115,7 @@ textarea.ha-in{resize:vertical;min-height:40px;font-family:ui-monospace,monospac
 #nav a[data-view="command"]  {--ic:#22e6ff}   /* cian eléctrico   */
 #nav a[data-view="aicore"]   {--ic:#b06cff}   /* violeta neón     */
 #nav a[data-view="contentos"]{--ic:#ff8a3d}   /* naranja flúor    */
+#nav a[data-view="reels"]    {--ic:#ff2ec4}   /* fucsia flúor     */
 #nav a[data-view="home"]     {--ic:#3dff9e}   /* menta            */
 #nav a[data-view="skills"]   {--ic:#ffd23a}   /* amarillo flúor   */
 #nav a[data-view="knowledge"]{--ic:#4dff5a}   /* verde lima       */
@@ -1122,3 +1133,303 @@ textarea.ha-in{resize:vertical;min-height:40px;font-family:ui-monospace,monospac
 #nav a[aria-disabled="true"] .nav-ic{opacity:.45;filter:none}
 @media (prefers-reduced-motion:reduce){#nav a .nav-ic{transition:none}
   #nav a:hover .nav-ic{transform:none}}
+
+/* ══ CONTENT OS · rediseño 30/07/2026 ═══════════════════════════════════════
+   Antes: todo del mismo color, negritas por todas partes y las listas siempre
+   abiertas. Ahora cada sección lleva SU color flúor en --cos, se pliega, y la
+   jerarquía la marcan color y tamaño — no el grosor de la letra. */
+.cos-secs{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;margin-top:16px}
+.cos-sec{border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  border-left:3px solid var(--cos);overflow:hidden;transition:border-color .18s}
+.cos-sec:hover{border-color:color-mix(in srgb,var(--cos) 45%,var(--line))}
+.cos-sec[data-sec="metricas"]{grid-column:1/-1}
+.cos-sec-h{display:flex;align-items:center;gap:10px;width:100%;padding:13px 15px;
+  background:none;border:0;cursor:pointer;color:var(--txt);font-family:inherit;font-size:13px;
+  text-align:left;letter-spacing:.4px}
+.cos-sec-h:hover{background:color-mix(in srgb,var(--cos) 7%,transparent)}
+.cos-sec-ic{color:var(--cos);font-size:15px;filter:drop-shadow(0 0 6px var(--cos))}
+.cos-sec-t{color:var(--cos);text-transform:uppercase;font-size:11.5px;letter-spacing:1.3px}
+.cos-sec-n{margin-left:6px;font-size:10px;color:var(--txt-dim);border:1px solid var(--line);
+  border-radius:20px;padding:1px 8px}
+.cos-sec-x{margin-left:auto;font-size:10.5px;color:var(--txt-dim)}
+.cos-sec-ch{margin-left:auto;color:var(--cos);font-size:15px;transition:transform .2s}
+.cos-sec-x + .cos-sec-ch{margin-left:10px}
+.cos-sec.abierta .cos-sec-ch{transform:rotate(180deg)}
+.cos-sec-b{display:none;padding:0 15px 15px}
+.cos-sec.abierta .cos-sec-b{display:block;animation:cosAbre .18s ease}
+@keyframes cosAbre{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+
+/* Plan de contenido: cada publicación se despliega */
+/* OJO: hay un `.cos-cal-item` MAS ARRIBA (el del Content OS viejo) que es
+   display:flex. Como esta regla no lo reseteaba, la ficha desplegada se pintaba
+   AL LADO del titulo en vez de debajo, y quedaba una tarjeta medio vacia con el
+   contenido escorado a la derecha. Se resetea aqui, y solo dentro de las
+   secciones plegables, para no tocar el componente antiguo. */
+.cos-sec-b .cos-cal-item{display:block}
+.cos-cal-item{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;overflow:hidden}
+.cos-cal-item:hover{border-color:color-mix(in srgb,var(--cos) 40%,var(--line))}
+.cos-cal-h{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;background:none;
+  border:0;cursor:pointer;color:var(--txt);font-family:inherit;font-size:12.5px;text-align:left}
+.cos-cal-n{color:var(--cos);font-size:11px;opacity:.75;min-width:20px}
+.cos-cal-tit{flex:1;line-height:1.35}
+.cos-cal-tipo{font-size:10px;color:var(--txt-dim);border:1px solid var(--line);border-radius:20px;padding:1px 7px}
+.cos-cal-ch{color:var(--cos);transition:transform .2s}
+.cos-cal-item.abierta .cos-cal-ch{transform:rotate(180deg)}
+.cos-cal-d{display:none;padding:2px 12px 12px 42px;gap:6px}
+.cos-cal-item.abierta .cos-cal-d{display:grid}
+.cos-campo{font-size:11.5px;color:var(--txt);display:grid;grid-template-columns:78px 1fr;gap:8px}
+.cos-campo span{color:var(--txt-dim);font-size:10.5px;text-transform:uppercase;letter-spacing:.7px}
+.cos-est{font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;border-radius:20px;
+  padding:2px 8px;border:1px solid}
+.cos-est-listo{color:#3ee98a;border-color:#3ee98a}
+.cos-est-borrador{color:var(--txt-dim);border-color:var(--line)}
+.cos-est-revisar{color:#ffd23a;border-color:#ffd23a}
+
+/* Ideas, inspiraciones, aprendizajes */
+.cos-idea{border-left:2px solid var(--cos);padding:8px 11px;margin-bottom:7px;font-size:12.5px;
+  line-height:1.5;background:color-mix(in srgb,var(--cos) 5%,transparent);border-radius:0 7px 7px 0}
+.cos-idea.nueva{animation:cosAbre .3s ease}
+.cos-insp{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.cos-insp:last-child{border-bottom:0}
+.cos-insp-src{color:var(--cos);font-size:11.5px;white-space:nowrap}
+.cos-insp-n{color:var(--txt-dim);line-height:1.45}
+.cos-learn{display:flex;gap:9px;padding:8px 0;border-bottom:1px solid var(--line)}
+.cos-learn:last-child{border-bottom:0}
+.cos-learn-t{font-size:12.5px;line-height:1.5}
+.cos-learn-t em{display:block;margin-top:3px;font-style:normal;font-size:10px;
+  text-transform:uppercase;letter-spacing:.8px;color:var(--txt-dim)}
+.cos-learn.c .cos-dot{background:#3ee98a}.cos-learn.p .cos-dot{background:#ffd23a}
+.cos-learn.o .cos-dot{background:var(--txt-dim)}
+.cos-rank-n{flex:1}
+
+
+/* ══ REELS · el análisis de Instagram ═══════════════════════════════════════
+   Mismo lenguaje que Content OS: cada bloque con su color flúor en --cos, todo
+   plegable, y la jerarquía por color y tamaño — nunca por negritas repartidas.
+   Lo propio de aquí: cada cifra enseña de dónde sale y cómo se calcula. */
+.ig-reel{margin-bottom:26px}
+/* Las tarjetas cerradas NO se estiran para igualar a la abierta de al lado:
+   una seccion plegada tiene que ocupar lo que ocupa su titulo y nada mas. */
+#ig .cos-secs{align-items:start}
+/* Lo que se lee en horizontal (metricas, fichas de ideas, tablas) necesita el
+   ancho entero: en una columna de 340px la ficha se parte y no se entiende. */
+#ig .ig-sec[data-sec="numeros"],
+#ig .ig-sec[data-sec="cola"],
+#ig .ig-sec[data-sec="dudas"],
+#ig .ig-sec[data-sec="conversion"]{grid-column:1/-1}
+.ig-head{padding:2px 2px 0}
+.ig-head-t{font-size:15px;line-height:1.4;color:var(--txt);margin-bottom:6px}
+.ig-head-m{display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:10.5px;
+  color:var(--txt-dim);letter-spacing:.5px}
+.ig-head-m a{color:#22e6ff;text-decoration:none}
+.ig-head-m a:hover{text-decoration:underline}
+.ig-solo{margin-left:auto;color:#3ee98a;border:1px solid #3ee98a;border-radius:20px;padding:1px 9px}
+.ig-resumen{display:flex;flex-wrap:wrap;gap:10px;margin:13px 0 4px}
+.ig-chip{border:1px solid var(--line);border-radius:10px;padding:8px 13px;min-width:96px;
+  background:var(--panel)}
+.ig-chip b{display:block;font-size:19px;font-weight:400;color:#22e6ff;line-height:1.15}
+.ig-chip span{font-size:10px;text-transform:uppercase;letter-spacing:.9px;color:var(--txt-dim)}
+.ig-chip.ok b{color:#3ee98a}.ig-chip.mal b{color:#ff4d6d}
+.ig-chips{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:11px}
+.ig-chips .ig-chip b{color:var(--cos)}
+
+.ig-metodo{font-size:11.5px;line-height:1.55;color:var(--txt-dim);margin:0 0 13px;
+  padding:9px 12px;border-radius:0 8px 8px 0;border-left:2px solid var(--cos);
+  background:color-mix(in srgb,var(--cos) 6%,transparent)}
+.ig-metodo span{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:1.1px;
+  color:var(--cos);margin-bottom:4px}
+
+/* Los números: cada uno con su procedencia debajo */
+.ig-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:11px}
+.ig-kpi{border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.ig-kpi-top{display:flex;align-items:baseline;gap:9px}
+.ig-kpi-n{font-size:21px;color:var(--cos);line-height:1.1}
+.ig-kpi-m{font-size:11px;text-transform:uppercase;letter-spacing:.9px;color:var(--txt-dim)}
+.ig-kpi-l{font-size:11.5px;color:var(--txt);margin-top:5px;line-height:1.45}
+.ig-fuente{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);
+  font-size:10.5px;color:var(--txt-dim);line-height:1.5}
+.ig-fuente span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:1px;
+  color:var(--cos);opacity:.85;margin-bottom:2px}
+.ig-fuente em{display:block;font-style:normal;margin-top:3px;opacity:.85}
+
+/* Barras: cestas, sentimiento */
+.ig-barra{height:5px;border-radius:4px;background:color-mix(in srgb,var(--cos) 14%,transparent);
+  overflow:hidden;margin:5px 0}
+.ig-barra i{display:block;height:100%;background:var(--cos);box-shadow:0 0 9px var(--cos)}
+.ig-cesta{margin-bottom:11px}
+.ig-cesta-h{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px}
+.ig-cesta-t{color:var(--txt)}
+.ig-cesta-n{color:var(--cos);font-size:14px}
+.ig-cesta-q{font-size:11px;color:var(--txt-dim);line-height:1.45}
+.ig-suma{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:12px;
+  border:1px solid var(--line)}
+.ig-suma.ok{color:#3ee98a;border-color:color-mix(in srgb,#3ee98a 40%,var(--line))}
+.ig-suma.mal{color:#ff4d6d;border-color:color-mix(in srgb,#ff4d6d 45%,var(--line))}
+
+.ig-aviso{margin:10px 0;padding:9px 12px;border-radius:0 8px 8px 0;font-size:11.5px;
+  line-height:1.5;color:var(--txt-dim);border-left:2px solid var(--txt-dim);
+  background:color-mix(in srgb,var(--txt-dim) 6%,transparent)}
+.ig-aviso.ok{color:#3ee98a;border-left-color:#3ee98a;background:color-mix(in srgb,#3ee98a 7%,transparent)}
+.ig-aviso.mal{color:#ff4d6d;border-left-color:#ff4d6d;background:color-mix(in srgb,#ff4d6d 8%,transparent)}
+.ig-sub{font-size:9.5px;text-transform:uppercase;letter-spacing:1.2px;color:var(--cos);
+  margin:14px 0 7px;opacity:.9}
+.ig-nota{font-size:11px;line-height:1.55;color:var(--txt-dim);margin:11px 0 0}
+.ig-faltan{margin:0;padding-left:17px;font-size:11.5px;color:var(--txt-dim);line-height:1.7}
+.ig-faltan em{font-style:normal;opacity:.72}
+
+.ig-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ig-tag{font-size:10.5px;color:var(--txt-dim);border:1px solid var(--line);
+  border-radius:20px;padding:2px 9px}
+.ig-tag.typo{color:var(--cos);border-color:color-mix(in srgb,var(--cos) 45%,var(--line))}
+.ig-cita{font-size:11.5px;line-height:1.55;color:var(--txt);border-left:2px solid var(--cos);
+  padding:7px 11px;margin-bottom:7px;border-radius:0 7px 7px 0;
+  background:color-mix(in srgb,var(--cos) 5%,transparent)}
+.ig-cita span{display:block;color:var(--cos);font-size:10.5px;margin-bottom:2px}
+.ig-cita em{display:block;font-style:normal;font-size:10.5px;color:var(--txt-dim);margin-top:3px}
+.ig-otra{font-size:11.5px;color:var(--txt-dim);line-height:1.5;padding:3px 0}
+
+/* Embudo de conversión */
+.ig-embudo{display:grid;gap:5px}
+.ig-paso{display:grid;grid-template-columns:1fr auto 62px;gap:11px;align-items:baseline;
+  padding:9px 12px;border:1px solid var(--line);border-radius:8px}
+.ig-paso-t{font-size:12px;color:var(--txt)}
+.ig-paso-v{font-size:15px;color:var(--cos)}
+.ig-paso-r{font-size:11px;color:var(--txt-dim);text-align:right}
+
+/* Sentimiento */
+.ig-sent-f{display:grid;grid-template-columns:96px 1fr 54px;gap:10px;align-items:center;
+  margin-bottom:4px}
+.ig-sent-t{font-size:11.5px;color:var(--txt);text-transform:capitalize}
+.ig-sent-p{font-size:12.5px;color:var(--cos);text-align:right}
+.ig-sent-b{grid-column:2/4;font-size:10px;color:var(--txt-dim);margin:-2px 0 7px}
+
+/* Objeciones */
+/* La ficha de cada idea: etiqueta arriba y texto debajo cuando no hay sitio,
+   en vez de dos columnas que se estrujan. */
+.ig-idea .cos-cal-d{padding-left:22px}
+.ig-idea .cos-campo{grid-template-columns:96px 1fr;align-items:baseline}
+@media (max-width:1180px){.ig-idea .cos-campo{grid-template-columns:1fr}}
+.ig-idea .cos-cal-tit{min-width:0}
+.ig-idea .cos-cal-tipo{white-space:nowrap}
+
+.ig-obj{border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:9px}
+.ig-obj-h{display:flex;justify-content:space-between;align-items:baseline}
+.ig-obj-t{color:var(--cos);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+.ig-obj-n{font-size:13px;color:var(--cos)}
+.ig-obj-l{font-size:11.5px;color:var(--txt-dim);line-height:1.5;margin:5px 0 9px}
+
+/* Retención / distribución */
+.ig-dato{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;
+  border-bottom:1px solid var(--line);font-size:12px}
+.ig-dato:last-of-type{border-bottom:0}
+.ig-dato b{font-weight:400;color:var(--cos);font-size:14px}
+
+/* Benchmark */
+.ig-bm-f{display:grid;grid-template-columns:1fr auto auto 78px;gap:11px;align-items:baseline;
+  padding:8px 0;border-bottom:1px solid var(--line);font-size:12px}
+.ig-bm-f:last-child{border-bottom:0}
+.ig-bm-v{color:var(--cos);font-size:14px}
+.ig-bm-m{font-size:10.5px;color:var(--txt-dim)}
+.ig-bm-d{text-align:right;font-size:11.5px}
+.ig-bm-d.up{color:#3ee98a}.ig-bm-d.dn{color:#ff4d6d}
+
+/* Sin análisis todavía */
+.ig-vacio{text-align:center;padding:70px 24px;color:var(--txt-dim)}
+.ig-vacio-ic{font-size:40px;color:#22e6ff;filter:drop-shadow(0 0 16px #22e6ff);margin-bottom:14px}
+.ig-vacio-t{font-size:15px;color:var(--txt);margin-bottom:7px}
+.ig-vacio-d{font-size:12.5px;line-height:1.6;max-width:460px;margin:0 auto}
+
+/* ── Reels · pestañas y competencia ─────────────────────────────────────── */
+.ig-tabs{display:flex;gap:8px;margin:0 0 16px;border-bottom:1px solid var(--line)}
+.ig-tab{background:none;border:0;border-bottom:2px solid transparent;color:var(--txt-dim);
+  font-family:inherit;font-size:11.5px;letter-spacing:1.1px;text-transform:uppercase;
+  padding:9px 15px;cursor:pointer;transition:color .16s,border-color .16s}
+.ig-tab:hover{color:var(--txt)}
+.ig-tab.activa{color:#ff2ec4;border-bottom-color:#ff2ec4;
+  filter:drop-shadow(0 0 7px color-mix(in srgb,#ff2ec4 55%,transparent))}
+#ig .ig-sec[data-sec="tabla"],#ig .ig-sec[data-sec="cuentas"],
+#ig .ig-sec[data-sec="limites"]{grid-column:1/-1}
+
+/* Cara a cara: una tabla de verdad, con tu columna marcada */
+.ig-tabla-wrap{overflow-x:auto}
+.ig-tabla{width:100%;border-collapse:collapse;font-size:12px}
+.ig-tabla th,.ig-tabla td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line)}
+.ig-tabla thead th{font-size:10px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--txt-dim);font-weight:400;white-space:nowrap}
+.ig-tabla thead th.tuya{color:var(--cos)}
+.ig-tabla tbody th[scope="row"]{text-align:left;font-weight:400;color:var(--txt);white-space:nowrap}
+.ig-tabla tbody th span{color:var(--txt-dim);font-size:10px}
+.ig-tabla td{color:var(--txt)}
+.ig-tabla td.tuya{color:var(--cos)}
+/* Quien va por delante en esa fila: se marca el NUMERO, no toda la celda
+   (con el borde de celda entera parecia un campo de formulario). */
+.ig-tabla td.lider{position:relative;color:var(--cos)}
+.ig-tabla td.lider::before{content:'';position:absolute;right:12px;bottom:5px;left:auto;
+  width:26px;height:2px;border-radius:2px;background:var(--cos);
+  box-shadow:0 0 7px var(--cos)}
+.ig-tabla td em{font-style:normal;color:var(--txt-dim);font-size:11px}
+
+/* Dónde estás por debajo */
+.ig-brecha{border:1px solid var(--line);border-radius:9px;padding:10px 13px;margin-bottom:8px}
+.ig-brecha.dn{border-left:3px solid #ff4d6d}
+.ig-brecha.up{border-left:3px solid #3ee98a}
+.ig-brecha-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.ig-brecha-t{font-size:12.5px;color:var(--txt)}
+.ig-brecha-d{font-size:13px}
+.ig-brecha.dn .ig-brecha-d{color:#ff4d6d}
+.ig-brecha.up .ig-brecha-d{color:#3ee98a}
+.ig-brecha-c{font-size:11px;color:var(--txt-dim);margin-top:4px;line-height:1.5}
+
+/* Lo que NO se puede ver de una cuenta ajena */
+.ig-limites{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.ig-limite{border:1px solid var(--line);border-left:2px solid var(--cos);
+  border-radius:0 9px 9px 0;padding:10px 13px;
+  background:color-mix(in srgb,var(--cos) 5%,transparent)}
+.ig-limite-t{font-size:12.5px;color:var(--txt);margin-bottom:5px}
+.ig-limite-p{font-size:11px;color:var(--txt-dim);line-height:1.5}
+.ig-limite-d{font-size:10.5px;color:var(--cos);margin-top:6px;opacity:.9}
+.ig-cuenta .cos-cal-d{padding-left:22px}
+#ig .ig-sec[data-sec="descubrimiento"]{grid-column:1/-1}
+/* Qué sale en los vídeos */
+.ig-vis{border:1px solid var(--line);border-radius:9px;padding:10px 13px;margin-bottom:8px}
+.ig-vis-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:9px;margin-bottom:6px}
+.ig-vis-t{color:var(--cos);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+.ig-vis-f{font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:#ff9f45;
+  border:1px solid #ff9f45;border-radius:20px;padding:1px 8px}
+.ig-vis-gana{margin-left:auto;font-size:10.5px;color:var(--cos)}
+.ig-vis .ig-dato span em{margin-left:6px}
+/* Radiografía de la cuenta: qué está creando */
+.ig-radio{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.ig-radio-cab{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;margin-bottom:10px}
+.ig-radio-quien{color:var(--cos);font-size:13px}
+.ig-radio-meta{font-size:10.5px;color:var(--txt-dim)}
+.ig-radio .ig-dato span i{font-style:normal;opacity:.7;font-size:10.5px;margin-left:5px}
+
+/* Cada tipo de gancho: nombre, cuántas veces, cuánto rinde y QUÉ ES */
+.ig-hook{border:1px solid var(--line);border-radius:9px;padding:9px 12px;margin-bottom:7px}
+.ig-hook.gana{border-color:color-mix(in srgb,var(--cos) 55%,var(--line));
+  background:color-mix(in srgb,var(--cos) 6%,transparent)}
+.ig-hook-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:9px}
+.ig-hook-t{color:var(--cos);font-size:12.5px;text-transform:uppercase;letter-spacing:1px}
+.ig-hook-gana{font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--cos);
+  border:1px solid var(--cos);border-radius:20px;padding:1px 8px}
+.ig-hook-poco{font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:#ff9f45;
+  border:1px solid #ff9f45;border-radius:20px;padding:1px 8px}
+.ig-hook-n{margin-left:auto;font-size:11px;color:var(--txt-dim);white-space:nowrap}
+.ig-hook-q{font-size:11.5px;color:var(--txt);line-height:1.5;margin-top:5px;opacity:.9}
+
+/* Un pico: qué reel, de quién, cuándo, sus cifras y con qué gancho */
+.ig-pico{border:1px solid var(--line);border-left:3px solid var(--cos);
+  border-radius:0 9px 9px 0;padding:10px 13px;margin-bottom:8px}
+.ig-pico-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px}
+.ig-pico-x{color:var(--cos);font-size:14px}
+.ig-pico-m{font-size:10.5px;color:var(--txt-dim)}
+.ig-pico-h a{margin-left:auto;font-size:10.5px;color:var(--cos);text-decoration:none}
+.ig-pico-h a:hover{text-decoration:underline}
+.ig-pico-cifras{display:flex;flex-wrap:wrap;gap:16px;margin:7px 0 6px;font-size:11px;
+  color:var(--txt-dim)}
+.ig-pico-cifras b{color:var(--txt);font-weight:400;font-size:13px}
+.ig-pico-g{font-size:11.5px;color:var(--txt);line-height:1.5}
+.ig-pico-g span{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:1px;
+  color:var(--cos);opacity:.85}
+.ig-pico-g em{font-style:normal;color:var(--txt-dim);font-size:10.5px;margin-left:6px}

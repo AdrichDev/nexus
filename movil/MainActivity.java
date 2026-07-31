@@ -54,16 +54,77 @@ public class MainActivity extends Activity {
     private SpeechRecognizer recognizer;
     private String baseHost = "";
 
+    /* ── LA VINCULACION NO CADUCA (30/07/2026) ─────────────────────────────
+       El fallo que arregla esto: la app guardaba UNA sola direccion. La del
+       tunel es aleatoria y distinta en CADA arranque del PC, asi que al apagar
+       el ordenador el enlace guardado moria y habia que reescanear el QR. Y la
+       del nombre de equipo (MIPC.local) solo vale dentro de casa.
+       Ahora se guarda una LISTA: el QR trae varias (nombre del equipo, IP de la
+       WiFi, tunel) y, si una no responde, se prueba la siguiente SOLA. Solo se
+       manda a reescanear cuando han fallado todas.
+       Ademas la propia pagina, ya cargada, llama a WabiksNative.saveHosts(...)
+       con la lista al dia: asi, cuando el tunel cambia, la app se entera sin
+       que el usuario haga nada. ─────────────────────────────────────────── */
+    private java.util.List<String> candidatos = new ArrayList<String>();
+    private int candidatoActual = 0;
+
+    private java.util.List<String> hostsGuardados() {
+        java.util.List<String> out = new ArrayList<String>();
+        String crudo = prefs.getString("link_urls", "");
+        for (String u : crudo.split("\\|")) {
+            String v = u.trim();
+            if (v.length() > 0 && !out.contains(v)) out.add(v);
+        }
+        String uno = prefs.getString("link_url", "");
+        if (uno.length() > 0 && !out.contains(uno)) out.add(uno);
+        return out;
+    }
+
+    private void guardaHosts(java.util.List<String> lista) {
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (String u : lista) {
+            if (u == null || u.trim().length() == 0) continue;
+            if (sb.indexOf(u) >= 0) continue;
+            if (n++ > 0) sb.append("|");
+            sb.append(u.trim());
+            if (n >= 8) break;
+        }
+        prefs.edit().putString("link_urls", sb.toString()).apply();
+    }
+
+    /** Del enlace del QR saca TODAS las direcciones: la principal y las de
+     *  respaldo que viajan en &alt=, ya con el token pegado a cada una. */
+    private java.util.List<String> desdeQR(String url) {
+        java.util.List<String> out = new ArrayList<String>();
+        out.add(url);
+        try {
+            Uri u = Uri.parse(url);
+            String alt = u.getQueryParameter("alt");
+            String token = u.getQueryParameter("token");
+            if (alt != null) {
+                for (String base : alt.split(",")) {
+                    String b = base.trim();
+                    if (b.length() == 0) continue;
+                    String sep = b.endsWith("/") ? "" : "/";
+                    out.add(b + sep + "m?token=" + (token == null ? "" : token));
+                }
+            }
+        } catch (Exception e) { /* si el QR viene raro, al menos queda el principal */ }
+        return out;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("nexus", Context.MODE_PRIVATE);
         askAllPermissions();
-        String url = prefs.getString("link_url", "");
-        if (url.length() == 0) {
+        candidatos = hostsGuardados();
+        if (candidatos.isEmpty()) {
             showHome();
         } else {
-            showWeb(url);
+            candidatoActual = 0;
+            showWeb(candidatos.get(0));
         }
     }
 
@@ -220,8 +281,27 @@ public class MainActivity extends Activity {
     }
 
     private void saveLink(String url) {
+        candidatos = desdeQR(url);
+        guardaHosts(candidatos);
         prefs.edit().putString("link_url", url).apply();
+        candidatoActual = 0;
         showWeb(url);
+    }
+
+    /** Prueba la SIGUIENTE direccion de la lista. true si quedaba alguna. */
+    private boolean siguienteCandidato() {
+        if (candidatos == null || candidatoActual + 1 >= candidatos.size()) return false;
+        candidatoActual++;
+        final String siguiente = candidatos.get(candidatoActual);
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                Toast.makeText(MainActivity.this,
+                        "Probando otra via de conexion con nexus...", Toast.LENGTH_SHORT).show();
+                web = null;
+                showWeb(siguiente);
+            }
+        });
+        return true;
     }
 
     /* --------------------------- el nodo (WebView) --------------------------- */
@@ -275,8 +355,11 @@ public class MainActivity extends Activity {
                                                   WebResourceError err) {
                 // solo la PÁGINA principal (no un favicon o un recurso suelto)
                 if (req != null && req.isForMainFrame()) {
-                    fallbackHome("No llego a nexus: el enlace ya no vale (el túnel cambia "
-                            + "al reiniciar el PC). Escanea el QR otra vez.");
+                    // Antes de rendirse: probar el resto de direcciones guardadas.
+                    if (!siguienteCandidato()) {
+                        fallbackHome("No llego a nexus por ninguna via. Comprueba que el PC "
+                                + "esta encendido; si sigue sin ir, escanea el QR otra vez.");
+                    }
                 }
             }
             @Override public void onReceivedHttpError(WebView v, WebResourceRequest req,
@@ -284,8 +367,10 @@ public class MainActivity extends Activity {
                 // túnel caído: cloudflare responde con su página de error (530/502…)
                 if (req != null && req.isForMainFrame() && resp != null
                         && resp.getStatusCode() >= 500) {
-                    fallbackHome("El túnel de nexus está caído. Arranca nexus en el PC "
-                            + "y escanea el QR otra vez.");
+                    if (!siguienteCandidato()) {
+                        fallbackHome("nexus no responde por ninguna via. Arrancalo en el PC "
+                                + "y, si sigue igual, escanea el QR otra vez.");
+                    }
                 }
             }
         });
@@ -353,11 +438,34 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() { @Override public void run() { doWhatsApp(number, text); } });
         }
 
+        /** La pagina, ya cargada, le pasa a la app la lista de direcciones que el
+         *  PC dice tener AHORA. Es lo que hace que la vinculacion no caduque:
+         *  si el tunel cambio, la app se entera la proxima vez que se conecta —
+         *  sin volver a escanear nada. Las direcciones llegan separadas por «|». */
+        @JavascriptInterface
+        public void saveHosts(String lista) {
+            if (lista == null || lista.trim().length() == 0) return;
+            java.util.List<String> nueva = new ArrayList<String>();
+            String actual = (candidatos != null && candidatoActual < candidatos.size())
+                    ? candidatos.get(candidatoActual) : "";
+            if (actual.length() > 0) nueva.add(actual);      // la que funciona, primera
+            for (String u : lista.split("\\|")) {
+                String v = u.trim();
+                if (v.length() > 0 && !nueva.contains(v)) nueva.add(v);
+            }
+            for (String u : hostsGuardados()) if (!nueva.contains(u)) nueva.add(u);
+            guardaHosts(nueva);
+            candidatos = nueva;
+            candidatoActual = 0;
+        }
+
         @JavascriptInterface
         public void resetHost() {   // mantener pulsado ◉ en el nodo → re-vincular
             runOnUiThread(new Runnable() {
                 @Override public void run() {
-                    prefs.edit().remove("link_url").apply();
+                    prefs.edit().remove("link_url").remove("link_urls").apply();
+                    candidatos = new ArrayList<String>();
+                    candidatoActual = 0;
                     showHome();
                 }
             });

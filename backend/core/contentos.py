@@ -95,7 +95,10 @@ def add_item(kind: str, value) -> bool:
 
 # ------------------------------------------------------------------ IG real
 def _ig_creds() -> tuple[str, str]:
-    return settings.secret("ig_access_token"), settings.get("ig_user_id", "")
+    # Mismo número, dos nombres históricos: vale el que esté puesto.
+    return (settings.secret("ig_access_token"),
+            str(settings.get("ig_user_id", "") or "").strip()
+            or str(settings.get("ig_business_account_id", "") or "").strip())
 
 
 async def ig_connected() -> bool:

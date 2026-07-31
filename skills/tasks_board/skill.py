@@ -48,6 +48,19 @@ SKILL = {
                   r"(?:\s+de\s+(?P<task4>.+))?"
                   r"|(?:ahora\s+no|d[eé]jame\s+en\s+paz|no\s+me\s+molestes)\s+"
                   r"(?:con\s+(?:las\s+)?tareas)?",
+        # «marca la velada como realizada» no casaba con ningún patrón: se iba al
+        # cerebro y allí petaba con un NoneType. Es la forma NORMAL de decirlo.
+        # «da por hecha la compra» invierte el orden (verbo, estado, tarea), así
+        # que va en su propia alternativa: metida en la de arriba capturaba «por»
+        # como si fuera el nombre de la tarea.
+        "marcar": r"(?:da|dad|d[ae]me)\s+por\s+(?P<state4>realizadas?|hechas?|completadas?|"
+                  r"terminadas?|acabadas?|finalizadas?)\s+(?:la\s+|el\s+)?(?:tarea\s+)?"
+                  r"(?P<task4>.+)"
+                  r"|(?:marca|pon)\s+(?:la\s+|el\s+)?(?:tarea\s+)?"
+                  r"(?P<task3>.+?)\s+(?:como\s+|por\s+)?"
+                  r"(?P<state3>realizadas?|hechas?|completadas?|terminadas?|acabadas?|"
+                  r"finalizadas?|listas?|pendientes?|en\s+progreso|en\s+curso|"
+                  r"en\s+revisi[oó]n)\b",
         "move": r"(?:mueve|pasa|cambia)\s+(la tarea\s+)?(?P<task>.+?)\s+a\s+(?P<state>pendientes?|por\s+hacer|"
                 r"(en )?progreso|(en )?curso|in\s*progress|doing|"
                 r"(en )?revisi[oó]n|review|completadas?|hechas?|terminadas?|done)",
@@ -345,11 +358,26 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                           f"{horas:g} h. Las tareas siguen ahí, solo dejo de recordártelas."
                           if n else "No hay tareas activas que posponer.")}
 
-    if intent in ("move", "start"):
+    if intent in ("move", "start", "marcar"):
+        # Defensivo a propósito: este handler lo puede invocar el cerebro con un
+        # match que no traiga los grupos, y antes reventaba con un NoneType en la
+        # cara del usuario en vez de decir qué le falta.
+        def _g(nombre):
+            try:
+                return (match.group(nombre) or "").strip() if match else ""
+            except Exception:
+                return ""
         if intent == "start":
-            q, state_raw = match.group("task2").strip(), "progreso"
+            q, state_raw = _g("task2"), "progreso"
+        elif intent == "marcar":
+            q = _g("task3") or _g("task4")
+            state_raw = _g("state3") or _g("state4")
         else:
-            q, state_raw = match.group("task").strip(), match.group("state")
+            q, state_raw = _g("task"), _g("state")
+        if not q or not state_raw:
+            return {"reply": "No he entendido qué tarea ni a qué estado. Dímelo así: "
+                             "«marca la compra como hecha» o «mueve la compra a hechas». "
+                             "Con «ver tablero» te enseño los títulos exactos."}
         t = board.move_task(q, state_raw)
         if not t:
             return {"reply": "No encuentro esa tarea (o el estado no existe). "

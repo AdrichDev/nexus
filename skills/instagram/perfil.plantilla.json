@@ -1,0 +1,55 @@
+{
+ "id": "",
+ "cuenta": {
+  "usuario": "",
+  "nombre_publico": "",
+  "business_account_id": "",
+  "pais": "",
+  "zona_horaria": ""
+ },
+ "nicho": "",
+ "subtemas": [],
+ "propuesta_valor": "",
+ "referentes": [],
+ "publico": {
+  "descripcion": "",
+  "edad": "",
+  "paises": [],
+  "situacion": "",
+  "dolores": [],
+  "objeciones_tipicas": []
+ },
+ "idiomas": {
+  "comentarios": [],
+  "respuesta": "es",
+  "variante": ""
+ },
+ "personal": {
+  "nombre": "",
+  "profesion": "",
+  "ubicacion": "",
+  "situacion_familiar": "",
+  "hijos": [],
+  "mascotas": [],
+  "idiomas_que_habla": [],
+  "aficiones": [],
+  "historia_personal": "",
+  "temas_que_no_toca": []
+ },
+ "tono": {
+  "estilo": "",
+  "trato": "tu",
+  "emojis": "pocos",
+  "muletillas": [],
+  "palabras_prohibidas": []
+ },
+ "negocio": {
+  "objetivo": "",
+  "productos": [],
+  "lead_magnets": [],
+  "web": "",
+  "metrica_que_importa": ""
+ },
+ "triggers": [],
+ "notas": ""
+}

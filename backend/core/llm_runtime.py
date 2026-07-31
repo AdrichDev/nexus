@@ -294,7 +294,12 @@ class OllamaClient:
         real del usuario no vuelva a esperar."""
         t0 = time.time()
         msgs = [{"role": "user", "content": "Responde únicamente con la palabra OK."}]
-        opciones = {"num_predict": 8, "temperature": 0}
+        # num_predict 8 era MUY POCO. Los modelos de razonamiento (qwen3, deepseek-r1,
+        # los «thinking») gastan los primeros tokens PENSANDO, en un campo aparte, y
+        # devuelven `content` VACÍO si se les corta antes. Por eso el 30/07/2026 el
+        # HUD decía «qwen3:8b ha contestado sin contenido» teniéndolo perfectamente
+        # instalado y sirviendo. Con margen suficiente y `think: false` contesta.
+        opciones = {"num_predict": 96, "temperature": 0}
         rutas = [OllamaClient.ruta] if OllamaClient.ruta else ["chat", "generate"]
         ultimo: Exception | None = None
         for ruta in rutas:
@@ -303,21 +308,27 @@ class OllamaClient:
                     r = await net.client().post(
                         f"{self.base}/api/chat",
                         json={"model": model, "messages": msgs, "stream": False,
-                              "keep_alive": "10m", "options": opciones},
+                              "keep_alive": "10m", "think": False, "options": opciones},
                         timeout=timeout)
                     r.raise_for_status()
                     OllamaClient.ruta = "chat"
-                    txt = ((r.json().get("message") or {}).get("content") or "").strip()
+                    m = r.json().get("message") or {}
+                    # Si aun así solo ha razonado, ESO TAMBIÉN es contestar: el
+                    # modelo está vivo y responde. Lo que no vale es el silencio.
+                    txt = ((m.get("content") or "").strip()
+                           or (m.get("thinking") or m.get("reasoning") or "").strip())
                 else:
                     r = await net.client().post(
                         f"{self.base}/api/generate",
                         json={"model": model, "prompt": msgs[0]["content"],
-                              "stream": False, "keep_alive": "10m",
+                              "stream": False, "keep_alive": "10m", "think": False,
                               "options": opciones},
                         timeout=timeout)
                     r.raise_for_status()
+                    d = r.json()
                     OllamaClient.ruta = "generate"
-                    txt = (r.json().get("response") or "").strip()
+                    txt = ((d.get("response") or "").strip()
+                           or (d.get("thinking") or "").strip())
                 return txt, int((time.time() - t0) * 1000)
             except httpx.HTTPStatusError as exc:
                 ultimo = exc

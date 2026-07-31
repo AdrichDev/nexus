@@ -58,7 +58,7 @@ print(f"  {nsk} skills revisadas")
 # 3) lanzar las suites unitarias
 for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_renovacion.py", "test_mejoras_v19.py", "test_specs_v20.py",
-              "test_v21_fixes.py", "test_specs_v23.py", "test_specs_v23_orq.py", "test_specs_v23_mem.py", "test_specs_v23_files.py", "test_specs_v23_ui.py", "test_specs_v23_hermes.py", "test_specs_v24.py", "test_llm_runtime.py", "test_entrega_real.py", "test_dispositivos.py", "test_engram.py", "test_hermes_engram.py"):
+              "test_v21_fixes.py", "test_specs_v23.py", "test_specs_v23_orq.py", "test_specs_v23_mem.py", "test_specs_v23_files.py", "test_specs_v23_ui.py", "test_specs_v23_hermes.py", "test_specs_v24.py", "test_llm_runtime.py", "test_acceso_remoto.py", "test_instagram.py", "test_instagram_analisis.py", "test_instagram_spec.py", "test_instagram_competencia.py", "test_nucleo.py", "test_umbrales.py", "test_descubrimiento.py", "test_descubrimiento_flujo.py", "test_inteligencia.py", "test_frases_reales.py", "test_visual.py", "test_apis_config.py", "test_entrega_real.py", "test_dispositivos.py", "test_engram.py", "test_hermes_engram.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.
@@ -66,6 +66,16 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tests", suite)],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=_env)
+    # SEGUNDA OPORTUNIDAD para las suites que ARRANCAN UN SERVIDOR. Con toda la
+    # batería corriendo, uvicorn puede tardar más de la cuenta en levantar y la
+    # suite fallaba por impaciencia: un rojo que no era un fallo real y que
+    # obligaba a repetir a mano para saber si era verdad. Si falla, se repite una
+    # vez; si vuelve a fallar, ES un fallo y cuenta como tal.
+    if r.returncode != 0 and suite in ("test_entrega_real.py", "test_acceso_remoto.py"):
+        print("  (arranca un servidor y ha fallado; repito una vez por si fue lentitud)")
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "tests", suite)],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", env=_env)
     print("\n".join("  " + l for l in r.stdout.strip().splitlines()[-4:]))
     if r.returncode != 0:
         fails += 1

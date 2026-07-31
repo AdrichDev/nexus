@@ -465,15 +465,26 @@ def _skills_catalog() -> str:
 def _skills_plan_catalog() -> str:
     """Catalogo para el PLANIFICADOR: cada skill con sus intents y los ARGUMENTOS
     (nombres de grupo de su patron) que el modelo debe rellenar."""
+    # El planificador elegía a CIEGAS: solo veía «read(args: sel)» y tenía que
+    # adivinar qué hace «read». Por eso «analiza lo que ves en la página de
+    # chrome» no acababa en la skill que lee el navegador. Si la skill declara
+    # SKILL["intents"] = {"read": "qué hace"}, esa frase viaja al modelo.
     lines = []
     for sk in get_skills().values():
         if sk.status == "error" or not sk.patterns:
             continue
+        desc = {}
+        try:
+            desc = dict(getattr(sk.module, "SKILL", {}).get("intents") or {})
+        except Exception:
+            desc = {}
         its = []
         for intent, rx in sk.patterns.items():
             args = [a for a in getattr(rx, "groupindex", {}).keys()]
-            its.append(f"{intent}(args: {', '.join(args) if args else '-'})")
-        lines.append(f"[{sk.folder}] {sk.description}\n    intents: " + " | ".join(its))
+            que = desc.get(intent, "")
+            its.append(f"{intent}(args: {', '.join(args) if args else '-'})"
+                       + (f" = {que}" if que else ""))
+        lines.append(f"[{sk.folder}] {sk.description}\n    intents: " + "\n             ".join(its))
     return "\n".join(lines)
 
 

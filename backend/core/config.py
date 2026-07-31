@@ -57,6 +57,9 @@ DEFAULTS = {
     "llm_provider": "ollama",          # ollama | openai | anthropic | gemini | cloud | mock
     "llm_local": True,                 # check "modelo local" del panel ⚙
     "ollama_url": "http://localhost:11434",
+    # Con cuál se miran las portadas de los reels. Vacío = se coge solo el
+    # primero de visión que tenga Ollama instalado.
+    "vision_model": "",
     "hermes_url": "http://127.0.0.1:8642",   # API local de Hermes Agent (Nous)
     "hermes_auto": True,                     # nexus delega SOLO en Hermes lo agéntico
     "hermes_autostart": True,                # nexus ARRANCA el gateway de Hermes bajo demanda
@@ -139,6 +142,8 @@ DEFAULTS = {
     "wake_enabled": False,             # escucha en segundo plano la wake word
     # ---- Instagram / Content OS ----
     "ig_user_id": "",
+    # Cuenta Business/Creator para la skill de reels (ID numerico, no el @).
+    "ig_business_account_id": "",
     # ---- Automatizaciones ----
     "n8n_webhook_url": "",             # ej: http://localhost:5678/webhook/nexus
     "n8n_base_url": "http://localhost:5678",   # n8n local (para crear flujos por API)
@@ -235,8 +240,21 @@ class Settings:
     def secret(self, key: str) -> str:
         return (self._secrets.get(key) or os.getenv(key.upper(), "") or "").strip()
 
+    def _es_secreto(self, key: str) -> bool:
+        """¿Es este nombre un secreto?
+
+        Además de la lista fija, valen los nombres DERIVADOS con sufijo:
+        la skill de domótica guarda un token POR TELEVISOR
+        («samsung_tv_token_<id>»), y como no estaba literalmente en la lista,
+        `set_secret` lo tiraba EN SILENCIO. Resultado: cada orden a la tele
+        volvía a emparejar desde cero y la tele acababa preguntando otra vez si
+        permite el mando — o dejando de responder (30/07/2026)."""
+        if key in self.SECRET_KEYS:
+            return True
+        return any(key.startswith(k + "_") for k in self.SECRET_KEYS)
+
     def set_secret(self, key: str, value: str) -> None:
-        if key not in self.SECRET_KEYS:
+        if not self._es_secreto(key):
             return
         if value:
             self._secrets[key] = value.strip()
@@ -269,6 +287,9 @@ class Settings:
             presente = bool(self.secret(k)) or bool(str(out.get(k) or "").strip())
             out.pop(k, None)                      # fuera el valor, siempre
             out[f"has_{k}"] = presente            # solo si lo hay o no
+        # y los derivados («samsung_tv_token_<id>»), que también son secretos
+        for k in [x for x in out if self._es_secreto(x)]:
+            out.pop(k, None)
         return out
 
 

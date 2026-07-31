@@ -102,7 +102,10 @@ def main() -> int:
                             "--log-level", "warning"],
                            cwd=str(ROOT), env=env, stdout=log, stderr=log)
     try:
-        for _ in range(80):
+        # 60 s de margen: con la suite entera corriendo, arrancar el
+        # servidor se va más allá de los 32 s de antes y la prueba
+        # fallaba por impaciencia, no por un fallo real.
+        for _ in range(150):
             time.sleep(0.4)
             try:
                 urllib.request.urlopen(base + "/api/jobs", timeout=2).read()

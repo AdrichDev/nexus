@@ -109,6 +109,20 @@ if errorlevel 1 (
 if not exist ".env" copy .env.example .env >nul
 if not exist "config\settings.json" copy config\settings.example.json config\settings.json >nul
 
+REM ---------- comprobacion: que lo instalado ARRANCA de verdad ----------
+REM Una instalacion a medias (una carpeta que no se copio, un archivo a cero)
+REM no se nota hasta que el usuario pide algo y le sale un error raro. Aqui se
+REM comprueba en 2 segundos que las piezas cargan y que la config esta.
+echo Comprobando la instalacion ...
+".venv\Scripts\python.exe" -c "import sys, json, importlib; [importlib.import_module(m) for m in ('backend.app','backend.core.llm_runtime','backend.core.files_io')]; import importlib.util as u; [u.spec_from_file_location(n, 'skills/instagram/%%s.py' %% n).loader.exec_module(u.module_from_spec(u.spec_from_file_location(n, 'skills/instagram/%%s.py' %% n))) for n in ('analisis','descubrimiento','inteligencia','visual')]; json.load(open('config/umbrales.json', encoding='utf-8')); u.spec_from_file_location('nucleo', 'skills/nucleo/skill.py').loader.exec_module(u.module_from_spec(u.spec_from_file_location('nucleo', 'skills/nucleo/skill.py'))); print('OK')" >> "%LOG%" 2>&1
+if errorlevel 1 (
+    echo AVISO: la comprobacion ha fallado. Mira el registro: %LOG%
+    echo AVISO: comprobacion de instalacion FALLIDA >> "%LOG%"
+) else (
+    echo Comprobacion correcta: motor de analisis, umbrales y backend cargan.
+    echo Comprobacion de instalacion OK >> "%LOG%"
+)
+
 REM ---------- PASO 4: arrancar ----------
 echo [4/4] TODO LISTO. Arrancando nexus ...
 echo [%date% %time%] === INSTALACION COMPLETADA OK === >> "%LOG%"

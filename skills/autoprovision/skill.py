@@ -78,7 +78,18 @@ async def _post(url: str, body=None, headers: dict | None = None, timeout: int =
 
 # ------------------------------------------------------------------- Docker
 def _compose_file() -> Path | None:
-    for c in (GRU / "docker-compose.nexus.yml", ROOT / "docker-compose.nexus.yml",
+    """El compose que hay que levantar, por orden de preferencia.
+
+    El PRIMERO es config/docker-compose.yml: es el que escribe el propio nexus
+    (backend/app.py) con su usuario, su contraseña generada al azar y su puerto
+    127.0.0.1:5433. Antes esta lista empezaba por la carpeta hermana
+    «nexus_stack», que en la práctica está vacía: «levanta docker» contestaba
+    «no encuentro docker-compose.nexus.yml» teniendo el compose bueno delante.
+    Las rutas de nexus_stack se quedan de respaldo por si alguien tiene ahí un
+    stack propio, pero ya no mandan."""
+    for c in (ROOT / "config" / "docker-compose.yml",
+              ROOT / "docker-compose.nexus.yml",
+              GRU / "docker-compose.nexus.yml",
               GRU / "docker-compose.yml"):
         if c.exists():
             return c
@@ -98,8 +109,9 @@ async def _docker_up() -> str:
                 "espera a que arranque del todo y repite «levanta docker».")
     cf = _compose_file()
     if not cf:
-        return ("No encuentro docker-compose.nexus.yml (lo busqué en nexus_stack y en la raíz "
-                "de nexus). Dime dónde está el compose.")
+        return ("No encuentro ningún docker-compose (lo he buscado en config/, en la raíz "
+                "de nexus y en la carpeta hermana nexus_stack). Di «prepara la base de "
+                "datos» y lo genero, o dime dónde está el tuyo.")
     ok, out = _run(["docker", "compose", "-f", str(cf), "up", "-d", "--remove-orphans"], timeout=300)
     if not ok:
         return f"No pude levantar los contenedores:\n{out[-500:]}"

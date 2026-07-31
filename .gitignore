@@ -101,6 +101,26 @@ transcripts*.json
 movil/install_log.txt
 diagnostico.txt
 
+# ── Herramientas del agente (Claude Code y compañía) ──────────────────────────
+# Aparecieron el 31/07/2026 al abrir Claude Code en la carpeta. Ninguna es
+# codigo de nexus: es estado de la herramienta, y una de ellas pesa 15 MB.
+#
+#   .claude/settings.json  SI se sube: son los permisos del proyecto, y quien
+#                          clone el repo los quiere. Por eso va con «!» abajo.
+#   settings.local.json    NO: es tu configuracion personal, tus rutas.
+#   .atl/                  NO: registro de skills, se regenera solo.
+#   .tokensave/            NO: base de datos SQLite de ~15 MB. Un commit con
+#                          esto dentro es un problema serio de peso.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+.claude/settings.local.json
+.claude/*.local.json
+.atl/
+.tokensave/
+*.db-shm
+*.db-wal
+
 # ── Sistema operativo y editores ──────────────────────────────────────────────
 Thumbs.db
 desktop.ini

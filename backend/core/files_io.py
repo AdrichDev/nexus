@@ -15,6 +15,7 @@ Reglas fijadas con Adri:
 from __future__ import annotations
 
 import datetime as dt
+import re
 import json
 import os
 import shutil
@@ -192,6 +193,24 @@ def _index_save(d: dict) -> None:
                               encoding="utf-8")
 
 
+def _copia_libre(destino: Path) -> Path:
+    """Un nombre de copia que NO pise a otra copia.
+
+    El sello de tiempo llega al milisegundo, y dos guardados seguidos caen en el
+    mismo milisegundo mas a menudo de lo que parece (1 de cada 45 en una prueba
+    de 400). Cuando pasaba, la copia nueva SOBRESCRIBIA a la anterior: se perdia
+    una version en silencio y —peor— al restaurar, la copia de seguridad del
+    estado actual machacaba justo la version que se iba a recuperar, asi que
+    «volver atras» devolvia el archivo tal y como estaba."""
+    if not destino.exists():
+        return destino
+    for n in range(1, 1000):
+        alterna = destino.with_name(f"{destino.stem}-{n}{destino.suffix}")
+        if not alterna.exists():
+            return alterna
+    return destino
+
+
 def backup(path) -> str:
     """Guarda una COPIA de la versión actual antes de tocarla. Devuelve la ruta
     de la copia ('' si el archivo no existía todavía)."""
@@ -199,7 +218,7 @@ def backup(path) -> str:
     if not p.is_file():
         return ""
     VERSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    destino = VERSIONS_DIR / f"{p.stem}.{_now_tag()}{p.suffix}.bak"
+    destino = _copia_libre(VERSIONS_DIR / f"{p.stem}.{_now_tag()}{p.suffix}.bak")
     shutil.copy2(str(p), str(destino))
     idx = _index_load()
     idx.setdefault(str(p), []).append(
@@ -298,3 +317,43 @@ def resolve_target(nombre: str, base) -> Path:
     n = (nombre or "").strip().strip('"\'')
     p = Path(n).expanduser()
     return p if p.is_absolute() else Path(base).expanduser() / n
+
+# ── QUÉ FORMATO USAR CUANDO NADIE LO DICE ────────────────────────────────────
+# Norma de Adri (30/07/2026): «todos los informes por defecto han de crearse en
+# archivos .md salvo que se pida expresamente otra cosa».
+#
+# Está AQUÍ, en un solo sitio, a propósito: antes cada skill decidía por su
+# cuenta (la de archivos escribía .txt, la de investigación .md) y bastaba con
+# que naciera una skill nueva para volver a tener tres criterios distintos.
+# Quien tenga que crear un documento pregunta a esta función y se acabó.
+FORMATOS = {
+    "md": (r"\bmarkdown\b|\.md\b|\bformato\s+md\b", ".md"),
+    "docx": (r"\bword\b|\.docx\b|\bdocumento\s+de\s+word\b", ".docx"),
+    "pdf": (r"\bpdf\b|\.pdf\b", ".pdf"),
+    "xlsx": (r"\bexcel\b|\.xlsx\b|\bhoja\s+de\s+c[aá]lculo\b", ".xlsx"),
+    "csv": (r"\bcsv\b|\.csv\b", ".csv"),
+    "txt": (r"\btexto\s+plano\b|\.txt\b|\bbloc\s+de\s+notas\b|\ben\s+txt\b", ".txt"),
+    "json": (r"\bjson\b|\.json\b", ".json"),
+    "html": (r"\bhtml\b|\.html?\b|\bp[aá]gina\s+web\b", ".html"),
+}
+_FORMATOS_RX = [(re.compile(pat, re.IGNORECASE), ext) for pat, ext in FORMATOS.values()]
+
+
+def formato_pedido(texto: str, defecto: str = ".md") -> str:
+    """La extensión que ha pedido el usuario, o «.md» si no ha pedido ninguna.
+
+    >>> formato_pedido("hazme un informe de ventas")
+    '.md'
+    >>> formato_pedido("hazme el informe en word")
+    '.docx'
+    """
+    t = texto or ""
+    for rx, ext in _FORMATOS_RX:
+        if rx.search(t):
+            return ext
+    return defecto
+
+
+def pidio_formato(texto: str) -> bool:
+    """¿Ha dicho el usuario EXPRESAMENTE en qué formato lo quiere?"""
+    return formato_pedido(texto, defecto="") != ""

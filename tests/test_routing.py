@@ -212,8 +212,15 @@ def test_tablero_fecha_hora_tipo():
     # FECHA LÍMITE
     _t, due = ed("crear la web para el 25/07")
     check(bool(due) and due.endswith("-07-25"), "tablero: 'para el 25/07' saca fecha límite")
+    # OJO: esto NO puede llevar la fecha escrita a mano. Estaba fijado a
+    # «2026-07-30» y al pasar la medianoche del 30 al 31 la suite se puso roja
+    # sola: el 30 de julio ya había pasado y el extractor —bien— lo movía al año
+    # siguiente. Se comprueba el CONTRATO: día y mes correctos, y nunca en pasado.
     _t, due = ed("informe con fecha límite 30 de julio")
-    check(due == "2026-07-30", "tablero: 'fecha límite 30 de julio'")
+    check(bool(due) and due.endswith("-07-30"),
+          f"tablero: 'fecha límite 30 de julio' saca el 30 de julio (dio {due})")
+    check(bool(due) and due >= _dt.date.today().isoformat(),
+          f"y nunca una fecha ya pasada (hoy {_dt.date.today().isoformat()}, dio {due})")
     _t, due = ed("entrega antes del viernes")
     check(bool(due), "tablero: 'antes del viernes' saca fecha")
     # HORA

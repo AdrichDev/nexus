@@ -207,11 +207,19 @@ class OllamaProvider(BaseProvider):
                 if ruta == "chat":
                     r = await net.client().post(
                         f"{self.url}/api/chat",
-                        json={"model": modelo, "messages": messages, "stream": False},
+                        json={"model": modelo, "messages": messages, "stream": False,
+                              "think": False},
                         timeout=180)
                     r.raise_for_status()
                     OllamaProvider._ruta = "chat"
-                    return r.json()["message"]["content"]
+                    # Los modelos de razonamiento (qwen3, deepseek-r1…) separan lo
+                    # que PIENSAN de lo que DICEN. Si solo se lee `content`, la
+                    # respuesta llega VACÍA y nexus se queda mudo teniendo el modelo
+                    # funcionando. Se pide no razonar y, si aun así solo hay
+                    # pensamiento, se usa eso antes que devolver la nada.
+                    m = r.json().get("message") or {}
+                    return ((m.get("content") or "").strip()
+                            or (m.get("thinking") or m.get("reasoning") or "").strip())
                 # /api/generate: existe en TODAS las versiones de Ollama
                 sys_txt = "\n".join(m["content"] for m in messages
                                     if m.get("role") == "system")
@@ -225,7 +233,9 @@ class OllamaProvider(BaseProvider):
                     timeout=180)
                 r.raise_for_status()
                 OllamaProvider._ruta = "generate"
-                return r.json().get("response", "")
+                _d = r.json()
+                return ((_d.get("response") or "").strip()
+                        or (_d.get("thinking") or "").strip())
             except httpx.HTTPStatusError as exc:
                 ultimo = exc
                 cuerpo = ""
@@ -616,6 +626,47 @@ def _build_messages(user_text: str, context: list[dict] | None = None,
     # latencia): actúa únicamente cuando Adri lo PIDE con la skill devils_advocate
     # («abogado del diablo: …»). Así el chat responde rápido, y el examen crítico está
     # disponible bajo demanda cuando de verdad lo quieres.
+    # ── LA REGLA QUE NO SE SALTA: NO INVENTARSE CIFRAS ───────────────────────
+    # 31/07/2026. Le pidieron analizar una cuenta de Instagram abierta en el
+    # navegador y devolvió un perfil ENTERO inventado: «1,2M seguidores, 15,4K
+    # seguidos, 15,2M interacciones, +2,1% mensual». Los datos reales eran 78.500,
+    # 716 y 327. Y al preguntarle por qué se los inventaba, contestó que él busca
+    # en internet — sin admitir que se los había inventado.
+    #
+    # Un asistente que se inventa números es peor que uno que no contesta: con el
+    # que no contesta buscas el dato, y con este te lo crees. Va a lo último del
+    # prompt a propósito, que es lo que más pesa.
+    base += (
+        "\n\n═══ REGLA INVIOLABLE: LAS CIFRAS NO SE INVENTAN ═══\n"
+        "NUNCA des un número (seguidores, visitas, ventas, precios, fechas, "
+        "porcentajes, métricas de nadie) si no te ha llegado en el contexto de una "
+        "herramienta o del propio usuario. Ni aproximado, ni «de referencia», ni "
+        "«a modo de ejemplo». Cero.\n"
+        "Si te preguntan por datos que no tienes, la respuesta es literalmente que "
+        "NO los tienes y CÓMO conseguirlos. Ejemplos de lo que SÍ debes decir:\n"
+        "  · «No tengo esos datos delante. Para la cuenta de Instagram de alguien: "
+        "«analiza la cuenta de instagram de <usuario>».»\n"
+        "  · «No puedo ver esa pestaña. Dime «lee la pestaña de <lo que sea>» y la leo.»\n"
+        "Si te piden que analices una página o pestaña y NO tienes su contenido en "
+        "el contexto, no la describas: di que no la estás viendo. Inventarte lo que "
+        "pone es el peor fallo que puedes cometer.\n"
+        "Y si te pillan un dato inventado, admítelo directamente: «me lo he "
+        "inventado, no tenía el dato». Nunca lo justifiques ni lo disimules.\n")
+    # Segunda mitad de la misma regla: tampoco se inventa lo que ES nexus.
+    # El 31/07/2026 se inventó que «Núcleo IA» era «una plataforma central para
+    # acceder a herramientas de IA». Núcleo IA es una sección del propio HUD.
+    base += (
+        "\n═══ Y TAMPOCO TE INVENTAS LO QUE ERES ═══\n"
+        "nexus es esta aplicación, la que estás ejecutando ahora mismo en el equipo "
+        "del usuario. «Núcleo IA», «Content OS», «Reels», «Tablero», «Engram», "
+        "«Hermes» y demás son SECCIONES Y PIEZAS DE ESTA APLICACIÓN, no productos "
+        "ni plataformas de terceros. Si no sabes qué hace una sección, dilo; no la "
+        "describas a ojo.\n"
+        "Qué modelo o proveedor tienes puesto es un DATO DE CONFIGURACIÓN, no algo "
+        "que se deduzca: si te lo preguntan y no te ha llegado en el contexto, di "
+        "que lo mire con «qué modelo de IA estás usando», que eso sí lo lee de la "
+        "configuración real.\n")
+
     base += REASONING.get(settings.get("reasoning_level", "rapido"), "")
     # PERFIL DEL OPERADOR (auto-reentrenamiento): lo destilado de sus interacciones,
     # para responder a su medida. Se inyecta si existe.

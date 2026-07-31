@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(run.bat)",
+      "Bash(cmd /c start \"\" run.bat)",
+      "Bash(.venv\\Scripts\\python.exe tests\\run_all.py)",
+      "Bash(.venv\\Scripts\\python.exe tests\\*)",
+      "Bash(.venv\\Scripts\\python.exe -m uvicorn backend.app:app *)",
+      "Bash(.venv\\Scripts\\python.exe -m pytest *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)"
+    ],
+    "deny": [
+      "Read(./config/secrets.json)",
+      "Read(./.env)"
+    ]
+  }
+}

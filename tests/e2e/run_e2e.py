@@ -409,26 +409,59 @@ def flujo_cerebro(page, base: str) -> Flow:
         sel.value = 'qwen3:8b'; }""")
     antes = page.evaluate("() => fetch('/api/config').then((r) => r.json())")
     page.click("#ac-savemodel")
-    page.wait_for_timeout(2500)
+
+    # ESPERAR AL VEREDICTO, no un rato fijo. La primera versión de esta prueba
+    # esperaba 2,5 s y leía el mensaje: en el PC de Adri (30/07/2026) Ollama SÍ
+    # estaba sirviendo modelos, así que la prueba real tardaba más y se leía
+    # «Probando «qwen3:8b» con una pregunta real…» — el mensaje intermedio. La
+    # prueba fallaba por su propia prisa, no por un fallo del programa. Cargar un
+    # modelo de 8B la primera vez puede irse a un minuto largo.
+    try:
+        page.wait_for_function(
+            """() => { const e = document.querySelector('#ac-modelmsg');
+                       return e && /^[✓✖]/.test(e.textContent.trim()); }""",
+            timeout=150_000)
+    except Exception:
+        pass
     msg = page.eval_on_selector("#ac-modelmsg", "e => e.textContent.trim()")
     clase = page.eval_on_selector("#ac-modelmsg", "e => e.className")
     despues = page.evaluate("() => fetch('/api/config').then((r) => r.json())")
-    f.check(msg.startswith("✖") or "err" in clase,
-            f"con Ollama apagado el botón NO dice «activo» ({msg!r})")
-    f.check("ollama" in msg.lower(),
-            f"dice qué hay que hacer, en cristiano ({msg!r})")
+    badges2 = page.evaluate("""() => [...document.querySelectorAll('.ac-used')]
+        .map((e) => ({txt: e.textContent.trim(), warn: e.classList.contains('warn')}))""")
+    rt2 = page.evaluate("() => fetch('/api/llm/status').then((r) => r.json())")
+    en_uso = [b for b in badges2 if not b["warn"]]
+
+    f.check(msg.startswith(("✓", "✖")),
+            f"el botón termina y da un veredicto, no se queda «probando» ({msg!r})")
+    f.check("Probando" not in msg, "y no deja el mensaje intermedio colgado")
+
+    # LO QUE DE VERDAD SE EXIGE es COHERENCIA, salga bien o salga mal. Que Ollama
+    # esté o no en la máquina donde corre la prueba NO puede cambiar el veredicto:
+    # cambia la rama, y cada rama tiene su invariante.
+    if msg.startswith("✓"):
+        f.check(rt2.get("active") is True,
+                f"si dice PROBADO, el runtime lo confirma (active={rt2.get('active')})")
+        f.check(rt2.get("provider") == "ollama" and rt2.get("verified") is True,
+                f"y consta como modelo local verificado ({rt2.get('provider')})")
+        f.check(bool(en_uso), f"y la tarjeta pasa a «EN USO» ({badges2})")
+        f.check(despues.get("llm_provider") == "ollama",
+                "y la configuración SÍ se guarda, porque el modelo respondió")
+        f.check("ms" in msg, f"con el tiempo de respuesta como evidencia ({msg!r})")
+    else:
+        f.check(rt2.get("active") is not True or rt2.get("provider") != "ollama",
+                f"si dice que NO, el runtime no lo da por activo ({rt2.get('provider')})")
+        f.check(not en_uso, f"ninguna tarjeta se queda diciendo «EN USO» ({badges2})")
+        f.check(antes.get("llm_provider") == despues.get("llm_provider"),
+                f"y la configuración NO cambia por un intento fallido "
+                f"({antes.get('llm_provider')} → {despues.get('llm_provider')})")
+        f.check(len(msg) > 25, f"y explica el motivo, no solo una cruz ({msg!r})")
+    # esto vale para las dos ramas: al usuario nunca le llega jerga interna
     for termino in ("hermes", "gateway", "endpoint", "localhost", "traceback",
                     "http 4", "http 5", "11434"):
         f.check(termino not in msg.lower(), f"sin jerga interna («{termino}»)")
-    f.check(antes.get("llm_provider") == despues.get("llm_provider"),
-            f"y la configuración NO cambia por un intento fallido "
-            f"({antes.get('llm_provider')} → {despues.get('llm_provider')})")
-    badges2 = page.evaluate("""() => [...document.querySelectorAll('.ac-used')]
-        .map((e) => ({txt: e.textContent.trim(), warn: e.classList.contains('warn')}))""")
-    f.check(not [b for b in badges2 if not b["warn"]],
-            f"ninguna tarjeta se queda diciendo «EN USO» tras fallar ({badges2})")
-    f.estado_despues = {"mensaje": msg, "badges": badges2}
-    f.shot("02-fallo-coherente")
+    f.estado_despues = {"mensaje": msg, "clase": clase, "badges": badges2,
+                        "runtime": rt2, "rama": "exito" if msg.startswith("✓") else "fallo"}
+    f.shot("02-veredicto-coherente")
 
     # ── el desplegable clasifica con el criterio del servidor ────────────────
     cat = page.evaluate("() => fetch('/api/llm/models').then((r) => r.json())")
@@ -436,6 +469,132 @@ def flujo_cerebro(page, base: str) -> Flow:
             "el desplegable se llena con el catálogo ya clasificado del servidor")
     f.check(all(("usable" in i and "kind" in i) for i in cat.get("items", [])),
             "cada modelo llega con su tipo y si se puede usar")
+    return f
+
+
+def flujo_apis(page, base: str) -> Flow:
+    """Configuración: el apartado APIS con todas las claves en un sitio."""
+    f = Flow("config-apis", page, base)
+    nav(page, "command")
+    page.click("#btn-config")
+    page.wait_for_selector("#config-body", timeout=8000)
+    page.wait_for_timeout(700)
+
+    leyendas = page.evaluate(
+        "() => [...document.querySelectorAll('#config-body fieldset legend')].map(e => e.textContent.trim())")
+    f.estado_antes = {"secciones": leyendas}
+    f.check(any("APIS" in l for l in leyendas), f"existe el apartado APIS ({leyendas})")
+    f.check(leyendas.index([l for l in leyendas if "APIS" in l][0]) <= 1,
+            "y está arriba, no enterrado al final")
+
+    # el apartado viene plegado: se abre pulsando su título, como los demás
+    page.evaluate("""() => {
+        const fs = [...document.querySelectorAll('#config-body fieldset')]
+            .find(x => (x.querySelector('legend')||{}).textContent.includes('APIS'));
+        fs.classList.remove('cfg-collapsed'); }""")
+    page.wait_for_timeout(300)
+
+    campos = page.evaluate("""() => [...document.querySelectorAll('[id^="api-"]')].map(e => ({
+        id: e.id.replace('api-',''), tipo: e.type,
+        visible: !!(e.offsetWidth || e.offsetHeight),
+        valor: e.value }))""")
+    f.check(len(campos) >= 15, f"se pintan todas las claves ({len(campos)} campos)")
+    f.check(all(c["visible"] for c in campos), "y se ven de verdad en pantalla")
+    claves = {c["id"] for c in campos}
+    for k in ("openai_api_key", "anthropic_api_key", "gemini_api_key", "elevenlabs_api_key",
+              "ig_access_token", "ig_business_account_id", "telegram_bot_token",
+              "spotify_client_id", "homeassistant_token", "n8n_api_key"):
+        f.check(k in claves, f"está el campo de {k}")
+    secretas = [c for c in campos if c["id"].endswith(("_key", "_token", "_secret", "_url"))
+                and c["id"] != "ig_business_account_id"]
+    f.check(all(c["tipo"] == "password" for c in secretas),
+            "las claves son campos de contraseña, no texto plano")
+    f.check(all(c["valor"] == "" for c in secretas),
+            "y NINGUNA muestra su valor, ni siquiera las guardadas")
+    grupos = page.evaluate(
+        "() => [...document.querySelectorAll('#config-body .api-grupo')].map(e => e.textContent.trim())")
+    f.check(len(grupos) >= 5, f"están agrupadas por servicio ({grupos})")
+    f.estado_despues = {"campos": len(campos), "grupos": grupos}
+    f.shot("01-apartado-apis")
+
+    # y las claves ya no andan sueltas por otras secciones
+    viejos = page.evaluate("""() => ['m-gid','m-igtok','m-tg','m-n8nkey','m-hatok','m-spid']
+        .filter(id => !!document.getElementById(id))""")
+    f.check(not viejos, f"ningún campo de clave suelto en otras secciones ({viejos})")
+    page.click("#m-cancel")
+    return f
+
+
+def flujo_contentos(page, base: str) -> Flow:
+    """Content OS: colores por sección, sin negritas y todo desplegable."""
+    f = Flow("content-os", page, base)
+    nav(page, "contentos")
+    page.wait_for_selector(".cos-sec", timeout=10000)
+    page.wait_for_timeout(600)
+
+    secs = page.evaluate("""() => [...document.querySelectorAll('.cos-sec')].map((s) => ({
+        id: s.dataset.sec,
+        titulo: (s.querySelector('.cos-sec-t')||{}).textContent,
+        color: getComputedStyle(s.querySelector('.cos-sec-ic')).color,
+        borde: getComputedStyle(s).borderLeftColor,
+        abierta: s.classList.contains('abierta'),
+        cuerpoVisible: !!(s.querySelector('.cos-sec-b').offsetHeight) }))""")
+    f.estado_antes = {"secciones": [s["id"] for s in secs]}
+    f.check(len(secs) >= 6, f"Content OS está partido en secciones ({len(secs)})")
+    colores = {s["id"]: s["color"] for s in secs}
+    f.check(len(set(colores.values())) == len(colores),
+            f"cada sección tiene SU color, ninguno repetido ({len(set(colores.values()))} de {len(colores)})")
+    vivos = 0
+    for c in colores.values():
+        n = [int(x) for x in re.findall(r"\d+", c)[:3]]
+        if n and max(n) >= 200 and (max(n) - min(n)) >= 80:
+            vivos += 1
+    f.check(vivos >= 5, f"y son colores flúor, no grises ({vivos} de {len(colores)})")
+    f.check(all(s["borde"] == s["color"] for s in secs),
+            "el color se lleva también al borde de la tarjeta")
+    f.shot("01-secciones")
+
+    # ── plegar y desplegar de verdad ─────────────────────────────────────────
+    abiertas = [s for s in secs if s["abierta"]]
+    f.check(bool(abiertas), f"arranca con algo abierto, no todo cerrado ({len(abiertas)})")
+    f.check(any(not s["abierta"] for s in secs),
+            "y con algo cerrado: no es un muro con todo desplegado")
+    for s in secs:
+        f.check(s["cuerpoVisible"] == s["abierta"],
+                f"«{s['id']}»: lo cerrado no ocupa sitio, lo abierto se ve")
+
+    antes = page.evaluate("() => document.querySelector('.cos-sec[data-sec=\"inspira\"] .cos-sec-b').offsetHeight")
+    page.click('.cos-sec[data-sec="inspira"] .cos-sec-h')
+    page.wait_for_timeout(450)
+    despues = page.evaluate("() => document.querySelector('.cos-sec[data-sec=\"inspira\"] .cos-sec-b').offsetHeight")
+    f.check((antes == 0) != (despues == 0),
+            f"al pulsar el título, la sección se abre o se cierra ({antes} → {despues})")
+    aria = page.eval_on_selector('.cos-sec[data-sec="inspira"] .cos-sec-h', "e => e.getAttribute('aria-expanded')")
+    f.check(aria in ("true", "false") and (aria == "true") == (despues > 0),
+            "y lo dice también para lectores de pantalla")
+    f.shot("02-desplegado")
+
+    # ── el plan de contenido: cada publicación se abre ────────────────────────
+    if not page.evaluate("() => document.querySelector('.cos-sec[data-sec=\"plan\"]').classList.contains('abierta')"):
+        page.click('.cos-sec[data-sec="plan"] .cos-sec-h')
+        page.wait_for_timeout(350)
+    n_items = page.evaluate("() => document.querySelectorAll('.cos-cal-item').length")
+    f.check(n_items > 0, f"el plan lista publicaciones ({n_items})")
+    alto0 = page.evaluate("() => document.querySelector('.cos-cal-item .cos-cal-d').offsetHeight")
+    page.click(".cos-cal-item .cos-cal-h")
+    page.wait_for_timeout(400)
+    alto1 = page.evaluate("() => document.querySelector('.cos-cal-item .cos-cal-d').offsetHeight")
+    f.check(alto0 == 0 and alto1 > 0,
+            f"y cada publicación se despliega con su ficha ({alto0} → {alto1})")
+    detalle = page.eval_on_selector(".cos-cal-item .cos-cal-d", "e => e.innerText")
+    f.check("CUÁNDO" in detalle.upper() and "ESTADO" in detalle.upper(),
+            f"con cuándo, formato y estado ({detalle[:60]!r})")
+
+    # ── se acabaron las negritas ─────────────────────────────────────────────
+    negritas = page.evaluate("""() => [...document.querySelectorAll('.cos-secs b, .cos-secs strong')]
+        .map((e) => e.textContent.trim()).filter(Boolean)""")
+    f.check(len(negritas) <= 1, f"sin negritas repartidas por el contenido ({negritas})")
+    f.estado_despues = {"colores": colores, "items_plan": n_items, "negritas": negritas}
     return f
 
 
@@ -450,6 +609,389 @@ PENDIENTES = [
     "instalado y arrancado en la máquina donde se ejecuten las pruebas.",
 ]
 
+
+
+def _siembra_analisis(sandbox) -> None:
+    """Deja un analisis REAL en los datos desechables.
+
+    Importante: no se escribe un JSON a mano. Se llama al motor de verdad
+    (analisis.panel) con un reel de mentira, asi que lo que pinta el HUD en esta
+    prueba es exactamente lo que pintaria con datos de Instagram. Un fixture
+    escrito a mano probaria el CSS y nada mas."""
+    import importlib.util
+    sp = importlib.util.spec_from_file_location(
+        "iganal", ROOT / "skills" / "instagram" / "analisis.py")
+    A = importlib.util.module_from_spec(sp)
+    sp.loader.exec_module(A)
+
+    def com(u, t, owner=False):
+        return {"username": u, "text": t, "timestamp": "2026-07-30T10:00:00+0000",
+                "is_from_owner": owner, "is_trigger": False, "matched_trigger": None}
+
+    kw = ["QUIERO LA PLANTILLA"]
+    flat = ([com("cuenta", "va para ti", owner=True)] * 5
+            + [com(f"u{i}", "QUIERO LA PLANTILLA") for i in range(48)]
+            + [com(f"t{i}", "plantila") for i in range(6)]
+            + [com("p1", "¿qué micro usas para grabar?"),
+               com("p2", "el micro ese de dónde lo has sacado"),
+               com("p3", "cómo grabas con ese micro"),
+               com("o1", "me parece caro para empezar"),
+               com("o2", "muy caro la verdad"),
+               com("c1", "me interesa para mi empresa, ¿cuál es el precio?")]
+            + [com(f"e{i}", "🔥") for i in range(11)])
+    clas = A.clasificar(flat, kw)
+    sust = clas["cestas"]["sustantivo"]
+    bundle = {"insights": {"reach": 24000, "total_interactions": 3100, "likes": 1900,
+                           "saved": 640, "shares": 210, "follows": 34,
+                           "profile_visits": 210, "ig_reels_avg_watch_time": 7400}}
+    met = A.metricas(bundle, clas)
+    ld = A.leads(clas, atendidos=48)
+    du, ob = A.dudas(sust), A.objeciones(sust)
+    panel = A.panel({
+        "media": {"id": "R1", "permalink": "https://instagram.com/p/r1/",
+                  "timestamp": "2026-07-30", "media_type": "REELS",
+                  "caption": "Comenta PLANTILLA y te la mando"},
+        "metricas": met, "clasificacion": clas, "leads": ld,
+        "sentimiento": A.sentimiento({"positivo": 4, "neutral": 1, "friccion": 2}, len(sust)),
+        "odio": A.cuenta_odio(sust), "dudas": du, "objeciones": ob,
+        "cola": A.cola_editorial(du, ob, ld["calientes"]),
+        "conversion": A.conversion(ld["unicos"], {"dm_enviados": 48, "dm_abiertos": 35,
+                                                  "clics": 12}),
+        "retencion": A.retencion(bundle), "distribucion": A.distribucion(bundle),
+        "benchmark": A.benchmark({"reach": 24000, "saved": 640},
+                                 [{"reach": 30000, "saved": 400},
+                                  {"reach": 26000, "saved": 500}])})
+    d = sandbox / "data" / "instagram"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ultimo_analisis.json").write_text(
+        json.dumps({"cuando": "2026-07-30T12:00:00", "reels": [panel]},
+                   ensure_ascii=False, indent=1), encoding="utf-8")
+
+    # Competencia: tambien generada por el motor de verdad. Un rival con diez
+    # publicaciones normales y UN viral, que es el caso que rompe las medias.
+    # Pies variados a proposito: con todos iguales solo saldria un tipo de gancho
+    # y no se veria lo que importa, que es que los tipos con poca muestra van
+    # marcados como «pocos datos» en vez de colar como conclusion.
+    _PIES = [
+        "\u00bfSab\u00edas que el pan sin gluten se congela? #singluten",
+        "3 errores que arruinan tu masa madre\nComenta GUIA",
+        "No uses harina de arroz sola. Nunca.",
+        "Mi receta de bizcocho sin gluten",
+        "\u00bfPor qu\u00e9 tu pan queda seco?",
+        "Cuando empec\u00e9 no sab\u00eda ni amasar",
+        "\u00bfCu\u00e1l es tu harina favorita?",
+        "El truco para que suba la masa",
+        "\u00bfHarina de trigo sarraceno o de arroz?",
+        "5 panes sin gluten en 5 minutos",
+        "\u00bfTe ha pasado que se desmorona?",
+    ]
+
+    def pub(i, v_, l_, c_, tipo="REELS", dia=None):
+        return {"id": str(i), "caption": _PIES[i % len(_PIES)], "media_type": "VIDEO",
+                "media_product_type": tipo,
+                "permalink": f"https://instagram.com/p/{i}/",
+                "timestamp": (dia or "2026-07-%02d" % (i % 28 + 1)) + "T10:00:00+0000",
+                "view_count": v_, "like_count": l_, "comments_count": c_}
+    rival = {"username": "rival", "name": "Rival", "biography": "hace lo mismo que tu",
+             "followers_count": 50000, "media_count": 420,
+             "media": [pub(i, 20000 + i * 900, 900 + i * 20, 40 + i) for i in range(10)]
+                      + [pub(99, 900000, 40000, 3000, "FEED", "2026-07-20")]}
+    mia = A.mi_perfil_publico("micuenta", 12000,
+                              [pub(i, 9000 + i * 300, 400 + i * 10, 30 + i) for i in range(8)])
+    comp = A.competencia([{"usuario": "rival", "datos": rival},
+                          {"usuario": "personal",
+                           "datos": {"error": "no se ha podido consultar esa cuenta",
+                                     "motivos": ["la cuenta no es Business/Creator"]}}], mia)
+    # la radiografía del rival, generada por el motor real
+    sp3 = importlib.util.spec_from_file_location(
+        "igintel_e2e", ROOT / "skills" / "instagram" / "inteligencia.py")
+    Ie = importlib.util.module_from_spec(sp3)
+    sp3.loader.exec_module(Ie)
+    for c in comp.get("cuentas", []):
+        c["radiografia"] = Ie.radiografia(c, rival["media"])
+    pan = A.panel_competencia(comp)
+    # el bloque de descubrimiento, tal cual lo deja el flujo real
+    sp2 = importlib.util.spec_from_file_location(
+        "igdesc_e2e", ROOT / "skills" / "instagram" / "descubrimiento.py")
+    De = importlib.util.module_from_spec(sp2)
+    sp2.loader.exec_module(De)
+    nicho = De.deduce_nicho([{"caption": "Receta de pan sin gluten #singluten"},
+                             {"caption": "Masa madre sin gluten #singluten"},
+                             {"caption": "Bizcocho sin gluten #reposteria"}],
+                            {"nicho": "cocina sin gluten"})
+    pan["descubrimiento"] = {
+        "nicho": nicho, "consultas": De.consultas(nicho),
+        "candidatos": 7, "validados": 1,
+        "descartados": [{"usuario": "personal",
+                         "motivo": "la API no la puede consultar (cuenta personal)"},
+                        {"usuario": "motosclasicas",
+                         "motivo": "no se le ha encontrado ningun tema en comun"}]}
+    (d / "competencia.json").write_text(
+        json.dumps({"cuando": "2026-07-30T12:30:00", "panel": pan},
+                   ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def flujo_reels(page, base: str) -> Flow:
+    """Reels: cada cifra con su origen, secciones de color y todo desplegable."""
+    f = Flow("reels", page, base)
+    nav(page, "reels")
+    page.wait_for_selector(".ig-sec", timeout=10000)
+    page.wait_for_timeout(600)
+
+    secs = page.evaluate("""() => [...document.querySelectorAll('.ig-sec')].map((s) => ({
+        id: s.dataset.sec,
+        titulo: (s.querySelector('.cos-sec-t')||{}).textContent,
+        color: getComputedStyle(s.querySelector('.cos-sec-ic')).color,
+        borde: getComputedStyle(s).borderLeftColor,
+        abierta: s.classList.contains('abierta'),
+        metodo: !!s.querySelector('.ig-metodo'),
+        cuerpoVisible: !!(s.querySelector('.cos-sec-b').offsetHeight) }))""")
+    ids = [s["id"] for s in secs]
+    f.estado_antes = {"secciones": ids}
+    for q in ("numeros", "reparto", "leads", "conversion", "sentimiento", "dudas",
+              "objeciones", "cola", "retencion", "distribucion", "benchmark"):
+        f.check(q in ids, f"está la sección «{q}»")
+
+    colores = {s["id"]: s["color"] for s in secs}
+    f.check(len(set(colores.values())) == len(colores),
+            f"cada sección tiene SU color, ninguno repetido ({len(set(colores.values()))} de {len(colores)})")
+    vivos = 0
+    for c in colores.values():
+        n = [int(x) for x in re.findall(r"\d+", c)[:3]]
+        if n and max(n) >= 200 and (max(n) - min(n)) >= 80:
+            vivos += 1
+    f.check(vivos >= len(colores) - 1, f"y son colores flúor, no grises ({vivos} de {len(colores)})")
+    f.check(all(s["borde"] == s["color"] for s in secs), "el color llega al borde de la tarjeta")
+    f.check(all(s["metodo"] for s in secs), "TODA sección explica cómo se calcula lo que enseña")
+    f.shot("01-secciones")
+
+    # ── lo que de verdad pidió Adri: de dónde sale cada número ───────────────
+    kpis = page.evaluate("""() => [...document.querySelectorAll('.ig-kpi')].map((k) => ({
+        metrica: (k.querySelector('.ig-kpi-m')||{}).textContent,
+        valor: (k.querySelector('.ig-kpi-n')||{}).textContent,
+        origen: (k.querySelector('.ig-fuente')||{}).textContent }))""")
+    f.check(len(kpis) >= 7, f"están las métricas del reel ({len(kpis)})")
+    f.check(all(k["origen"] and k["origen"].strip() for k in kpis),
+            "NINGUNA métrica se enseña sin decir de dónde sale")
+    f.check(any("Graph API" in (k["origen"] or "") for k in kpis), "unas vienen de la API")
+    f.check(any("nexus" in (k["origen"] or "") for k in kpis), "y otras las calcula nexus")
+    f.check(any("19" in (k["valor"] or "") or "24.000" in (k["valor"] or "") for k in kpis),
+            f"las cifras salen formateadas ({[k['valor'] for k in kpis][:3]})")
+
+    # ── la aritmética, a la vista ────────────────────────────────────────────
+    suma = page.evaluate("""() => { const s = document.querySelector('.ig-suma');
+        return s ? {txt: s.textContent.trim(), ok: s.classList.contains('ok')} : null; }""")
+    f.check(bool(suma) and suma["ok"], f"el HUD certifica que la suma cuadra ({suma})")
+    f.check("de" in (suma or {}).get("txt", ""), "diciendo cuántos de cuántos")
+
+    # ── el embudo y lo que NO se sabe ────────────────────────────────────────
+    conv = page.evaluate("""() => {
+        const s = document.querySelector('.ig-sec[data-sec="conversion"]');
+        if (!s) return null;
+        if (!s.classList.contains('abierta')) s.querySelector('.cos-sec-h').click();
+        return {pasos: s.querySelectorAll('.ig-paso').length,
+                faltan: [...s.querySelectorAll('.ig-faltan li')].map(x => x.textContent.trim())}; }""")
+    page.wait_for_timeout(300)
+    f.check(conv and conv["pasos"] >= 3, f"el embudo pinta sus pasos ({conv})")
+    f.check(conv and any("Convertidos" in x or "venta" in x.lower() for x in conv["faltan"]),
+            f"y lo que no se ha registrado se declara, no se estima ({(conv or {}).get('faltan')})")
+
+    # ── plegar y desplegar de verdad ─────────────────────────────────────────
+    f.check(any(s["abierta"] for s in secs), "arranca con algo abierto")
+    f.check(any(not s["abierta"] for s in secs), "y con algo cerrado: no es un muro")
+    for s in secs:
+        f.check(s["cuerpoVisible"] == s["abierta"],
+                f"«{s['id']}»: lo cerrado no ocupa sitio, lo abierto se ve")
+    antes = page.evaluate("() => document.querySelector('.ig-sec[data-sec=\"objeciones\"] .cos-sec-b').offsetHeight")
+    page.click('.ig-sec[data-sec="objeciones"] .cos-sec-h')
+    page.wait_for_timeout(450)
+    despues = page.evaluate("() => document.querySelector('.ig-sec[data-sec=\"objeciones\"] .cos-sec-b').offsetHeight")
+    f.check(despues != antes, f"al pulsar el título, la sección se abre o se cierra ({antes} → {despues})")
+    f.check(page.evaluate("() => document.querySelector('.ig-sec[data-sec=\"objeciones\"] .cos-sec-h').getAttribute('aria-expanded')") in ("true", "false"),
+            "y lo dice también para lectores de pantalla")
+    f.shot("02-desplegado")
+
+    # ── la cola editorial: cada idea con su ficha ────────────────────────────
+    ideas = page.evaluate("""() => {
+        const s = document.querySelector('.ig-sec[data-sec="cola"]');
+        if (s && !s.classList.contains('abierta')) s.querySelector('.cos-sec-h').click();
+        return document.querySelectorAll('.ig-idea').length; }""")
+    page.wait_for_timeout(350)
+    f.check(ideas >= 2, f"la cola editorial lista temas ({ideas})")
+    alto0 = page.evaluate("() => document.querySelector('.ig-idea .cos-cal-d').offsetHeight")
+    page.click('.ig-idea .cos-cal-h')
+    page.wait_for_timeout(400)
+    alto1 = page.evaluate("() => document.querySelector('.ig-idea .cos-cal-d').offsetHeight")
+    f.check(alto1 > alto0, f"y cada idea se despliega con su gancho y quién la pidió ({alto0} → {alto1})")
+    ficha = page.evaluate("() => document.querySelector('.ig-idea.abierta .cos-cal-d').textContent")
+    f.check("Gancho" in ficha and "Por qué" in ficha, "con gancho y motivo, no solo el título")
+
+    # ── sin negritas repartidas (la queja de Adri en Content OS) ─────────────
+    negritas = page.evaluate("""() => [...document.querySelectorAll('#ig .cos-sec-b b, #ig .cos-sec-b strong')]
+        .map(b => b.textContent.trim()).filter(t => t.length > 24)""")
+    f.check(not negritas, f"sin negritas repartidas por el texto ({negritas[:3]})")
+    f.shot("03-cola")
+    return f
+
+
+def _abre(page, sec: str) -> None:
+    """Abre una seccion con un clic de verdad (no desde JS) si esta cerrada."""
+    sel = f'.ig-sec[data-sec="{sec}"]'
+    page.wait_for_selector(sel, timeout=8000)
+    if "abierta" not in (page.get_attribute(sel, "class") or ""):
+        page.click(sel + " .cos-sec-h")
+    page.wait_for_timeout(400)
+
+
+def flujo_competencia(page, base: str) -> Flow:
+    """Competencia: cuentas ajenas, con lo que la API deja ver y lo que no."""
+    f = Flow("competencia", page, base)
+    nav(page, "reels")
+    page.wait_for_selector(".ig-tab", timeout=10000)
+    pestanas = page.evaluate("() => [...document.querySelectorAll('.ig-tab')].map(b => b.textContent.trim())")
+    f.check(len(pestanas) == 2, f"la vista Reels tiene dos pestañas ({pestanas})")
+    page.click('.ig-tab[data-tab="competencia"]')
+    page.wait_for_selector('.ig-sec[data-sec="tabla"]', timeout=10000)
+    page.wait_for_timeout(500)
+    f.check(page.evaluate("() => document.querySelector('.ig-tab[data-tab=\"competencia\"]').classList.contains('activa')"),
+            "al pulsarla se marca como activa")
+
+    secs = page.evaluate("""() => [...document.querySelectorAll('.ig-sec')].map((s) => ({
+        id: s.dataset.sec, metodo: !!s.querySelector('.ig-metodo'),
+        color: getComputedStyle(s.querySelector('.cos-sec-ic')).color }))""")
+    ids = [s["id"] for s in secs]
+    for q in ("descubrimiento", "tabla", "brechas", "cuentas", "limites"):
+        f.check(q in ids, f"está la sección «{q}»")
+
+    # ── de dónde han salido las cuentas: el nicho, lo buscado y lo descartado ─
+    _abre(page, "descubrimiento")
+    des = page.evaluate("""() => {
+        const s = document.querySelector('.ig-sec[data-sec="descubrimiento"]');
+        return {tags: [...s.querySelectorAll('.ig-tag')].map(x => x.textContent.trim()),
+                consultas: [...s.querySelectorAll('.ig-otra')].map(x => x.textContent.trim()),
+                caidas: [...s.querySelectorAll('.ig-cita')].map(x => x.textContent.trim()),
+                chips: [...s.querySelectorAll('.ig-chip')].map(x => x.textContent.trim())}; }""")
+    f.check(any("gluten" in t for t in des["tags"]),
+            f"enseña el nicho que ha deducido ({des['tags']})")
+    f.check(len(des["consultas"]) >= 3,
+            f"y qué ha buscado por internet ({len(des['consultas'])} búsquedas)")
+    f.check(any("instagram" in q.lower() for q in des["consultas"]),
+            "con las búsquedas reales, no un resumen")
+    f.check(len(des["caidas"]) == 2, f"dice qué cuentas se han caído ({len(des['caidas'])})")
+    f.check(any("personal" in c for c in des["caidas"]), "nombrando cuál")
+    f.check(any("cuenta personal" in c for c in des["caidas"]), "y por qué se ha caído")
+    f.check(any("confirmadas por Meta" in c for c in des["chips"]),
+            f"y cuántas ha confirmado Meta ({des['chips']})")
+    f.shot("00-descubrimiento")
+    f.check(all(s["metodo"] for s in secs), "cada bloque explica su método")
+    f.check(len({s["color"] for s in secs}) == len(secs), "cada uno con su color")
+
+    # ── la tabla cara a cara ─────────────────────────────────────────────────
+    tabla = page.evaluate("""() => {
+        const t = document.querySelector('.ig-tabla'); if (!t) return null;
+        return {cabeceras: [...t.querySelectorAll('thead th')].map(x => x.textContent.trim()),
+                filas: [...t.querySelectorAll('tbody tr')].map(tr => tr.querySelector('th').textContent.trim()),
+                tuyas: t.querySelectorAll('.tuya').length,
+                lideres: t.querySelectorAll('td.lider').length}; }""")
+    f.check(tabla and tabla["tuyas"] > 0, f"tu columna va marcada ({tabla})")
+    f.check(any("TÚ" in c for c in (tabla or {}).get("cabeceras", [])), "y se ve que es la tuya")
+    for q in ("Reproducciones", "Me gusta", "Comentarios", "Seguidores"):
+        f.check(any(q in x for x in (tabla or {}).get("filas", [])),
+                f"la tabla compara «{q}»")
+    f.check((tabla or {}).get("lideres", 0) > 0, "y marca quién va por delante en cada fila")
+    f.shot("01-cara-a-cara")
+
+    # ── LO IMPORTANTE: lo que NO se puede ver, se ve ─────────────────────────
+    _abre(page, "limites")
+    lim = page.evaluate("""() => [...document.querySelectorAll('.ig-sec[data-sec="limites"] .ig-limite')]
+        .map(x => ({que: (x.querySelector('.ig-limite-t')||{}).textContent.trim(),
+                    por: (x.querySelector('.ig-limite-p')||{}).textContent.trim()}))""")
+    f.check(page.is_visible('.ig-sec[data-sec="limites"] .ig-limite'),
+            "el bloque de limites se abre con un clic, como cualquier otro")
+    quees = " ".join(x["que"] for x in (lim or []))
+    f.check("entimiento" in quees, f"dice que el sentimiento de sus comentarios NO se puede ver ({quees})")
+    f.check("Compartidos" in quees, "ni los compartidos")
+    f.check("Guardados" in quees, "ni los guardados")
+    f.check("Alcance" in quees, "ni el alcance")
+    f.check(all(x["por"] for x in (lim or [])), "y de cada uno, por qué")
+    metodo_lim = page.evaluate("() => document.querySelector('.ig-sec[data-sec=\"limites\"] .ig-metodo').textContent")
+    f.check("scraping" in metodo_lim, "dejando claro que no se saca por scraping")
+
+    # ── la cuenta que no se ha podido consultar, tampoco se esconde ──────────
+    aviso = page.evaluate("() => (document.querySelector('#ig .ig-aviso.mal')||{}).textContent || ''")
+    f.check("personal" in aviso, f"la cuenta que no se ha podido consultar se nombra ({aviso[:70]})")
+
+    # ── el detalle de cada cuenta se despliega ───────────────────────────────
+    _abre(page, "cuentas")
+    alto0 = page.evaluate("() => document.querySelector('.ig-cuenta .cos-cal-d').offsetHeight")
+    page.click('.ig-cuenta .cos-cal-h')
+    page.wait_for_timeout(400)
+    alto1 = page.evaluate("() => document.querySelector('.ig-cuenta .cos-cal-d').offsetHeight")
+    f.check(alto1 > alto0, f"cada cuenta se despliega con su ficha ({alto0} → {alto1})")
+    ficha = page.evaluate("() => document.querySelector('.ig-cuenta.abierta .cos-cal-d').textContent")
+    f.check("formato le funciona" in ficha, "con qué formato le funciona")
+    f.check("más le ha funcionado" in ficha, "y sus publicaciones más vistas")
+    # ── fase 3: qué está creando ─────────────────────────────────────────────
+    f.check("Cómo engancha" in ficha, "cómo engancha")
+    f.check("Cómo escribe" in ficha, "cómo escribe")
+    f.check("Cuándo publica" in ficha, "cuándo publica")
+    f.check("salido de la norma" in ficha, "y qué se le ha salido de su propia norma")
+    radio = page.evaluate("""() => {
+        const r = document.querySelector('.ig-cuenta.abierta .ig-radio');
+        if (!r) return null;
+        return {cabecera: (r.querySelector('.ig-radio-cab')||{}).textContent || '',
+                hooks: [...r.querySelectorAll('.ig-hook')].map(h => ({
+                    t: (h.querySelector('.ig-hook-t')||{}).textContent.trim(),
+                    n: (h.querySelector('.ig-hook-n')||{}).textContent.trim(),
+                    q: (h.querySelector('.ig-hook-q')||{}).textContent.trim()})),
+                gana: r.querySelectorAll('.ig-hook-gana').length,
+                pocos: r.querySelectorAll('.ig-hook-poco').length,
+                picos: [...r.querySelectorAll('.ig-pico')].map(p => ({
+                    m: (p.querySelector('.ig-pico-m')||{}).textContent.trim(),
+                    cifras: (p.querySelector('.ig-pico-cifras')||{}).textContent.trim(),
+                    g: (p.querySelector('.ig-pico-g')||{}).textContent.trim()})),
+                notas: [...r.querySelectorAll('.ig-nota')].map(x => x.textContent.trim()),
+                chips: [...r.querySelectorAll('.ig-chip span')].map(x => x.textContent.trim())}; }""")
+    # ── lo que pidió Adri: que se entienda QUÉ es cada cosa ──────────────────
+    f.check(radio and "@" in radio["cabecera"] and "analizadas" in radio["cabecera"],
+            f"dice de quién es la ficha y sobre cuántas publicaciones ({(radio or {}).get('cabecera')})")
+    f.check(radio and radio["hooks"], "lista los tipos de gancho")
+    f.check(all(h["q"] for h in (radio or {}).get("hooks", [])),
+            "y CADA UNO explica qué es, no solo cómo se llama")
+    f.check(all(("publicaci" in h["n"]) and "mediana" in h["n"]
+                for h in (radio or {}).get("hooks", [])),
+            f"con cuántas publicaciones y de qué es el número ({(radio or {}).get('hooks', [{}])[0].get('n')})")
+    f.check((radio or {}).get("gana") == 1, "y solo uno marcado como el que mejor le funciona")
+    f.check((radio or {}).get("pocos", 0) > 0,
+            f"marcando «pocos datos» donde no hay muestra ({(radio or {}).get('pocos')})")
+    f.check(any("piden algo" in c for c in (radio or {}).get("chips", [])),
+            f"las cifras de escritura dicen qué son ({(radio or {}).get('chips')})")
+    picos = (radio or {}).get("picos", [])
+    f.check(picos, "enseña los picos de rendimiento")
+    f.check(all("@" in p["m"] and "-" in p["m"] for p in picos),
+            f"cada uno con usuario y fecha ({picos[0]['m'] if picos else None})")
+    f.check(all("me gusta" in p["cifras"] and "comentarios" in p["cifras"] for p in picos),
+            f"y sus métricas completas ({picos[0]['cifras'] if picos else None})")
+    f.check(all("gancho" in p["g"].lower() for p in picos),
+            "y con qué gancho lo consiguió")
+    try:
+        page.locator(".ig-radio").first.scroll_into_view_if_needed()
+        page.wait_for_timeout(350)
+    except Exception:
+        pass
+    f.shot("03-radiografia")
+    f.shot("02-cuentas")
+
+    # ── la pestaña se recuerda, y se puede volver ───────────────────────────
+    nav(page, "command")
+    nav(page, "reels")
+    page.wait_for_timeout(700)
+    f.check(page.evaluate("() => !!document.querySelector('.ig-sec[data-sec=\"tabla\"]')"),
+            "al volver, sigue en la pestaña donde estabas")
+    page.click('.ig-tab[data-tab="mios"]')
+    page.wait_for_selector('.ig-sec[data-sec="numeros"]', timeout=8000)
+    f.check(True, "y se puede volver a tus reels")
+    return f
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -482,6 +1024,8 @@ def main() -> int:
         "hermes_auto": False, "hermes_autostart": False, "smart_router": False,
         "web_augment": False, "self_learning": False, "engram_enabled": False,
     }, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    _siembra_analisis(sandbox)
 
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
@@ -533,7 +1077,7 @@ def main() -> int:
                   "    el indicador tardaría más en pintarse.")
 
         for fn in (flujo_tareas, flujo_multitarea, flujo_orquestacion, flujo_sidebar,
-                   flujo_cerebro):
+                   flujo_cerebro, flujo_apis, flujo_contentos, flujo_reels, flujo_competencia):
             print(f"\n▸ Flujo: {fn.__doc__.splitlines()[0]}")
             try:
                 flows.append(fn(page, base))

@@ -52,7 +52,8 @@ def _token(ctx) -> str:
 
 
 def _ig_user(ctx) -> str:
-    return ctx["settings"].get("ig_user_id", "")
+    return (str(ctx["settings"].get("ig_user_id", "") or "").strip()
+            or str(ctx["settings"].get("ig_business_account_id", "") or "").strip())
 
 
 # ---------------------------------------------------------------- inspiración
@@ -94,7 +95,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "connect":
         token = settings.secret("ig_access_token")
-        uid = settings.get("ig_user_id", "")
+        uid = (str(settings.get("ig_user_id", "") or "").strip()
+                or str(settings.get("ig_business_account_id", "") or "").strip())
         if not token or not uid:
             return {"reply": "Para conectar Instagram necesito 2 cosas en ⚙: el "
                              "«ig_access_token» (token de la Graph API) y el «ig_user_id» "
@@ -117,7 +119,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"No he podido hablar con Instagram: {exc}"}
 
     if intent == "analytics":
-        token, uid = settings.secret("ig_access_token"), settings.get("ig_user_id", "")
+        token, uid = settings.secret("ig_access_token"), (str(settings.get("ig_user_id", "") or "").strip()
+                or str(settings.get("ig_business_account_id", "") or "").strip())
         if not token or not uid:
             # Ejemplo coherente (como el panel Content OS) mientras no hay token
             return {"reply": "📊 Instagram (ejemplo — conecta tu cuenta en ⚙ para datos "
@@ -141,7 +144,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"Error leyendo insights: {exc}"}
 
     if intent == "best":
-        token, uid = settings.secret("ig_access_token"), settings.get("ig_user_id", "")
+        token, uid = settings.secret("ig_access_token"), (str(settings.get("ig_user_id", "") or "").strip()
+                or str(settings.get("ig_business_account_id", "") or "").strip())
         if not token or not uid:
             return {"reply": "Para el ranking real necesito tu cuenta conectada: pon "
                              "«ig_access_token» e «ig_user_id» en ⚙ (di «conecta mi instagram» "

@@ -45,9 +45,23 @@ MAX_PAGE_CHARS = 12000          # texto de página que pasamos al LLM
 SKILL = {
     "name": "Chrome",
     "description": "Navegador en vivo: leer y resumir tus pestañas abiertas, cambiar, abrir y cerrar (CDP, como chrome-devtools-mcp)",
+    # Qué hace cada intent, EN PALABRAS. Es lo que lee el planificador para
+    # elegir: con solo el nombre («read») estaba adivinando.
+    "intents": {
+        "connect": "arrancar Chrome en modo nexus y vincularlo para poder leerlo",
+        "close": "cerrar una pestaña",
+        "switch": "traer al frente una pestaña que ya está abierta",
+        "open": "abrir una pestaña nueva con una URL o una búsqueda",
+        "read": "LEER DE VERDAD el contenido de una pestaña abierta y analizarlo o "
+                "resumirlo. Úsalo SIEMPRE que pidan analizar, resumir, mirar o "
+                "contar qué hay en una página, pestaña o pantalla del navegador",
+        "tabs": "listar qué pestañas hay abiertas",
+    },
     "patterns": {
         # Conectar / estado. «modo nexus» del navegador.
-        "connect": r"(?:conecta(?:te)?\s+(?:con|a)\s+chrome|vincula\s+chrome|"
+        # «conéctate» con tilde no casaba: solo «conectate». Media España escribe
+        # con tilde y se quedaba sin conectar el navegador.
+        "connect": r"(?:con[eé]cta(?:te)?\s+(?:con|a)\s+chrome|vincula\s+chrome|"
                    r"(?:reinicia|arranca|lanza|inicia)\s+chrome(?:\s+en\s+modo\s+(?:nexus|depuraci[oó]n|debug))?|"
                    r"chrome\s+en\s+modo\s+nexus|estado\s+de\s+chrome)",
         # Cerrar una pestaña — ANTES que read/switch por si acaso, y muy específica.
@@ -59,11 +73,20 @@ SKILL = {
         "open": r"abre\s+una\s+(?:nueva\s+)?pesta[ñn]a(?:\s+(?:con|de|para|y\s+busca))?\s*(?P<what>.*)"
                 r"|abre\s+(?P<what2>\S.{0,120}?)\s+en\s+(?:chrome|el\s+navegador)",
         # Leer/resumir el contenido REAL de una pestaña.
-        "read": r"(?:lee|l[eé]e(?:me)?|resume|res[uú]me(?:me)?|analiza|expl[ií]ca(?:me)?|traduce|de\s+qu[eé]\s+va)"
+        # OJO con lo estrecho que era esto: «analiza lo que ves en la pagina de
+        # chrome» no casaba, se iba al cerebro y el cerebro se INVENTABA lo que
+        # ponía en la página (31/07). Si alguien pide analizar algo del navegador,
+        # tiene que llegar a quien lee el navegador de verdad.
+        "read": r"(?:lee|l[eé]e(?:me)?|resume|res[uú]me(?:me)?|analiza|analiza|expl[ií]ca(?:me)?|traduce|de\s+qu[eé]\s+va)"
                 r"[^.\n]{0,40}\bpesta[ñn]a\b(?P<sel>[^.\n]{0,60})?"
-                r"|(?:lee|resume|analiza)[^.\n]{0,30}\b(?:p[aá]gina|web)\b[^.\n]{0,25}"
-                r"\b(?:abierta|actual|activa|que\s+(?:tengo|estoy)\s+(?:abierta|viendo|mirando|leyendo))"
-                r"|qu[eé]\s+estoy\s+(?:viendo|mirando|leyendo)\s+en\s+(?:chrome|el\s+navegador)",
+                r"|(?:lee|resume|analiza|mira|dime)[^.\n]{0,40}\b(?:p[aá]gina|web|pantalla)\b"
+                r"[^.\n]{0,30}\b(?:abierta|actual|activa|de\s+chrome|del\s+navegador|"
+                r"que\s+(?:tengo|estoy)\s+(?:abierta|viendo|mirando|leyendo))"
+                r"|(?:lee|resume|analiza|mira)\s+(?:lo\s+que\s+(?:ves|hay|pone)\s+)?"
+                r"(?:en\s+)?(?:la\s+|el\s+)?(?:p[aá]gina|pesta[ñn]a|pantalla)?\s*(?:de\s+)?"
+                r"(?:chrome|el\s+navegador)\b"
+                r"|qu[eé]\s+(?:estoy\s+(?:viendo|mirando|leyendo)|ves|hay|pone)\s+"
+                r"en\s+(?:chrome|el\s+navegador|la\s+pantalla)",
         # Listado de pestañas — la más amplia, al final del dict.
         "tabs": r"(?:qu[eé]|cu[aá]les|cu[aá]ntas)\s+pesta[ñn]as|"
                 r"(?:ver|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|lista(?:me)?|dime|dame)\s+(?:las\s+|mis\s+)?pesta[ñn]as|"

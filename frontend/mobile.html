@@ -155,6 +155,73 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
   // token de VINCULACIÓN (viene en el QR); se guarda para siempre en el móvil
   const TOKEN = params.get('token') || localStorage.getItem('nexus_token') || '';
   if (params.get('token')) localStorage.setItem('nexus_token', params.get('token'));
+
+  /* ── LA VINCULACIÓN NO CADUCA ────────────────────────────────────────────
+     El problema que arregla esto: el móvil guardaba UNA dirección. Si esa era
+     la del túnel —que es aleatoria y distinta en cada arranque de nexus—, al
+     apagar y encender el PC la dirección guardada ya no existía y había que
+     volver a escanear el QR. El token nunca fue el problema; la dirección sí.
+     Ahora se guarda una LISTA de direcciones (el nombre del equipo, que no
+     cambia nunca; la IP de la WiFi; el túnel del momento) y se refresca sola
+     cada vez que se conecta. Así, mientras UNA de ellas conteste, el móvil
+     sigue vinculado — sin volver a escanear nada. ───────────────────────── */
+  const HOSTS_KEY = 'nexus_hosts';
+  function hostsGuardados() {
+    try { return JSON.parse(localStorage.getItem(HOSTS_KEY) || '[]'); } catch (_) { return []; }
+  }
+  function guardaHosts(lista) {
+    const limpia = [...new Set(lista.filter(Boolean))].slice(0, 8);
+    if (limpia.length) localStorage.setItem(HOSTS_KEY, JSON.stringify(limpia));
+  }
+  // Al abrir: lo que venga en el QR (host + alt) manda; se suma a lo ya guardado.
+  (function () {
+    const nuevos = [];
+    if (params.get('host')) nuevos.push(`${location.protocol}//${params.get('host')}`);
+    (params.get('alt') || '').split(',').forEach((u) => { if (u.trim()) nuevos.push(u.trim()); });
+    nuevos.push(`${location.protocol}//${location.host}`);
+    guardaHosts([...nuevos, ...hostsGuardados()]);
+  })();
+  // Y cada vez que conecta, le pide al PC su lista actual: si el túnel cambió,
+  // el móvil se entera solo la próxima vez que estén en la misma red.
+  async function refrescaHosts(base) {
+    try {
+      const r = await fetch(`${base}/api/link/status?token=${encodeURIComponent(TOKEN)}`);
+      const st = await r.json();
+      if (st && Array.isArray(st.hosts)) {
+        const bases = st.hosts.map((h) => `${h.esquema}://${h.host}`);
+        guardaHosts([...bases, base, ...hostsGuardados()]);
+        // Y se la pasamos a la APP: es lo que hace que la vinculación no
+        // caduque. La app guarda UNA dirección para arrancar el WebView; si esa
+        // muere (el túnel cambia en cada arranque del PC), sin esto habría que
+        // reescanear el QR. Con esto, la app se entera del cambio sola.
+        try {
+          if (window.WabiksNative && window.WabiksNative.saveHosts) {
+            const conToken = [...new Set([...bases, ...hostsGuardados()])]
+              .map((b) => `${b.replace(/\/+$/, '')}/m?token=${encodeURIComponent(TOKEN)}`);
+            window.WabiksNative.saveHosts(conToken.join('|'));
+          }
+        } catch (_) { /* en el navegador normal no existe el puente */ }
+      }
+    } catch (_) { /* silencioso */ }
+  }
+  // Busca cuál de las direcciones conocidas responde AHORA.
+  async function buscaPC() {
+    const candidatos = [`${location.protocol}//${HOST}`, ...hostsGuardados()];
+    for (const base of [...new Set(candidatos)]) {
+      try {
+        const ctl = new AbortController();
+        const t = setTimeout(() => ctl.abort(), 2500);
+        const r = await fetch(`${base}/api/jobs?token=${encodeURIComponent(TOKEN)}`,
+                              { signal: ctl.signal });
+        clearTimeout(t);
+        if (r.ok) { guardaHosts([base, ...hostsGuardados()]); return base; }
+      } catch (_) { /* la siguiente */ }
+    }
+    return '';
+  }
+  window.__nexusBuscaPC = buscaPC;          // lo usa la pantalla de reconexión
+  window.__nexusRefrescaHosts = refrescaHosts;
+
   const HTTP = `${location.protocol}//${HOST}`;
   const WSP = location.protocol === 'https:' ? 'wss' : 'ws';
   const TQ = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : '';

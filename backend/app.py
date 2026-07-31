@@ -13,8 +13,10 @@ Endpoints principales:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -88,7 +90,10 @@ app = FastAPI(title="nexus", version="1.0.0", lifespan=lifespan)
 async def no_cache_estaticos(request, call_next):
     resp = await call_next(request)
     try:
-        if request.url.path.startswith("/static/"):
+        # /m también: es la página del móvil, y el WebView de Android la cachea
+        # con ganas. Si se queda con una versión vieja, el móvil sigue con la
+        # lógica antigua de una sola dirección y vuelve el «revincula otra vez».
+        if request.url.path.startswith("/static/") or request.url.path in ("/m", "/"):
             resp.headers["Cache-Control"] = "no-store, must-revalidate"
             resp.headers["Pragma"] = "no-cache"
             resp.headers["Expires"] = "0"
@@ -97,21 +102,54 @@ async def no_cache_estaticos(request, call_next):
     return resp
 
 
+# Lo único que puede pedirse SIN estar vinculado: la página del móvil y sus
+# estáticos (si no, el QR llevaría a una pantalla en blanco y no habría forma de
+# vincularse nunca). No hay ninguna acción detrás de estas rutas.
+_RUTAS_PUBLICAS = ("/m", "/static/", "/favicon.ico", "/manifest.webmanifest", "/sw.js")
+
+
+def _es_este_equipo(request) -> bool:
+    """¿La petición nace en ESTE PC? (el HUD de escritorio y el .exe)."""
+    if request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for"):
+        return False                      # viene de fuera por un túnel/proxy
+    host = getattr(getattr(request, "client", None), "host", "") or ""
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
 @app.middleware("http")
 async def remote_auth(request, call_next):
-    if request.headers.get("cf-connecting-ip"):
-        from backend.core import remote
-        tok = (request.query_params.get("token")
-               or request.headers.get("x-nexus-token", "")
-               or request.cookies.get("nexus_token", ""))
-        if tok != remote.link_token():
-            from fastapi.responses import JSONResponse
-            return JSONResponse({"error": "no autorizado — vincula el móvil con el QR de nexus"},
-                                status_code=401)
-        response = await call_next(request)
-        response.set_cookie("nexus_token", tok, max_age=86400 * 365)
-        return response
-    return await call_next(request)
+    """CERRADO POR DEFECTO: manda órdenes quien está vinculado, y nadie más.
+
+    Antes esto solo pedía el token CUANDO la petición traía la cabecera
+    `cf-connecting-ip` (la que añade el túnel). Todo lo demás —cualquier
+    dispositivo de la WiFi, o de internet si se reenviaba el puerto 8177 como
+    sugería MOBILE.md— entraba SIN NINGUNA CREDENCIAL a /api/command, o sea, a
+    dar órdenes al PC. Lo único que protegía era que uvicorn escucha en
+    127.0.0.1 (auditoría 30/07/2026).
+
+    Ahora: este mismo equipo pasa; cualquier otro origen necesita el token del
+    QR, venga por el túnel, por la WiFi o por donde sea.
+    """
+    ruta = request.url.path
+    if _es_este_equipo(request) or ruta.startswith(_RUTAS_PUBLICAS):
+        return await call_next(request)
+
+    from backend.core import remote
+    tok = (request.query_params.get("token")
+           or request.headers.get("x-nexus-token", "")
+           or request.cookies.get("nexus_token", ""))
+    import hmac
+    esperado = remote.link_token()
+    # Comparación en tiempo constante: un `!=` normal deja adivinar el token
+    # carácter a carácter midiendo cuánto tarda en responder.
+    if not esperado or not hmac.compare_digest(str(tok), str(esperado)):
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"error": "no autorizado — vincula el móvil con el QR de nexus"},
+                            status_code=401)
+    response = await call_next(request)
+    response.set_cookie("nexus_token", tok, max_age=86400 * 365,
+                        httponly=True, samesite="lax")
+    return response
 
 
 class Command(BaseModel):
@@ -130,9 +168,17 @@ class SayText(BaseModel):
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     from backend.core import remote
-    # WS remoto (túnel) → exige el token del QR; local/LAN pasa libre
-    if ws.headers.get("cf-connecting-ip"):
-        if ws.query_params.get("token", "") != remote.link_token():
+    # Mismo criterio que el middleware HTTP: este equipo pasa; cualquier otro
+    # origen (túnel, WiFi, lo que sea) necesita el token del QR.
+    _local = (not ws.headers.get("cf-connecting-ip")
+              and not ws.headers.get("x-forwarded-for")
+              and getattr(getattr(ws, "client", None), "host", "")
+              in ("127.0.0.1", "::1", "localhost"))
+    if not _local:
+        import hmac
+        esperado = remote.link_token()
+        if not esperado or not hmac.compare_digest(
+                str(ws.query_params.get("token", "")), str(esperado)):
             await ws.close(code=4401)
             return
     await ws.accept()
@@ -963,6 +1009,63 @@ async def api_contentos_add(payload: dict):
     return {"ok": ok}
 
 
+@app.get("/api/instagram/analisis")
+async def api_instagram_analisis():
+    """El ultimo analisis de reels, tal cual lo pinta la pestana Reels.
+
+    Se sirve de disco a proposito: mirar el panel NO puede gastar cuota de la
+    Graph API ni depender de que Instagram este disponible. Y si nunca se ha
+    analizado nada, se dice por que, en vez de devolver un panel vacio."""
+    from backend.core.config import DATA_DIR
+    f = Path(DATA_DIR) / "instagram" / "ultimo_analisis.json"
+    if not f.exists():
+        hay_token = bool(settings.secret("ig_access_token"))
+        hay_id = bool(str(settings.get("ig_business_account_id", "") or "").strip())
+        if not (hay_token and hay_id):
+            falta = []
+            if not hay_token:
+                falta.append("el token de la Graph API")
+            if not hay_id:
+                falta.append("el ID de la cuenta Business")
+            return {"hay": False, "motivo": "sin_credenciales",
+                    "texto": "Falta " + " y ".join(falta)
+                             + ". Se rellena en Configuracion -> APIS."}
+        return {"hay": False, "motivo": "sin_analisis",
+                "texto": "Todavia no has analizado ningun reel. Dile a nexus "
+                         "\u00abanaliza mis ultimos 3 reels\u00bb."}
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return {"hay": False, "motivo": "ilegible",
+                "texto": "El ultimo analisis guardado no se puede leer. "
+                         "Vuelve a lanzarlo."}
+    return {"hay": True, "cuando": d.get("cuando", ""), "reels": d.get("reels", [])}
+
+
+@app.get("/api/instagram/competencia")
+async def api_instagram_competencia():
+    """La ultima comparativa con cuentas ajenas, servida de disco.
+
+    Igual que el analisis: mirar la pestana no puede gastar cuota de la API."""
+    from backend.core.config import DATA_DIR
+    f = Path(DATA_DIR) / "instagram" / "competencia.json"
+    if not f.exists():
+        return {"hay": False, "motivo": "sin_competencia",
+                "texto": "Todavia no has comparado ninguna cuenta. Dile a nexus "
+                         "\u00abanaliza la cuenta @sucuenta\u00bb. Solo funciona con "
+                         "cuentas profesionales publicas: de una cuenta personal la "
+                         "API no deja ver nada."}
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return {"hay": False, "motivo": "ilegible",
+                "texto": "La ultima comparativa guardada no se puede leer. "
+                         "Vuelve a lanzarla."}
+    panel = d.get("panel") or {}
+    return {"hay": bool(panel.get("hay")), "cuando": d.get("cuando", ""),
+            "panel": panel}
+
+
 @app.get("/api/config")
 async def api_config_get():
     return settings.as_dict()
@@ -1185,6 +1288,22 @@ async def api_link_qr():
         return Response(content=png, media_type="image/png")
     except Exception as exc:
         return {"error": f"instala qrcode (run.bat): {exc}"}
+
+
+@app.get("/api/link/tailscale")
+async def api_link_tailscale():
+    """Estado de Tailscale: la vía ESTABLE para llegar al PC desde fuera.
+
+    El túnel de Cloudflare cambia de dirección en cada arranque y obliga a
+    revincular el móvil; una IP de Tailscale (100.x.y.z) no cambia nunca."""
+    from backend.core import remote
+    ts = remote.tailscale_status()
+    return {**ts, "descarga": remote.TAILSCALE_WEB,
+            "url": remote.tailscale_url(),
+            "siguiente_paso": (
+                "Listo: el QR ya usa la dirección fija." if ts.get("activo")
+                else "Instala Tailscale en este PC y en el móvil con la MISMA cuenta, "
+                     f"inicia sesión en los dos y vuelve a abrir el QR. {remote.TAILSCALE_WEB}")}
 
 
 @app.post("/api/link/reset")

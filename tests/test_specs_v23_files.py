@@ -197,6 +197,23 @@ def test_versionado_y_restauracion():
     check(r["ok"], "se puede restaurar")
     check("versión B" in f.read_text(encoding="utf-8"),
           "vuelve a la versión inmediatamente anterior")
+    # Dos guardados en el MISMO milisegundo no pueden pisarse: pasaba 1 de cada
+    # 45 veces, y al restaurar la copia del estado actual machacaba justo la
+    # version que se iba a recuperar, asi que «volver atras» no volvia a nada.
+    rafaga = WORK / "rafaga.md"
+    FIO.write_text(rafaga, "uno")
+    for texto in ("dos", "tres", "cuatro", "cinco", "seis"):
+        FIO.write_text(rafaga, texto, overwrite=True)
+    vr = FIO.versions(rafaga)
+    nombres = [x["version"] for x in vr]
+    check(len(set(nombres)) == len(nombres),
+          f"cada guardado deja SU copia, ninguna pisa a otra ({len(set(nombres))} de {len(nombres)})")
+    check(all(Path(FIO.VERSIONS_DIR, x).is_file() for x in nombres),
+          "y todas siguen en disco")
+    FIO.restore_version(rafaga)
+    check("cinco" in rafaga.read_text(encoding="utf-8"),
+          f"restaurar en ráfaga devuelve la anterior de verdad "
+          f"({rafaga.read_text(encoding='utf-8').strip()})")
     check(bool(r["copia_del_estado_previo"]),
           "y del estado que había justo antes también guarda copia")
     check(len(FIO.versions(f)) >= 2, "las copias no se pisan entre ellas")
@@ -289,6 +306,33 @@ def test_brain_y_hud_no_mandan_al_tts_lo_del_operador():
           "al navegador solo se le pasa la RESPUESTA, nunca lo que escribió el operador")
 
 
+# ══════════════ NORMA: LOS INFORMES SE CREAN EN .md ══════════════
+# Petición de Adri (30/07/2026): «todos los informes por defecto han de crearlos
+# en archivos .md salvo que se pida expresamente otra cosa».
+def test_los_informes_salen_en_markdown():
+    from backend.core.files_io import formato_pedido, pidio_formato
+    # sin pedir formato → Markdown
+    for orden in ("hazme un informe de ventas", "crea un documento sobre el proyecto",
+                  "escríbeme un resumen de la reunión", "redáctame un informe",
+                  "prepárame un dossier del competidor", "hazme un análisis"):
+        check(formato_pedido(orden) == ".md", f"«{orden}» → .md (dio {formato_pedido(orden)})")
+        check(not pidio_formato(orden), f"«{orden}» no pide formato expreso")
+    # pidiéndolo, manda lo que diga el usuario
+    for orden, esp in (("el informe en word", ".docx"), ("pásamelo a pdf", ".pdf"),
+                       ("exporta los leads a csv", ".csv"), ("dámelo en excel", ".xlsx"),
+                       ("un archivo notas.txt", ".txt"), ("dame un json", ".json"),
+                       ("hazme una página web", ".html"), ("en texto plano", ".txt"),
+                       ("en markdown", ".md")):
+        check(formato_pedido(orden) == esp, f"«{orden}» → {esp} (dio {formato_pedido(orden)})")
+        check(pidio_formato(orden), f"«{orden}» SÍ pide formato expreso")
+    # y la skill de archivos usa esa misma regla, no la suya
+    src = open(os.path.join(ROOT, "skills", "files", "skill.py"), encoding="utf-8").read()
+    check("formato_pedido" in src, "la skill de archivos usa la regla común")
+    check('ext = ".txt"' not in src, "y ya no crea .txt por su cuenta")
+    inv = open(os.path.join(ROOT, "skills", "research", "skill.py"), encoding="utf-8").read()
+    check(".md\"" in inv or ".md'" in inv, "la de investigación ya guardaba en .md")
+
+
 if __name__ == "__main__":
     tests = [test_lee_texto_y_markdown, test_codificaciones_raras,
              test_docx_si_hay_libreria, test_pdf_o_aviso_claro,
@@ -298,7 +342,8 @@ if __name__ == "__main__":
              test_versionado_y_restauracion,
              test_skill_archivos_routing_y_confirmacion, test_skill_lectura_no_miente,
              test_tts_solo_habla_respuestas,
-             test_brain_y_hud_no_mandan_al_tts_lo_del_operador]
+             test_brain_y_hud_no_mandan_al_tts_lo_del_operador,
+             test_los_informes_salen_en_markdown]
     for t in tests:
         print(f"· {t.__name__}")
         try:

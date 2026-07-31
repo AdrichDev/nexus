@@ -1,0 +1,116 @@
+{
+ "id": "ejemplo",
+ "cuenta": {
+  "usuario": "cuenta_de_ejemplo",
+  "nombre_publico": "Cocina Sin Gluten",
+  "business_account_id": "",
+  "pais": "España",
+  "zona_horaria": "Europe/Madrid"
+ },
+ "nicho": "cocina sin gluten para familias",
+ "subtemas": [
+  "batch cooking",
+  "meriendas del cole",
+  "etiquetado"
+ ],
+ "propuesta_valor": "cenas sin gluten en 20 minutos que se comen los niños",
+ "referentes": [],
+ "publico": {
+  "descripcion": "madres y padres con un celiaco en casa",
+  "edad": "30-45",
+  "paises": [
+   "España",
+   "México",
+   "Argentina"
+  ],
+  "situacion": "familias con hijos pequeños y poco tiempo",
+  "dolores": [
+   "contaminacion cruzada",
+   "que el niño no coma",
+   "precio del sin gluten"
+  ],
+  "objeciones_tipicas": [
+   "no tengo tiempo",
+   "en mi pueblo no venden eso"
+  ]
+ },
+ "idiomas": {
+  "comentarios": [
+   "es",
+   "en"
+  ],
+  "respuesta": "es",
+  "variante": "España"
+ },
+ "personal": {
+  "nombre": "Nombre Ejemplo",
+  "profesion": "nutricionista",
+  "ubicacion": "Valencia",
+  "situacion_familiar": "pareja, dos hijos",
+  "hijos": [
+   {
+    "nombre": "Peque",
+    "edad": "6",
+    "notas": "celiaco, el motivo de la cuenta"
+   },
+   {
+    "nombre": "Bebe",
+    "edad": "2",
+    "notas": ""
+   }
+  ],
+  "mascotas": [],
+  "idiomas_que_habla": [
+   "español",
+   "inglés",
+   "valenciano"
+  ],
+  "aficiones": [
+   "running",
+   "huerto"
+  ],
+  "historia_personal": "empezo la cuenta al diagnosticarse la celiaquia de su hijo mayor",
+  "temas_que_no_toca": [
+   "dietas de adelgazamiento",
+   "politica"
+  ]
+ },
+ "tono": {
+  "estilo": "cercano, sin tecnicismos, con humor",
+  "trato": "tu",
+  "emojis": "pocos",
+  "muletillas": [
+   "al lio"
+  ],
+  "palabras_prohibidas": [
+   "milagro",
+   "detox"
+  ]
+ },
+ "negocio": {
+  "objetivo": "vender el curso de batch cooking",
+  "productos": [
+   {
+    "nombre": "Curso batch cooking sin gluten",
+    "precio": "97 EUR",
+    "enlace": "",
+    "para_quien": "familias con poco tiempo"
+   }
+  ],
+  "lead_magnets": [
+   {
+    "nombre": "Menu semanal",
+    "palabra_cta": "MENU",
+    "reel": ""
+   }
+  ],
+  "web": "",
+  "metrica_que_importa": "leads del menu semanal"
+ },
+ "triggers": [
+  "RECETA",
+  "MENU",
+  "GUIA"
+ ],
+ "notas": "Perfil de EJEMPLO. Borra o edita."
+}
