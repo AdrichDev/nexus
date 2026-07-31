@@ -99,6 +99,47 @@ def rotate_token() -> str:
 
 
 # ------------------------------------------------------------------ red local
+def nombre_local() -> str:
+    """El nombre de red de este PC, en forma «equipo.local» (mDNS).
+
+    ES LA DIRECCIÓN QUE NO CAMBIA. La IP de la WiFi la reparte el router y baila
+    con cada reinicio; el nombre del equipo no. Windows 10+ responde a mDNS de
+    serie y Android lo resuelve, así que «MIPC.local» sigue valiendo dentro de
+    casa después de apagar el ordenador mil veces. Sin cuentas, sin servicios,
+    sin nada que caduque."""
+    try:
+        n = socket.gethostname().strip().split(".")[0]
+        return f"{n}.local" if n and n.lower() != "localhost" else ""
+    except Exception:
+        return ""
+
+
+def direcciones() -> list[dict]:
+    """TODAS las formas de llegar a este nexus, de más estable a menos.
+
+    El móvil se queda con la lista entera, no con una sola. Ese era el fallo de
+    raíz: guardaba UNA dirección (la del túnel, que es aleatoria en cada
+    arranque) y al reiniciar el PC se quedaba huérfano y había que revincular.
+    Con la lista, prueba una por una y se queda con la que conteste."""
+    out: list[dict] = []
+    ts = tailscale_url()
+    if ts:
+        out.append({"host": ts, "esquema": "http", "tipo": "tailscale",
+                    "estable": True, "desde": "cualquier red"})
+    nl = nombre_local()
+    if nl:
+        out.append({"host": f"{nl}:8177", "esquema": "http", "tipo": "nombre",
+                    "estable": True, "desde": "tu casa"})
+    ip = lan_ip()
+    if ip and ip != "127.0.0.1":
+        out.append({"host": f"{ip}:8177", "esquema": "http", "tipo": "wifi",
+                    "estable": False, "desde": "tu casa"})
+    if _state["url"]:
+        out.append({"host": _state["url"].replace("https://", ""), "esquema": "https",
+                    "tipo": "tunel", "estable": False, "desde": "cualquier red"})
+    return out
+
+
 def lan_ip() -> str:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -108,6 +149,102 @@ def lan_ip() -> str:
         return ip
     except Exception:
         return "127.0.0.1"
+
+
+# ------------------------------------------------------------------ tailscale
+# POR QUÉ EXISTE (decisión de Adri, 30/07/2026)
+# ---------------------------------------------
+# El túnel «quick» de Cloudflare da una dirección DISTINTA cada vez que arranca
+# (https://<algo-aleatorio>.trycloudflare.com). El móvil se guarda esa URL para
+# siempre, así que en cuanto se reinicia el PC —o se cae cloudflared— la
+# dirección guardada ya no existe y hay que volver a escanear el QR. El token no
+# era el problema: la dirección sí.
+#
+# Tailscale resuelve justo eso: monta una red privada entre TUS aparatos y le da
+# a cada uno una IP FIJA (100.x.y.z) que no cambia nunca, ni al reiniciar, ni al
+# cambiar de WiFi, ni al salir a 4G. Y además nexus deja de estar publicado en
+# internet: solo lo ven los dispositivos de tu propia red de Tailscale.
+#
+# Requisito honesto: Tailscale tiene que estar instalado y con sesión iniciada
+# en LOS DOS aparatos (el PC y el móvil), con la misma cuenta. El plan gratuito
+# llega de sobra. Sigue haciendo falta el token del QR: una IP de Tailscale no
+# es «este equipo», así que pasa por el mismo control que todo lo demás.
+TAILSCALE_WEB = "https://tailscale.com/download"
+_ts_cache: dict = {"t": 0.0, "datos": None}
+
+
+def _tailscale_exe() -> str:
+    """Ruta del ejecutable de tailscale, o '' si no está instalado."""
+    import shutil
+    exe = shutil.which("tailscale")
+    if exe:
+        return exe
+    if sys.platform == "win32":
+        for c in (r"C:\Program Files\Tailscale\tailscale.exe",
+                  r"C:\Program Files (x86)\Tailscale\tailscale.exe"):
+            if Path(c).exists():
+                return c
+    for c in ("/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+              "/usr/bin/tailscale", "/usr/local/bin/tailscale"):
+        if Path(c).exists():
+            return c
+    return ""
+
+
+def tailscale_status(cache_seg: float = 20.0) -> dict:
+    """Estado real de Tailscale en ESTE equipo.
+
+    {instalado, activo, ip, host, dispositivos, error}. Nunca lanza: si algo
+    falla, `activo` es False y `error` explica qué pasa en cristiano."""
+    ahora = time.time()
+    if _ts_cache["datos"] is not None and ahora - _ts_cache["t"] < cache_seg:
+        return _ts_cache["datos"]
+    info = {"instalado": False, "activo": False, "ip": "", "host": "",
+            "dispositivos": 0, "error": ""}
+    exe = _tailscale_exe()
+    if not exe:
+        info["error"] = ("Tailscale no está instalado en este equipo. "
+                         f"Se descarga en {TAILSCALE_WEB} (el plan gratis sobra).")
+        _ts_cache.update(t=ahora, datos=info)
+        return info
+    info["instalado"] = True
+    try:
+        import json as _json
+        r = subprocess.run([exe, "status", "--json"], capture_output=True, text=True,
+                           timeout=10,
+                           creationflags=(subprocess.CREATE_NO_WINDOW
+                                          if sys.platform == "win32" else 0))
+        if r.returncode != 0:
+            info["error"] = ("Tailscale está instalado pero no ha arrancado sesión. "
+                             "Ábrelo e inicia sesión con tu cuenta.")
+            _ts_cache.update(t=ahora, datos=info)
+            return info
+        d = _json.loads(r.stdout or "{}")
+        yo = d.get("Self") or {}
+        ips = [x for x in (yo.get("TailscaleIPs") or []) if ":" not in x]   # IPv4
+        info["ip"] = ips[0] if ips else ""
+        info["host"] = (yo.get("DNSName") or "").rstrip(".")
+        info["dispositivos"] = len(d.get("Peer") or {})
+        estado = (d.get("BackendState") or "").lower()
+        info["activo"] = bool(info["ip"]) and estado == "running"
+        if not info["activo"]:
+            info["error"] = ("Tailscale está instalado pero no conectado "
+                             f"(estado: {estado or 'desconocido'}). Ábrelo e inicia sesión.")
+    except FileNotFoundError:
+        info["error"] = "Tailscale no está instalado en este equipo."
+        info["instalado"] = False
+    except subprocess.TimeoutExpired:
+        info["error"] = "Tailscale ha tardado demasiado en contestar."
+    except Exception as exc:                                        # noqa: BLE001
+        info["error"] = f"No he podido leer el estado de Tailscale ({type(exc).__name__})."
+    _ts_cache.update(t=ahora, datos=info)
+    return info
+
+
+def tailscale_url() -> str:
+    """La dirección ESTABLE del PC, o '' si Tailscale no está listo."""
+    ts = tailscale_status()
+    return f"{ts['ip']}:8177" if ts.get("activo") and ts.get("ip") else ""
 
 
 # ------------------------------------------------------------------ cloudflared
@@ -210,13 +347,31 @@ def stop_tunnel() -> None:
 
 
 def status() -> dict:
+    """Estado de la vinculación, con la MEJOR dirección disponible.
+
+    Orden de preferencia, y el porqué:
+      1. TAILSCALE — IP fija (100.x.y.z). Sobrevive a reinicios y a cambios de
+         red, y no publica nada en internet. Es la buena.
+      2. TÚNEL de Cloudflare — llega desde fuera, pero la dirección cambia en
+         cada arranque, así que el móvil hay que revincularlo cada vez.
+      3. IP de la WiFi — solo sirve dentro de casa.
+    """
     alive = bool(_state["proc"] and _state["proc"].poll() is None and _state["url"])
-    host = _state["url"].replace("https://", "") if alive else f"{lan_ip()}:8177"
-    link = (f"{'https' if alive else 'http'}://{host}/m"
-            f"?host={host}&token={link_token()}")
+    dirs = direcciones()
+    # La PRIMERA es la que abre el móvil; el resto van en el QR como respaldo,
+    # para que el enlace sobreviva a que una de ellas deje de valer.
+    principal = dirs[0] if dirs else {"host": f"{lan_ip()}:8177", "esquema": "http",
+                                      "tipo": "wifi", "estable": False}
+    host, esquema, via = principal["host"], principal["esquema"], principal["tipo"]
+    alternativas = ",".join(f"{d['esquema']}://{d['host']}" for d in dirs[1:])
+    link = (f"{esquema}://{host}/m?host={host}&token={link_token()}"
+            + (f"&alt={alternativas}" if alternativas else ""))
     return {"tunnel": alive, "url": _state["url"], "error": _state["error"],
             "lan": f"{lan_ip()}:8177", "link": link, "token": link_token(),
-            "devices": devices(), "paired": len(_devices)}
+            "devices": devices(), "paired": len(_devices),
+            "via": via, "estable": bool(principal.get("estable")),
+            "hosts": dirs, "nombre_local": nombre_local(),
+            "tailscale": tailscale_status()}
 
 
 # ------------------------------------------------------------------ QR

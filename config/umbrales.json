@@ -1,0 +1,62 @@
+{
+ "_lee_esto": [
+  "Los numeros con los que nexus interpreta tus metricas. Cambia uno, reinicia",
+  "nexus, y la lectura del informe cambia. No hay nada de esto escrito en el",
+  "codigo.",
+  "",
+  "Vienen con los valores que usaba nexus antes de existir este archivo, asi",
+  "que si no tocas nada, nada cambia.",
+  "",
+  "Cada cuenta de Instagram puede pisar cualquiera de estos valores desde su",
+  "perfil (campo 'umbrales'): lo que no ponga, lo hereda de aqui."
+ ],
+ "lecturas": {
+  "_que_es": "A partir de que % sobre el alcance una metrica se lee como buena.",
+  "guardados_pct_reach_fuerte": 3.0,
+  "interacciones_pct_reach_alto": 10.0
+ },
+ "sentimiento": {
+  "_que_es": "Cuanta muestra hace falta para fiarse de un porcentaje.",
+  "n_minimo_fiable": 30,
+  "n_sin_aviso": 100,
+  "confianza_z": 1.96
+ },
+ "gancho": {
+  "_que_es": "Cuando un racimo de comentarios cortos es una campana y no ruido.",
+  "min_personas": 5,
+  "min_pct": 2.0,
+  "max_palabras": 3,
+  "max_caracteres": 24,
+  "min_pct_mayusculas": 25.0
+ },
+ "erratas": {
+  "_que_es": "Cuantos errores de tecleo se perdonan segun lo larga que sea la palabra. Una palabra corta no perdona ninguna: se comeria medio diccionario.",
+  "sin_margen_hasta": 4,
+  "margen_1_hasta": 6,
+  "margen_2_hasta": 9,
+  "margen_maximo": 3
+ },
+ "dudas": {
+  "_que_es": "Cuando dos preguntas escritas distinto son la misma duda.",
+  "solape_minimo": 0.4,
+  "veces_para_ser_recurrente": 2
+ },
+ "comentarios": {
+  "_que_es": "Cuando un comentario 'dice algo' y no es un emoji suelto.",
+  "min_palabras_sustantivo": 2,
+  "min_caracteres_sustantivo": 8
+ },
+ "cola_editorial": {
+  "_que_es": "Como se calcula la prioridad de cada idea. Es una cuenta, no una opinion.",
+  "peso_veces": 2,
+  "peso_personas": 1,
+  "peso_intencion_compra": 3,
+  "peso_objecion": 2
+ },
+ "memoria": {
+  "_que_es": "Cuando una nota guardada merece llamarse relevante y colarse en lo que lee el modelo. Subir un numero = recordar menos, pero mas a cuento.",
+  "coseno_minimo": 0.42,
+  "solape_minimo_palabras": 0.5,
+  "coseno_minimo_tarea": 0.62
+ }
+}

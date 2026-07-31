@@ -20,14 +20,45 @@ import math
 import re
 import time
 
-from .config import DATA_DIR, settings
+from .config import CONFIG_DIR, DATA_DIR, settings
 
 _DIR = DATA_DIR / "rag"
 _STORE = _DIR / "knowledge.jsonl"          # {id, text, kind, meta, vec, ts}
 _SEEN = _DIR / "indexed.json"              # notas ya indexadas (para reindex incremental)
 _mem: list | None = None                   # cache en memoria
-_MIN_SEM = 0.42                            # umbral de coseno para considerar "relevante"
-_MIN_TASK = 0.62                           # umbral (más alto) para aplicar una tarea aprendida
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Los números con los que se decide qué merece llamarse «relevante» viven FUERA
+# del código, en config/umbrales.json (sección «memoria»). Lo de aquí abajo son
+# los valores de reserva, que son EXACTAMENTE los que había escritos a mano: si
+# el archivo no existe o está mal puesto, el comportamiento es el de siempre.
+# Nadie se queda sin memoria por un JSON roto.
+_UMBRALES_RESERVA = {
+    "coseno_minimo": 0.42,                 # umbral de coseno para considerar "relevante"
+    "solape_minimo_palabras": 0.5,         # qué parte de las palabras clave debe coincidir
+    "coseno_minimo_tarea": 0.62,           # más alto: para aplicar una tarea aprendida
+}
+
+
+def _carga_umbrales() -> dict:
+    """Lee la sección «memoria» de config/umbrales.json sobre los de reserva."""
+    vals = dict(_UMBRALES_RESERVA)
+    try:
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (json.loads(f.read_text(encoding="utf-8")) or {}).get("memoria") or {}
+            for k, v in leido.items():
+                if k in vals and isinstance(v, (int, float)) and not isinstance(v, bool):
+                    vals[k] = float(v)
+    except Exception:
+        pass                                # un JSON roto no deja a nexus sin memoria
+    return vals
+
+
+_UMBRALES = _carga_umbrales()
+_MIN_SEM = _UMBRALES["coseno_minimo"]
+_MIN_PALABRAS = _UMBRALES["solape_minimo_palabras"]
+_MIN_TASK = _UMBRALES["coseno_minimo_tarea"]
 
 
 def _emb_ollama(text: str):
@@ -158,8 +189,24 @@ def _cos(a, b) -> float:
     return s / math.sqrt(da * db)
 
 
+# Palabras que están en CUALQUIER frase y no distinguen nada. Sin quitarlas, la
+# búsqueda por palabras casaba «Que es lo que ves» con una nota sobre una persona
+# solo porque las dos llevaban «que» — y esa nota se le inyectaba al modelo como
+# «conocimiento relevante». De ahí salió que le contestara sobre alguien que no
+# venía a cuento (31/07/2026).
+_VACIAS = {
+    "que", "los", "las", "una", "uno", "por", "para", "con", "sin", "del", "esto",
+    "eso", "esa", "ese", "como", "cuando", "donde", "porque", "pero", "mas", "muy",
+    "todo", "toda", "hay", "ser", "estar", "tener", "hacer", "dime", "dame", "sabes",
+    "puedes", "quiero", "necesito", "ahora", "aqui", "esta", "este", "estos", "vale",
+    "the", "and", "you", "for", "with", "this", "that", "what", "have",
+}
+
+
 def _words(q: str) -> list:
-    return [w for w in re.findall(r"\w+", (q or "").lower()) if len(w) > 2]
+    """Las palabras que de verdad distinguen una frase de otra."""
+    return [w for w in re.findall(r"\w+", (q or "").lower())
+            if len(w) > 2 and w not in _VACIAS]
 
 
 def _pg():
@@ -211,10 +258,40 @@ async def search(query: str, k: int = 4, kinds: tuple | None = None) -> list[dic
         if pg is not None:
             try:
                 rows = await asyncio.to_thread(pg.recall, query, k)
-                if rows:
+                # Con umbral, igual que la búsqueda local. Sin él se devolvían
+                # SIEMPRE los k más cercanos por lejos que estuvieran, y el
+                # modelo los recibía como «conocimiento relevante».
+                # OJO: recall() tiene DOS caminos y solo el semántico trae
+                # «score»; el de respaldo (solape de palabras) lo deja a None.
+                # Descartar esas filas por no tener score dejaba la memoria muda
+                # entera con la DB montada. A ellas se les pide lo mismo que a la
+                # búsqueda local por palabras.
+                ws = _words(query)
+                utiles: list[tuple] = []
+                for r in (rows or []):
+                    sc = r.get("score")
+                    if sc is not None:
+                        sc = float(sc or 0.0)
+                        if not (sc >= _MIN_SEM):
+                            continue
+                    else:
+                        # Palabras ENTERAS del documento, no subcadenas: contra un
+                        # README largo, «ves» casaba dentro de «claves» y colaba el
+                        # documento entero como si viniera a cuento.
+                        suyas = set(re.findall(r"\w+", str(r.get("content", "") or "").lower()))
+                        hit = sum(1 for w in ws if w in suyas)
+                        # Estricto: empatar con el listón no basta. «que ves ahora
+                        # mismo» deja «ves» y «mismo», y con media palabra suelta
+                        # se colaban READMEs enteros.
+                        if not ws or not hit or not (hit / len(ws) > _MIN_PALABRAS):
+                            continue
+                        sc = hit / len(ws)
+                    utiles.append((sc, r))
+                if utiles:
+                    utiles.sort(key=lambda x: -x[0])
                     return [{"text": r.get("content", ""), "kind": r.get("kind", "knowledge"),
-                             "score": round(r.get("score", 0.0) or 0.0, 3), "meta": {}}
-                            for r in rows]
+                             "score": round(sc, 3), "meta": {}}
+                            for sc, r in utiles[:k]]
             except Exception:
                 pass
     store = _load()
@@ -235,8 +312,16 @@ async def search(query: str, k: int = 4, kinds: tuple | None = None) -> list[dic
         ws = _words(query)
         if ws:
             for r in cand:
-                hit = sum(1 for w in ws if w in r.get("text", "").lower())
-                if hit:
+                # Palabras ENTERAS, no subcadenas: «ves» dentro de «claves» daba
+                # por relevante un documento que no hablaba de nada de eso.
+                suyas = set(re.findall(r"\w+", str(r.get("text", "") or "").lower()))
+                hit = sum(1 for w in ws if w in suyas)
+                # Antes bastaba UNA palabra en común para colar una nota como
+                # relevante. Ahora tiene que coincidir MÁS de la mitad de lo que
+                # distingue a la frase, y empatar con el listón no vale: es
+                # preferible no recordar nada que recordar algo que no viene a
+                # cuento.
+                if hit and hit / len(ws) > _MIN_PALABRAS:
                     scored.append((hit / len(ws), r))
     scored.sort(key=lambda x: -x[0])
     return [{"text": r["text"], "kind": r["kind"], "score": round(s, 3),
