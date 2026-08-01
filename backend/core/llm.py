@@ -24,7 +24,7 @@ from pathlib import Path
 import httpx
 
 from . import net
-from .config import settings
+from .config import CONFIG_DIR, settings
 
 _DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 _MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -321,10 +321,19 @@ class OpenAIProvider(BaseProvider):
     async def available(self) -> bool:
         return bool(self._key())
 
+    def _extra_payload(self) -> dict:
+        """Campos que este endpoint concreto admite ADEMÁS de los estándar.
+
+        Vacío para OpenAI de verdad: mandarle un campo que no conoce es un error,
+        no una sugerencia que ignore. Lo usa CloudProvider, que puede estar
+        apuntando a OpenRouter."""
+        return {}
+
     async def chat(self, messages: list[dict]) -> str:
         r = await net.client().post(f"{self.base}/chat/completions",
                                     headers={"Authorization": f"Bearer {self._key()}"},
-                                    json={"model": self._model(), "messages": messages},
+                                    json={"model": self._model(), "messages": messages,
+                                          **self._extra_payload()},
                                     timeout=120)
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
@@ -338,7 +347,8 @@ class OpenAIProvider(BaseProvider):
         async with net.client().stream(
                 "POST", f"{self.base}/chat/completions",
                 headers={"Authorization": f"Bearer {self._key()}"},
-                json={"model": self._model(), "messages": messages, "stream": True},
+                json={"model": self._model(), "messages": messages, "stream": True,
+                      **self._extra_payload()},
                 timeout=120) as r:
             if r.status_code >= 400:
                 await r.aread()
@@ -357,6 +367,32 @@ class OpenAIProvider(BaseProvider):
                 if piece:
                     yield piece
 
+# Política de datos de OpenRouter. De reserva, lo prudente: solo proveedores que
+# no recogen datos. Lo manda CloudProvider._extra_payload(), y solo a OpenRouter.
+_OPENROUTER_RESERVA = {"data_collection": "deny", "zdr": False}
+
+
+def _umbrales_openrouter() -> dict:
+    """Lee la sección «openrouter» de config/umbrales.json sobre los de reserva.
+
+    Si el archivo falta o está roto NO se abre la mano: se queda lo prudente. Una
+    política de privacidad que se relaja sola cuando algo falla no es una
+    política."""
+    vals = dict(_OPENROUTER_RESERVA)
+    try:
+        import json as _j
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (_j.loads(f.read_text(encoding="utf-8")) or {}).get("openrouter") or {}
+            if isinstance(leido.get("data_collection"), str):
+                vals["data_collection"] = leido["data_collection"]
+            if isinstance(leido.get("zdr"), bool):
+                vals["zdr"] = leido["zdr"]
+    except Exception:
+        pass
+    return vals
+
+
 class CloudProvider(OpenAIProvider):
     """Endpoint compatible OpenAI configurable (OpenRouter, Groq, DeepSeek...)."""
     name = "cloud"
@@ -370,6 +406,34 @@ class CloudProvider(OpenAIProvider):
 
     def _model(self) -> str:
         return settings.get("cloud_model")
+
+    def _es_openrouter(self) -> bool:
+        return "openrouter.ai" in self.base.lower()
+
+    def _extra_payload(self) -> dict:
+        """POLÍTICA DE DATOS cuando el endpoint es OpenRouter (01/08/2026).
+
+        OpenRouter no sirve los modelos: los reparte entre proveedores de arriba,
+        y su documentación dice que POR DEFECTO permite proveedores que guardan
+        los datos y PUEDEN ENTRENAR CON ELLOS. En el prompt de nexus viaja lo que
+        recupera de la memoria, y ahí dentro está ahora el documento maestro de
+        marca y las notas personales. Se blindaron los embeddings para que no
+        salieran del equipo; dejar que salgan por el chat es la misma fuga por la
+        otra puerta.
+
+        Solo se manda a OpenRouter: `provider` es un campo suyo, y a OpenAI o a
+        Groq les llega como campo desconocido y responden con un error.
+
+        Los valores viven en config/umbrales.json, no aquí."""
+        if not self._es_openrouter():
+            return {}
+        pol = _umbrales_openrouter()
+        prefs: dict = {}
+        if pol.get("data_collection"):
+            prefs["data_collection"] = pol["data_collection"]
+        if pol.get("zdr"):
+            prefs["zdr"] = True
+        return {"provider": prefs} if prefs else {}
 
 
 class AnthropicProvider(BaseProvider):

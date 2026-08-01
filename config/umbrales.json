@@ -62,6 +62,32 @@
   ],
   "cache_sondeo_seg": 120.0
  },
+ "openrouter": {
+  "_que_es": "Que le pedimos a OpenRouter sobre QUIEN puede ver tus prompts.",
+  "_lee_esto": [
+   "OpenRouter no sirve los modelos: los reparte entre proveedores de arriba. Su",
+   "documentacion dice que POR DEFECTO usa 'allow', que en sus palabras significa",
+   "permitir proveedores que guardan tus datos y PUEDEN ENTRENAR CON ELLOS.",
+   "",
+   "Eso importa aqui mas que en otros sitios: en el prompt de nexus viaja lo que",
+   "saca de la memoria, y desde el 01/08/2026 la memoria lleva dentro el documento",
+   "maestro de marca, el manual de conversaciones y notas personales. Se blindaron",
+   "los embeddings para que no salieran del equipo; mandarlos por el chat a un",
+   "proveedor que entrena con ellos seria la misma fuga por la otra puerta.",
+   "",
+   "Solo se manda cuando el endpoint ES OpenRouter. El campo 'provider' es suyo:",
+   "enviarselo a OpenAI o a Groq da error.",
+   "",
+   "data_collection 'deny' = solo proveedores que no recogen datos. Es lo justo y",
+   "casi nunca quita modelos. Ponlo en 'allow' solo si sabes lo que cede.",
+   "",
+   "zdr true = ademas, solo puntos finales con retencion CERO. Es mas estricto y",
+   "SI puede dejar sin servir algunos modelos, por eso viene apagado: se enciende",
+   "a proposito cuando el contenido lo pida."
+  ],
+  "data_collection": "deny",
+  "zdr": false
+ },
  "comentarios": {
   "_que_es": "Cuando un comentario 'dice algo' y no es un emoji suelto.",
   "min_palabras_sustantivo": 2,
