@@ -285,6 +285,132 @@ def test_el_planificador_sabe_que_hace_cada_intent():
           "y la de Instagram también")
 
 
+# ══════════ EL FALLO DE «[ALERTA]» (31/07/2026) ══════════
+# Diálogo real. nexus lista los correos; entre ellos «[ALERTA] Plugin nuevo no
+# presente en el baseline». Adri pide analizarlos y nexus contesta «ninguno
+# parece urgente». Dos bugs encadenados:
+#
+#   1. «No los leas analizalos» no casaba con NINGÚN patrón (todos exigían la
+#      palabra «correos»), así que iba al planificador, que le repitió la frase.
+#   2. Los 30 no-leídos se mandaban al modelo en una sola tirada de 22.000
+#      caracteres. Ollama corta a 4096 tokens, el modelo devolvía prosa en vez
+#      de JSON, el parser devolvía [] y el código lo leía como «cero urgentes».
+def test_analizalos_a_secas_no_se_va_al_planificador():
+    print("· «No los leas analizalos» (su frase exacta, sin la palabra «correos»)")
+    GW = importlib.import_module("skills.google_workspace.skill")
+    for frase in ("No los leas analizalos en segundo plano",
+                  "No los leas analizalos",
+                  "analizalos",
+                  "analízamelos"):
+        check(_intent(GW, frase) == "email_actions_pron",
+              f"«{frase}» llega a la skill de correo y no al cerebro")
+    # …pero sin robarle «analiza» a quien le toca.
+    check(_intent(GW, "analiza las fotos de instagram") != "email_actions_pron",
+          "y no se queda con lo de Instagram")
+    check(_intent(GW, "analizalos a fondo y hazme un informe") != "email_actions_pron",
+          "ni con una frase larga que empiece igual")
+
+
+def test_un_asunto_con_alerta_sale_urgente_diga_lo_que_diga_el_modelo():
+    print("· «[ALERTA] Plugin nuevo no presente en el baseline» tiene que salir urgente")
+    GW = importlib.import_module("skills.google_workspace.skill")
+    alerta = {"from": "Alertas Seguridad",
+              "subject": "[ALERTA] Plugin nuevo no presente en el baseline en Menopausia Activa",
+              "body": "Se detectaron plugins NUEVOS. Revisa si son intrusion."}
+    check(GW._marca_urgente(alerta) == "[alerta]", "la marca salta por el asunto")
+    check(GW._marca_urgente({"from": "n8n.io", "subject": "n8n v3 is coming soon",
+                             "body": "x"}) == "", "y un boletín normal no la dispara")
+    # Sin tildes ni mayúsculas: da igual cómo se escriba.
+    check(GW._marca_urgente({"from": "x", "subject": "[CRÍTICO] disco lleno"}) != "",
+          "«[CRÍTICO]» con tilde y en mayúsculas también salta")
+    # Las marcas viven en config/umbrales.json, NO a fuego en el código.
+    import json
+    umb = json.loads((ROOT / "config" / "umbrales.json").read_text(encoding="utf-8"))
+    check("[alerta]" in (umb.get("correos") or {}).get("marcas_urgentes", []),
+          "y están en config/umbrales.json, que es donde se tocan")
+
+
+def test_no_haber_podido_mirar_no_es_no_hay_nada():
+    print("· si el modelo no contesta, NO se dice «ninguno parece urgente»")
+    GW = importlib.import_module("skills.google_workspace.skill")
+
+    async def _modelo_mudo(_msgs):          # el modelo devuelve prosa: cero objetos
+        return []
+
+    orig = GW._analyze_batch
+    GW._analyze_batch = _modelo_mudo
+    try:
+        msgs = [{"from": f"B{i}", "subject": f"Novedades {i}", "body": "x"} for i in range(5)]
+        an, sin = asyncio.run(GW._analyze_emails(msgs))
+        check(sin == [0, 1, 2, 3, 4],
+              "los 5 se marcan SIN CLASIFICAR en vez de darse por no urgentes")
+        # …y la alerta se salva igual, porque la red no depende del modelo.
+        msgs.append({"from": "Alertas Seguridad", "subject": "[ALERTA] intrusion", "body": "x"})
+        an, sin = asyncio.run(GW._analyze_emails(msgs))
+        check(any(a["i"] == 5 and a.get("urgente") for a in an),
+              "y la alerta sale urgente aunque el modelo no haya dicho ni mu")
+        check(5 not in sin, "sin quedarse en la lista de no clasificados")
+    finally:
+        GW._analyze_batch = orig
+
+
+def test_el_analisis_va_por_lotes_y_no_de_una_tirada():
+    print("· 30 correos se trocean y los índices no se pisan entre lotes")
+    GW = importlib.import_module("skills.google_workspace.skill")
+    llamadas = []
+
+    async def _cuenta(msgs):
+        llamadas.append(len(msgs))
+        return [{"i": i, "urgente": False, "importancia": "baja", "accionable": False,
+                 "tarea": "", "fecha": "", "motivo": ""} for i in range(len(msgs))]
+
+    # Se FIJA el tamaño a mano a propósito: si dependiera de `llm_provider`, este
+    # test pasaría o fallaría según el modelo que Adri tuviera puesto ese día.
+    orig_batch, orig_lote = GW._analyze_batch, GW._por_lote
+    GW._analyze_batch, GW._por_lote = _cuenta, lambda: 6
+    try:
+        msgs = [{"from": f"B{i}", "subject": f"N {i}", "body": "x"} for i in range(30)]
+        an, sin = asyncio.run(GW._analyze_emails(msgs))
+        check(len(llamadas) == 5, f"30 correos en lotes de 6 = 5 llamadas (fueron {len(llamadas)})")
+        check(max(llamadas) <= 6, "ningún lote pasa del tamaño fijado")
+        check(len(an) == 30 and not sin, "y se clasifican los 30, con índices GLOBALES")
+        check([a["i"] for a in an] == list(range(30)),
+              "reindexados bien: el 0 del segundo lote no pisa al 0 del primero")
+    finally:
+        GW._analyze_batch, GW._por_lote = orig_batch, orig_lote
+
+
+def test_el_tamano_de_lote_sigue_al_modelo_que_haya_puesto():
+    print("· cambiar de modelo cambia el tamaño de lote, sin reiniciar")
+    GW = importlib.import_module("skills.google_workspace.skill")
+    from backend.core.config import settings
+
+    # Se finge la LECTURA de los ajustes; NO se llama a settings.set(). Un test que
+    # escribe en config/settings.json le cambia la configuración a Adri de verdad
+    # —y si peta a mitad, se la deja rota. Aprendido a base de dejarle puesto un
+    # proveedor llamado «loquesea» (31/07/2026).
+    orig_get = settings.get
+
+    def _finge(prov):
+        return lambda k, d=None, _p=prov: _p if k == "llm_provider" else orig_get(k, d)
+
+    try:
+        # El 6 es de qwen3:8b, que se ahoga con 30 de golpe. Un modelo de nube con
+        # ventana grande se los traga en una llamada y no hay que pagar 5 viajes.
+        settings.get = _finge("ollama")
+        check(GW._por_lote() == 6, "con ollama, lotes cortos (medido con qwen3:8b)")
+        for nube in ("openai", "gemini", "anthropic", "cloud"):
+            settings.get = _finge(nube)
+            check(GW._por_lote() > 6, f"con {nube}, lotes grandes: le cabe de sobra")
+        # Un proveedor que no esté en la tabla NO puede quedarse con el número
+        # grande por defecto: si no se sabe con qué se habla, se trocea fino.
+        settings.get = _finge("un_modelo_que_no_conozco")
+        check(GW._por_lote() == GW._CORREOS["por_lote"],
+              "y un proveedor desconocido cae al valor prudente, no al optimista")
+    finally:
+        settings.get = orig_get
+
+
 def main() -> int:
     for f in (test_analizar_una_cuenta_sin_arroba, test_lo_mio_sigue_siendo_mio,
               test_marcar_una_tarea_como_hecha, test_el_tablero_no_revienta_sin_grupos,
@@ -293,7 +419,12 @@ def main() -> int:
               test_no_inventarse_cifras_es_regla_del_prompt,
               test_analizar_lo_que_hay_en_chrome_llega_a_chrome,
               test_la_memoria_no_se_cuela,
-              test_el_planificador_sabe_que_hace_cada_intent):
+              test_el_planificador_sabe_que_hace_cada_intent,
+              test_analizalos_a_secas_no_se_va_al_planificador,
+              test_un_asunto_con_alerta_sale_urgente_diga_lo_que_diga_el_modelo,
+              test_no_haber_podido_mirar_no_es_no_hay_nada,
+              test_el_analisis_va_por_lotes_y_no_de_una_tirada,
+              test_el_tamano_de_lote_sigue_al_modelo_que_haya_puesto):
         try:
             f()
         except Exception as e:                                    # noqa: BLE001

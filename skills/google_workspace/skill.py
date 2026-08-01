@@ -67,6 +67,18 @@ SKILL = {
                          # «crea tareas de lo urgente/importante» (nexus lo sugiere así,
                          # sin decir «correos» — antes NO casaba y el LLM decía «hecho» sin hacer NADA)
                          r"|(?:cr[eé]a(?:me)?|gen[eé]ra(?:me)?|s[aá]ca(?:me)?|prepara(?:me)?|haz(?:me)?)\b[^.\n]{0,25}\btareas?\b[^.\n]{0,30}\b(?:lo\s+)?(?:urgentes?|importantes?|prioritari[oa]s?|que\s+corran?\s+prisa)\b",
+        # SEGUIMIENTO POR PRONOMBRE: «analízalos», «no los leas, analízalos».
+        # 31/07/2026: nexus acababa de listar los correos y Adri dijo «No los leas
+        # analizalos». NINGÚN patrón casaba (todos exigen la palabra «correos»), así
+        # que la frase caía al planificador del cerebro — que se limitó a repetírsela.
+        # Va ANCLADA a la frase entera (^…$) a propósito: «analízalos» suelto es de
+        # cualquiera, y esta skill se lo robaría a las que van detrás por orden
+        # alfabético (hermes, instagram, media…). Encima el handler exige que haya
+        # una lista de correos reciente; si no la hay, pregunta en vez de adivinar.
+        "email_actions_pron": r"^\W*(?:no\s+(?:me\s+)?l[oa]s\s+leas[,;.\s]*)?"
+                              r"(?:anal[ií]za|procesa|gestiona|despacha|haz\s+triaje\s+de)"
+                              r"(?:me)?\s*l[oa]s\b"
+                              r"(?:\s+(?:en\s+segundo\s+plano|por\s+detr[aá]s|de\s+fondo))?\W*$",
         "summarize_emails": r"(?:res[uú]me(?:me)?|haz(?:me)?\s+un\s+resumen)\b[^.\n]{0,40}\b(?:correos?|mails?|e-?mails?|bandeja|gmail)\b(?:[^.\n]{0,15}?(?P<n>\d+))?",
         # MARCAR COMO NO LEÍDO (deshacer). VA ANTES que mark_read: si no, «marca … como
         # NO leído» casaría «leído» de mark_read ignorando el «no».
@@ -587,20 +599,36 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
             corto = "Revisión terminada: nada urgente."
         else:
             _last_emails = msgs
-            analysis = await _analyze_emails(msgs)
+            analysis, sin_clasificar = await _analyze_emails(msgs)
             urg = [(msgs[a["i"]], a) for a in analysis if a.get("urgente")]
             ambito = ("" if len(msgs) >= unread
                       else f" (analizados los {len(msgs)} más recientes)")
-            if not urg:
+            # NO SABER no es NO HAY. Si el modelo se ha dejado correos, se dice:
+            # callarlo es lo que hizo que una alerta de seguridad pasara por
+            # «nada urgente» el 31/07/2026.
+            fallo = ""
+            if sin_clasificar:
+                fallo = (f"\n\n⚠️ Y ojo: {len(sin_clasificar)} de {len(msgs)} no he podido "
+                         "clasificarlos (el modelo no devolvió respuesta válida). No digo "
+                         "que no corran prisa; digo que NO LOS HE MIRADO. Si quieres, "
+                         "vuelve a pedírmelo o baja «por_lote» en config/umbrales.json.")
+            if len(sin_clasificar) == len(msgs):
+                reply = (f"❌ No he podido analizar NINGUNO de tus {unread} correos sin leer: "
+                         "el modelo no ha devuelto una clasificación válida. No te digo que "
+                         "no haya nada urgente, porque no lo sé.")
+                corto = "No he podido analizar los correos. No te fíes."
+            elif not urg:
                 reply = (f"✅ Revisión terminada: de tus {unread} sin leer{ambito}, "
-                         "ninguno parece urgente.")
-                corto = f"Revisión terminada: {unread} sin leer y nada urgente."
+                         "ninguno parece urgente." + fallo)
+                corto = (f"Revisión terminada: {unread} sin leer y nada urgente."
+                         if not sin_clasificar else
+                         f"Nada urgente, pero {len(sin_clasificar)} se han quedado sin analizar.")
             else:
                 lines = [f"🔴 {m['from']} — «{m['subject']}»" +
                          (f" · {a.get('motivo','')}" if a.get('motivo') else "")
                          for m, a in urg]
                 reply = (f"✅ Revisión terminada — de tus {unread} sin leer{ambito}, "
-                         f"{len(urg)} urgente(s):\n" + "\n".join(lines) +
+                         f"{len(urg)} urgente(s):\n" + "\n".join(lines) + fallo +
                          "\n\n¿Te creo tareas para tratarlos? Di «crea tareas de lo importante del correo».")
                 corto = f"Revisión terminada: {len(urg)} urgentes de {unread} sin leer."
     except Exception as exc:                                   # noqa: BLE001
@@ -636,12 +664,22 @@ async def _email_actions_job(ctx, channel: str) -> dict:
             reply = "He revisado la bandeja: sin correos nuevos, nada que convertir en tareas."
         else:
             _last_emails = msgs
-            analysis = await _analyze_emails(msgs)
+            analysis, sin_clasificar = await _analyze_emails(msgs)
             acts = [(msgs[a["i"]], a) for a in analysis if a.get("accionable")]
-            if not acts:
+            # Igual que en la revisión de urgentes: lo que no se ha mirado se dice.
+            # Aquí encima duele el doble, porque «no accionable» = no se crea tarea.
+            fallo = ("" if not sin_clasificar else
+                     f"\n\n⚠️ {len(sin_clasificar)} de {len(msgs)} se han quedado SIN "
+                     "clasificar (el modelo no devolvió respuesta válida): de esos no he "
+                     "creado tarea, y no porque no la merezcan.")
+            if len(sin_clasificar) == len(msgs):
+                reply = (f"❌ No he podido analizar NINGUNO de tus {unread} correos sin leer, "
+                         "así que no he creado ninguna tarea. El modelo no devolvió una "
+                         "clasificación válida.")
+            elif not acts:
                 ambito = "" if len(msgs) >= unread else f" (los {len(msgs)} más recientes)"
                 reply = (f"He analizado tus {unread} correos sin leer{ambito} y ninguno pide "
-                         "una acción concreta: no he creado tareas.")
+                         "una acción concreta: no he creado tareas." + fallo)
             else:
                 creadas = []
                 for m, a in acts:
@@ -665,7 +703,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                         aviso = ("\n\n⚠ En Google no pude guardarlas (autorización pendiente); "
                                  "en tu tablero SÍ están.")
                     reply = (f"Análisis de correos terminado — {n_ok} tarea(s) creadas:\n"
-                             + "\n".join(lines) + aviso)
+                             + "\n".join(lines) + aviso + fallo)
     except Exception as exc:                                   # noqa: BLE001
         reply = f"El análisis de correos ha fallado: {type(exc).__name__}: {exc}"
     await bus.emit("chat", {"user": "[análisis de correos]", "reply": reply,
@@ -718,9 +756,144 @@ def _parse_json_array(raw: str, n: int) -> list:
         return []
 
 
-async def _analyze_emails(msgs: list[dict]) -> list[dict]:
-    """El LLM clasifica CADA correo por CONTEXTO (asunto+contenido): urgente, importancia,
-    accionable, título de tarea y fecha si la implica. Devuelve la lista JSON parseada."""
+# ─────────────────────────────────────────────────────────────────────────────
+# LA RED QUE HAY DEBAJO DEL MODELO
+#
+# 31/07/2026. Adri: «no ha sido capaz de un mail que pone alert marcarlo como
+# urgente». Cierto, y el motivo no era el modelo: era la CANTIDAD. Los 30
+# no-leídos se mandaban en UNA llamada (22.000 caracteres). Ollama corta el
+# prompt a 4096 tokens por defecto, el modelo se salía del formato y contestaba
+# en prosa. `_parse_json_array` no encontraba array, devolvía [] — y arriba se
+# leía como «cero urgentes» y se respondía «ninguno parece urgente».
+#
+# Ese es el pecado de verdad: NO SABER != NO HAY. Ahora son tres cosas:
+#   1. se trocea en lotes (el modelo acierta con 6, se ahoga con 30),
+#   2. las marcas de config/umbrales.json fuerzan urgente pase lo que pase,
+#   3. lo que no se ha podido clasificar SE DICE, no se da por tranquilo.
+# ─────────────────────────────────────────────────────────────────────────────
+_CORREOS_RESERVA = {
+    "por_lote": 6,
+    "por_lote_por_proveedor": {"ollama": 6, "openai": 30, "anthropic": 30,
+                               "gemini": 30, "cloud": 30},
+    "marcas_urgentes": ["[alerta]", "[urgente]", "[urgent]", "[critico]", "[critical]",
+                        "alerta de seguridad", "security alert", "acceso no autorizado",
+                        "intento de acceso", "actividad sospechosa",
+                        "suspension de cuenta", "pago rechazado", "factura vencida"],
+}
+
+
+def _entero(v, minimo: int, maximo: int) -> int | None:
+    """Un entero de configuración dentro de rango, o None si no vale."""
+    if isinstance(v, int) and not isinstance(v, bool) and minimo <= v <= maximo:
+        return v
+    return None
+
+
+def _carga_correos() -> dict:
+    """Lee la sección «correos» de config/umbrales.json sobre los de reserva.
+    Un JSON roto no puede dejar la bandeja sin red: se cae a los de reserva."""
+    vals = dict(_CORREOS_RESERVA)
+    vals["por_lote_por_proveedor"] = dict(_CORREOS_RESERVA["por_lote_por_proveedor"])
+    try:
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            import json
+            leido = (json.loads(f.read_text(encoding="utf-8")) or {}).get("correos") or {}
+            n = _entero(leido.get("por_lote"), 1, 60)
+            if n:
+                vals["por_lote"] = n
+            tabla = leido.get("por_lote_por_proveedor")
+            if isinstance(tabla, dict):
+                for prov, v in tabla.items():
+                    n = _entero(v, 1, 60)
+                    if n:
+                        vals["por_lote_por_proveedor"][str(prov).strip().lower()] = n
+            marcas = leido.get("marcas_urgentes")
+            if isinstance(marcas, list):
+                limpias = [str(x).strip() for x in marcas if str(x).strip()]
+                if limpias:                    # una lista vacía es casi seguro un descuido
+                    vals["marcas_urgentes"] = limpias
+    except Exception:
+        pass
+    return vals
+
+
+def _por_lote() -> int:
+    """Correos por llamada, según el proveedor que haya puesto AHORA MISMO.
+
+    Se resuelve en cada análisis, no al importar: Adri cambia de modelo desde la
+    rueda de ajustes y sería absurdo tener que reiniciar para que el tamaño de
+    lote se entere. El 6 se midió con qwen3:8b, que se ahoga con 30 de golpe; un
+    modelo de nube con ventana grande se los traga en una sola llamada.
+
+    Si el proveedor no está en la tabla, se usa el valor prudente (el pequeño):
+    con un modelo desconocido, mejor cinco llamadas de más que una alerta menos."""
+    prov = "ollama"
+    try:
+        from backend.core.config import settings
+        prov = str(settings.get("llm_provider", "ollama") or "ollama").strip().lower()
+    except Exception:
+        pass                                   # sin ajustes legibles, el prudente
+    return _CORREOS["por_lote_por_proveedor"].get(prov, _CORREOS["por_lote"])
+
+
+def _sin_tildes(s: str) -> str:
+    """«CRÍTICO» → «critico». Para comparar marcas sin depender de cómo se teclee."""
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", (s or "").lower())
+                   if unicodedata.category(c) != "Mn")
+
+
+def _marca_urgente(m: dict) -> str:
+    """La marca que dispara en el remitente o el asunto, o "" si ninguna.
+    Deliberadamente NO mira el cuerpo: un boletín que cite «alerta de seguridad»
+    en un párrafo no es una alerta, y llenar esto de falsos positivos lo mata."""
+    campo = _sin_tildes(f'{m.get("from", "")} {m.get("subject", "")}')
+    for marca in _CORREOS["marcas_urgentes"]:
+        if _sin_tildes(marca) in campo:
+            return marca
+    return ""
+
+
+_CORREOS = _carga_correos()
+
+
+async def _analyze_emails(msgs: list[dict]) -> tuple[list[dict], list[int]]:
+    """Clasifica CADA correo: urgente, importancia, accionable, tarea y fecha.
+
+    Devuelve (análisis, sin_clasificar). **Hay que mirar el segundo valor**: son
+    los índices que ni el modelo clasificó ni tienen marca. Tratarlos como «no
+    urgentes» es exactamente el fallo del 31/07/2026."""
+    por_lote = max(1, _por_lote())
+    por_indice: dict[int, dict] = {}
+    for ini in range(0, len(msgs), por_lote):
+        lote = msgs[ini:ini + por_lote]
+        for a in await _analyze_batch(lote):
+            por_indice[ini + a["i"]] = {**a, "i": ini + a["i"]}   # reíndice al global
+
+    # La red: la marca manda sobre el modelo, y sirve aunque el modelo no conteste.
+    for i, m in enumerate(msgs):
+        marca = _marca_urgente(m)
+        if not marca:
+            continue
+        a = por_indice.get(i)
+        if a is None:                          # el modelo ni lo miró: lo levantamos nosotros
+            por_indice[i] = {"i": i, "urgente": True, "importancia": "alta",
+                             "accionable": True, "fecha": "",
+                             "tarea": f"Revisar correo de {m.get('from', '')}: {m.get('subject', '')}"[:120],
+                             "motivo": f"marca «{marca}» en el asunto"}
+        elif not a.get("urgente"):             # dijo que no; la marca pesa más
+            a["urgente"] = True
+            a["importancia"] = "alta"
+            a["motivo"] = (f"marca «{marca}» en el asunto"
+                           + (f" · el modelo decía: {a['motivo']}" if a.get("motivo") else ""))
+
+    sin_clasificar = [i for i in range(len(msgs)) if i not in por_indice]
+    return [por_indice[i] for i in sorted(por_indice)], sin_clasificar
+
+
+async def _analyze_batch(msgs: list[dict]) -> list[dict]:
+    """Una sola llamada al modelo con UN LOTE. Índices LOCALES al lote."""
     from backend.core import llm
     partes = []
     for i, m in enumerate(msgs):
@@ -995,6 +1168,15 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                                  lambda c=_chan: _email_urgent_job(ctx, c), kind="correo")
             return {"reply": "Voy a ello en segundo plano: reviso tus correos sin leer y "
                              "te aviso en cuanto termine con lo urgente."}
+
+        if intent == "email_actions_pron":
+            # «analízalos» sin decir de qué. Solo tiene sentido si acabo de enseñarle
+            # una lista de correos. Si no la hay, PREGUNTO: adivinar aquí es como
+            # decir «ninguno parece urgente» sin haber mirado.
+            if not _last_emails:
+                return {"reply": "¿Que analice el qué? No te he listado correos todavía. "
+                                 "Dime «analiza los correos» y me pongo con la bandeja."}
+            intent = "email_actions"           # a partir de aquí, lo mismo de siempre
 
         if intent == "email_actions":
             # EN SEGUNDO PLANO (orden de Adri): acuse inmediato, análisis por detrás,

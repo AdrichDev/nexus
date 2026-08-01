@@ -24,9 +24,14 @@ if errorlevel 1 (
   echo     Descargalo en https://git-scm.com/download/win y vuelve a lanzar esto.
   goto :fin
 )
-where python >nul 2>&1
-if errorlevel 1 (
-  echo [X] No encuentro python en el PATH ^(hace falta para la revision^).
+rem  El python del PROYECTO, nunca el del PATH. El del sistema es 3.14 y este
+rem  proyecto necesita 3.12: con el equivocado la revision puede ni arrancar, y
+rem  encima deja cache __pycache__ compilada por un interprete no soportado.
+set "PY=%~dp0.venv\Scripts\python.exe"
+if not exist "!PY!" (
+  echo [X] No encuentro el entorno del proyecto ^(.venv^), y la revision de
+  echo     seguridad se hace con el, no con el python del sistema.
+  echo     Lanza run.bat una vez: el mismo repara el .venv.
   goto :fin
 )
 
@@ -143,18 +148,18 @@ echo.
 echo ============ Revision de seguridad ============
 rem  Primero el detector se prueba A SI MISMO, en silencio: un "LIMPIO" de un
 rem  detector roto es peor que no revisar nada. Solo se ve si algo falla.
-python revisar_antes_de_subir.py --autotest >nul 2>&1
+"!PY!" revisar_antes_de_subir.py --autotest >nul 2>&1
 if errorlevel 1 (
   echo [X] El PROPIO detector no pasa su autocomprobacion. No me fio de su
   echo     veredicto, asi que no subo nada. Detalle:
   echo.
-  python revisar_antes_de_subir.py --autotest
+  "!PY!" revisar_antes_de_subir.py --autotest
   call :deshacer
   goto :fin
 )
 echo  [OK] el detector pasa su autocomprobacion ^(15 casos^)
 echo.
-python revisar_antes_de_subir.py
+"!PY!" revisar_antes_de_subir.py
 if errorlevel 1 (
   echo.
   echo ============================================================

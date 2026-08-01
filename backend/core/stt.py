@@ -42,7 +42,7 @@ _model = None
 SAMPLE_RATE = 16000
 CHUNK_MS = 30                    # tamaño de bloque de análisis
 MAX_SECONDS = 15                 # tope duro de grabación
-SILENCE_STOP = 0.9               # segundos de silencio para cortar
+SILENCE_STOP = 0.45              # segundos de silencio para cortar (modo conversación rápida)
 START_TIMEOUT = 8                # segundos esperando a que empieces a hablar
 ENERGY_GATE = 0.004              # umbral mínimo de energía (voz vs silencio) — muy sensible
 SILENCE_FRACTION = 0.30          # silencio = caer por debajo del 30% de TU pico de voz

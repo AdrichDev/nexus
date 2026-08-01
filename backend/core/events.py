@@ -11,9 +11,18 @@ Tipos usados por el frontend:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
+
+
+_transient_guard: contextvars.ContextVar[Callable[[], bool] | None] = (
+    contextvars.ContextVar("nexus_transient_guard", default=None)
+)
+_TRANSIENT_TYPES = frozenset({"audio", "state", "chat"})
 
 
 class EventBus:
@@ -31,7 +40,26 @@ class EventBus:
     def unregister(self, ws) -> None:
         self._clients.discard(ws)
 
+    @contextmanager
+    def guard_transient(self, is_current: Callable[[], bool]) -> Iterator[None]:
+        """Suppress transient output when the bound producer loses ownership."""
+        token = _transient_guard.set(is_current)
+        try:
+            yield
+        finally:
+            _transient_guard.reset(token)
+
     async def emit(self, type_: str, data: Any = None) -> None:
+        guard = _transient_guard.get()
+        is_audio_stop = (
+            type_ == "audio" and isinstance(data, dict) and data.get("stop") is True
+        )
+        if type_ in _TRANSIENT_TYPES and not is_audio_stop and guard is not None:
+            try:
+                if not guard():
+                    return
+            except Exception:
+                return
         # specs v24 (T1/T2/T17): ÚLTIMA BARRERA antes de que algo llegue al chat.
         # Da igual qué módulo lo emita — aquí no pasa la fontanería interna
         # (subagentes, gateways, colas, códigos HTTP, trazas). Los eventos `log`
@@ -46,8 +74,9 @@ class EventBus:
             except Exception:
                 pass
         evt = {"type": type_, "data": data, "ts": time.time()}
-        self.history.append(evt)
-        self.history = self.history[-200:]
+        if type_ != "audio":
+            self.history.append(evt)
+            self.history = self.history[-200:]
         if type_ == "log":
             _persist_log(data)
         dead = []

@@ -193,10 +193,43 @@ class OllamaProvider(BaseProvider):
         except Exception:
             return False
 
-    # Qué ruta funciona en ESTA instalación de Ollama. Se aprende sola en la
+    # Qu? ruta funciona en ESTA instalaci?n de Ollama. Se aprende sola en la
     # primera llamada y se recuerda (v24, bug de Adri del 25/07: 404 con TODOS
-    # los modelos porque su Ollama no servía /api/chat).
+    # los modelos porque su Ollama no serv?a /api/chat).
     _ruta: str = ""
+
+    @staticmethod
+    def _stream_piece(payload: dict) -> str:
+        msg = payload.get("message") or {}
+        return (
+            (msg.get("content") or "")
+            or (payload.get("response") or "")
+            or (msg.get("thinking") or msg.get("reasoning") or "")
+            or (payload.get("thinking") or payload.get("reasoning") or "")
+        )
+
+    @staticmethod
+    def _should_retry_route(exc: httpx.HTTPStatusError) -> bool:
+        cuerpo = ""
+        try:
+            cuerpo = exc.response.text[:300]
+        except Exception:
+            pass
+        return exc.response.status_code == 404 and "model" not in cuerpo.lower()
+
+    @staticmethod
+    def _generate_payload(messages: list[dict], modelo: str, stream: bool) -> dict:
+        sys_txt = "\n".join(m["content"] for m in messages if m.get("role") == "system")
+        conv = "\n".join(
+            f"{'Usuario' if m.get('role') == 'user' else 'Asistente'}: {m['content']}"
+            for m in messages if m.get("role") in ("user", "assistant")
+        )
+        return {
+            "model": modelo,
+            "prompt": conv + "\nAsistente:",
+            "system": sys_txt,
+            "stream": stream,
+        }
 
     async def chat(self, messages: list[dict]) -> str:
         modelo = settings.get("ollama_model")
@@ -212,24 +245,12 @@ class OllamaProvider(BaseProvider):
                         timeout=180)
                     r.raise_for_status()
                     OllamaProvider._ruta = "chat"
-                    # Los modelos de razonamiento (qwen3, deepseek-r1…) separan lo
-                    # que PIENSAN de lo que DICEN. Si solo se lee `content`, la
-                    # respuesta llega VACÍA y nexus se queda mudo teniendo el modelo
-                    # funcionando. Se pide no razonar y, si aun así solo hay
-                    # pensamiento, se usa eso antes que devolver la nada.
                     m = r.json().get("message") or {}
                     return ((m.get("content") or "").strip()
                             or (m.get("thinking") or m.get("reasoning") or "").strip())
-                # /api/generate: existe en TODAS las versiones de Ollama
-                sys_txt = "\n".join(m["content"] for m in messages
-                                    if m.get("role") == "system")
-                conv = "\n".join(
-                    f"{'Usuario' if m.get('role') == 'user' else 'Asistente'}: {m['content']}"
-                    for m in messages if m.get("role") in ("user", "assistant"))
                 r = await net.client().post(
                     f"{self.url}/api/generate",
-                    json={"model": modelo, "prompt": conv + "\nAsistente:",
-                          "system": sys_txt, "stream": False},
+                    json=self._generate_payload(messages, modelo, stream=False),
                     timeout=180)
                 r.raise_for_status()
                 OllamaProvider._ruta = "generate"
@@ -238,19 +259,54 @@ class OllamaProvider(BaseProvider):
                         or (_d.get("thinking") or "").strip())
             except httpx.HTTPStatusError as exc:
                 ultimo = exc
-                cuerpo = ""
-                try:
-                    cuerpo = exc.response.text[:300]
-                except Exception:
-                    pass
-                # Si el 404 es porque FALTA EL MODELO, cambiar de ruta no arregla nada.
-                if exc.response.status_code == 404 and "model" in cuerpo.lower():
+                if not self._should_retry_route(exc):
                     raise
-                if exc.response.status_code != 404:
-                    raise
-                continue                       # 404 de ruta → probamos la siguiente
-        raise ultimo if ultimo else RuntimeError("Ollama no respondió")
+                continue
+        raise ultimo if ultimo else RuntimeError("Ollama no respondi?")
 
+    async def chat_stream(self, messages: list[dict]):
+        """Streaming real de Ollama con /api/chat o fallback a /api/generate."""
+        modelo = settings.get("ollama_model")
+        rutas = [OllamaProvider._ruta] if OllamaProvider._ruta else ["chat", "generate"]
+        ultimo = None
+        for ruta in rutas:
+            got = False
+            try:
+                if ruta == "chat":
+                    url = f"{self.url}/api/chat"
+                    payload = {"model": modelo, "messages": messages, "stream": True,
+                               "think": False}
+                else:
+                    url = f"{self.url}/api/generate"
+                    payload = self._generate_payload(messages, modelo, stream=True)
+                async with net.client().stream("POST", url, json=payload, timeout=180) as r:
+                    if r.status_code >= 400:
+                        await r.aread()
+                        r.raise_for_status()
+                    OllamaProvider._ruta = ruta
+                    async for line in r.aiter_lines():
+                        line = (line or "").strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except Exception as exc:
+                            if got:
+                                return
+                            raise RuntimeError("Ollama devolvi? NDJSON inv?lido") from exc
+                        piece = self._stream_piece(data)
+                        if piece:
+                            got = True
+                            yield piece
+                    if got:
+                        return
+                    raise RuntimeError("Ollama cerr? el stream sin texto")
+            except httpx.HTTPStatusError as exc:
+                ultimo = exc
+                if not self._should_retry_route(exc):
+                    raise
+                continue
+        raise ultimo if ultimo else RuntimeError("Ollama no respondi?")
 
 class OpenAIProvider(BaseProvider):
     name = "openai"
@@ -336,6 +392,48 @@ class AnthropicProvider(BaseProvider):
         return "".join(b.get("text", "") for b in r.json()["content"])
 
 
+def _gemini_payload(messages: list[dict]) -> dict:
+    system = "\n".join(m["content"] for m in messages if m["role"] == "system")
+    contents = [{"role": "user" if m["role"] == "user" else "model",
+                 "parts": [{"text": m["content"]}]}
+                for m in messages if m["role"] in ("user", "assistant")]
+    return {"contents": contents,
+            "system_instruction": {"parts": [{"text": system}]}}
+
+
+def _sse_json(data: list[str]) -> dict:
+    row = json.loads("\n".join(data))
+    if not isinstance(row, dict):
+        raise ValueError("Gemini SSE data must be a JSON object")
+    return row
+
+
+async def _iter_sse_json(lines):
+    data: list[str] = []
+    async for raw_line in lines:
+        line = raw_line.rstrip("\r")
+        if not line:
+            if data:
+                yield _sse_json(data)
+                data.clear()
+            continue
+        if line.startswith("data:"):
+            data.append(line[5:].lstrip())
+    if data:
+        yield _sse_json(data)
+
+
+def _candidate_text(row: dict) -> tuple[list[str], str | None]:
+    candidates = row.get("candidates") or []
+    candidate = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+    content = candidate.get("content") or {}
+    parts = content.get("parts") or []
+    pieces = [part["text"] for part in parts
+              if isinstance(part, dict) and isinstance(part.get("text"), str)
+              and part["text"]]
+    return pieces, candidate.get("finishReason")
+
+
 class GeminiProvider(BaseProvider):
     name = "gemini"
 
@@ -343,19 +441,58 @@ class GeminiProvider(BaseProvider):
         return bool(settings.secret("gemini_api_key"))
 
     async def chat(self, messages: list[dict]) -> str:
-        system = "\n".join(m["content"] for m in messages if m["role"] == "system")
-        contents = [{"role": "user" if m["role"] == "user" else "model",
-                     "parts": [{"text": m["content"]}]}
-                    for m in messages if m["role"] in ("user", "assistant")]
         model = settings.get("gemini_model")
         r = await net.client().post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
             params={"key": settings.secret("gemini_api_key")},
-            json={"contents": contents,
-                  "system_instruction": {"parts": [{"text": system}]}},
+            json=_gemini_payload(messages),
             timeout=120)
         r.raise_for_status()
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+        pieces, _finish_reason = _candidate_text(r.json())
+        text = "".join(pieces).strip()
+        if not text:
+            raise RuntimeError("Gemini returned no substantive text")
+        return text
+
+    async def chat_stream(self, messages: list[dict]):
+        model = settings.get("gemini_model")
+        async with net.client().stream(
+                "POST",
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model}:streamGenerateContent",
+                params={"alt": "sse", "key": settings.secret("gemini_api_key")},
+                json=_gemini_payload(messages),
+                timeout=120) as r:
+            if r.status_code >= 400:
+                await r.aread()
+                r.raise_for_status()
+            emitted = False
+            leading_whitespace: list[str] = []
+            async for row in _iter_sse_json(r.aiter_lines()):
+                if row.get("error"):
+                    raise RuntimeError("Gemini SSE returned an error event")
+                pieces, finish_reason = _candidate_text(row)
+                for piece in pieces:
+                    if not piece.strip():
+                        if emitted:
+                            yield piece
+                        else:
+                            leading_whitespace.append(piece)
+                        continue
+                    if not emitted:
+                        for prefix in leading_whitespace:
+                            yield prefix
+                        leading_whitespace.clear()
+                    emitted = True
+                    yield piece
+                if finish_reason:
+                    if not emitted:
+                        raise RuntimeError(
+                            "Gemini SSE ended before producing text"
+                        )
+                    return
+            if not emitted:
+                raise RuntimeError("Gemini SSE ended before producing text")
 
 
 class MockProvider(BaseProvider):

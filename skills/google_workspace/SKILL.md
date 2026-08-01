@@ -76,6 +76,20 @@ Tasks (To-Do):
   fuerza reautorización sola.
 - El triaje analiza hasta 30 no-leídos con cuerpo; el total reportado es siempre
   el REAL de la bandeja (threads, como tu app de Gmail).
+- El análisis va **por lotes** (`correos.por_lote` en `config/umbrales.json`, 6 por
+  defecto). No es un capricho: mandando los 30 de golpe son 22.000 caracteres,
+  ollama corta el prompt a 4096 tokens y el modelo contesta en prosa en vez de
+  JSON. Medido con qwen3:8b: con 6 clasifica los 30 y pilla la alerta; con 10
+  solo clasifica 21; con 30 no clasifica ninguno. Con un modelo de más contexto
+  puedes subir el número.
+- Debajo del modelo hay una **red determinista**: si el remitente o el asunto
+  contienen alguna de las `correos.marcas_urgentes` de `config/umbrales.json`
+  (`[alerta]`, `alerta de seguridad`, `pago rechazado`…), el correo sale urgente
+  aunque el modelo diga que no y aunque el modelo no conteste. Se compara sin
+  tildes y sin distinguir mayúsculas.
+- Y lo que **no se ha podido clasificar se dice**. Antes, si el modelo fallaba,
+  se respondía «ninguno parece urgente» — que es mentira: no se había mirado
+  nada. Ahora se avisa de cuántos se quedaron fuera.
 - Zona horaria de eventos: Europe/Madrid.
 
 ## Si ves «Acceso bloqueado: la solicitud de esta app no es válida»

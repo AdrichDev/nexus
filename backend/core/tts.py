@@ -14,9 +14,12 @@ el cambio aplica al momento (settings tts_engine / tts_voice).
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import time
 import re
 import tempfile
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -59,6 +62,43 @@ ELEVEN_VOICES = {
 from .config import DATA_DIR
 
 TTS_DIR = DATA_DIR / "tts"
+FIRST_FLUSH_CHARS = 72
+FIRST_FLUSH_MS = 700
+_turn_context: contextvars.ContextVar[object | None] = contextvars.ContextVar(
+    "nexus_tts_turn", default=None
+)
+
+
+@contextmanager
+def bind_turn(turn) -> Iterator[object]:
+    """Bind assistant speech in this task to one authoritative voice turn."""
+    token = _turn_context.set(turn)
+    try:
+        yield turn
+    finally:
+        _turn_context.reset(token)
+
+
+def current_turn():
+    return _turn_context.get()
+
+
+def _owns_turn(turn) -> bool:
+    if turn is None:
+        return True
+    try:
+        return bool(turn.is_current())
+    except Exception:
+        return False
+
+
+def _mark_turn(turn, stage: str) -> None:
+    if turn is None:
+        return
+    try:
+        turn.mark(stage)
+    except Exception:
+        pass
 
 
 def _pron(text: str) -> str:
@@ -468,6 +508,13 @@ async def speak(text: str, role: str = "assistant") -> float:
     text = _speak_norm(_strip_symbols(_strip_md(_pron(text))))   # sin emojis/markdown, «máxima…y mínima…»
     if not text:
         return 0.0
+    turn = current_turn()
+    if turn is not None:
+        async def _one_piece():
+            yield text
+
+        _, remaining = await speak_stream(_one_piece(), turn=turn)
+        return remaining
     _remember_spoken(text)
     await bus.emit("state", "speaking")
     loop = asyncio.get_running_loop()
@@ -510,88 +557,191 @@ async def speak(text: str, role: str = "assistant") -> float:
     return max(0.0, total_secs - (loop.time() - t0))
 
 
-async def speak_stream(pieces) -> tuple[str, float]:
+async def speak_stream(
+    pieces,
+    *,
+    turn=None,
+    first_flush_chars: int | None = None,
+    first_flush_ms: int | None = None,
+    clock: Callable[[], float] | None = None,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> tuple[str, float]:
     """VOZ MIENTRAS EL MODELO ESCRIBE (estilo app de Claude): consume un generador
     asíncrono de trozos de texto, corta por FRASES y emite el audio de cada frase
     en cuanto está lista — el HUD las reproduce EN COLA, sin cortes. La 1ª frase
     suena en ~1 s aunque la respuesta sea larga. Devuelve (texto_completo,
     segundos_que_quedan_sonando). Sin motor de archivo → habla todo al final (SAPI)."""
+    turn = current_turn() if turn is None else turn
     mode = settings.get("tts_engine", "auto")
     loop = asyncio.get_running_loop()
+    monotonic = clock or time.monotonic
+    wait = sleep or asyncio.sleep
+    char_bound = max(1, first_flush_chars or FIRST_FLUSH_CHARS)
+    time_bound = max(0, first_flush_ms if first_flush_ms is not None else FIRST_FLUSH_MS)
     full = ""
     buf = ""
     seq = 0
     total = 0.0
     t0 = None
+    first_text_at = None
     can_files = mode in ("auto", "edge", "elevenlabs")
 
-    async def _emit_sent(txt: str) -> None:
+    async def _emit_sent(txt: str) -> bool:
         nonlocal seq, total, t0
+        if not _owns_turn(turn):
+            return False
         say = _speak_norm(_strip_symbols(_strip_md(_pron(txt))))
         if not say.strip():
-            return
+            return False
+        if seq == 0:
+            _mark_turn(turn, "first_flush")
         _remember_spoken(say)
         data = None
+        if not _owns_turn(turn):
+            return False
         if mode in ("auto", "edge"):
             data = await _edge_bytes(say)
+        if not _owns_turn(turn):
+            return False
         if not data and mode in ("auto", "elevenlabs"):
             data = await _eleven_bytes(say)
-        if data:
+        if data and _owns_turn(turn):
             if t0 is None:
                 t0 = loop.time()
             total += _estimate_secs(say)
+            if seq == 0:
+                _mark_turn(turn, "first_audio")
+            if not _owns_turn(turn):
+                return False
             await bus.emit("audio", {"url": _serve_audio(data, "mp3"),
                                      "seq": seq, "last": False})
             seq += 1
+            return True
+        return False
 
-    def _pop(minlen: int) -> str | None:
+    def _pop_sentence() -> str | None:
         nonlocal buf
-        m = re.search(r"^([\s\S]{%d,}?[\.\!\?…])\s" % minlen, buf)
+        m = re.search(r"^([\s\S]*?[\.\!\?…])(?=\s|$)", buf)
         if not m:
             return None
         out = m.group(1)
-        buf = buf[m.end():]
+        buf = buf[m.end():].lstrip()
         return out
 
     if mode == "off":
         async for piece in pieces:
+            if not _owns_turn(turn):
+                break
             full += piece
         return full, 0.0
 
+    if not _owns_turn(turn):
+        return full, 0.0
     await bus.emit("state", "speaking")
-    async for piece in pieces:
-        full += piece
-        if not can_files:
-            continue
-        buf += piece
-        while True:
-            # 1ª frase: cortita (≥25) para arrancar YA; después trozos ≥110 para
-            # que la locución no suene entrecortada (lección v47/v49).
-            sent = _pop(25 if seq == 0 else 110)
-            if sent is None:
+    iterator = pieces.__aiter__()
+    next_piece: asyncio.Task | None = None
+    wait_cancelled = getattr(turn, "wait_cancelled", None)
+    cancel_task = (
+        asyncio.create_task(wait_cancelled()) if callable(wait_cancelled) else None
+    )
+    try:
+        while _owns_turn(turn):
+            if next_piece is None:
+                next_piece = asyncio.create_task(anext(iterator))
+            deadline_task = None
+            if seq == 0 and buf.strip() and first_text_at is not None:
+                elapsed = max(0.0, monotonic() - first_text_at)
+                remaining = max(0.0, time_bound / 1000 - elapsed)
+                deadline_task = asyncio.create_task(wait(remaining))
+                waiters = {next_piece, deadline_task}
+                if cancel_task is not None:
+                    waiters.add(cancel_task)
+                done, _ = await asyncio.wait(
+                    waiters,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if cancel_task is not None and cancel_task in done:
+                    deadline_task.cancel()
+                    break
+                if deadline_task in done and next_piece not in done:
+                    if not _owns_turn(turn):
+                        break
+                    pending, buf = buf.strip(), ""
+                    await _emit_sent(pending)
+                    continue
+                deadline_task.cancel()
+            elif cancel_task is not None:
+                done, _ = await asyncio.wait(
+                    {next_piece, cancel_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if cancel_task in done:
+                    break
+            try:
+                piece = await next_piece
+            except StopAsyncIteration:
+                next_piece = None
                 break
-            await _emit_sent(sent)
-    if can_files and buf.strip():
+            next_piece = None
+            if not _owns_turn(turn):
+                break
+            full += piece
+            if piece and first_text_at is None:
+                first_text_at = monotonic()
+                _mark_turn(turn, "first_token")
+            if not can_files:
+                continue
+            buf += piece
+            while True:
+                sent = _pop_sentence()
+                if sent is None:
+                    break
+                await _emit_sent(sent)
+                if not _owns_turn(turn):
+                    break
+            if not _owns_turn(turn):
+                break
+            if seq == 0 and len(buf.strip()) >= char_bound:
+                pending, buf = buf.strip(), ""
+                await _emit_sent(pending)
+    finally:
+        if next_piece is not None and not next_piece.done():
+            next_piece.cancel()
+        if cancel_task is not None and not cancel_task.done():
+            cancel_task.cancel()
+    if can_files and buf.strip() and _owns_turn(turn):
         await _emit_sent(buf.strip())
+    if not _owns_turn(turn):
+        return full, 0.0
     if seq == 0 and full.strip() and mode in ("auto", "local"):
         # sin edge/eleven: voz local BLOQUEANTE con el texto completo
-        await loop.run_in_executor(None, _speak_local_sync,
-                                   _speak_norm(_strip_symbols(_strip_md(_pron(full)))))
+        say = _speak_norm(_strip_symbols(_strip_md(_pron(full))))
+        spoke = await loop.run_in_executor(None, _speak_local_sync, say)
+        if spoke:
+            _mark_turn(turn, "first_flush")
+            _mark_turn(turn, "first_audio")
+            _remember_spoken(say)
+        if not _owns_turn(turn):
+            return full, 0.0
         await bus.emit("state", "idle")
         return full, 0.0
-    await bus.emit("state", "idle")
+    if _owns_turn(turn):
+        await bus.emit("state", "idle")
     if t0 is None:
         return full, 0.0
     return full, max(0.0, total - (loop.time() - t0))
 
 
-async def stop() -> None:
+async def stop(*, turn=None) -> None:
     """Corta la voz de la IA AL INSTANTE en el HUD (barge-in): cuando el operador
     habla en micro abierto, mandamos parar la reproducción y limpiar la cola."""
     try:
         await bus.emit("audio", {"stop": True})
     except Exception:
         pass
+    turn = current_turn() if turn is None else turn
+    if not _owns_turn(turn):
+        return
     try:
         await bus.emit("state", "idle")
     except Exception:

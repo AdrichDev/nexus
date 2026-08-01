@@ -52,6 +52,21 @@ config/*secret*.json
 *.backup
 *.old
 *.OLD.json
+
+# ★★ 2026-07-31: Y LAS COPIAS QUE PEGAN EL SUFIJO **DETRÁS** DEL SUFIJO.
+#   Un agente dejó «config/settings.json.codex-backup-2026-07-31-openmic» con
+#   claves dentro. Las reglas de arriba NO lo cogen: *.bak y *.backup solo casan
+#   cuando el nombre TERMINA en eso, y este termina en «-openmic». El original
+#   estaba excluido y la copia no: el .gitignore se saltaba por la puerta de
+#   atrás, y SUBIR_A_GITHUB.bat hace «git add -A».
+#   NADA DE «*backup*» A SECAS: se llevaría por delante skills/backup/, y como
+#   ese mismo .bat hace «git rm -r --cached .» antes del add, una regla de más
+#   no es que ignore lo nuevo — BORRA del repo lo que ya estaba dentro.
+config/settings.json*
+config/secrets.json*
+*.codex-backup*
+*.claude-backup*
+
 # (Se conservan a propósito los ejemplos: *.example.json y n8n_flujo_ejemplo.json)
 
 # ── Claves de firma y certificados ────────────────────────────────────────────

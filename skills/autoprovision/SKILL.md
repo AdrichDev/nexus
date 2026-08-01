@@ -28,7 +28,7 @@ el backend), con acceso real a Docker, Ollama y n8n locales. Las acciones son
   está en Ollama lo deja como activo; si no, lo descarga del registro y lo activa.
 
 - **Arreglar Ollama** — «arregla ollama», «mis modelos locales no aparecen». Detecta si
-  `OLLAMA_MODELS` no apunta a tu carpeta de modelos (p.ej. `D:\Adrian\13. LLMs`), la
+  `OLLAMA_MODELS` no apunta a tu carpeta de modelos (p.ej. `D:\LLMs`), la
   fija con `setx` y te pide reiniciar Ollama una vez para que los lea. Esto resuelve el
   típico «el modelo X no está en Ollama» cuando el modelo existe en tu carpeta pero
   Ollama no lo ve.

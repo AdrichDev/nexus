@@ -33,7 +33,14 @@ os.environ.setdefault(
 
 import uvicorn
 
-HOST, PORT = "127.0.0.1", 8177
+# BIND es a QUÉ interfaces se ata uvicorn; HOST es a dónde apunta la ventana.
+# No son lo mismo y confundirlos rompe una de las dos cosas: «0.0.0.0» significa
+# «escucha en todas», pero como destino no vale nada — la ventana tiene que ir a
+# 127.0.0.1. Atado solo a loopback, el móvil NO podía entrar por la WiFi: el QR
+# ofrecía «MIPC.local:8177» y esa dirección rechazaba la conexión (31/07/2026).
+# Abrirlo a la LAN es seguro porque el middleware de app.py exige el token del QR
+# a todo origen que no sea este mismo equipo.
+BIND, HOST, PORT = "0.0.0.0", "127.0.0.1", 8177
 URL = f"http://{HOST}:{PORT}"
 
 
@@ -77,7 +84,7 @@ class JsApi:
 
 def _run_server():
     from backend.app import app
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    uvicorn.run(app, host=BIND, port=PORT, log_level="warning")
 
 
 def _wait_for_server(timeout: float = 15.0) -> bool:

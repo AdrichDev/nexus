@@ -114,29 +114,79 @@ def nombre_local() -> str:
         return ""
 
 
+_alcance_cache: dict = {}
+
+
+def responde(host_puerto: str, timeout: float = 0.6, cache_seg: float = 30.0) -> bool:
+    """¿Hay algo escuchando de verdad en «maquina:puerto»?
+
+    POR QUÉ EXISTE (31/07/2026). Esta lista prometía direcciones que NO
+    aceptaban conexiones: uvicorn estaba atado solo a 127.0.0.1, así que el QR
+    llevaba a «MIPC.local:8177» y el móvil se comía un «rechazada» sin más
+    explicación. Ofrecer una dirección muerta es peor que no ofrecerla: el móvil
+    la prueba, falla, y el usuario no sabe si el fallo es suyo o del PC.
+
+    OJO CON LO QUE ESTO *NO* PRUEBA: se comprueba desde este mismo equipo, y el
+    cortafuegos de Windows puede dejar pasar al propio PC y bloquear al móvil.
+    Que salga True significa «el puerto está abierto aquí», no «tu móvil llega»."""
+    ahora = time.time()
+    prev = _alcance_cache.get(host_puerto)
+    if prev and ahora - prev[0] < cache_seg:
+        return prev[1]
+    ok = False
+    try:
+        maquina, _, puerto = host_puerto.rpartition(":")
+        with socket.create_connection((maquina, int(puerto)), timeout=timeout):
+            ok = True
+    except Exception:
+        ok = False                          # cerrado, filtrado o nombre que no resuelve
+    _alcance_cache[host_puerto] = (ahora, ok)
+    return ok
+
+
 def direcciones() -> list[dict]:
     """TODAS las formas de llegar a este nexus, de más estable a menos.
 
     El móvil se queda con la lista entera, no con una sola. Ese era el fallo de
     raíz: guardaba UNA dirección (la del túnel, que es aleatoria en cada
     arranque) y al reiniciar el PC se quedaba huérfano y había que revincular.
-    Con la lista, prueba una por una y se queda con la que conteste."""
-    out: list[dict] = []
+    Con la lista, prueba una por una y se queda con la que conteste.
+
+    Las direcciones de red se SONDEAN antes de ofrecerlas (ver `responde`) y cada
+    una sale marcada con «verificada». La del túnel no se sondea: vive en el borde
+    de Cloudflare y comprobarla cuesta una vuelta a internet en cada refresco del
+    HUD; que cloudflared haya registrado la conexión ya es señal de que está viva.
+
+    OJO CON EL FILTRO, que casi la lío (31/07/2026). Al principio las no
+    verificadas se TIRABAN. Si no contestaba ninguna —nexus levantándose todavía,
+    el cortafuegos de por medio— la lista salía VACÍA y el QR se quedaba sin nada
+    que ofrecer. Eso es peor que una dirección dudosa: con una dudosa el móvil al
+    menos lo intenta; sin ninguna, ni eso, y encima no hay nada que explique por
+    qué. Así que la regla es: se descartan las muertas SOLO si queda alguna viva."""
+    cand: list[dict] = []
     ts = tailscale_url()
     if ts:
-        out.append({"host": ts, "esquema": "http", "tipo": "tailscale",
-                    "estable": True, "desde": "cualquier red"})
+        cand.append({"host": ts, "esquema": "http", "tipo": "tailscale",
+                     "estable": True, "desde": "cualquier red",
+                     "verificada": responde(ts)})
     nl = nombre_local()
     if nl:
-        out.append({"host": f"{nl}:8177", "esquema": "http", "tipo": "nombre",
-                    "estable": True, "desde": "tu casa"})
+        cand.append({"host": f"{nl}:8177", "esquema": "http", "tipo": "nombre",
+                     "estable": True, "desde": "tu casa",
+                     "verificada": responde(f"{nl}:8177")})
     ip = lan_ip()
     if ip and ip != "127.0.0.1":
-        out.append({"host": f"{ip}:8177", "esquema": "http", "tipo": "wifi",
-                    "estable": False, "desde": "tu casa"})
+        cand.append({"host": f"{ip}:8177", "esquema": "http", "tipo": "wifi",
+                     "estable": False, "desde": "tu casa",
+                     "verificada": responde(f"{ip}:8177")})
+
+    vivas = [d for d in cand if d["verificada"]]
+    out = vivas if vivas else cand             # nunca vacía por culpa del sondeo
+
     if _state["url"]:
-        out.append({"host": _state["url"].replace("https://", ""), "esquema": "https",
-                    "tipo": "tunel", "estable": False, "desde": "cualquier red"})
+        out = out + [{"host": _state["url"].replace("https://", ""), "esquema": "https",
+                      "tipo": "tunel", "estable": False, "desde": "cualquier red",
+                      "verificada": True}]     # no se sondea: cloudflared ya la registró
     return out
 
 
