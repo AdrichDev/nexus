@@ -359,7 +359,19 @@
      "creacionusuario", "ejemplos_sentencias", "ejemplo_tabla", "savepoint",
      "transformación de interrelaciones", "transformación atributos",
      " act1", " act2", " act3", " act4", " act6", " act7", " act12",
-     " act14", "act2 consulta", "act4_consulta"
+     " act14", "act2 consulta", "act4_consulta",
+     "fp dam euroformac", "euroformac"
+    ],
+    "_palabras_02_08_2026": [
+     "Al estrenar la purga quedaron 13 filas de la FP sin retirar. No las cazaba",
+     "ninguna palabra de la lista porque esas notas se llaman 'compiler',",
+     "'modules', 'misc', 'settings', 'Project': nombres de ficheros de",
+     "configuracion de IntelliJ, que no dicen nada de estudios. Lo que SI dicen",
+     "es de donde salieron: todas llevan dentro 'Carpeta: 20. FP DAM Euroformac'.",
+     "",
+     "De ahi las dos entradas nuevas. La leccion: clasificar por el NOMBRE falla",
+     "con los ficheros que genera una herramienta, porque el nombre lo pone la",
+     "herramienta y no el dueño. La ruta de origen sobrevive a eso."
     ]
    },
    "duplicados-exactos": {
