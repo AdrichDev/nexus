@@ -15,10 +15,12 @@ Todo tolera fallos: si algo va mal, devuelve vacío y el resto sigue.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import re
 import time
+import unicodedata
 
 from .config import CONFIG_DIR, DATA_DIR, settings
 
@@ -100,16 +102,32 @@ def _emb_gemini(text: str):
     return r.json()["embedding"]["values"]
 
 
-def _embed_sync(text: str):
+def _embed_sync(text: str, proveedor: str | None = None):
     """Embeddings con EL MODELO QUE SE ELIGIÓ AL INSTALAR (no obliga a Ollama).
     `embed_provider` (⚙/instalación): 'auto' sigue el cerebro configurado; o se fija
     a ollama/openai/gemini. OJO: Anthropic (Claude/Fable) NO ofrece API de embeddings,
     así que si el cerebro es Anthropic se usa OpenAI/Gemini (si hay key) u Ollama local;
-    y si no hay ninguno, el RAG cae a búsqueda por palabras."""
+    y si no hay ninguno, el RAG cae a búsqueda por palabras.
+
+    `proveedor`: si se pasa EXPLÍCITO, ignora `embed_provider`/el cerebro por
+    completo y usa SOLO ese proveedor (sin caer a ningún otro). Así
+    `memoria.embedding.proveedor_preferido` (memory.py) queda independiente de
+    `embed_provider: auto`, que sigue al cerebro de chat — cambiar el cerebro
+    de Gemini a otra nube NUNCA debe arrastrar los embeddings de memoria
+    (memoria-embeddings, escenario «Cambio de cerebro de chat no afecta a
+    embeddings»)."""
     text = (text or "").strip()
     if not text:
         return None
     fns = {"ollama": _emb_ollama, "openai": _emb_openai, "gemini": _emb_gemini}
+    if proveedor:
+        fn = fns.get(str(proveedor).lower())
+        if fn is None:
+            return None
+        try:
+            return fn(text) or None
+        except Exception:
+            return None
     choice = str(settings.get("embed_provider", "auto")).lower()
     order = []
     if choice in fns:                         # elección EXPLÍCITA de la instalación
@@ -144,6 +162,25 @@ def _embed_sync(text: str):
 
 async def embed(text: str):
     return await asyncio.to_thread(_embed_sync, text)
+
+
+def huella(texto: str) -> str:
+    """Huella (hash) estable de un texto, para deduplicación EXACTA
+    (memoria-deduplicacion, req. «Identidad canónica del hecho»).
+
+    Normaliza NFKC + casefold + espacios colapsados ANTES de hashear: dos
+    hechos con distinto espaciado o mayúsculas dan la MISMA huella. Las
+    tildes NO se tocan a propósito: «revisión» y «revision» son hechos
+    distintos, no el mismo con una errata (memoria-deduplicacion, escenario
+    «Normalización antes de la huella»).
+
+    `memory.py` combina esto con el `kind` (`huella(f"{kind}\n{texto}")`,
+    diseño §4: `sha256(kind + "\n" + normalizado(texto))`) para que dos
+    hechos idénticos de tipo distinto no colisionen entre sí."""
+    t = unicodedata.normalize("NFKC", texto or "")
+    t = t.casefold()
+    t = re.sub(r"\s+", " ", t).strip()
+    return hashlib.sha256(t.encode("utf-8")).hexdigest()
 
 
 def _load() -> list:
@@ -256,8 +293,13 @@ async def add(text: str, kind: str = "knowledge", meta: dict | None = None,
         pg = _pg()
         if pg is not None:
             try:
-                await asyncio.to_thread(pg.remember, text, kind, None)
-                return True
+                # memory-y-conocimiento (A4.4): remember() YA deduplica por
+                # huella (índice único si existe, comprobación de aplicación
+                # si no) — esto sustituye al `dedup` local de aquí abajo, que
+                # solo miraba el almacén de ficheros y dejaba pasar CUALQUIER
+                # cosa por el camino de Postgres sin comprobar nada.
+                res = await asyncio.to_thread(pg.remember, text, kind, None)
+                return not (isinstance(res, dict) and res.get("duplicado"))
             except Exception:
                 pass                            # si la DB falla, cae al store local
     store = _load()

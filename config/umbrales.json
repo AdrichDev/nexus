@@ -80,7 +80,29 @@
   "solape_minimo_palabras": 0.5,
   "coseno_minimo_tarea": 0.62,
   "_letras_minimas_palabra_sola": "Cuando de la frase solo queda UNA palabra clave, el porcentaje de arriba no filtra nada: una de una es el 100% y pasa siempre. Ahi manda la longitud. 'wabiksco' busca; 'ves' no, y por eso 'Que es lo que ves' ya no trae el manual de Gmail.",
-  "letras_minimas_palabra_sola": 5
+  "letras_minimas_palabra_sola": 5,
+  "embedding": {
+   "_que_es": [
+    "Politica de embeddings del RAG: que proveedor los calcula, si puede",
+    "salir a la nube, y cuando merece la pena crear el indice de similitud.",
+    "",
+    "01/08/2026: la columna memories.embedding es vector(768) pero el",
+    "modelo activo daba otra dimension: 741 filas sin vector, y recall()",
+    "cayendo siempre al respaldo ILIKE. La DIMENSION NO se pone aqui a",
+    "mano (eso reproduciria el mismo bug en otra direccion): se MIDE",
+    "contra el modelo activo y se guarda en",
+    "data/memoria/estado_embeddings.json, que es estado derivado, no",
+    "configuracion. Aqui solo va la POLITICA."
+   ],
+   "proveedor_preferido": "ollama",
+   "_proveedor_preferido": "Con que proveedor se vectoriza la MEMORIA. Independiente del cerebro de chat (llm_provider): cambiar de cerebro NUNCA cambia esto.",
+   "permitir_nube": false,
+   "_permitir_nube": "Con false, reindexar con un proveedor de nube (openai/gemini/cloud) falla con motivo claro y no llega a la interfaz. Cambialo a mano si de verdad quieres permitirlo, sabiendo que el contenido de tus documentos sale de este equipo.",
+   "lote_reindex": 32,
+   "_lote_reindex": "Filas por lote al reindexar. Reanudable: si se interrumpe, la siguiente llamada retoma desde la primera fila sin embedding.",
+   "filas_minimas_indice": 1000,
+   "_filas_minimas_indice": "Por debajo de esto, el indice ivfflat no se crea: con pocas filas por lista, un recorrido secuencial (exacto) gana al indice aproximado. Medido con 741 filas y lists=100 -> ~7 filas por lista, peor que secuencial."
+  }
  },
  "correos": {
   "_que_es": [

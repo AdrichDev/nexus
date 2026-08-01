@@ -1120,6 +1120,89 @@ async def api_config_set(payload: dict):
     return settings.as_dict()
 
 
+@app.get("/api/memoria/estado")
+async def api_memoria_estado():
+    # 002-memoria-y-conocimiento (A4.6): NUNCA llama al proveedor de
+    # embeddings — solo lee la columna (catálogo) y lo ya medido en disco.
+    # Sin esto, dejar el HUD abierto haría una llamada real por cada poll.
+    from backend.core import memory
+    return memory.estado_memoria()
+
+
+@app.post("/api/memoria/vector/migrar")
+async def api_memoria_vector_migrar(payload: dict):
+    # A2.5: protegido por confirm.request(), igual que vaciar la papelera
+    # (tasks_board/skill.py) — el «sí» llega por chat, resuelto en
+    # brain.process() ANTES de cualquier router.
+    from backend.core import memory, confirm
+    canal = payload.get("channel") or "pc"
+    dim = payload.get("dim")
+    if dim is None:
+        medida = memory.pg.detectar_dimension()
+        dim = medida.get("medida")
+        if dim is None:
+            return {"ok": False, "error": (
+                "no he podido medir la dimensión del modelo activo (¿Ollama "
+                "encendido?); pásame «dim» a mano si ya la conoces.")}
+    dim = int(dim)
+    actual = memory.pg._dimension_columna()
+    if actual == dim:
+        return {"ok": False, "error": f"la columna ya está en vector({dim})"}
+
+    def _migrar():
+        r = memory.pg.migrar_vector(dim)
+        if r.get("ok"):
+            return (f"Columna migrada a vector({dim}). La columna anterior "
+                    f"sigue intacta como «{r.get('columna_vieja')}» — no se "
+                    f"ha perdido ni una fila.")
+        return f"No he podido migrar: {r.get('error')}"
+
+    pregunta = confirm.request(
+        channel=canal, kind="memoria_migrar_vector",
+        summary=(f"⚠️ Voy a migrar memories.embedding de vector({actual}) a "
+                 f"vector({dim}). No se borra ninguna fila: la columna vieja "
+                 f"queda renombrada como respaldo. ¿Lo confirmas? «sí» o «no»."),
+        action=_migrar, request_text=str(payload),
+        cancel_reply="Vale, dejo la columna como está.")
+    return {"reply": pregunta}
+
+
+@app.post("/api/memoria/reindexar/plan")
+async def api_memoria_reindexar_plan(payload: dict | None = None):
+    # A3.4: solo PRESUPUESTA — cero llamadas al proveedor todavía.
+    from backend.core import memory
+    proveedor = (payload or {}).get("proveedor")
+    return memory.pg.plan_reindexado(proveedor)
+
+
+@app.post("/api/memoria/reindexar")
+async def api_memoria_reindexar(payload: dict):
+    # A3.4: con proveedor local, reindexa directo. Con nube, exige
+    # confirm.request() nombrando proveedor y nº de llamadas (diseño §3,
+    # «cerrojo 2») ANTES de la primera fila — el «sí» llega por chat.
+    from backend.core import memory, confirm
+    plan_id = payload.get("plan_id", "")
+    canal = payload.get("channel") or "pc"
+    plan = memory.pg._planes_reindexado.get(plan_id)
+    if not plan:
+        return {"ok": False, "error": f"plan «{plan_id}» desconocido o caducado"}
+    if plan["sale_del_equipo"]:
+
+        def _reindexar():
+            r = memory.pg.reindexar(plan_id, confirmar_nube=True)
+            if r.get("ok"):
+                return f"Reindexado: {r['procesadas']} fila(s), {r['fallidas']} fallida(s)."
+            return f"No he podido reindexar: {r.get('error')}"
+
+        pregunta = confirm.request(
+            channel=canal, kind="memoria_reindexar_nube",
+            summary=plan["aviso"] + " ¿Confirmas?", action=_reindexar,
+            request_text=str(payload),
+            cancel_reply="Vale, no reindexo con ese proveedor.")
+        return {"reply": pregunta}
+    return memory.pg.reindexar(plan_id, confirmar_nube=False)
+
+
 @app.get("/")
 async def index():
     if not settings.get("setup_done", False):
