@@ -102,6 +102,30 @@
    "_lote_reindex": "Filas por lote al reindexar. Reanudable: si se interrumpe, la siguiente llamada retoma desde la primera fila sin embedding.",
    "filas_minimas_indice": 1000,
    "_filas_minimas_indice": "Por debajo de esto, el indice ivfflat no se crea: con pocas filas por lista, un recorrido secuencial (exacto) gana al indice aproximado. Medido con 741 filas y lists=100 -> ~7 filas por lista, peor que secuencial."
+  },
+  "troceado": {
+   "_que_es": "002-memoria-y-conocimiento (bloque C): como se corta un documento largo en trozos para vectorizar. Antes rag.reindex() cortaba con [:1500] y el buzon con [:900] -- un 'Documento maestro' de 26 KB o un carrusel de 224 KB entraban mutilados, sin avisar. Ahora se trocea entero: la suma de trozos (quitando el solape) reproduce el original caracter a caracter.",
+   "tamano_caracteres": 1200,
+   "_tamano_caracteres": "Tamano objetivo de cada trozo. El corte respeta fronteras (encabezado markdown > linea en blanco > fin de frase > corte duro) antes de cortar a lo bruto.",
+   "solape_caracteres": 200,
+   "_solape_caracteres": "Cuanto se repite entre un trozo y el siguiente, para no perder contexto en la frontera.",
+   "minimo_caracteres": 120,
+   "_minimo_caracteres": "Una cola mas corta que esto no se convierte en trozo suelto: se funde con el anterior.",
+   "filas_por_trozo": 25,
+   "_filas_por_trozo": "Solo para .xlsx: cuantas filas de una hoja entran en cada trozo (leer_xlsx_estructurado). Antes _leer_xlsx cortaba a 3000 filas por hoja sin avisar; ahora se lee entera y se trocea por estructura, no por caracteres."
+  },
+  "ingesta": {
+   "_que_es": "002-memoria-y-conocimiento (bloque C): politica del buzon (data/memory/inbox/) y de la ingesta dirigida de carpetas.",
+   "max_bytes": 5000000,
+   "_max_bytes": "Tope de tamano por fichero en el buzon. Antes eran 500.000 bytes fijos en scheduler.py, insuficiente para un .docx con imagenes o un .xlsx real.",
+   "marcas_historico": ["antiguo", "historico", "obsoleto"],
+   "_marcas_historico": "Palabras en el NOMBRE del fichero que lo marcan como historico (etiqueta 'historico', peso bajo en recall()). No decide un LLM: es texto plano contra el nombre.",
+   "filas_por_trozo": 25
+  },
+  "pesos": {
+   "_que_es": "Multiplicador que recall() aplica al score ANTES del umbral (score * peso). Sirve para que un documento marcado historico nunca gane al definitivo aunque hablen de lo mismo.",
+   "normal": 1.0,
+   "historico": 0.6
   }
  },
  "correos": {

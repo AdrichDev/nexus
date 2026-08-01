@@ -24,26 +24,68 @@ except ImportError:
 timers: list[dict] = []
 
 
+def _umbral_ingesta() -> dict:
+    """Lee memoria.ingesta de config/umbrales.json, con reserva si falta."""
+    reserva = {"max_bytes": 5_000_000}
+    try:
+        from .config import CONFIG_DIR
+        import json
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (json.loads(f.read_text(encoding="utf-8")) or {}).get(
+                "memoria", {}).get("ingesta") or {}
+            if isinstance(leido.get("max_bytes"), (int, float)) and not isinstance(leido.get("max_bytes"), bool):
+                reserva["max_bytes"] = int(leido["max_bytes"])
+    except Exception:
+        pass
+    return reserva
+
+
 async def _ingest_inbox():
     """Absorbe a memoria cualquier archivo dejado en data/memory/inbox/.
-    Al terminar lo mueve a data/memory/ingested/ para no repetir."""
+    Al terminar lo mueve a data/memory/ingested/ para no repetir.
+    002-memoria-y-conocimiento (bloque C):
+      * C3.1: ANTES filtraba por una lista fija de extensiones que
+        RECHAZABA .docx/.pdf/.xlsx aunque files_io.read_any() ya sabía
+        leerlos -- estaban desconectados sin motivo. Ahora usa
+        files_io.puede_leer() (todo lo que el lector real entiende) y
+        files_io.read_any(f, limite=0) para no perder nada.
+      * C2.3: ANTES trozeaba con `text[:20000]` (nota local) y
+        `text[i:i+900]` (Postgres) -- el 4º y último de los truncados de
+        este bloque. Ahora usa rag.trocear() (o trocear_xlsx_estructurado()
+        si es un .xlsx) sobre el texto ENTERO."""
     from .config import DATA_DIR
+    from . import files_io, rag
     inbox = DATA_DIR / "memory" / "inbox"
     done = DATA_DIR / "memory" / "ingested"
     inbox.mkdir(parents=True, exist_ok=True)
-    exts = (".txt", ".md", ".py", ".js", ".json", ".csv", ".html", ".log", ".sql", ".yml", ".yaml")
+    max_bytes = _umbral_ingesta()["max_bytes"]
     for f in list(inbox.iterdir()):
-        if not f.is_file() or f.suffix.lower() not in exts or f.stat().st_size > 500_000:
+        if not f.is_file() or f.stat().st_size > max_bytes:
+            continue
+        ok, _motivo = files_io.puede_leer(f)
+        if not ok:
             continue
         try:
             from .memory import graph, pg
-            text = f.read_text(encoding="utf-8", errors="replace")
+            leido = files_io.read_any(f, limite=0)
+            if not leido.get("ok") or leido.get("meta", {}).get("truncado"):
+                await bus.emit("log", {"level": "warn",
+                    "msg": f"Buzón: {f.name} rechazado ({leido.get('error') or 'truncado'})"})
+                continue
+            text = leido["texto"]
             graph.write_note(f"doc {f.stem[:40]}",
-                             text[:20000] + "\n\nEnlaces: [[buzon]] [[conocimiento]]")
+                             text + "\n\nEnlaces: [[buzon]] [[conocimiento]]")
             if pg.online:
-                for i in range(0, min(len(text), 20000), 900):
-                    pg.remember(f"[{f.name}] {text[i:i+900].strip()}", kind="knowledge",
-                                tags=["buzon", f.stem])
+                if f.suffix.lower() == ".xlsx":
+                    hojas = files_io.leer_xlsx_estructurado(f)
+                    trozos = rag.trocear_xlsx_estructurado(hojas)
+                else:
+                    trozos = rag.trocear(text)
+                for trozo in trozos:
+                    pg.remember(f"[{f.name}] {trozo['texto']}", kind="knowledge",
+                                tags=["buzon", f.stem], origen=str(f), origen_tipo="buzon",
+                                dominio="buzon")
             done.mkdir(parents=True, exist_ok=True)
             f.replace(done / f.name)
             await bus.emit("log", {"level": "ok", "msg": f"Memoria: aprendido «{f.name}» del buzón"})

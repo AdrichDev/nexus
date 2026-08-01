@@ -21,7 +21,7 @@ import os
 import shutil
 from pathlib import Path
 
-from .config import DATA_DIR
+from .config import DATA_DIR, CONFIG_DIR
 
 VERSIONS_DIR = DATA_DIR / "file_versions"
 VERSIONS_INDEX = VERSIONS_DIR / "index.json"
@@ -99,22 +99,77 @@ def _leer_pdf(path: Path) -> tuple[str, dict]:
     return texto, {"paginas": paginas}
 
 
+def _umbral_xlsx_aviso() -> int:
+    """Filas por encima de las cuales _leer_xlsx() avisa (pero NO corta).
+    002-memoria-y-conocimiento (bloque C, C1.4): antes de esto, _leer_xlsx()
+    cortaba de un corte mudo a 3000 filas por hoja -- un .xlsx real (p.ej.
+    «Wabiks Content Intelligence.xlsx») podía perder filas sin que nadie se
+    enterase. Ahora se lee entero siempre; esto solo decide cuándo avisar."""
+    try:
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            v = (json.loads(f.read_text(encoding="utf-8")) or {}).get(
+                "memoria", {}).get("ingesta", {}).get("aviso_filas_xlsx")
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return int(v)
+    except Exception:
+        pass
+    return 50_000
+
+
 def _leer_xlsx(path: Path) -> tuple[str, dict]:
+    """Lee el .xlsx ENTERO, sin cortar filas. Antes (bloque C, C1.4) cortaba
+    a 3000 filas por hoja con un «… (hoja truncada)» que nadie leía: un
+    catálogo real de más de 3000 filas entraba mutilado en la memoria."""
     try:
         import openpyxl
     except ImportError:
         raise RuntimeError("para leer .xlsx falta openpyxl (pip install openpyxl)")
     wb = openpyxl.load_workbook(str(path), data_only=True, read_only=True)
-    partes, filas = [], 0
-    for hoja in wb.worksheets:
-        partes.append(f"## Hoja: {hoja.title}")
-        for fila in hoja.iter_rows(values_only=True):
-            filas += 1
-            partes.append(" | ".join("" if c is None else str(c) for c in fila))
-            if filas > 3000:
-                partes.append("… (hoja truncada)")
-                break
-    return "\n".join(partes), {"hojas": len(wb.worksheets), "filas": filas}
+    try:
+        partes, filas = [], 0
+        for hoja in wb.worksheets:
+            partes.append(f"## Hoja: {hoja.title}")
+            for fila in hoja.iter_rows(values_only=True):
+                filas += 1
+                partes.append(" | ".join("" if c is None else str(c) for c in fila))
+        aviso = _umbral_xlsx_aviso()
+        if filas > aviso:
+            partes.append(f"… (aviso: {filas} filas leídas — por encima del umbral de aviso "
+                           f"{aviso}, pero NADA se ha cortado)")
+        n_hojas = len(wb.worksheets)
+    finally:
+        # INCIDENTE (bloque C): en modo read_only, openpyxl deja el fichero
+        # ABIERTO hasta wb.close() -- sin esto, el buzón no podía mover el
+        # .xlsx ya leído a ingested/ (WinError 32, en uso por otro proceso).
+        wb.close()
+    return "\n".join(partes), {"hojas": n_hojas, "filas": filas}
+
+
+def leer_xlsx_estructurado(path: Path) -> list[dict]:
+    """Lee un .xlsx preservando su ESTRUCTURA hoja/columna/fila, sin
+    aplanarlo a texto. Devuelve [{"hoja", "cabeceras", "filas"}] por hoja,
+    con `filas` como lista de tuplas alineadas con `cabeceras`.
+    002-memoria-y-conocimiento: memoria-ingesta-documentos, requisito
+    «.xlsx por hojas y columnas» — trocear por caracteres partía filas por
+    la mitad y perdía a qué columna pertenecía cada valor."""
+    try:
+        import openpyxl
+    except ImportError:
+        raise RuntimeError("para leer .xlsx falta openpyxl (pip install openpyxl)")
+    wb = openpyxl.load_workbook(str(path), data_only=True, read_only=True)
+    try:
+        hojas = []
+        for hoja in wb.worksheets:
+            filas_it = hoja.iter_rows(values_only=True)
+            cabeceras_raw = next(filas_it, None) or ()
+            cabeceras = [str(c) if c is not None else f"columna_{i + 1}"
+                         for i, c in enumerate(cabeceras_raw)]
+            filas = [fila for fila in filas_it if any(v is not None for v in fila)]
+            hojas.append({"hoja": hoja.title, "cabeceras": cabeceras, "filas": filas})
+    finally:
+        wb.close()  # ver comentario del mismo incidente en _leer_xlsx()
+    return hojas
 
 
 def puede_leer(path: Path) -> tuple[bool, str]:
@@ -131,10 +186,20 @@ def puede_leer(path: Path) -> tuple[bool, str]:
                    "Formatos que sí leo: .md, .txt, .docx, .pdf, .json, .csv, .xlsx y código.")
 
 
-def read_any(path) -> dict:
+def read_any(path, *, limite: int | None = None) -> dict:
     """Lee un archivo REAL. Devuelve
-    {ok, texto, meta:{formato, bytes, modificado, …}, error}.
-    Nunca lanza: siempre hay algo que contarle al operador."""
+    {ok, texto, meta:{formato, bytes, modificado, truncado, …}, error}.
+    Nunca lanza: siempre hay algo que contarle al operador.
+
+    `limite` (002-memoria-y-conocimiento, bloque C, C1.3):
+    - None (por defecto): comportamiento IDÉNTICO al de siempre, corta a
+      _MAX_CHARS. Así ningún llamador existente (skills/files/skill.py,
+      tests/test_specs_v23_files.py) cambia de comportamiento.
+    - 0: sin límite -- el texto entra ENTERO. Lo usa la ingesta de
+      documentos, que necesita el documento completo o nada (rechaza si
+      meta['truncado'] sale True).
+    - N > 0: límite propio en caracteres.
+    """
     p = Path(path).expanduser()
     if not p.exists():
         return {"ok": False, "texto": "", "meta": {},
@@ -173,9 +238,22 @@ def read_any(path) -> dict:
         return {"ok": False, "texto": "", "meta": meta, "error": str(exc)}
     meta.update(extra)
     meta["caracteres"] = len(texto)
+    if limite is None:
+        tope = _MAX_CHARS
+    elif limite == 0:
+        tope = None
+    else:
+        tope = int(limite)
+    if tope is not None and len(texto) > tope:
+        texto_final = texto[:tope]
+        meta["truncado"] = True
+    else:
+        texto_final = texto
+        meta["truncado"] = False
     _audit(action="file_read", destructive=False, request=str(p),
-           result=f"{meta['formato']} · {meta['caracteres']} caracteres")
-    return {"ok": True, "texto": texto[:_MAX_CHARS], "meta": meta, "error": ""}
+           result=f"{meta['formato']} · {meta['caracteres']} caracteres"
+                  f"{' · TRUNCADO' if meta['truncado'] else ''}")
+    return {"ok": True, "texto": texto_final, "meta": meta, "error": ""}
 
 
 # ───────────────────────── VERSIONES (T21) ─────────────────────────

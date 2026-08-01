@@ -1299,6 +1299,21 @@ async def api_memoria_purga_borrar_definitivo(payload: dict):
     return {"reply": pregunta}
 
 
+@app.post("/api/memoria/ingerir-carpeta")
+async def api_memoria_ingerir_carpeta(payload: dict):
+    # C4.1: aditivo y SOLO LECTURA sobre el origen (escribe espejos .md
+    # aparte, en data/memory/documentos/). No destructivo -> sin
+    # confirm.request(). permissions.path_allowed() dentro de
+    # ingesta.ingerir_carpeta() corta cualquier intento de traversal (C4.4).
+    from backend.core import ingesta, audit
+    ruta = str(payload.get("ruta", "")).strip()
+    resultado = ingesta.ingerir_carpeta(ruta)
+    audit.log(action="memoria_ingerir_carpeta", destructive=False, confirmed=True,
+               result=f"{resultado.get('dominio')}: {len(resultado.get('documentos', []))} archivo(s)",
+               extra={"ruta": ruta, "ok": resultado.get("ok")})
+    return resultado
+
+
 @app.get("/")
 async def index():
     if not settings.get("setup_done", False):

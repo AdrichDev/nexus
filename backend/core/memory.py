@@ -316,6 +316,16 @@ class PgMemory:
         # Columnas nuevas, nullable, aditivas. Ver purga.py.
         "ALTER TABLE memories ADD COLUMN IF NOT EXISTS retirado_en TIMESTAMPTZ",
         "ALTER TABLE memories ADD COLUMN IF NOT EXISTS retirado_lote TEXT",
+        # 002-memoria-y-conocimiento (bloque C, C1.2): metadatos de origen
+        # para la ingesta de documentos. DEFAULT 'sin-clasificar' en dominio
+        # resuelve la pregunta abierta del diseño para filas históricas sin
+        # origen (no hace falta backfill: ya cumplen el NOT NULL solas).
+        # Columnas nuevas, nullable salvo dominio/peso, aditivas.
+        ("ALTER TABLE memories ADD COLUMN IF NOT EXISTS origen TEXT, "
+         "ADD COLUMN IF NOT EXISTS origen_tipo TEXT, "
+         "ADD COLUMN IF NOT EXISTS dominio TEXT NOT NULL DEFAULT 'sin-clasificar', "
+         "ADD COLUMN IF NOT EXISTS etiqueta TEXT, "
+         "ADD COLUMN IF NOT EXISTS peso REAL NOT NULL DEFAULT 1.0"),
         # El índice de similitud (ivfflat) YA NO se crea aquí incondicional:
         # con pocas filas (741/lists=100 → ~7 filas por lista) pierde recall
         # frente a un recorrido secuencial, que además es EXACTO. Ver
@@ -833,7 +843,10 @@ class PgMemory:
         return {"ok": True, "columna_eliminada": nombre}
 
     # --- API usada por las skills (todas toleran DB caída → devuelven []) ---
-    def remember(self, content: str, kind: str = "note", tags: list | None = None) -> dict:
+    def remember(self, content: str, kind: str = "note", tags: list | None = None, *,
+                 origen: str | None = None, origen_tipo: str | None = None,
+                 dominio: str | None = None, etiqueta: str | None = None,
+                 peso: float | None = None) -> dict:
         """Guarda un recuerdo. Inserción IDEMPOTENTE por huella
         (memoria-deduplicacion):
           * Si `memories_huella_idx` YA existe (bloque B confirmado):
@@ -844,11 +857,29 @@ class PgMemory:
             depender del índice — sustituye al `dedup` O(n) que había en
             rag.py y que solo miraba el almacén local, dejando pasar
             cualquier cosa por el camino de Postgres.
+        `origen`/`origen_tipo`/`dominio`/`etiqueta`/`peso` (002-memoria-y-
+        conocimiento, bloque C, C1.2/C4.1): metadatos de PROCEDENCIA. TODOS
+        opcionales — si no se pasan, la columna se omite del INSERT y queda
+        el DEFAULT de la tabla (dominio='sin-clasificar', peso=1.0): el SQL
+        generado es BYTE A BYTE el mismo que antes de este bloque para
+        cualquier llamador que no los use.
         Devuelve `{"id": int|None, "duplicado": bool}`."""
         from . import rag
         h = rag.huella(f"{kind}\n{content}")
         vec = self._embed(content)
-        cols_extra, vals_extra = (["huella"], [h])
+        campos: list[tuple[str, object, str | None]] = [
+            ("kind", kind, None), ("content", content, None), ("tags", tags or [], None),
+        ]
+        if vec is not None:
+            campos.append(("embedding", str(vec), "vector"))
+        campos.append(("huella", h, None))
+        for col, val in (("origen", origen), ("origen_tipo", origen_tipo),
+                         ("dominio", dominio), ("etiqueta", etiqueta), ("peso", peso)):
+            if val is not None:
+                campos.append((col, val, None))
+        cols_sql = ", ".join(c for c, _, _ in campos)
+        place_sql = ", ".join(f"%s::{cast}" if cast else "%s" for _, _, cast in campos)
+        vals_sql = [v for _, v, _ in campos]
         if self._indice_huella_existe():
             # `memories_huella_idx` es PARCIAL (`WHERE retirado_en IS NULL`,
             # creado por B4.2): el ON CONFLICT lleva el MISMO predicado, si
@@ -856,20 +887,10 @@ class PgMemory:
             # Efecto colateral correcto: si la única fila con esa huella
             # está retirada (papelera), esto YA NO cuenta como conflicto y
             # se inserta una fila nueva — retirar algo libera su huella.
-            if vec is not None:
-                rows = self._rows(
-                    "INSERT INTO memories (kind, content, tags, embedding, huella) "
-                    "VALUES (%s,%s,%s,%s::vector,%s) "
-                    "ON CONFLICT (huella) WHERE retirado_en IS NULL DO NOTHING "
-                    "RETURNING id",
-                    (kind, content, tags or [], str(vec), h))
-            else:
-                rows = self._rows(
-                    "INSERT INTO memories (kind, content, tags, huella) "
-                    "VALUES (%s,%s,%s,%s) "
-                    "ON CONFLICT (huella) WHERE retirado_en IS NULL DO NOTHING "
-                    "RETURNING id",
-                    (kind, content, tags or [], h))
+            rows = self._rows(
+                f"INSERT INTO memories ({cols_sql}) VALUES ({place_sql}) "
+                "ON CONFLICT (huella) WHERE retirado_en IS NULL DO NOTHING "
+                "RETURNING id", vals_sql)
             if rows:
                 return {"id": rows[0]["id"], "duplicado": False}
             existe = self._rows(
@@ -881,16 +902,9 @@ class PgMemory:
             "LIMIT 1", (h,))
         if existe:
             return {"id": existe[0]["id"], "duplicado": True}
-        if vec is not None:
-            rows = self._rows(
-                "INSERT INTO memories (kind, content, tags, embedding, huella) "
-                "VALUES (%s,%s,%s,%s::vector,%s) RETURNING id",
-                (kind, content, tags or [], str(vec), h))
-        else:
-            rows = self._rows(
-                "INSERT INTO memories (kind, content, tags, huella) "
-                "VALUES (%s,%s,%s,%s) RETURNING id",
-                (kind, content, tags or [], h))
+        rows = self._rows(
+            f"INSERT INTO memories ({cols_sql}) VALUES ({place_sql}) RETURNING id",
+            vals_sql)
         return {"id": rows[0]["id"] if rows else None, "duplicado": False}
 
     def all_knowledge(self, limit: int = 300) -> list[dict]:
@@ -910,27 +924,40 @@ class PgMemory:
         vec = self._embed(query)
         if vec is not None:
             rows = self._rows(
-                "SELECT kind, content, created_at, "
+                "SELECT kind, content, created_at, peso, "
                 "1 - (embedding <=> %s::vector) AS score FROM memories "
                 "WHERE embedding IS NOT NULL AND kind <> 'conversation' "
                 "AND retirado_en IS NULL "
                 "ORDER BY embedding <=> %s::vector LIMIT %s",
                 (str(vec), str(vec), limit * 3),
             )
+            # 002-memoria-y-conocimiento (bloque C, decisión de diseño 6):
+            # score * peso ANTES del umbral -- un documento etiquetado
+            # 'historico' (peso 0.6) nunca gana al definitivo aunque hablen
+            # de lo mismo, y puede quedar por debajo del umbral aunque su
+            # score en bruto lo hubiera pasado.
+            for r in rows:
+                r["score"] = r.get("score", 0) * (r.get("peso") or 1.0)
             rows = [r for r in rows if r.get("score", 0) > 0.35]
             if rows:
+                rows.sort(key=lambda r: r["score"], reverse=True)
                 return rows[:limit]
-        # 2) Fallback por SOLAPE de palabras (sin conversación), rankeado
+        # 2) Fallback por SOLAPE de palabras (sin conversación), rankeado.
+        # 002-memoria-y-conocimiento (bloque C): mismo criterio peso que el
+        # camino vectorial de arriba -- sin proveedor de embeddings local
+        # disponible, recall() sigue sin dejar que un documento 'historico'
+        # gane al 'normal' hablando de lo mismo.
         words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 2] or [query.lower()]
         clauses = " OR ".join(["content ILIKE %s"] * len(words))
         params = [f"%{w}%" for w in words]
         rows = self._rows(
-            f"SELECT kind, content, created_at FROM memories "
+            f"SELECT kind, content, created_at, peso FROM memories "
             f"WHERE kind <> 'conversation' AND retirado_en IS NULL AND ({clauses}) "
             f"ORDER BY created_at DESC LIMIT 80",
             params,
         )
-        rows.sort(key=lambda r: sum(1 for w in words if w in r["content"].lower()), reverse=True)
+        rows.sort(key=lambda r: sum(1 for w in words if w in r["content"].lower())
+                  * (r.get("peso") or 1.0), reverse=True)
         return rows[:limit]
 
     def add_reminder(self, title: str, due_at: dt.datetime) -> list[dict]:

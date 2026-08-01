@@ -161,39 +161,39 @@ Documentos exactos en `D:\Adrian\22. Proyectos\NEXUS\Wabiks Content OS`
 
 ### C1. Fundamentos — cuatro truncados, no dos
 
-- [ ] C1.1 `config/umbrales.json`: bloques `memoria.troceado` (`tamano_caracteres:1200`, `solape_caracteres:200`, `minimo_caracteres:120`), `memoria.ingesta` (`max_bytes` buzón, `marcas_historico`, `filas_por_trozo:25`), `memoria.pesos` (peso normal vs. histórico).
-- [ ] C1.2 `memory.py`: `ALTER TABLE memories ADD COLUMN IF NOT EXISTS origen TEXT, origen_tipo TEXT, dominio TEXT NOT NULL DEFAULT 'sin-clasificar', etiqueta TEXT, peso REAL NOT NULL DEFAULT 1.0`. El `DEFAULT 'sin-clasificar'` resuelve la pregunta abierta del diseño para filas históricas sin origen. — *Cubre*: memoria-ingesta-documentos, req. «Metadatos de origen y dominio»
-- [ ] C1.3 `files_io.py:36` — `_MAX_CHARS` deja de cortar el texto devuelto por `read_any()`; nuevo parámetro `read_any(path, limite=0)` donde `0` = sin límite (llamador decide). — *Cubre*: memoria-ingesta-documentos, req. «Troceado sin truncar» (1/4 truncados) — *Test*: `test_ingesta_documentos.py::test_read_any_limite_cero_no_trunca`
-- [ ] C1.4 `files_io.py:114 _leer_xlsx()` — el corte a 3000 filas por hoja se sustituye por lectura completa (con aviso si supera un tope configurable, no un corte mudo). — *Cubre*: memoria-ingesta-documentos, req. «`.xlsx` por hojas y columnas» (2/4 truncados) — *Test*: `test_ingesta_documentos.py::test_xlsx_no_trunca_filas`
+- [x] C1.1 `config/umbrales.json`: bloques `memoria.troceado` (`tamano_caracteres:1200`, `solape_caracteres:200`, `minimo_caracteres:120`), `memoria.ingesta` (`max_bytes` buzón, `marcas_historico`, `filas_por_trozo:25`), `memoria.pesos` (peso normal vs. histórico).
+- [x] C1.2 `memory.py`: `ALTER TABLE memories ADD COLUMN IF NOT EXISTS origen TEXT, origen_tipo TEXT, dominio TEXT NOT NULL DEFAULT 'sin-clasificar', etiqueta TEXT, peso REAL NOT NULL DEFAULT 1.0`. El `DEFAULT 'sin-clasificar'` resuelve la pregunta abierta del diseño para filas históricas sin origen. — *Cubre*: memoria-ingesta-documentos, req. «Metadatos de origen y dominio»
+- [x] C1.3 `files_io.py:36` — `_MAX_CHARS` deja de cortar el texto devuelto por `read_any()`; nuevo parámetro `read_any(path, limite=0)` donde `0` = sin límite (llamador decide). — *Cubre*: memoria-ingesta-documentos, req. «Troceado sin truncar» (1/4 truncados) — *Test*: `test_ingesta_documentos.py::test_read_any_limite_cero_no_trunca`
+- [x] C1.4 `files_io.py:114 _leer_xlsx()` — el corte a 3000 filas por hoja se sustituye por lectura completa (con aviso si supera un tope configurable, no un corte mudo). — *Cubre*: memoria-ingesta-documentos, req. «`.xlsx` por hojas y columnas» (2/4 truncados) — *Test*: `test_ingesta_documentos.py::test_xlsx_no_trunca_filas`
 
 ### C2. `rag.py` — troceado real (3er y 4º truncado)
 
-- [ ] C2.1 `rag.trocear(texto) -> list[dict]`: corte por prioridad de frontera (encabezado markdown → línea en blanco → fin de frase → corte duro); `minimo_caracteres` funde colas cortas con el trozo anterior. Invariante comprobable: concatenar trozos quitando el solape reproduce el original carácter a carácter. — *Cubre*: memoria-ingesta-documentos, req. «Troceado sin truncar», escenario «Documento maestro completo» — *Test*: `test_ingesta_documentos.py::test_trocear_reconstruye_original_exacto`
-- [ ] C2.2 `rag.py:421 reindex()` — quita el corte `[:1500]`; usa `rag.trocear()` sobre el texto completo. (3er truncado) — *Test*: `test_ingesta_documentos.py::test_reindex_no_trunca_a_1500`
-- [ ] C2.3 `scheduler.py:44-45 _ingest_inbox()` — quita el corte a `900`/`20000`; usa `rag.trocear()`. (4º truncado) — *Test*: `test_ingesta_documentos.py::test_buzon_no_trunca_a_900`
+- [x] C2.1 `rag.trocear(texto) -> list[dict]`: corte por prioridad de frontera (encabezado markdown → línea en blanco → fin de frase → corte duro); `minimo_caracteres` funde colas cortas con el trozo anterior. Invariante comprobable: concatenar trozos quitando el solape reproduce el original carácter a carácter. — *Cubre*: memoria-ingesta-documentos, req. «Troceado sin truncar», escenario «Documento maestro completo» — *Test*: `test_ingesta_documentos.py::test_trocear_reconstruye_original_exacto`
+- [x] C2.2 `rag.py:421 reindex()` — quita el corte `[:1500]`; usa `rag.trocear()` sobre el texto completo. (3er truncado) — *Test*: `test_ingesta_documentos.py::test_reindex_no_trunca_a_1500`
+- [x] C2.3 `scheduler.py:44-45 _ingest_inbox()` — quita el corte a `900`/`20000`; usa `rag.trocear()`. (4º truncado) — *Test*: `test_ingesta_documentos.py::test_buzon_no_trunca_a_900`
 
 ### C3. Buzón — acepta lo que `read_any()` sabe leer
 
-- [ ] C3.1 `scheduler.py:34` — la lista fija de extensiones se sustituye por `files_io.puede_leer(f)`; texto vía `read_any(f, limite=0)`. — *Cubre*: memoria-ingesta-documentos, escenario «`.docx`, `.pdf` y `.xlsx` en el buzón» — *Test*: `test_ingesta_documentos.py::test_buzon_acepta_docx_pdf_xlsx`
-- [ ] C3.2 `.xlsx` en el buzón: un trozo por cada `memoria.troceado.filas_por_trozo` filas **por hoja**, con nombre de hoja y cabeceras repetidas, cada fila como `columna: valor`. — *Cubre*: memoria-ingesta-documentos, req. «`.xlsx` por hojas y columnas», escenario «"Wabiks Content Intelligence" ingerido por estructura» — *Test*: `test_ingesta_documentos.py::test_xlsx_trocea_por_hoja_sin_partir_filas`
+- [x] C3.1 `scheduler.py:34` — la lista fija de extensiones se sustituye por `files_io.puede_leer(f)`; texto vía `read_any(f, limite=0)`. — *Cubre*: memoria-ingesta-documentos, escenario «`.docx`, `.pdf` y `.xlsx` en el buzón» — *Test*: `test_ingesta_documentos.py::test_buzon_acepta_docx_pdf_xlsx`
+- [x] C3.2 `.xlsx` en el buzón: un trozo por cada `memoria.troceado.filas_por_trozo` filas **por hoja**, con nombre de hoja y cabeceras repetidas, cada fila como `columna: valor`. — *Cubre*: memoria-ingesta-documentos, req. «`.xlsx` por hojas y columnas», escenario «"Wabiks Content Intelligence" ingerido por estructura» — *Test*: `test_ingesta_documentos.py::test_xlsx_trocea_por_hoja_sin_partir_filas`
 
 ### C4. Ingesta dirigida de carpeta
 
-- [ ] C4.1 `POST /api/memoria/ingerir-carpeta {ruta}` en `app.py`: recorre ficheros legibles, escribe `.md` en `data/memory/documentos/{dominio}/` con cabecera de metadatos (origen, dominio, fecha) antes de trocear. — *Cubre*: memoria-ingesta-documentos, req. «Ingesta dirigida de una carpeta» — *Test*: `test_ingesta_documentos.py::test_ingerir_carpeta_escribe_md_con_metadatos`
-- [ ] C4.2 `ANTIGUO — …Manual de conversaciones…` se ingiere por defecto, etiqueta `historico`, `peso` = valor bajo de `memoria.pesos`; el manual definitivo desempata por encima de él en `recall()` (`score * peso`). — *Cubre*: memoria-ingesta-documentos, req. «Documento histórico marcado y con menos peso» — *Test*: `test_ingesta_documentos.py::test_manual_definitivo_gana_al_historico`
-- [ ] C4.3 **RED** `test_ingesta_documentos.py::test_ingerir_carpeta_traversal_rechazado` — `ruta` fuera de `perm_folders` se rechaza con `Path.resolve()`, no se recorta en silencio. — *Cubre*: matriz de amenazas «Traversal en `ingerir-carpeta`»
-- [ ] C4.4 **GREEN** comprobación de pertenencia en C4.1 que hace pasar C4.3.
+- [x] C4.1 `POST /api/memoria/ingerir-carpeta {ruta}` en `app.py`: recorre ficheros legibles, escribe `.md` en `data/memory/documentos/{dominio}/` con cabecera de metadatos (origen, dominio, fecha) antes de trocear. — *Cubre*: memoria-ingesta-documentos, req. «Ingesta dirigida de una carpeta» — *Test*: `test_ingesta_documentos.py::test_ingerir_carpeta_escribe_md_con_metadatos`
+- [x] C4.2 `ANTIGUO — …Manual de conversaciones…` se ingiere por defecto, etiqueta `historico`, `peso` = valor bajo de `memoria.pesos`; el manual definitivo desempata por encima de él en `recall()` (`score * peso`). — *Cubre*: memoria-ingesta-documentos, req. «Documento histórico marcado y con menos peso» — *Test*: `test_ingesta_documentos.py::test_manual_definitivo_gana_al_historico`
+- [x] C4.3 **RED** `test_ingesta_documentos.py::test_ingerir_carpeta_traversal_rechazado` — `ruta` fuera de `perm_folders` se rechaza con `Path.resolve()`, no se recorta en silencio. — *Cubre*: matriz de amenazas «Traversal en `ingerir-carpeta`»
+- [x] C4.4 **GREEN** comprobación de pertenencia en C4.1 que hace pasar C4.3.
 
 ### C5. Ingesta real de los 6 documentos de Wabiks Content OS
 
-- [ ] C5.1 Ejecutar `ingerir-carpeta` contra `D:\Adrian\22. Proyectos\NEXUS\Wabiks Content OS` con el contenedor levantado; verificar en Postgres que los 6 quedan con `origen`, `dominio='wabiks-content-os'`, y que el documento maestro reconstruye longitud completa (suma de trozos = longitud original, último trozo presente). — *Cubre*: criterio de aceptación de `proposal.md` «Los 6 documentos de Wabiks Content OS quedan ingeridos con origen y dominio»
-- [ ] C5.2 Verificación manual de negocio: buscar «wabiks content os» vía `recall()`/endpoint de búsqueda y confirmar que devuelve el documento maestro/manual definitivo, no papeleo del ayuntamiento (regla del criterio de aceptación de `proposal.md`).
+- [x] C5.1 Ejecutar `ingerir-carpeta` contra `D:\Adrian\22. Proyectos\NEXUS\Wabiks Content OS` con el contenedor levantado; verificar en Postgres que los 6 quedan con `origen`, `dominio='wabiks-content-os'`, y que el documento maestro reconstruye longitud completa (suma de trozos = longitud original, último trozo presente). — *Cubre*: criterio de aceptación de `proposal.md` «Los 6 documentos de Wabiks Content OS quedan ingeridos con origen y dominio»
+- [x] C5.2 Verificación manual de negocio: buscar «wabiks content os» vía `recall()`/endpoint de búsqueda y confirmar que devuelve el documento maestro/manual definitivo, no papeleo del ayuntamiento (regla del criterio de aceptación de `proposal.md`).
 
 ### C6. Tests, alta en `run_all.py` y verificación manual
 
-- [ ] C6.1 Crear `tests/test_ingesta_documentos.py` con todos los casos de C1-C5 (RED de C4.3 en verde tras C4.4).
-- [ ] C6.2 Añadir `"test_ingesta_documentos.py"` a `tests/run_all.py`.
-- [ ] C6.3 Verificación manual: dejar un `.docx`, un `.pdf` y un `.xlsx` reales en `data/memory/inbox/`, correr el ciclo del scheduler contra el contenedor levantado, confirmar que los tres entran sin truncar y con metadatos.
+- [x] C6.1 Crear `tests/test_ingesta_documentos.py` con todos los casos de C1-C5 (RED de C4.3 en verde tras C4.4).
+- [x] C6.2 Añadir `"test_ingesta_documentos.py"` a `tests/run_all.py`.
+- [x] C6.3 Verificación manual: dejar un `.docx`, un `.pdf` y un `.xlsx` reales en `data/memory/inbox/`, correr el ciclo del scheduler contra el contenedor levantado, confirmar que los tres entran sin truncar y con metadatos.
 
 ---
 

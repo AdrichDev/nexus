@@ -64,6 +64,32 @@ _MIN_PALABRAS = _UMBRALES["solape_minimo_palabras"]
 _MIN_TASK = _UMBRALES["coseno_minimo_tarea"]
 _MIN_LETRAS_SOLA = int(_UMBRALES["letras_minimas_palabra_sola"])
 
+# 002-memoria-y-conocimiento (bloque C): reserva de troceado, misma política
+# que _UMBRALES_RESERVA arriba -- si config/umbrales.json falta o está roto,
+# el troceado NO se para, usa estos valores.
+_UMBRALES_TROCEADO_RESERVA = {
+    "tamano_caracteres": 1200,
+    "solape_caracteres": 200,
+    "minimo_caracteres": 120,
+    "filas_por_trozo": 25,
+}
+
+
+def _umbrales_troceado() -> dict:
+    """Lee memoria.troceado de config/umbrales.json sobre los de reserva."""
+    vals = dict(_UMBRALES_TROCEADO_RESERVA)
+    try:
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (json.loads(f.read_text(encoding="utf-8")) or {}).get(
+                "memoria", {}).get("troceado") or {}
+            for k, v in leido.items():
+                if k in vals and isinstance(v, (int, float)) and not isinstance(v, bool):
+                    vals[k] = int(v)
+    except Exception:
+        pass
+    return vals
+
 
 def _emb_ollama(text: str):
     import httpx
@@ -181,6 +207,91 @@ def huella(texto: str) -> str:
     t = t.casefold()
     t = re.sub(r"\s+", " ", t).strip()
     return hashlib.sha256(t.encode("utf-8")).hexdigest()
+
+
+def trocear(texto: str) -> list[dict]:
+    """Trocea un texto largo en pedazos de `memoria.troceado.tamano_caracteres`
+    (reserva 1200) con `solape_caracteres` (reserva 200) de solape entre
+    trozo y trozo. 002-memoria-y-conocimiento (bloque C, C2.1): ANTES
+    `reindex()` cortaba con `texto[:1500]` y el buzón con `[:900]` -- un
+    documento de 26 KB o 224 KB entraba MUTILADO en la memoria, sin avisar.
+    Ahora se trocea entero: quitando el solape de cada trozo (salvo el
+    primero) y concatenando, se reproduce el texto original CARÁCTER A
+    CARÁCTER (invariante probado en test_trocear_reconstruye_original_exacto).
+
+    El corte busca frontera, por prioridad, dentro de una ventana hacia
+    atrás desde el límite de tamaño: encabezado markdown > línea en blanco
+    > fin de frase > corte duro (si nada de lo anterior aparece).
+    Devuelve [{"texto", "indice", "total"}]."""
+    umb = _umbrales_troceado()
+    tam = umb["tamano_caracteres"]
+    solape = umb["solape_caracteres"]
+    minimo = umb["minimo_caracteres"]
+    n = len(texto)
+    if n <= tam:
+        return [{"texto": texto, "indice": 0, "total": 1}]
+    cortes: list[int] = []
+    pos = 0
+    while pos < n:
+        fin_objetivo = min(pos + tam, n)
+        if fin_objetivo >= n:
+            cortes.append(n)
+            break
+        ventana_ini = max(pos + minimo, fin_objetivo - 300)
+        ventana = texto[ventana_ini:fin_objetivo]
+        corte = None
+        m = list(re.finditer(r"\n(?=#{1,6}\s)", ventana))
+        if m:
+            corte = ventana_ini + m[-1].start() + 1
+        if corte is None:
+            m = list(re.finditer(r"\n[ \t]*\n", ventana))
+            if m:
+                corte = ventana_ini + m[-1].end()
+        if corte is None:
+            m = list(re.finditer(r"[.!?][\"'\)\]]?(?:\s|$)", ventana))
+            if m:
+                corte = ventana_ini + m[-1].end()
+        if corte is None or corte <= pos:
+            corte = fin_objetivo
+        cortes.append(corte)
+        pos = corte
+    total = len(cortes)
+    trozos = []
+    for i, fin in enumerate(cortes):
+        inicio = 0 if i == 0 else max(0, cortes[i - 1] - solape)
+        trozos.append({"texto": texto[inicio:fin], "indice": i, "total": total})
+    return trozos
+
+
+def trocear_xlsx_estructurado(hojas: list[dict], *, filas_por_trozo: int | None = None) -> list[dict]:
+    """Trocea la salida de `files_io.leer_xlsx_estructurado()` POR HOJA,
+    `memoria.troceado.filas_por_trozo` (reserva 25) filas cada vez, con el
+    nombre de hoja y las cabeceras repetidas en cada trozo y cada fila como
+    pares `columna: valor`. 002-memoria-y-conocimiento: memoria-ingesta-
+    documentos, req. «.xlsx por hojas y columnas» -- NUNCA se aplana por
+    caracteres (eso partía filas por la mitad). Devuelve [{"texto",
+    "indice", "total", "hoja"}]."""
+    umb = _umbrales_troceado()
+    tam = int(filas_por_trozo if filas_por_trozo is not None else umb["filas_por_trozo"])
+    tam = max(1, tam)
+    trozos = []
+    for hoja in hojas:
+        cabeceras = hoja.get("cabeceras") or []
+        filas = hoja.get("filas") or []
+        if not filas:
+            continue
+        bloques = [filas[i:i + tam] for i in range(0, len(filas), tam)]
+        for bi, bloque in enumerate(bloques):
+            inicio_fila = bi * tam + 1
+            lineas = [f"## Hoja: {hoja.get('hoja', '')} "
+                      f"(filas {inicio_fila}-{inicio_fila + len(bloque) - 1} de {len(filas)})"]
+            for fila in bloque:
+                pares = ", ".join(f"{c}: {'' if v is None else v}"
+                                   for c, v in zip(cabeceras, fila))
+                lineas.append(pares)
+            trozos.append({"texto": "\n".join(lineas), "indice": bi, "total": len(bloques),
+                            "hoja": hoja.get("hoja", "")})
+    return trozos
 
 
 def _load() -> list:
@@ -431,7 +542,11 @@ def _save_seen(d: dict) -> None:
 
 async def reindex(limit: int = 40) -> int:
     """Indexa en el RAG las notas de conocimiento y los SKILL.md (fuente de
-    conocimiento) que aún no estén indexados. Incremental para no saturar."""
+    conocimiento) que aún no estén indexados. Incremental para no saturar.
+    002-memoria-y-conocimiento (bloque C, C2.2): ANTES cada nota se cortaba
+    con `add(txt[:1500], ...)` -- una nota larga entraba mutilada, sin
+    avisar (2º de los cuatro truncados de este bloque). AHORA se trocea con
+    `trocear()` y cada trozo se indexa por separado, entero."""
     from .memory import MEMORY_DIR
     from .config import SKILLS_DIR
     seen = _seen()
@@ -460,8 +575,10 @@ async def reindex(limit: int = 40) -> int:
         except Exception:
             continue
         if len(txt) > 40:
-            await add(txt[:1500], kind="knowledge",
-                      meta={"source": p.name}, dedup=True)
+            for trozo in trocear(txt):
+                await add(trozo["texto"], kind="knowledge",
+                          meta={"source": p.name, "trozo_indice": trozo["indice"],
+                                "trozo_total": trozo["total"]}, dedup=True)
             done += 1
         seen[key] = mtime
     if done:
