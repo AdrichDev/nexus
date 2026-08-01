@@ -41,6 +41,27 @@
   "solape_minimo": 0.4,
   "veces_para_ser_recurrente": 2
  },
+ "red": {
+  "_que_es": "Cuanto vale un sondeo de red antes de repetirlo.",
+  "_lee_esto": [
+   "01/08/2026: nexus se congelaba 4,3 segundos cada 45. La causa: para saber si",
+   "'TUPC.local:8177' contesta hay que resolver ese nombre por mDNS, y en este",
+   "equipo eso tarda 4,25 segundos medidos (3 de 3 intentos). El resultado se",
+   "guardaba, pero solo 30 segundos, y el HUD pregunta cada 45: cuando volvia a",
+   "preguntar la respuesta guardada ya habia caducado y se pagaba el mDNS entero",
+   "otra vez. O sea que no cacheaba NADA.",
+   "",
+   "REGLA: este numero tiene que ser MAYOR que cada cuanto pregunta el HUD (45 s,",
+   "en frontend/js/command.js, refreshDevices). Si lo bajas por debajo de 45, la",
+   "cache deja de servir para nada y vuelve el tiron.",
+   "",
+   "Que se pierde subiendolo: si desenchufas el cable de red, nexus tarda hasta",
+   "este tiempo en enterarse de que esa direccion ya no vale. Es un cartel en el",
+   "HUD un minuto desactualizado, nada mas: el movil prueba las direcciones una",
+   "por una de todas formas."
+  ],
+  "cache_sondeo_seg": 120.0
+ },
  "comentarios": {
   "_que_es": "Cuando un comentario 'dice algo' y no es un emoji suelto.",
   "min_palabras_sustantivo": 2,
@@ -57,7 +78,9 @@
   "_que_es": "Cuando una nota guardada merece llamarse relevante y colarse en lo que lee el modelo. Subir un numero = recordar menos, pero mas a cuento.",
   "coseno_minimo": 0.42,
   "solape_minimo_palabras": 0.5,
-  "coseno_minimo_tarea": 0.62
+  "coseno_minimo_tarea": 0.62,
+  "_letras_minimas_palabra_sola": "Cuando de la frase solo queda UNA palabra clave, el porcentaje de arriba no filtra nada: una de una es el 100% y pasa siempre. Ahi manda la longitud. 'wabiksco' busca; 'ves' no, y por eso 'Que es lo que ves' ya no trae el manual de Gmail.",
+  "letras_minimas_palabra_sola": 5
  },
  "correos": {
   "_que_es": [

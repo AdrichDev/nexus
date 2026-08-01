@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import re
 import secrets as pysecrets
 import socket
@@ -25,13 +26,53 @@ import sys
 import time
 from pathlib import Path
 
-from .config import ROOT, settings
+from .config import CONFIG_DIR, DATA_DIR, ROOT, settings
 
 CLOUDFLARED_URL_WIN = ("https://github.com/cloudflare/cloudflared/releases/"
                        "latest/download/cloudflared-windows-amd64.exe")
 CLOUDFLARED_PAGE = "https://github.com/cloudflare/cloudflared/releases/latest"
 
-_state = {"proc": None, "url": "", "starting": False, "error": ""}
+_state = {"proc": None, "url": "", "starting": False, "error": "",
+          # «adoptado» = el túnel lo abrió un nexus ANTERIOR y este se ha
+          # limitado a reutilizarlo, así que no tenemos su proceso. Ver
+          # start_tunnel() y status(): sin esta marca, un túnel perfectamente
+          # vivo salía como «caído» en el HUD por no tener `proc`.
+          "adoptado": False}
+
+# Dónde se apunta la URL del túnel para el arranque siguiente (data/ está en
+# .gitignore). Ver `_guarda_tunel` / `start_tunnel`.
+_TUNEL_FILE = DATA_DIR / "tunel.json"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Los números de red viven FUERA del código, en config/umbrales.json (sección
+# «red»), como el resto de umbrales del proyecto. Lo de aquí abajo es el valor
+# de reserva por si el archivo no está o está roto: nadie se queda sin sondeo
+# por un JSON mal escrito.
+_UMBRALES_RED_RESERVA = {"cache_sondeo_seg": 120.0}
+
+
+def _carga_umbrales_red() -> dict:
+    """Lee la sección «red» de config/umbrales.json sobre los de reserva."""
+    vals = dict(_UMBRALES_RED_RESERVA)
+    try:
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (json.loads(f.read_text(encoding="utf-8")) or {}).get("red") or {}
+            for k, v in leido.items():
+                if k in vals and isinstance(v, (int, float)) and not isinstance(v, bool):
+                    vals[k] = float(v)
+    except Exception:
+        pass
+    return vals
+
+
+# CUIDADO AL TOCAR ESTE NÚMERO: tiene que ser MAYOR que el intervalo con el que
+# el HUD pregunta por los dispositivos (45 s, `setInterval(refreshDevices, 45000)`
+# en frontend/js/command.js). Estaba en 30 s, o sea SIEMPRE por debajo: cada
+# refresco encontraba la caché caducada y volvía a pagar la resolución mDNS
+# entera (4,25 s medidos aquí), que es lo que congelaba nexus. Una caché que dura
+# menos que el intervalo de sondeo no cachea nada.
+_CACHE_SONDEO = float(_carga_umbrales_red()["cache_sondeo_seg"])
 
 
 # ------------------------------------------------------------------ dispositivos
@@ -117,8 +158,15 @@ def nombre_local() -> str:
 _alcance_cache: dict = {}
 
 
-def responde(host_puerto: str, timeout: float = 0.6, cache_seg: float = 30.0) -> bool:
+def responde(host_puerto: str, timeout: float = 0.6, cache_seg: float | None = None) -> bool:
     """¿Hay algo escuchando de verdad en «maquina:puerto»?
+
+    OJO CON `timeout` (01/08/2026): NO cubre la resolución del nombre. Aquí
+    dentro `create_connection` primero llama a `getaddrinfo`, y resolver
+    «TUPC.local» por mDNS tarda 4,25 s medidos en este equipo por muy bajo que
+    pongas el timeout. Por eso esta función NO se puede llamar desde el bucle de
+    asyncio sin `asyncio.to_thread` (ver /api/link/status en app.py) y por eso la
+    caché de abajo importa tanto.
 
     POR QUÉ EXISTE (31/07/2026). Esta lista prometía direcciones que NO
     aceptaban conexiones: uvicorn estaba atado solo a 127.0.0.1, así que el QR
@@ -129,6 +177,8 @@ def responde(host_puerto: str, timeout: float = 0.6, cache_seg: float = 30.0) ->
     OJO CON LO QUE ESTO *NO* PRUEBA: se comprueba desde este mismo equipo, y el
     cortafuegos de Windows puede dejar pasar al propio PC y bloquear al móvil.
     Que salga True significa «el puerto está abierto aquí», no «tu móvil llega»."""
+    if cache_seg is None:
+        cache_seg = _CACHE_SONDEO       # config/umbrales.json → «red»
     ahora = time.time()
     prev = _alcance_cache.get(host_puerto)
     if prev and ahora - prev[0] < cache_seg:
@@ -181,13 +231,26 @@ def direcciones() -> list[dict]:
                      "verificada": responde(f"{ip}:8177")})
 
     vivas = [d for d in cand if d["verificada"]]
-    out = vivas if vivas else cand             # nunca vacía por culpa del sondeo
+    red = vivas if vivas else cand             # nunca vacía por culpa del sondeo
 
+    tunel = []
     if _state["url"]:
-        out = out + [{"host": _state["url"].replace("https://", ""), "esquema": "https",
-                      "tipo": "tunel", "estable": False, "desde": "cualquier red",
-                      "verificada": True}]     # no se sondea: cloudflared ya la registró
-    return out
+        tunel = [{"host": _state["url"].replace("https://", ""), "esquema": "https",
+                  "tipo": "tunel", "estable": False, "desde": "cualquier red",
+                  "verificada": True}]         # no se sondea: cloudflared ya la registró
+
+    # EL QR ABRE dirs[0]. La primaria tiene que ser alcanzable desde CUALQUIER red,
+    # no solo en casa. Orden de esa primera puerta:
+    #   1. Tailscale — IP fija, cualquier red, sobrevive reinicios. La buena.
+    #   2. Túnel Cloudflare — llega desde fuera (cambia en cada arranque, pero llega).
+    #   3. LAN (nombre .local / IP WiFi) — solo casa.
+    # Antes la primaria era el nombre «.local»: fuera de casa NO resuelve (y el mDNS
+    # de Android falla a menudo), así que el móvil en datos se comía 20-30 s de
+    # timeout por cada dirección LAN antes de caer al túnel. De ahí la «pantalla
+    # negra que tarda». Las LAN siguen en la lista como respaldo (rápidas en casa).
+    ts_dirs = [d for d in red if d["tipo"] == "tailscale"]
+    lan_dirs = [d for d in red if d["tipo"] != "tailscale"]
+    return ts_dirs + tunel + lan_dirs
 
 
 def lan_ip() -> str:
@@ -325,17 +388,142 @@ async def _download_cloudflared() -> Path | None:
         return None
 
 
+# ─────────────────────────────────────────────────────────────── túnel adoptado
+# POR QUÉ EXISTE (tarea #12, 01/08/2026)
+# --------------------------------------
+# El «quick tunnel» de Cloudflare da un subdominio ALEATORIO distinto cada vez
+# que arranca. Como start_tunnel() empezaba matando el cloudflared anterior y
+# abriendo uno nuevo, la dirección cambiaba en CADA reinicio del PC y el móvil se
+# quedaba apuntando a un sitio que ya no existe: a re-escanear el QR otra vez.
+#
+# Si el cloudflared del arranque anterior sigue vivo y sigue apuntando a nuestro
+# 127.0.0.1:8177, lo suyo es QUEDÁRSELO. Misma dirección, cero QR.
+_ADOPCION_TIMEOUT = 5.0                 # lo que se espera a que conteste la URL vieja
+_ADOPCION_MAX_HORAS = 72.0              # más viejo que esto ni se prueba
+
+
+def _guarda_tunel(url: str) -> None:
+    """Apunta la URL del túnel para poder reutilizarla en el arranque siguiente."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        _TUNEL_FILE.write_text(json.dumps({"url": url, "ts": time.time()}),
+                               encoding="utf-8")
+    except Exception:
+        pass                            # no poder anotarlo no puede tumbar el túnel
+
+
+def _tunel_guardado() -> str:
+    """La URL del arranque anterior, o '' si no hay o es demasiado vieja."""
+    try:
+        if not _TUNEL_FILE.is_file():
+            return ""
+        d = json.loads(_TUNEL_FILE.read_text(encoding="utf-8")) or {}
+        url = str(d.get("url") or "").strip()
+        ts = float(d.get("ts") or 0)
+        if not url.startswith("https://"):
+            return ""
+        if ts and (time.time() - ts) > _ADOPCION_MAX_HORAS * 3600:
+            return ""
+        return url
+    except Exception:
+        return ""
+
+
+def _olvida_tunel() -> None:
+    try:
+        _TUNEL_FILE.unlink()
+    except Exception:
+        pass
+
+
+async def _sigue_siendo_nuestro(url: str) -> bool:
+    """¿La URL guardada sigue viva Y sigue sirviendo NUESTRA página del móvil?
+
+    NO vale con mirar si `cloudflared.exe` está en la lista de procesos: un
+    cloudflared vivo puede estar sirviendo un túnel viejo que ya no apunta aquí,
+    o apuntar a otra cosa completamente. La única prueba que vale es pedirle la
+    página y reconocerla.
+
+    Se pide `/m`, que es ruta PÚBLICA (`_RUTAS_PUBLICAS` en app.py): no hace
+    falta token y no se enseña ningún secreto por el camino."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=_ADOPCION_TIMEOUT,
+                                     follow_redirects=True) as cli:
+            r = await cli.get(url.rstrip("/") + "/m")
+        # El marcador tiene que ser ESTABLE: el <title> de la página del móvil.
+        # Un 200 pelado no basta — Cloudflare devuelve 200 en sus propias
+        # páginas de error, y otro servicio cualquiera detrás del mismo túnel
+        # también contestaría 200.
+        return r.status_code == 200 and "<title>nexus</title>" in r.text.lower()
+    except Exception:
+        return False                    # túnel muerto, lento o apuntando a otro sitio
+
+
+async def _log(nivel: str, msg: str) -> None:
+    """Deja constancia en el monitor del HUD. Si el bus no está, no pasa nada."""
+    try:
+        from .events import bus
+        await bus.emit("log", {"level": nivel, "msg": msg})
+    except Exception:
+        pass
+
+
+async def adopta_tunel_al_arrancar() -> bool:
+    """AL ARRANCAR nexus: quedarse el túnel que siguiera vivo. Devuelve si adoptó.
+
+    Esto es la mitad que faltaba de la tarea #12. La adopción dentro de
+    `start_tunnel()` solo salta cuando el usuario abre el panel del QR; hasta ese
+    momento nexus creía no tener túnel, y el HUD lo decía, aunque el cloudflared
+    del arranque anterior siguiera sirviendo perfectamente. Ahora se comprueba
+    nada más levantar el núcleo.
+
+    NO ABRE NADA. Si no hay un túnel vivo que ya apunte aquí, se va de vacío y
+    deja las cosas como estaban. Abrir un túnel es publicar este PC en internet y
+    eso lo decide el usuario, no el arranque: aquí como mucho se RE-ENGANCHA a
+    uno que YA estaba abierto y YA era público."""
+    if _state["url"]:
+        return False                    # ya hay túnel en esta sesión: nada que adoptar
+    viejo = _tunel_guardado()
+    if not viejo:
+        return False
+    if not await _sigue_siendo_nuestro(viejo):
+        _olvida_tunel()                 # murió o apunta a otro sitio: fuera la nota
+        return False
+    _state.update(url=viejo, proc=None, adoptado=True, error="")
+    _guarda_tunel(viejo)                # refresca la marca de tiempo
+    await _log("ok", f"🔗 El túnel del arranque anterior sigue vivo ({viejo}): "
+                     "me lo quedo. La dirección no cambia y el móvil sigue "
+                     "vinculado, NO hace falta re-escanear el QR.")
+    return True
+
+
 async def start_tunnel() -> dict:
     """Arranca el quick tunnel (si no está ya). Devuelve el estado."""
     if _state["url"] and _state["proc"] and _state["proc"].poll() is None:
+        return status()
+    if _state["url"] and _state["adoptado"]:
         return status()
     if _state["starting"]:
         return status()
     _state.update(starting=True, error="", url_pending="")
     try:
+        # ADOPCIÓN ANTES DEL TASKKILL. Si el túnel del arranque anterior sigue
+        # vivo y sigue siendo nuestro, se reutiliza: así la dirección NO cambia y
+        # el móvil no tiene que volver a escanear el QR.
+        viejo = _tunel_guardado()
+        if viejo and await _sigue_siendo_nuestro(viejo):
+            _state.update(url=viejo, proc=None, adoptado=True, error="")
+            _guarda_tunel(viejo)        # refresca la marca de tiempo
+            await _log("ok", f"🔗 Reutilizo el túnel que seguía vivo ({viejo}): "
+                             "la dirección no cambia, NO hace falta re-escanear el QR.")
+            return status()
+
         # LIMPIEZA: cada reinicio del PC con taskkill deja el cloudflared anterior
         # VIVO (es un proceso hijo aparte) con un túnel viejo colgando. Se matan
         # antes de abrir el nuevo para que no se acumulen ni confundan.
+        _state["adoptado"] = False
+        _olvida_tunel()                 # la guardada ya no vale: no contestó
         if sys.platform == "win32":
             try:
                 subprocess.run(["taskkill", "/F", "/IM", "cloudflared.exe"],
@@ -371,6 +559,7 @@ async def start_tunnel() -> dict:
                 if pend and ("Registered tunnel connection" in line
                              or "registered connIndex" in line.lower()):
                     _state["url"] = pend
+                    _guarda_tunel(pend)   # para poder adoptarlo en el arranque siguiente
                     return
 
         loop = asyncio.get_running_loop()
@@ -380,10 +569,14 @@ async def start_tunnel() -> dict:
             if _state.get("url_pending"):
                 # URL impresa pero sin ver el registro en el log: úsala igualmente
                 _state["url"] = _state["url_pending"]
+                _guarda_tunel(_state["url_pending"])
             else:
                 _state["error"] = "El túnel no ha dado URL en 30 s (¿internet caído?)."
     finally:
         _state["starting"] = False
+    if _state["url"] and not _state["adoptado"]:
+        await _log("warn", f"🔗 Túnel NUEVO ({_state['url']}): la dirección ha cambiado, "
+                           "hay que volver a escanear el QR en el móvil.")
     return status()
 
 
@@ -393,7 +586,26 @@ def stop_tunnel() -> None:
             _state["proc"].terminate()
         except Exception:
             pass
-    _state.update(proc=None, url="", url_pending="", starting=False)
+    elif _state["adoptado"] and _state["url"]:
+        # TÚNEL ADOPTADO: el cloudflared es hijo del nexus ANTERIOR, no nuestro,
+        # así que no hay `proc` que terminar. Sin esto, «parar el túnel» no
+        # paraba nada y el usuario se quedaba publicado en internet creyendo que
+        # lo había cerrado. Se mata por nombre.
+        if sys.platform == "win32":
+            try:
+                subprocess.run(["taskkill", "/F", "/IM", "cloudflared.exe"],
+                               capture_output=True, timeout=8,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            except Exception:
+                pass
+        else:
+            try:
+                subprocess.run(["pkill", "-f", "cloudflared"],
+                               capture_output=True, timeout=8)
+            except Exception:
+                pass
+    _olvida_tunel()          # si se para a propósito, no se readopta al reiniciar
+    _state.update(proc=None, url="", url_pending="", starting=False, adoptado=False)
 
 
 def status() -> dict:
@@ -406,7 +618,11 @@ def status() -> dict:
          cada arranque, así que el móvil hay que revincularlo cada vez.
       3. IP de la WiFi — solo sirve dentro de casa.
     """
-    alive = bool(_state["proc"] and _state["proc"].poll() is None and _state["url"])
+    # OJO CON `alive`: un túnel ADOPTADO no tiene `proc` (lo abrió el nexus
+    # anterior y su cloudflared es hijo de aquel proceso). Sin contar la marca,
+    # el HUD decía «no hay túnel» con el túnel funcionando perfectamente.
+    alive = bool(_state["url"]) and (
+        _state["adoptado"] or bool(_state["proc"] and _state["proc"].poll() is None))
     dirs = direcciones()
     # La PRIMERA es la que abre el móvil; el resto van en el QR como respaldo,
     # para que el enlace sobreviva a que una de ellas deje de valer.
@@ -417,6 +633,12 @@ def status() -> dict:
     link = (f"{esquema}://{host}/m?host={host}&token={link_token()}"
             + (f"&alt={alternativas}" if alternativas else ""))
     return {"tunnel": alive, "url": _state["url"], "error": _state["error"],
+            "adoptado": bool(_state["adoptado"]),
+            "tunel_nota": ("Reutilizo el túnel que seguía vivo del arranque anterior: "
+                           "la dirección NO ha cambiado, no hace falta re-escanear el QR."
+                           if _state["adoptado"] and _state["url"]
+                           else ("Túnel nuevo: la dirección ha cambiado, hay que "
+                                 "re-escanear el QR." if _state["url"] else "")),
             "lan": f"{lan_ip()}:8177", "link": link, "token": link_token(),
             "devices": devices(), "paired": len(_devices),
             "via": via, "estable": bool(principal.get("estable")),

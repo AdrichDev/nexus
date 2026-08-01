@@ -44,6 +44,24 @@ async def _arranca_runtime_llm() -> None:
         pass
 
 
+async def _adopta_tunel_superviviente() -> None:
+    """Si el túnel del arranque anterior sigue vivo, quedárselo (tarea #12).
+
+    El «quick tunnel» de Cloudflare da una dirección ALEATORIA distinta cada vez,
+    así que levantar uno nuevo obliga a re-escanear el QR en el móvil. Cuando el
+    cloudflared del arranque anterior sobrevive al reinicio de nexus, la dirección
+    de siempre sigue funcionando: se comprueba y se reutiliza.
+
+    Solo RE-ENGANCHA a un túnel que ya estaba abierto; nunca abre uno. Y va en
+    segundo plano y tragándose los fallos: esto no puede retrasar ni tumbar el
+    arranque del HUD."""
+    try:
+        from backend.core import remote
+        await remote.adopta_tunel_al_arrancar()
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Arranque del núcleo (sustituye al deprecado on_event('startup'))."""
@@ -67,7 +85,10 @@ async def lifespan(app: FastAPI):
              # Comprueba el cerebro AL ARRANCAR (en segundo plano, no retrasa el HUD):
              # nexus sabe si tiene modelo antes de que le preguntes, en vez de
              # descubrirlo a mitad de la primera respuesta.
-             asyncio.create_task(_arranca_runtime_llm())]
+             asyncio.create_task(_arranca_runtime_llm()),
+             # Tarea #12: recupera el túnel que sobreviviera al reinicio, para que
+             # la dirección del móvil NO cambie y no haya que re-escanear el QR.
+             asyncio.create_task(_adopta_tunel_superviviente())]
     for line in brain.boot_report():
         await bus.emit("boot", line)
     yield
@@ -1275,8 +1296,15 @@ async def api_link_start():
 
 @app.get("/api/link/status")
 async def api_link_status():
+    """POR QUÉ VA EN OTRO HILO (01/08/2026). `remote.status()` es SÍNCRONA y por
+    dentro sondea direcciones de red: resolver el nombre mDNS «PC_ADRI.local»
+    tarda 4,25 s medidos en este equipo, y el `timeout` del socket NO cubre esa
+    resolución. Llamándola directamente, el bucle de asyncio se quedaba parado
+    esos 4 s y NINGUNA petición respondía: el HUD entero se congelaba cada 45 s
+    (que es cada cuánto refresca los dispositivos). Con `to_thread` el bloqueo se
+    queda en un hilo del pool y el bucle sigue atendiendo."""
     from backend.core import remote
-    return remote.status()
+    return await asyncio.to_thread(remote.status)
 
 
 @app.get("/api/link/qr")
@@ -1284,7 +1312,9 @@ async def api_link_qr():
     from backend.core import remote
     from fastapi.responses import Response
     try:
-        png = remote.qr_png(remote.status()["link"])
+        # status() bloquea (DNS/socket): fuera del bucle, como en /api/link/status.
+        est = await asyncio.to_thread(remote.status)
+        png = await asyncio.to_thread(remote.qr_png, est["link"])
         return Response(content=png, media_type="image/png")
     except Exception as exc:
         return {"error": f"instala qrcode (run.bat): {exc}"}
@@ -1297,9 +1327,12 @@ async def api_link_tailscale():
     El túnel de Cloudflare cambia de dirección en cada arranque y obliga a
     revincular el móvil; una IP de Tailscale (100.x.y.z) no cambia nunca."""
     from backend.core import remote
-    ts = remote.tailscale_status()
+    # `tailscale status --json` es un SUBPROCESO (hasta 10 s de timeout): igual
+    # que status(), fuera del bucle o se congela el HUD entero.
+    ts = await asyncio.to_thread(remote.tailscale_status)
+    url = await asyncio.to_thread(remote.tailscale_url)
     return {**ts, "descarga": remote.TAILSCALE_WEB,
-            "url": remote.tailscale_url(),
+            "url": url,
             "siguiente_paso": (
                 "Listo: el QR ya usa la dirección fija." if ts.get("activo")
                 else "Instala Tailscale en este PC y en el móvil con la MISMA cuenta, "
@@ -1320,14 +1353,15 @@ async def api_link_reset():
     await bus.emit("unpaired", {"name": "todos los móviles", "id": "*", "count": 0})
     await bus.emit("log", {"level": "info",
                            "msg": "📱 Desvinculación: token rotado; los enlaces antiguos ya no valen."})
-    return remote.status()
+    return await asyncio.to_thread(remote.status)
 
 
 @app.post("/api/link/stop")
 async def api_link_stop():
     from backend.core import remote
-    remote.stop_tunnel()
-    return remote.status()
+    # stop_tunnel() puede lanzar un taskkill (túnel adoptado): también bloquea.
+    await asyncio.to_thread(remote.stop_tunnel)
+    return await asyncio.to_thread(remote.status)
 
 
 @app.post("/api/open_url")
