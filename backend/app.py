@@ -1203,6 +1203,102 @@ async def api_memoria_reindexar(payload: dict):
     return memory.pg.reindexar(plan_id, confirmar_nube=False)
 
 
+@app.post("/api/memoria/vector/limpiar-respaldo")
+async def api_memoria_vector_limpiar_respaldo(payload: dict | None = None):
+    # B4.3: cierra la migración A2. Segunda acción EXPLÍCITA — nunca
+    # encadenada a migrar_vector(). Irreversible (DROP COLUMN): confirm.request() propio.
+    from backend.core import memory, confirm
+    canal = (payload or {}).get("channel") or "pc"
+
+    def _limpiar():
+        r = memory.pg.limpiar_respaldo()
+        if r.get("ok"):
+            return f"Columna de respaldo «{r['columna_eliminada']}» eliminada."
+        return f"No he podido soltar la columna de respaldo: {r.get('error')}"
+
+    pregunta = confirm.request(
+        channel=canal, kind="memoria_limpiar_respaldo",
+        summary=("⚠️ Voy a ELIMINAR la columna de respaldo que dejó la "
+                 "migración de vector (irreversible). ¿Lo confirmas? «sí» o «no»."),
+        action=_limpiar, request_text=str(payload or {}),
+        cancel_reply="Vale, dejo la columna de respaldo donde está.")
+    return {"reply": pregunta}
+
+
+@app.post("/api/memoria/purga/previsualizar")
+async def api_memoria_purga_previsualizar():
+    # B5.1: SIEMPRE lo primero — nada se mueve ni se toca aquí.
+    from backend.core import purga
+    return purga.previsualizar()
+
+
+@app.post("/api/memoria/purga/aplicar")
+async def api_memoria_purga_aplicar(payload: dict):
+    # B5.1: confirmación propia del protocolo de purga (plan_id + categorías
+    # explícitas + acepto_personal) — NO usa confirm.request() de chat porque
+    # ya exige una previsualización previa y una selección explícita.
+    from backend.core import purga
+    plan_id = payload.get("plan_id", "")
+    categorias = payload.get("categorias") or []
+    acepto_personal = bool(payload.get("acepto_personal", False))
+    return purga.aplicar(plan_id, categorias, acepto_personal=acepto_personal)
+
+
+@app.get("/api/memoria/purga/papelera")
+async def api_memoria_purga_papelera(lote: str = ""):
+    from backend.core import purga
+    return {"items": purga.papelera(lote)}
+
+
+@app.post("/api/memoria/purga/restaurar")
+async def api_memoria_purga_restaurar(payload: dict):
+    # B5.1: restaurar es una UPDATE reversible — no destructiva, no exige
+    # confirm.request() de chat (misma lógica que board.restore()).
+    from backend.core import purga
+    lote = payload.get("lote", "")
+    if not lote:
+        return {"ok": False, "error": "falta «lote»"}
+    return purga.restaurar(lote)
+
+
+@app.post("/api/memoria/purga/exportar")
+async def api_memoria_purga_exportar(payload: dict):
+    # B5.1: no destructiva (copia), pero puede escribir fuera del sandbox si
+    # se pide «destino» — protegido por permissions.path_allowed() dentro.
+    from backend.core import purga
+    lote = payload.get("lote", "")
+    destino = payload.get("destino")
+    if not lote:
+        return {"ok": False, "error": "falta «lote»"}
+    return purga.exportar(lote, destino)
+
+
+@app.post("/api/memoria/purga/borrar-definitivo")
+async def api_memoria_purga_borrar_definitivo(payload: dict):
+    # B5.1: IRREVERSIBLE (unlink + DELETE FROM memories). El «sí» llega por
+    # chat, igual que migrar_vector — nexus nunca lo dispara solo.
+    from backend.core import purga, confirm
+    canal = payload.get("channel") or "pc"
+    lote = payload.get("lote", "")
+    if not lote:
+        return {"ok": False, "error": "falta «lote»"}
+
+    def _borrar():
+        r = purga.borrar_definitivo(lote)
+        if r.get("ok"):
+            return (f"Borrado definitivo del lote «{lote}»: {len(r['borrados'])} "
+                    f"fichero(s), {r['filas']} fila(s). No hay vuelta atrás.")
+        return f"No he podido borrar el lote: {r.get('error')}"
+
+    pregunta = confirm.request(
+        channel=canal, kind="memoria_purga_borrar_definitivo",
+        summary=(f"⚠️ Voy a BORRAR PARA SIEMPRE el lote «{lote}» de la papelera "
+                 f"(ficheros y filas). Es irreversible. ¿Lo confirmas? «sí» o «no»."),
+        action=_borrar, request_text=str(payload),
+        cancel_reply="Vale, el lote se queda en la papelera.")
+    return {"reply": pregunta}
+
+
 @app.get("/")
 async def index():
     if not settings.get("setup_done", False):

@@ -182,5 +182,51 @@
    "cuesta dos segundos; que se cuele una intrusion sin avisar cuesta mucho mas.",
    "Anade o quita cadenas aqui, no en el codigo."
   ]
+ },
+ "purga": {
+  "_que_es": [
+   "Motor de reglas de purga.py (002-memoria-y-conocimiento, bloque B).",
+   "NINGUN LLM decide que se retira: solo estas palabras y umbrales. Cada",
+   "resultado lleva la regla que lo clasifico, para que se pueda auditar.",
+   "",
+   "'personal':true marca CV, vida laboral, empadronamiento, tasas,",
+   "matricula y BOE: su accion por defecto es exportar antes de mover,",
+   "nunca el borrado duro (ver skills/tasks_board/skill.py, incidente que",
+   "fijo la regla de 'nada se borra sin confirmar')."
+  ],
+  "minutos_vigencia_plan": 30,
+  "_minutos_vigencia_plan": "Cuanto vive una previsualizacion antes de que aplicar() la rechace por caducada.",
+  "papelera_aviso_items": 3000,
+  "_papelera_aviso_items": "Aviso INFORMATIVO al superar este numero de items en la papelera. No es un tope: la papelera no tiene limite, capar el indice rompería la reversibilidad prometida.",
+  "categorias": {
+   "papeleo-personal": {
+    "personal": true,
+    "minimo_aciertos": 1,
+    "palabras": [
+     "curriculum", "cv amoroso", "cv_adrian", "vida_laboral", "vida laboral",
+     "empadronamiento", "justificante_pago_tasas", "tasas_adrian",
+     "matricula fp", "matrícula fp", "documento oficial de matrícula",
+     "boe-a-", "rd1085-anexo", "anexo 1_solicitud",
+     "impreso_solicitud_titulo", "certificado_de_conocimiento_prl"
+    ]
+   },
+   "estudios-dam": {
+    "personal": false,
+    "minimo_aciertos": 1,
+    "palabras": [
+     "2dam", "roadmap_verano", "roadmap2024-java", "bootcamp ciberseguridad",
+     "cuadrante_semanal", "boletín", "boletin", "plan_verano_dam",
+     "plan de estudio de verano", "creacionsecuencias", "creaciontablespace",
+     "creacionusuario", "ejemplos_sentencias", "ejemplo_tabla", "savepoint",
+     "transformación de interrelaciones", "transformación atributos",
+     " act1", " act2", " act3", " act4", " act6", " act7", " act12",
+     " act14", "act2 consulta", "act4_consulta"
+    ]
+   },
+   "duplicados-exactos": {
+    "personal": false,
+    "_fuente": "No usa 'palabras': memory.duplicados_exactos() alimenta esta categoria directo desde Postgres (memoria-deduplicacion)."
+   }
+  }
  }
 }

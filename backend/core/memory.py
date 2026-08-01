@@ -311,6 +311,11 @@ class PgMemory:
         # _maybe_crear_indice_vector / _indice_huella_existe más abajo para el
         # equivalente del vector, y purga.py para la huella).
         "ALTER TABLE memories ADD COLUMN IF NOT EXISTS huella TEXT",
+        # 002-memoria-y-conocimiento (bloque B): papelera como ESTADO, no
+        # destrucción — retirar una fila es un UPDATE, nunca un DELETE.
+        # Columnas nuevas, nullable, aditivas. Ver purga.py.
+        "ALTER TABLE memories ADD COLUMN IF NOT EXISTS retirado_en TIMESTAMPTZ",
+        "ALTER TABLE memories ADD COLUMN IF NOT EXISTS retirado_lote TEXT",
         # El índice de similitud (ivfflat) YA NO se crea aquí incondicional:
         # con pocas filas (741/lists=100 → ~7 filas por lista) pierde recall
         # frente a un recorrido secuencial, que además es EXACTO. Ver
@@ -667,18 +672,20 @@ class PgMemory:
             return None
 
     # --- Huella / deduplicación (memoria-deduplicacion) -------------------
-    def _indice_huella_existe(self) -> bool:
-        """¿Existe ya `memories_huella_idx`? En el bloque A nunca existe — se
+    def _indice_huella_existe(self, tabla: str = "memories") -> bool:
+        """¿Existe ya `{tabla}_huella_idx`? En el bloque A nunca existe — se
         crea solo tras confirmar la limpieza de duplicados (bloque B, orden
-        obligado del diseño §4)."""
+        obligado del diseño §4). `tabla` parametrizable SOLO para que
+        `test_purga.py` pueda probar la creación real del índice sobre una
+        tabla de usar-y-tirar, nunca sobre `memories`."""
         conn = self.connect()
         if conn is None:
             return False
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT 1 FROM pg_indexes WHERE tablename = 'memories' "
-                    "AND indexname = 'memories_huella_idx'")
+                    "SELECT 1 FROM pg_indexes WHERE tablename = %s "
+                    "AND indexname = %s", (tabla, f"{tabla}_huella_idx"))
                 return cur.fetchone() is not None
         except Exception:
             return False
@@ -709,20 +716,121 @@ class PgMemory:
         conn = self.connect()
         if conn is None:
             return []
+        # AND retirado_en IS NULL en ambas consultas (bloque B): una fila ya
+        # retirada por purga.py no debe seguir contando como «duplicado
+        # pendiente» — si no, B4.2 nunca vería la limpieza como confirmada.
         grupos = self._rows(
             "SELECT huella, count(*) AS n FROM memories "
-            "WHERE huella IS NOT NULL GROUP BY huella HAVING count(*) > 1 "
-            "ORDER BY n DESC")
+            "WHERE huella IS NOT NULL AND retirado_en IS NULL "
+            "GROUP BY huella HAVING count(*) > 1 ORDER BY n DESC")
         out = []
         for g in grupos:
             filas = self._rows(
                 "SELECT id, kind, content, created_at FROM memories "
-                "WHERE huella = %s ORDER BY created_at ASC, id ASC", (g["huella"],))
+                "WHERE huella = %s AND retirado_en IS NULL "
+                "ORDER BY created_at ASC, id ASC", (g["huella"],))
             if len(filas) < 2:
                 continue
             out.append({"huella": g["huella"], "total": len(filas),
                         "conservar": filas[0], "sobran": filas[1:]})
         return out
+
+    # --- Purga (bloque B): vínculo nota↔filas, retirar/restaurar, cierre --
+    def filas_ligadas_a_nota(self, nombre_fichero: str) -> list[dict]:
+        """Filas cuyo contenido lleva el prefijo `[nombre]` — el ÚNICO
+        vínculo nota↔fila que existe hasta que el bloque C añada
+        `origen`/`dominio` (lo pone `scheduler.py:45` al ingerir el buzón).
+        Las filas SIN ese prefijo no se ligan a ninguna nota; purga.py no
+        las toca por retirar la nota (memoria-purga, «Alcance dual»)."""
+        return self._rows(
+            "SELECT id FROM memories WHERE content LIKE %s AND retirado_en IS NULL",
+            (f"[{nombre_fichero}]%",))
+
+    def retirar_filas(self, ids: list[int], lote: str) -> int:
+        """`UPDATE`, nunca `DELETE`: retirar es un cambio de estado
+        reversible (memoria-purga, «Papelera reversible en dos tiempos»)."""
+        if not ids:
+            return 0
+        rows = self._rows(
+            "UPDATE memories SET retirado_en = now(), retirado_lote = %s "
+            "WHERE id = ANY(%s) AND retirado_en IS NULL RETURNING id",
+            (lote, ids))
+        return len(rows)
+
+    def restaurar_filas(self, lote: str) -> int:
+        """Revertir un lote entero es OTRO `UPDATE` — nunca hace falta
+        reconstruir nada (memoria-purga, escenario «Restaurar desde la
+        papelera»)."""
+        rows = self._rows(
+            "UPDATE memories SET retirado_en = NULL, retirado_lote = NULL "
+            "WHERE retirado_lote = %s RETURNING id", (lote,))
+        return len(rows)
+
+    def crear_indice_huella(self, tabla: str = "memories") -> dict:
+        """Índice ÚNICO y PARCIAL sobre `huella` — SOLO tras confirmar la
+        limpieza de duplicados (orden obligado, diseño §4). Si quedan
+        grupos duplicados sin retirar, NO se crea (memoria-deduplicacion,
+        «Consulta de duplicados exactos vacía»). `tabla` parametrizable
+        SOLO para que `test_purga.py` ejercite la creación real del índice
+        sobre una tabla de usar-y-tirar — en producción siempre es
+        `memories` (valor por defecto, el único que usa `aplicar()`)."""
+        idx = f"{tabla}_huella_idx"
+        if self._indice_huella_existe(tabla):
+            return {"ok": True, "ya_existia": True}
+        dups = self.duplicados_exactos() if tabla == "memories" else []
+        if dups:
+            return {"ok": False, "error": (
+                f"quedan {len(dups)} grupo(s) de duplicados sin limpiar: "
+                f"confirma la categoría «duplicados-exactos» primero.")}
+        conn = self.connect()
+        if conn is None:
+            return {"ok": False, "error": "sin conexión a Postgres"}
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {idx} "
+                    f"ON {tabla}(huella) WHERE retirado_en IS NULL")
+        except Exception as exc:                                  # noqa: BLE001
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return {"ok": False, "error": str(exc)}
+        from . import audit
+        audit.log(action="memoria_crear_indice_huella", destructive=False,
+                  confirmed=True, result=f"{idx} creado", extra={"tabla": tabla})
+        return {"ok": True, "ya_existia": False}
+
+    def limpiar_respaldo(self, tabla: str = "memories") -> dict:
+        """Cierra la migración A2: suelta la columna de respaldo
+        `{tabla}_dim{N}` que dejó `migrar_vector()`. SEGUNDA acción
+        explícita — nunca automática ni encadenada a la migración (diseño
+        §1, «soltar el respaldo es una segunda acción explícita»)."""
+        conn = self.connect()
+        if conn is None:
+            return {"ok": False, "error": "sin conexión a Postgres"}
+        prefijo = "embedding_dim" if tabla == "memories" else f"{tabla}_dim"
+        cols = self._rows(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = %s AND column_name LIKE %s",
+            (tabla, f"{prefijo}%"))
+        if not cols:
+            return {"ok": False, "error": "no hay columna de respaldo que soltar"}
+        nombre = cols[0]["column_name"]
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"ALTER TABLE {tabla} DROP COLUMN {nombre}")
+        except Exception as exc:                                  # noqa: BLE001
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return {"ok": False, "error": str(exc)}
+        from . import audit
+        audit.log(action="memoria_limpiar_respaldo", destructive=True,
+                  confirmed=True, result=f"DROP COLUMN {nombre}",
+                  extra={"tabla": tabla})
+        return {"ok": True, "columna_eliminada": nombre}
 
     # --- API usada por las skills (todas toleran DB caída → devuelven []) ---
     def remember(self, content: str, kind: str = "note", tags: list | None = None) -> dict:
@@ -742,27 +850,35 @@ class PgMemory:
         vec = self._embed(content)
         cols_extra, vals_extra = (["huella"], [h])
         if self._indice_huella_existe():
-            # NOTA para el bloque B: cuando `memories_huella_idx` se cree
-            # como índice PARCIAL (`WHERE retirado_en IS NULL`), este
-            # ON CONFLICT tendrá que llevar el mismo predicado para que
-            # Postgres pueda inferir el índice.
+            # `memories_huella_idx` es PARCIAL (`WHERE retirado_en IS NULL`,
+            # creado por B4.2): el ON CONFLICT lleva el MISMO predicado, si
+            # no Postgres no puede inferir el índice y la insercion falla.
+            # Efecto colateral correcto: si la única fila con esa huella
+            # está retirada (papelera), esto YA NO cuenta como conflicto y
+            # se inserta una fila nueva — retirar algo libera su huella.
             if vec is not None:
                 rows = self._rows(
                     "INSERT INTO memories (kind, content, tags, embedding, huella) "
                     "VALUES (%s,%s,%s,%s::vector,%s) "
-                    "ON CONFLICT (huella) DO NOTHING RETURNING id",
+                    "ON CONFLICT (huella) WHERE retirado_en IS NULL DO NOTHING "
+                    "RETURNING id",
                     (kind, content, tags or [], str(vec), h))
             else:
                 rows = self._rows(
                     "INSERT INTO memories (kind, content, tags, huella) "
                     "VALUES (%s,%s,%s,%s) "
-                    "ON CONFLICT (huella) DO NOTHING RETURNING id",
+                    "ON CONFLICT (huella) WHERE retirado_en IS NULL DO NOTHING "
+                    "RETURNING id",
                     (kind, content, tags or [], h))
             if rows:
                 return {"id": rows[0]["id"], "duplicado": False}
-            existe = self._rows("SELECT id FROM memories WHERE huella = %s LIMIT 1", (h,))
+            existe = self._rows(
+                "SELECT id FROM memories WHERE huella = %s AND retirado_en IS NULL "
+                "LIMIT 1", (h,))
             return {"id": existe[0]["id"] if existe else None, "duplicado": True}
-        existe = self._rows("SELECT id FROM memories WHERE huella = %s LIMIT 1", (h,))
+        existe = self._rows(
+            "SELECT id FROM memories WHERE huella = %s AND retirado_en IS NULL "
+            "LIMIT 1", (h,))
         if existe:
             return {"id": existe[0]["id"], "duplicado": True}
         if vec is not None:
@@ -780,9 +896,12 @@ class PgMemory:
     def all_knowledge(self, limit: int = 300) -> list[dict]:
         """TODO lo que nexus sabe (menos el log de conversación): para AUDITAR qué
         conocimiento tiene guardado sobre el operador."""
+        # AND retirado_en IS NULL (bloque B, memoria-purga «Alcance dual»):
+        # TODAS las lecturas excluyen lo retirado a papelera.
         return self._rows(
             "SELECT kind, content, created_at FROM memories "
-            "WHERE kind <> 'conversation' ORDER BY created_at DESC LIMIT %s", (limit,))
+            "WHERE kind <> 'conversation' AND retirado_en IS NULL "
+            "ORDER BY created_at DESC LIMIT %s", (limit,))
 
     def recall(self, query: str, limit: int = 5) -> list[dict]:
         """Recupera CONOCIMIENTO (docs, hechos, procedimientos), NUNCA el log de
@@ -794,6 +913,7 @@ class PgMemory:
                 "SELECT kind, content, created_at, "
                 "1 - (embedding <=> %s::vector) AS score FROM memories "
                 "WHERE embedding IS NOT NULL AND kind <> 'conversation' "
+                "AND retirado_en IS NULL "
                 "ORDER BY embedding <=> %s::vector LIMIT %s",
                 (str(vec), str(vec), limit * 3),
             )
@@ -806,7 +926,7 @@ class PgMemory:
         params = [f"%{w}%" for w in words]
         rows = self._rows(
             f"SELECT kind, content, created_at FROM memories "
-            f"WHERE kind <> 'conversation' AND ({clauses}) "
+            f"WHERE kind <> 'conversation' AND retirado_en IS NULL AND ({clauses}) "
             f"ORDER BY created_at DESC LIMIT 80",
             params,
         )
