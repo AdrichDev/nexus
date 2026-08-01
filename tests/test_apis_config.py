@@ -45,9 +45,17 @@ def main():
                   "m-spid", "m-spsec", "m-hatok", "m-iguser"):
         check(f"#{viejo}'" not in js and f'id="{viejo}"' not in js,
               f"el campo suelto «{viejo}» ha desaparecido")
-    check("están en el apartado <b style=\"color:var(--cy)\">APIS</b>" in js
-          or "apartado <b style=\"color:var(--cy)\">APIS</b>" in js,
-          "las secciones antiguas remiten al apartado APIS")
+    # Las secciones que YA NO tienen el campo de la clave tienen que decir dónde
+    # está ahora, o el usuario se queda mirando una sección sin saber qué le falta.
+    # Lo que importa es que EL AVISO SIGA AHÍ y remita al apartado de claves; el
+    # rótulo y el color son cosa del diseño (01/08/2026: el apartado pasó a
+    # llamarse «CLAVES API» y se pinta con el color de su sección, no con el cian
+    # de antes). Se comprueba la intención, no la cadena literal.
+    avisos = re.findall(r"apartado <b style=\"color:[^\"]+\">([^<]+)</b>", js)
+    check(len(avisos) >= 2,
+          "las secciones antiguas remiten al apartado de claves")
+    check(all(re.fullmatch(r"(APIS|CLAVES API)", a) for a in avisos),
+          "y lo nombran igual que el apartado, no con un nombre inventado")
 
     print("· se pinta y se guarda solo, desde la tabla")
     check("function apisHTML" in js, "la pantalla se genera desde la tabla")

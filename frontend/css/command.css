@@ -860,15 +860,56 @@ a.ext:hover{text-shadow:0 0 8px var(--cy)}
   #kn-stage{height:auto;min-height:340px}
 }
 
-/* ===== Panel de configuracion: secciones plegables + boton de domotica ===== */
-#config-modal fieldset > legend{cursor:pointer;user-select:none}
-#config-modal fieldset > legend::before{content:"\25be  ";color:var(--cy);font-size:10px}
-#config-modal fieldset.cfg-collapsed > legend::before{content:"\25b8  "}
-#config-modal fieldset.cfg-collapsed > *:not(legend){display:none}
+/* ===== Configuracion: menu de 6 opciones + pop up de seccion con color propio =====
+   Cada opcion lleva su color en la variable local --c (la misma mecanica de las
+   mini-ventanas): del menu pasa al pop up y le tine borde, glow, titulo e iconos. */
+.cfg-menu{display:flex;flex-direction:column;gap:8px}
+.cfg-op{display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer;
+  font-family:inherit;font-size:13px;letter-spacing:.4px;color:var(--txt);padding:10px 12px;
+  background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--c,var(--cy));
+  border-radius:10px;transition:border-color .12s,box-shadow .12s,transform .12s,background .12s}
+.cfg-op:hover{border-color:var(--c,var(--cy));background:rgba(255,255,255,.045);
+  box-shadow:0 0 20px -8px var(--c,var(--cy));transform:translateX(2px)}
+.cfg-op-ic{flex:0 0 auto;width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+  font-size:16px;line-height:1;border-radius:9px;border:1px solid var(--c,var(--cy));
+  color:var(--c,var(--cy));background:rgba(255,255,255,.04);text-shadow:0 0 12px var(--c,var(--cy))}
+.cfg-op-tx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cfg-op-go{flex:0 0 auto;font-size:16px;color:var(--c,var(--cy));opacity:.75}
+.cfg-menu-pie{font-size:10.5px;color:var(--txt-dim);line-height:1.5}
+/* z-index 120: por encima del modal (80) Y de las scanlines CRT (95) */
+#cfg-pop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;
+  padding:16px;background:rgba(3,8,15,.62);backdrop-filter:blur(6px)}
+.cfg-popbox{width:min(620px,94vw);max-height:88vh;overflow:hidden;position:relative;
+  border:1px solid var(--c,var(--cy));
+  box-shadow:0 0 44px -10px var(--c,var(--cy)),0 18px 50px rgba(0,0,0,.6)}
+.cfg-popbox::before{content:'';position:absolute;top:0;left:0;width:34px;height:2px;
+  background:var(--c,var(--cy))}
+.cfg-pophead{display:flex;align-items:center;gap:11px;flex:0 0 auto}
+.cfg-popbox h2{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--c,var(--cy));text-shadow:0 0 14px var(--c,var(--cy))}
+.cfg-popic{flex:0 0 auto;width:34px;height:34px;display:flex;align-items:center;justify-content:center;
+  font-size:17px;line-height:1;border-radius:9px;border:1px solid var(--c,var(--cy));
+  color:var(--c,var(--cy));background:rgba(255,255,255,.04)}
+.cfg-popx{flex:0 0 auto;background:transparent;border:1px solid var(--line2);color:var(--txt-dim);
+  font-family:inherit;font-size:12px;width:28px;height:28px;border-radius:7px;cursor:pointer}
+.cfg-popx:hover{border-color:var(--err);color:var(--err)}
+#cfg-pop-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+  display:flex;flex-direction:column;gap:12px;padding-right:3px}
+/* los SEIS paneles estan siempre aqui; solo se muestra el activo (.hidden en el resto) */
+.cfg-panel{display:flex;flex-direction:column;gap:12px}
+.cfg-popbox legend{color:var(--c,var(--cy))}
+.cfg-popbox fieldset{border-color:var(--line2)}
+.cfg-popbox .modal-btns{flex:0 0 auto}
+.cfg-popbox .modal-btns button:not(.ghost){background:var(--c,var(--cy))}
 .cfg-scanbtn{background:rgba(34,211,238,.1);border:1px solid var(--line2);color:var(--cy);
   border-radius:8px;padding:8px 12px;cursor:pointer;font-family:inherit;font-size:12px;
   margin-bottom:8px;width:100%;transition:border-color .12s,background .12s}
 .cfg-scanbtn:hover{background:rgba(34,211,238,.18);border-color:var(--cy)}
+/* dentro del pop up toma el color de su seccion, no el cian de siempre */
+.cfg-popbox .cfg-scanbtn{color:var(--c,var(--cy));border-color:var(--c,var(--cy));
+  background:rgba(255,255,255,.05)}
+.cfg-popbox .cfg-scanbtn:hover{background:rgba(255,255,255,.11);
+  box-shadow:0 0 16px -6px var(--c,var(--cy))}
 
 /* ================= PANEL DE DISPOSITIVOS (buscador WiFi) ================= */
 .dev-ha{margin-bottom:12px}

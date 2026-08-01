@@ -2580,6 +2580,11 @@
     if (view === 'jobs') {
       api('/api/jobs').then((d) => { state.jobs = d || { list: [], counts: {} }; renderJobs(); paintJobsNav(); })
         .then(() => api('/api/jobs/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }))
+        // El backend YA devuelve el indicador recalculado ({seen, badge}). Antes se
+        // tiraba la respuesta y el «✓» solo se limpiaba cuando llegaba el aviso por
+        // WebSocket: con el WS caído se quedaba pegado para siempre aunque hubieras
+        // revisado. Ahora se hace caso a lo que contesta el servidor.
+        .then((r) => { if (r && r.badge !== undefined && state.jobs) { state.jobs.badge = r.badge; paintJobsNav(); } })
         .catch(() => {});
       $('#job-run')?.addEventListener('click', launchJob);
       $('#job-in')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') launchJob(); });
@@ -3092,6 +3097,8 @@
 
   async function openLinkModal() {
     const m = $('#config-modal');
+    // #config-modal se COMPARTE con la configuración: si venía de allí, fuera el pop up
+    $('#cfg-pop')?.classList.add('hidden');
     $('#config-body').innerHTML = `<h2>📱 VINCULAR EL MÓVIL</h2>
       <div class="lk-info">En el móvil: app de nexus → «VINCULAR CON nexus» → apunta la cámara a
       este QR. El QR ya vale en tu WiFi al instante; en unos segundos se actualiza para que valga
@@ -3165,10 +3172,20 @@
     }, 2500);
   }
 
-  /* ---------------- config modal ---------------- */
-  function configModal() {
-    const c = state.config;
-    $('#config-body').innerHTML = `<h2>▚ CONFIGURACIÓN</h2>
+  /* ---------------- CONFIGURACIÓN: menú de 6 opciones + pop up por sección ----------------
+     El botón ⚙ ya no vuelca un formulario kilométrico de nueve apartados plegados:
+     despliega un MENÚ de seis opciones —cada una con su icono y su COLOR— sobre el
+     fondo desenfocado, y al pulsar una se abre un POP UP pintado con ESE mismo color
+     (misma mecánica `--c` que las mini-ventanas de los nodos).
+
+     CUIDADO al tocar esto: los seis paneles se pintan A LA VEZ dentro del pop up y
+     solo se MUESTRA el de la sección activa. El guardado lee de golpe campos de
+     todas las secciones (#m-op, #m-tts, #m-permfiles, #m-devs…); si únicamente
+     existiera en el DOM la sección abierta, guardar escribiría vacíos y se cargaría
+     la configuración del usuario. Los paneles ocultos siguen en el DOM con sus
+     valores intactos: NO renderices solo la sección activa. */
+  const CFG_SECCIONES = [
+    { id: 'operador', titulo: 'Operador', icono: '👤', color: '#22d3ee', html: (c) => `
       <fieldset><legend>OPERADOR</legend>
         <label>¿Cómo quieres que te llame?<input id="m-op" value="${esc(c.operator_name || '')}"></label>
         <label>Personalidad de nexus<select id="m-pers"></select></label>
@@ -3186,19 +3203,18 @@
           return html;
         })()}</select></label>
         <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Destila un perfil tuyo en ciclo (y cada pocas órdenes) para atinar con tu estilo — no hace falta pedírselo. «Automático» usa el cerebro que ya tienes activo (no consume de más). Puedes elegir otro modelo para el reentreno: usa su API si tienes la key.</div>
-        <div class="chk" style="font-size:12px;color:var(--txt-dim);line-height:1.5">😈 <b style="color:var(--cy)">Modo abogado del diablo: SIEMPRE ACTIVO</b><br>Skill propia de nexus — el modelo cuestiona y depura su propio razonamiento antes de responderte. No es apagable.</div></fieldset>
+        <div class="chk" style="font-size:12px;color:var(--txt-dim);line-height:1.5">😈 <b style="color:var(--cy)">Modo abogado del diablo: SIEMPRE ACTIVO</b><br>Skill propia de nexus — el modelo cuestiona y depura su propio razonamiento antes de responderte. No es apagable.</div></fieldset>` },
+
+    { id: 'apis', titulo: 'Claves API', icono: '🔑', color: '#ffd23a', html: (c) => `
       <fieldset><legend>APIS · CLAVES DE ACCESO</legend>
         <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">
           Todas las claves que usa nexus, en un solo sitio. Se guardan cifradas en
           config/secrets.json: no se suben a ningún repositorio, no salen por la API
           y no se muestran nunca — solo si están puestas o no. Deja en blanco lo que
           no uses.</div>
-        ${apisHTML(c)}</fieldset>
-      <fieldset><legend>PROACTIVIDAD · PROJECT MANAGER</legend>
-        <label class="chk"><input type="checkbox" id="m-proactive" ${c.proactive !== false ? 'checked' : ''}> Toma la iniciativa: recordatorios y empujón diario sin que le hables</label>
-        <label class="chk"><input type="checkbox" id="m-proactivespeak" ${c.proactive_speak !== false ? 'checked' : ''}> Que los avisos me los diga en voz alta</label>
-        <label class="chk"><input type="checkbox" id="m-pmstrong" ${c.pm_strong !== false ? 'checked' : ''}> <b style="color:var(--cy)">Modo PM fuerte</b>: crea tareas de lo que hablo y las mueve según le respondo</label>
-        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Con el modo fuerte, si dices «tengo que llamar al proveedor» te lo apunta como tarea solo; y cuando te pregunte «¿cómo vas con X?», tu respuesta («ya está», «a medias», «aún no») mueve la tarea en el tablero. Apágalo si prefieres que no toque nada sin pedírselo.</div></fieldset>
+        ${apisHTML(c)}</fieldset>` },
+
+    { id: 'voz', titulo: 'Voz y audio', icono: '🎙', color: '#ff7ac0', html: (c) => `
       <fieldset><legend>VOZ</legend>
         <label>Motor de voz<select id="m-tts">${['auto', 'edge', 'elevenlabs', 'local', 'off'].map((o) => `<option ${c.tts_engine === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
         <label>Voz<select id="m-voice"></select></label>
@@ -3210,33 +3226,100 @@
         <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Metes el audio por el micrófono que elijas y nexus te habla por la salida que elijas.</div></fieldset>
       <fieldset><legend>APERTURA POR VOZ</legend>
         <label class="chk"><input type="checkbox" id="m-wake" ${c.wake_enabled ? 'checked' : ''}> Escuchar palabra de activación</label>
-        <label>Palabra de activación<input id="m-wakeword" value="${esc(c.wake_word || ('despierta ' + (c.assistant_name || 'nexus').toLowerCase()))}"></label></fieldset>
+        <label>Palabra de activación<input id="m-wakeword" value="${esc(c.wake_word || ('despierta ' + (c.assistant_name || 'nexus').toLowerCase()))}"></label></fieldset>` },
+
+    { id: 'proactividad', titulo: 'Proactividad', icono: '⚡', color: '#7cf6c0', html: (c) => `
+      <fieldset><legend>PROACTIVIDAD · PROJECT MANAGER</legend>
+        <label class="chk"><input type="checkbox" id="m-proactive" ${c.proactive !== false ? 'checked' : ''}> Toma la iniciativa: recordatorios y empujón diario sin que le hables</label>
+        <label class="chk"><input type="checkbox" id="m-proactivespeak" ${c.proactive_speak !== false ? 'checked' : ''}> Que los avisos me los diga en voz alta</label>
+        <label class="chk"><input type="checkbox" id="m-pmstrong" ${c.pm_strong !== false ? 'checked' : ''}> <b style="color:var(--cy)">Modo PM fuerte</b>: crea tareas de lo que hablo y las mueve según le respondo</label>
+        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Con el modo fuerte, si dices «tengo que llamar al proveedor» te lo apunta como tarea solo; y cuando te pregunte «¿cómo vas con X?», tu respuesta («ya está», «a medias», «aún no») mueve la tarea en el tablero. Apágalo si prefieres que no toque nada sin pedírselo.</div></fieldset>` },
+
+    { id: 'permisos', titulo: 'Permisos', icono: '🛡', color: '#ff5e5e', html: (c) => `
       <fieldset><legend>PERMISOS (estilo sandbox)</legend>
         <label class="chk"><input type="checkbox" id="m-hw" ${c.perm_hardware !== false ? 'checked' : ''}> Leer hardware (CPU/RAM/placa/discos/temps)</label>
         <label>Acceso a archivos<select id="m-permfiles">${['sandbox', 'carpetas', 'todo'].map((o) => `<option ${c.perm_files === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
-        <label>Carpetas permitidas (una por línea, solo modo «carpetas»)<textarea id="m-permfolders" rows="2" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:8px;border-radius:6px">${esc((c.perm_folders || []).join('\n'))}</textarea></label></fieldset>
+        <label>Carpetas permitidas (una por línea, solo modo «carpetas»)<textarea id="m-permfolders" rows="2" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:8px;border-radius:6px">${esc((c.perm_folders || []).join('\n'))}</textarea></label></fieldset>` },
+
+    { id: 'red', titulo: 'Red y casa', icono: '🏠', color: '#c77dff', html: (c) => `
       <fieldset><legend>RED / AUTOMATIZACIÓN</legend>
         <label>n8n · URL base<input id="m-n8nbase" value="${esc(c.n8n_base_url || 'http://localhost:5678')}"></label>
         <label>n8n · Webhook<input id="m-n8n" value="${esc(c.n8n_webhook_url || '')}"></label>
-        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Las claves de n8n y Discord están en el apartado <b style="color:var(--cy)">APIS</b>.</div>
+        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Las claves de n8n y Discord están en el apartado <b style="color:#ffd23a">CLAVES API</b>.</div>
         <label>MAC del PC (Wake-on-LAN)<input id="m-wol" value="${esc(c.wol_mac || '')}"></label></fieldset>
-      <fieldset class="cfg-domotica"><legend>DOMÓTICA</legend>
+      <fieldset><legend>DOMÓTICA</legend>
         <button type="button" id="m-scan-open" class="cfg-scanbtn">◎ Buscar dispositivos en la red</button>
         <label>Home Assistant · URL<input id="m-haurl" value="${esc(c.homeassistant_url || '')}" placeholder="http://homeassistant.local:8123"></label>
-        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">El token de Home Assistant está en el apartado <b style="color:var(--cy)">APIS</b>.</div>
+        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">El token de Home Assistant está en el apartado <b style="color:#ffd23a">CLAVES API</b>.</div>
         <label>Dispositivos conocidos (uno por línea: Nombre | IP | MAC | marca)<textarea id="m-devs" rows="3" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:8px;border-radius:6px" placeholder="Tele salón | 192.168.1.40 | AA:BB:CC:DD:EE:FF | samsung">${esc((c.known_devices || []).map((d) => [d.name, d.ip, d.mac, d.brand].filter(Boolean).join(' | ')).join('\n'))}</textarea></label>
-        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Con Home Assistant controlas TODO (luces, enchufes, persianas, teles…). Sin él, di «escanea la red» y manejo TVs por Roku/Samsung/Wake-on-LAN.</div></fieldset>
+        <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Con Home Assistant controlas TODO (luces, enchufes, persianas, teles…). Sin él, di «escanea la red» y manejo TVs por Roku/Samsung/Wake-on-LAN.</div></fieldset>` },
+  ];
+
+  /* Capa del pop up de sección. Vive fuera de #config-modal (que se COMPARTE con
+     la pantalla de vincular el móvil) para que aquella pueda reescribir
+     #config-body sin llevarse por delante los campos de la configuración. */
+  function cfgPopLayer() {
+    let p = $('#cfg-pop');
+    if (p) return p;
+    p = document.createElement('div');
+    p.id = 'cfg-pop'; p.className = 'hidden';
+    p.innerHTML = `<div class="modal-box cfg-popbox">
+        <div class="cfg-pophead"><span class="cfg-popic" id="cfg-popic"></span>
+          <h2 id="cfg-poptitle">—</h2>
+          <button type="button" class="cfg-popx" id="cfg-popx" title="Volver al menú">✕</button></div>
+        <div id="cfg-pop-body"></div>
+        <div class="modal-btns"><button type="button" class="ghost" id="cfg-popback">‹ Volver</button>
+          <button type="button" id="cfg-popsave">Guardar</button></div>
+      </div>`;
+    document.body.appendChild(p);
+    // clic en el fondo desenfocado o en ✕/Volver → al menú, nunca a la nada
+    p.addEventListener('click', (e) => { if (e.target === p) cerrarSeccionConfig(); });
+    $('#cfg-popx', p).addEventListener('click', cerrarSeccionConfig);
+    $('#cfg-popback', p).addEventListener('click', cerrarSeccionConfig);
+    return p;
+  }
+  function abrirSeccionConfig(id) {
+    const s = CFG_SECCIONES.find((x) => x.id === id);
+    if (!s) return;
+    const p = cfgPopLayer(), box = p.querySelector('.cfg-popbox');
+    box.style.setProperty('--c', s.color);          // borde, glow, título y acentos
+    $('#cfg-popic').textContent = s.icono;
+    $('#cfg-poptitle').textContent = s.titulo.toUpperCase();
+    // se MUESTRA una, pero las seis siguen en el DOM (el guardado las necesita)
+    $$('#cfg-pop-body .cfg-panel').forEach((el) => el.classList.toggle('hidden', el.dataset.sec !== id));
+    p.classList.remove('hidden');
+    $('#cfg-pop-body').scrollTop = 0;
+  }
+  function cerrarSeccionConfig() {
+    const p = $('#cfg-pop');
+    if (!p || p.classList.contains('hidden')) return false;
+    p.classList.add('hidden');
+    return true;                                    // true = «he cerrado algo»
+  }
+  function cerrarConfig() {
+    cerrarSeccionConfig();
+    $('#config-modal').classList.add('hidden');
+  }
+
+  function configModal() {
+    const c = state.config;
+    $('#config-body').innerHTML = `<h2>▚ CONFIGURACIÓN</h2>
+      <div class="cfg-menu">${CFG_SECCIONES.map((s) => `<button type="button" class="cfg-op" data-sec="${s.id}" style="--c:${s.color}">
+        <span class="cfg-op-ic">${s.icono}</span><span class="cfg-op-tx">${esc(s.titulo)}</span><span class="cfg-op-go">›</span></button>`).join('')}</div>
+      <div class="cfg-menu-pie">Elige un apartado. «Guardar» guarda TODA la configuración, estés en la sección que estés.</div>
       <div class="modal-btns"><button class="ghost" id="m-cancel">Cancelar</button><button id="m-save">Guardar</button></div>`;
+    // LOS SEIS PANELES, DE UNA VEZ. No lo cambies a «solo el activo»: el guardado
+    // de abajo lee campos de todas las secciones y los vacíos borrarían ajustes.
+    cfgPopLayer();
+    $('#cfg-pop-body').innerHTML = CFG_SECCIONES.map((s) =>
+      `<section class="cfg-panel hidden" data-sec="${s.id}">${s.html(c)}</section>`).join('');
+    $('#cfg-pop').classList.add('hidden');           // se abre siempre por el menú
     $('#config-modal').classList.remove('hidden');
-    // panel plegable: cada seccion se abre/cierra al pulsar su titulo (deja abierta solo la 1a)
-    $$('#config-modal fieldset').forEach((fs, i) => {
-      if (i > 0) fs.classList.add('cfg-collapsed');
-      const lg = fs.querySelector('legend');
-      if (lg) lg.addEventListener('click', () => fs.classList.toggle('cfg-collapsed'));
-    });
-    $('#m-scan-open')?.addEventListener('click', () => { $('#config-modal').classList.add('hidden'); render('home'); });
+    $$('#config-body .cfg-op').forEach((b) =>
+      b.addEventListener('click', () => abrirSeccionConfig(b.dataset.sec)));
+    $('#m-scan-open')?.addEventListener('click', () => { cerrarConfig(); render('home'); });
     // cerrar pulsando fuera del recuadro (en el fondo oscuro)
-    $('#config-modal').onclick = (e) => { if (e.target === $('#config-modal')) $('#config-modal').classList.add('hidden'); };
+    $('#config-modal').onclick = (e) => { if (e.target === $('#config-modal')) cerrarConfig(); };
     // voces: filtradas por motor, sin duplicados, solo motores disponibles
     let voiceCat = null;
     function paintModalVoices() {
@@ -3302,8 +3385,9 @@
       const r = await api('/api/tts_test', { method: 'POST' });
       if (r && r.spoke === false) { endVoiceTest(); pushLog('warn', 'No hay motor de voz TTS instalado. Ejecuta run.bat otra vez (instala edge-tts) o pon una voz «local».'); }
     });
-    $('#m-cancel').addEventListener('click', () => $('#config-modal').classList.add('hidden'));
-    $('#m-save').addEventListener('click', async () => {
+    /* GUARDADO: uno solo para el botón del menú y el del pop up. Lee campos de las
+       SEIS secciones a la vez — por eso los seis paneles están siempre en el DOM. */
+    const guardar = async () => {
       const cfgApis = {};          // identificadores del apartado APIS (no son claves)
       const cfg = { operator_name: $('#m-op').value || 'Operador', devil_mode: true,
         personality: $('#m-pers') ? $('#m-pers').value : 'jarvis',
@@ -3340,8 +3424,11 @@
       });
       if (Object.keys(cfgApis).length) await api('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfgApis) });
       if (Object.keys(sec).length) await api('/api/secrets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sec) });
-      $('#config-modal').classList.add('hidden'); await fetchAll(); pushLog('ok', 'Configuración actualizada');
-    });
+      cerrarConfig(); await fetchAll(); pushLog('ok', 'Configuración actualizada');
+    };
+    $('#m-cancel').addEventListener('click', cerrarConfig);
+    $('#m-save').addEventListener('click', guardar);
+    $('#cfg-popsave').onclick = guardar;   // onclick: el pop up se reutiliza entre aperturas
   }
 
   // Cualquier enlace .ext (del chat, ventanitas, logs) → navegador REAL del PC
@@ -3404,6 +3491,7 @@
       if (e.key === 'F9') { e.preventDefault(); voice(); }
       if (e.key === 'Escape') {
         if (closeTopMiniWin()) return;             // cierra la ventanita de arriba
+        if (cerrarSeccionConfig()) return;         // del pop up de sección, al menú
         $('#node-panel').classList.add('hidden'); $('#config-modal').classList.add('hidden');
       }
     });

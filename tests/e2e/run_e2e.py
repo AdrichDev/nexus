@@ -250,8 +250,24 @@ def flujo_multitarea(page, base: str) -> Flow:
     f.check(badge().strip() == "✓", f"al terminar → «✓» sin revisar (vi «{badge()}»)")
     f.shot("03-terminado")
 
+    # ESPERA DE CONDICIÓN, NO DE RELOJ (01/08/2026). Aquí había un
+    # `wait_for_timeout(1000)` fijo. Cuando el tic de 45 s de /api/link/status
+    # caía justo en esta ventana, el bucle de asyncio se quedaba 4 s bloqueado
+    # resolviendo mDNS, el GET /api/jobs no volvía, renderJobs() no llegaba a
+    # correr y caían los TRES asserts de abajo a la vez.
+    #
+    # El presupuesto de 3000 ms es DELIBERADO: absorbe el jitter normal (con el
+    # arreglo las respuestas bajan a 1-5 ms) pero SIGUE fallando si alguien
+    # vuelve a meter un bloqueo de 4 s en el bucle, que es justo la regresión
+    # que este flujo acaba de cazar. NO lo subas.
     nav(page, "jobs")
-    page.wait_for_timeout(1000)
+    try:
+        page.wait_for_function(
+            "() => document.querySelector('#nav-jobs').textContent.trim() === ''"
+            " && /completado/i.test(document.querySelector('#job-list').innerText)",
+            timeout=3000)
+    except Exception:                      # si no pasa, los checks de abajo lo cuentan
+        pass
     f.check(badge().strip() == "", f"al revisar Multitarea el indicador se limpia (vi «{badge()}»)")
     txt = page.eval_on_selector("#job-list", "e => e.innerText")
     f.check("completado" in txt.lower(), "el panel muestra el estado real «completado»")
@@ -477,22 +493,35 @@ def flujo_apis(page, base: str) -> Flow:
     f = Flow("config-apis", page, base)
     nav(page, "command")
     page.click("#btn-config")
-    page.wait_for_selector("#config-body", timeout=8000)
+    page.wait_for_selector("#config-body .cfg-menu", timeout=8000)
     page.wait_for_timeout(700)
 
-    leyendas = page.evaluate(
-        "() => [...document.querySelectorAll('#config-body fieldset legend')].map(e => e.textContent.trim())")
-    f.estado_antes = {"secciones": leyendas}
-    f.check(any("APIS" in l for l in leyendas), f"existe el apartado APIS ({leyendas})")
-    f.check(leyendas.index([l for l in leyendas if "APIS" in l][0]) <= 1,
-            "y está arriba, no enterrado al final")
+    # el ⚙ despliega un MENÚ de secciones; cada una abre su pop up con su color
+    opciones = page.evaluate(
+        "() => [...document.querySelectorAll('#config-body .cfg-op')].map(e => ({"
+        " sec: e.dataset.sec, tx: (e.querySelector('.cfg-op-tx')||{}).textContent,"
+        " color: e.style.getPropertyValue('--c').trim() }))")
+    f.estado_antes = {"secciones": [o["tx"] for o in opciones]}
+    f.check(len(opciones) == 6, f"el menú tiene las 6 opciones ({len(opciones)})")
+    f.check(len({o["color"] for o in opciones}) == 6, "y cada una con un color distinto")
+    f.check(any(o["sec"] == "apis" for o in opciones),
+            f"existe la opción de claves API ({f.estado_antes['secciones']})")
+    f.check([o["sec"] for o in opciones].index("apis") <= 1,
+            "y está arriba, no enterrada al final")
 
-    # el apartado viene plegado: se abre pulsando su título, como los demás
-    page.evaluate("""() => {
-        const fs = [...document.querySelectorAll('#config-body fieldset')]
-            .find(x => (x.querySelector('legend')||{}).textContent.includes('APIS'));
-        fs.classList.remove('cfg-collapsed'); }""")
+    page.click('#config-body .cfg-op[data-sec="apis"]')
+    page.wait_for_selector("#cfg-pop:not(.hidden)", timeout=4000)
     page.wait_for_timeout(300)
+    f.check(page.evaluate(
+        "() => getComputedStyle(document.querySelector('.cfg-popbox'))"
+        ".getPropertyValue('--c').trim()") == "#ffd23a",
+        "el pop up se pinta con el color de su opción")
+    # los SEIS paneles siguen en el DOM aunque solo se vea uno (si no, guardar borraría ajustes)
+    f.check(page.evaluate("() => document.querySelectorAll('#cfg-pop-body .cfg-panel').length") == 6,
+            "los 6 paneles siguen en el DOM con el pop up abierto")
+    for campo in ("m-op", "m-tts", "m-permfiles", "m-devs", "m-wol", "m-proactive"):
+        f.check(page.evaluate(f"() => !!document.getElementById('{campo}')"),
+                f"el campo {campo} de otra sección sigue existiendo para el guardado")
 
     campos = page.evaluate("""() => [...document.querySelectorAll('[id^="api-"]')].map(e => ({
         id: e.id.replace('api-',''), tipo: e.type,
@@ -512,7 +541,7 @@ def flujo_apis(page, base: str) -> Flow:
     f.check(all(c["valor"] == "" for c in secretas),
             "y NINGUNA muestra su valor, ni siquiera las guardadas")
     grupos = page.evaluate(
-        "() => [...document.querySelectorAll('#config-body .api-grupo')].map(e => e.textContent.trim())")
+        "() => [...document.querySelectorAll('#cfg-pop-body .api-grupo')].map(e => e.textContent.trim())")
     f.check(len(grupos) >= 5, f"están agrupadas por servicio ({grupos})")
     f.estado_despues = {"campos": len(campos), "grupos": grupos}
     f.shot("01-apartado-apis")
@@ -521,6 +550,8 @@ def flujo_apis(page, base: str) -> Flow:
     viejos = page.evaluate("""() => ['m-gid','m-igtok','m-tg','m-n8nkey','m-hatok','m-spid']
         .filter(id => !!document.getElementById(id))""")
     f.check(not viejos, f"ningún campo de clave suelto en otras secciones ({viejos})")
+    page.click("#cfg-popback")          # del pop up, de vuelta al menú
+    page.wait_for_selector("#cfg-pop", state="hidden", timeout=4000)
     page.click("#m-cancel")
     return f
 
