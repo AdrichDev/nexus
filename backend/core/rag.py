@@ -37,6 +37,7 @@ _UMBRALES_RESERVA = {
     "coseno_minimo": 0.42,                 # umbral de coseno para considerar "relevante"
     "solape_minimo_palabras": 0.5,         # qué parte de las palabras clave debe coincidir
     "coseno_minimo_tarea": 0.62,           # más alto: para aplicar una tarea aprendida
+    "letras_minimas_palabra_sola": 5,      # cuándo UNA palabra suelta da para buscar
 }
 
 
@@ -59,6 +60,7 @@ _UMBRALES = _carga_umbrales()
 _MIN_SEM = _UMBRALES["coseno_minimo"]
 _MIN_PALABRAS = _UMBRALES["solape_minimo_palabras"]
 _MIN_TASK = _UMBRALES["coseno_minimo_tarea"]
+_MIN_LETRAS_SOLA = int(_UMBRALES["letras_minimas_palabra_sola"])
 
 
 def _emb_ollama(text: str):
@@ -209,6 +211,27 @@ def _words(q: str) -> list:
             if len(w) > 2 and w not in _VACIAS]
 
 
+def _palabras_de_busqueda(q: str) -> list:
+    """Como _words(), pero además decide si la frase DA para buscar por palabras.
+
+    El filtro de relevancia es una proporción: «que coincida más de la mitad de
+    lo que distingue a la frase». Con UNA sola palabra clave esa cuenta no dice
+    nada — el denominador es 1, sale 1.0 y pasa siempre. Así fue como
+    «Que es lo que ves», que se queda en ["ves"], se trajo el manual entero de
+    Gmail por la línea «el mismo número que ves en tu app de Gmail» (31/07/2026).
+    Es el mismo fallo que ya se tapó para «que»: se quitó esa palabra de en medio
+    y el agujero siguió abierto para la siguiente.
+
+    Una palabra suelta solo vale si distingue algo por sí misma: «wabiksco»
+    busca, «ves» no. La medida es la longitud, que es lo único que hay a mano sin
+    inventarse un diccionario.
+    """
+    ws = _words(q)
+    if len(ws) == 1 and len(ws[0]) < _MIN_LETRAS_SOLA:
+        return []
+    return ws
+
+
 def _pg():
     """Devuelve pg si la DB (Docker/pgvector) está montada y online; si no, None.
     El CONOCIMIENTO se guarda ahí (almacén elegido); local es solo respaldo."""
@@ -266,7 +289,7 @@ async def search(query: str, k: int = 4, kinds: tuple | None = None) -> list[dic
                 # Descartar esas filas por no tener score dejaba la memoria muda
                 # entera con la DB montada. A ellas se les pide lo mismo que a la
                 # búsqueda local por palabras.
-                ws = _words(query)
+                ws = _palabras_de_busqueda(query)
                 utiles: list[tuple] = []
                 for r in (rows or []):
                     sc = r.get("score")
@@ -309,7 +332,7 @@ async def search(query: str, k: int = 4, kinds: tuple | None = None) -> list[dic
                 if sc > _MIN_SEM:
                     scored.append((sc, r))
     if not scored:                              # degradación a palabras
-        ws = _words(query)
+        ws = _palabras_de_busqueda(query)
         if ws:
             for r in cand:
                 # Palabras ENTERAS, no subcadenas: «ves» dentro de «claves» daba

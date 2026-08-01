@@ -246,6 +246,15 @@ def test_la_memoria_no_se_cuela():
     check(rag._words("cuentas de instagram de wabiksco") == ["cuentas", "instagram", "wabiksco"],
           "y las que sí distinguen se quedan")
 
+    # Y lo que quedó abierto tapando lo de «que»: la frase se queda en UNA sola
+    # palabra, «ves», y el filtro de «más de la mitad» ya no filtra nada, porque
+    # una de una es el 100%. Con eso volvió a colarse un documento entero —el
+    # SKILL.md de Gmail, por «el mismo número que ves en tu app de Gmail»—.
+    check(rag._palabras_de_busqueda("Que es lo que ves") == [],
+          "una palabra suelta y corta no da para buscar")
+    check(rag._palabras_de_busqueda("que sabes de wabiksco") == ["wabiksco"],
+          "pero una palabra suelta que SÍ distingue, sí")
+
     async def prueba():
         await rag.add("Karin Leon se escribe con mayuscula inicial", kind="knowledge")
         await rag.add("wabiksco es una marca de calcetines deportivos", kind="knowledge")
