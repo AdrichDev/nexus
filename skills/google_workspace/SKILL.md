@@ -54,21 +54,38 @@ Drive:
   devuelve el enlace
 - «sube informe-2026-08-02.md a drive» → sube ESE fichero (con espacios en el
   nombre, entre comillas: «sube "mi informe.md" a drive»)
-- «qué hay en mi drive» / «qué has subido a drive» → lo que ha subido nexus
+- «sube el informe a la carpeta Clientes de drive» → a ESA carpeta, no a la de siempre
+- «qué hay en mi drive» / «qué hay en la carpeta Clientes de drive» → lista esa carpeta
 - «dame el enlace de drive» → el enlace de lo último subido
+- «crea la carpeta Informes en drive» / «crea la carpeta Clientes/2026/agosto en
+  drive» → crea la ruta entera, los tramos que falten
+- «mueve informe.md a la carpeta Clientes en drive» / «…a la raíz de drive»
+- «renombra informe.md a informe-final.md en drive»
+- «busca contratos en drive» / «busca los pdf de 2026 en drive»
+- «descarga informe.md de drive» → lo deja en `data/drive` (los Google
+  Docs/Sheets/Slides se exportan a `.md`, `.csv` y `.pdf`)
+- «borra informe-viejo.md de drive» → **a la PAPELERA de Drive**, se recupera
+- «borra definitivamente informe-viejo.md de drive» → **te pide confirmación**
 
 Para qué sirve: el informe diario de competencia se genera en `.md`, se manda por
 correo y se sube a Drive, para que después ChatGPT o Claude —conectados a ese
 Drive— trabajen sobre él sin que nadie suba nada a mano.
 
-**El permiso que pide es `drive.file`, y es a propósito**: solo deja ver y tocar
-**los ficheros que crea el propio nexus**. No puede leer el resto de tu Drive
-aunque se lo pidas. Consecuencia práctica: la carpeta de destino la crea nexus;
-si tú ya tenías una carpeta con ese nombre creada a mano, nexus no la ve y creará
-la suya. Es el precio de no darle acceso a todos tus documentos personales.
+**El permiso que pide es `auth/drive` COMPLETO desde el 02/08/2026**, por decisión
+explícita del dueño de la cuenta, que pidió «control total». Antes era `drive.file`
+(solo lo que creaba nexus), y con eso no se podía tocar ninguna carpeta creada a
+mano. Lo que implica, dicho claro: **nexus puede leer, modificar, mover, renombrar
+y borrar cualquier documento de tu cuenta**, no solo los suyos.
 
-El nombre de la carpeta está en `config/umbrales.json` → `drive.carpeta` (por
-defecto `nexus`). Se cambia ahí, se reinicia nexus, y ya.
+Por eso, y no por burocracia, lo destructivo lleva cinturón:
+- **borrar = papelera de Drive** (`trashed`), recuperable en drive.google.com/drive/trash;
+- **el borrado definitivo pide confirmación** («sí»/«no») antes de tocar nada;
+- **borrar una carpeta con cosas dentro dice cuántas** y pide confirmación;
+- mover y renombrar no destruyen nada: van directos.
+
+El nombre de la carpeta por defecto está en `config/umbrales.json` →
+`drive.carpeta` (por defecto `nexus`). Es solo el DEFECTO: cualquier orden puede
+apuntar a otra carpeta o a la raíz si se lo dices.
 
 **La primera vez que uses una orden de Drive se abrirá el navegador** para
 reautorizar: el token que tienes guardado no incluye el permiso de Drive.
@@ -91,7 +108,7 @@ reautorizar: el token que tienes guardado no incluye el permiso de Drive.
 
 ## Notas técnicas y límites
 
-- Scopes: `gmail.modify`, `gmail.send`, `calendar.events`, `tasks`. Si el token
+- Scopes: `gmail.modify`, `gmail.send`, `calendar.events`, `tasks`, `drive`. Si el token
   guardado no cubre los scopes actuales (p. ej. tras añadir ESCRITURA), nexus lo
   borra y relanza la autorización UNA vez — es normal que el navegador se abra.
 - Redirect OAuth con puerto FIJO: `http://127.0.0.1:8765/` (127.0.0.1, no

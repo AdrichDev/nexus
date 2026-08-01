@@ -502,11 +502,26 @@ def test_borrado_sin_traza_falla():
         plan = purga.previsualizar()
         r = purga.aplicar(plan["id"], ["estudios-dam"])
         lote = r["lote"]
-        antes = len(audit.tail(500, destructive_only=True))
+        # OJO CON MEDIR ESTO CONTANDO (02/08/2026). Antes se comparaba
+        # len(tail(500)) antes y después y se exigía que creciera. Pero tail(N)
+        # devuelve como mucho N: con 682 entradas destructivas en el registro
+        # real, los dos lados valían 500 y el test fallaba SIEMPRE, dijera la
+        # verdad o no. Y el fallo llegó tarde, cuando el registro se llenó: el
+        # test venía envenenándose solo desde el día que se escribió.
+        #
+        # Lo que de verdad se quiere comprobar es que aparece una traza NUEVA,
+        # así que se mira la identidad de la última, no cuántas hay. Eso no
+        # satura, no depende de cuánto haya crecido el registro, y sigue
+        # cayéndose si alguien deja de registrar el borrado.
+        def _ultima_traza():
+            t = audit.tail(500, destructive_only=True)
+            return t[-1] if t else None
+
+        antes = _ultima_traza()
         rb = purga.borrar_definitivo(lote)
         check(rb["ok"] is True, "borrar_definitivo(): borra el lote de prueba")
         despues = audit.tail(500, destructive_only=True)
-        check(len(despues) > antes,
+        check(bool(despues) and despues[-1] != antes,
               "borrar_definitivo(): SIEMPRE deja una traza nueva en auditoría")
         ultima = despues[-1]
         check(ultima["action"] == "purga_borrar_definitivo" and ultima["destructive"] is True

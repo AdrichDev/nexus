@@ -67,6 +67,23 @@ SKILL = {
     },
 }
 
+# ── CANDADO ANTI-DRIVE (02/08/2026) ─────────────────────────────────────────
+# Esta skill toca ficheros LOCALES. Google Drive vive en skills/google_workspace
+# y, como skills_loader recorre las carpetas por orden ALFABÉTICO y gana la
+# primera regex que case, «files» va ANTES que «google_workspace»: sin esto,
+# «borra la carpeta Informes de drive» lo cogía el `trash` de aquí y borraba una
+# carpeta del disco. El candado es un lookahead que descarta el patrón cuando la
+# frase menciona «drive», y se aplica SOLO a los intents que pueden chocar (los
+# que hablan de archivo/carpeta genéricos). Los que exigen una ruta real
+# (analyze, search) no lo necesitan.
+_SIN_DRIVE = r"(?!.*\b(?:google\s+)?drive\b)"
+_INTENTS_QUE_CHOCAN_CON_DRIVE = ("trash", "make_doc", "move", "copy", "rename",
+                                 "mkdir", "mkfile", "explore", "update",
+                                 "summarize", "read")
+for _i in _INTENTS_QUE_CHOCAN_CON_DRIVE:
+    if _i in SKILL["patterns"]:
+        SKILL["patterns"][_i] = _SIN_DRIVE + "(?:" + SKILL["patterns"][_i] + ")"
+
 _pending_trash: dict = {"path": None}
 
 

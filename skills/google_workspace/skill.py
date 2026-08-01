@@ -21,24 +21,41 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",       # ENVIAR correos
     "https://www.googleapis.com/auth/calendar.events",  # CREAR/editar eventos (antes readonly)
     "https://www.googleapis.com/auth/tasks",            # CREAR/editar tareas (antes readonly)
-    "https://www.googleapis.com/auth/drive.file",       # SUBIR/releer SOLO lo que crea nexus
+    "https://www.googleapis.com/auth/drive",            # DRIVE COMPLETO — ver el bloque de abajo
 ]
-# POR QUÉ «drive.file» Y NO «drive» A SECAS. Es una decisión, no un descuido: dentro de
-# seis meses alguien verá que subir un informe a una carpeta que creó a mano «falla» y
-# le entrará la tentación de ampliar a «auth/drive». NO LO HAGAS.
-#   * drive.file → nexus solo ve y toca LOS FICHEROS QUE ÉL MISMO HA CREADO (Google,
-#                  textual: «See, edit, create, and delete only the specific Google
-#                  Drive files you use with this app»).
-#   * drive      → acceso a TODO el Drive personal de Adrian: nóminas, contratos, fotos,
-#                  lo que haya. Para una tarea que solo necesita ESCRIBIR sus propios
-#                  informes y volver a leerlos, eso es regalar la casa entera por poder
-#                  entrar al garaje.
-# Lo que hace falta (subir el .md diario, listarlo, dar el enlace) cabe entero en
-# drive.file: files.create y files.list lo admiten — verificado en el discovery doc
-# oficial drive.v3 (rev. 20260428) que viene dentro de google-api-python-client.
-# CONSECUENCIA ACEPTADA: la carpeta de destino la crea nexus. Una carpeta que hayas
-# creado TÚ a mano no la ve (no es «suya»): la buscará, no la encontrará y creará la
-# suya. Ese es el precio de no pedir el Drive entero, y se paga con gusto.
+# ─────────────────────────────────────────────────────────────────────────────
+# SCOPE DE DRIVE: «auth/drive» COMPLETO. DECISIÓN DEL 02/08/2026, DEL DUEÑO DE LA
+# CUENTA, TOMADA SABIENDO LO QUE CUESTA. No es un descuido ni un copy-paste.
+#
+# Hasta esa fecha aquí ponía «drive.file» (solo los ficheros que crea la propia
+# app) y había un test puesto expresamente para que nadie lo ampliara. Adrian lo
+# amplió a propósito y lo dijo con estas palabras: «tiene que tener la posibilidad
+# de tener acceso a todo el drive si se le pide o a carpetas específicas y ha de
+# poder hacer CRUD tanto de archivos como carpetas en ese drive. Ha de tener
+# control total.» Con drive.file eso es IMPOSIBLE: una carpeta creada a mano por
+# él no existe para nexus, así que ni la lista, ni la renombra, ni mueve nada
+# dentro. El test no se borró: se le dio la vuelta y ahora exige el scope completo
+# y deja escrita la fecha y el motivo (tests/test_drive.py).
+#
+# EL PRECIO, ESCRITO PARA QUE NADIE SE SORPRENDA DESPUÉS:
+#   * Con «auth/drive» nexus puede LEER, MODIFICAR, MOVER, RENOMBRAR y BORRAR
+#     CUALQUIER documento de la cuenta, no solo los suyos: nóminas, contratos,
+#     fotos, escrituras, lo que haya. No hay carpeta protegida.
+#   * Y nexus enruta por regex: una frase mal casada apunta a ficheros REALES.
+#   Por eso, y no por burocracia, todo lo destructivo de Drive lleva cinturón:
+#     - «borra X de drive» manda a la PAPELERA de Drive (trashed = true), que es
+#       reversible desde drive.google.com/drive/trash. NUNCA files.delete.
+#     - el borrado DEFINITIVO (files.delete) existe pero solo se ejecuta desde
+#       dentro de confirm.request() — el mismo patrón que la papelera del tablero
+#       y que backend/core/purga.py.
+#     - borrar una carpeta con contenido DICE CUÁNTOS elementos se lleva y pide
+#       confirmación aunque solo vaya a la papelera.
+#   * Mover y renombrar no destruyen nada y van directos.
+#
+# API verificada contra el discovery doc oficial drive.v3 (rev. 20260428) que trae
+# google-api-python-client, no de memoria: files.create/list/get/update/delete
+# admiten «auth/drive»; el movimiento es files.update con addParents/removeParents
+# (parámetros reales del método) y el borrado suave es un update de «trashed».
 # OJO: al ampliar scopes (calendar/tasks de solo-lectura → escritura), el token viejo
 # ya no cubre los permisos nuevos. _get_creds() detecta que el token no es superset de
 # SCOPES, lo borra y relanza la autorización UNA vez (igual que al añadir «enviar»).
@@ -160,7 +177,31 @@ SKILL = {
         # dejar pasar un NOMBRE DE FICHERO y los nombres de fichero llevan punto:
         # «sube informe-2026-08-02.md a drive» no casaba con [^.\n] y se iba al
         # planificador del cerebro. Aquí el hueco es [^\n] y quien acota es la
-        # palabra «drive», que es obligatoria en las tres.
+        # palabra «drive», que es obligatoria en TODAS.
+        # 02/08/2026, CRUD COMPLETO: los intents de acción (crear carpeta, mover,
+        # renombrar, borrar, descargar, buscar) van ANTES que upload/link/list
+        # porque son más específicos. Y OJO CON skills/files: gestiona ficheros
+        # LOCALES y va ANTES por orden alfabético («f» < «g»), así que «borra la
+        # carpeta X de drive» se lo llevaba ÉL. La solución está en su propio
+        # fichero: un candado que descarta sus patrones cuando la frase dice
+        # «drive» (skills/files/skill.py, _SIN_DRIVE).
+        "drive_folder_create": r"(?:cr[eé]a(?:me)?|cr[eé]ar|h[aá]z(?:me)?|gen[eé]ra(?:me)?|nueva)"
+                               r"\b[^\n]{0,25}\b(?:carpeta|directorio|folder)\b[^\n]{0,80}"
+                               r"\b(?:google\s+)?drive\b",
+        "drive_move": r"(?:mu[eé]ve(?:me|lo|la)?|mover|traslada|trasladar|ll[eé]va(?:me|lo|la)?"
+                      r"|pasa)\b[^\n]{0,100}\b(?:google\s+)?drive\b",
+        "drive_rename": r"(?:ren[oó]mbra(?:me|lo|la)?|renombrar|cambia(?:le)?\s+el\s+nombre"
+                        r"|c[aá]mbia(?:le)?\s+el\s+nombre)\b[^\n]{0,100}\b(?:google\s+)?drive\b",
+        "drive_delete": r"(?:b[oó]rra(?:me|lo|la)?|borrar|elimina(?:me|lo|la)?|eliminar"
+                        r"|qu[ií]ta(?:me|lo|la)?|destruye|tira|manda\s+a\s+la\s+papelera)"
+                        r"\b[^\n]{0,100}\b(?:google\s+)?drive\b",
+        "drive_replace": r"(?:actual[ií]za(?:me|lo|la)?|actualizar|reemplaza(?:lo|la)?"
+                         r"|reempl[aá]za(?:lo|la)?|sustituye|sobrescribe|machaca)"
+                         r"\b[^\n]{0,100}\b(?:google\s+)?drive\b",
+        "drive_download": r"(?:desc[aá]rga(?:me|lo|la)?|descargar|b[aá]ja(?:me|lo|la)?|bajar"
+                          r"|exporta(?:me)?|tr[aá]e(?:me)?)\b[^\n]{0,100}\b(?:google\s+)?drive\b",
+        "drive_search": r"(?:busca(?:me)?|b[uú]sca(?:me)?|buscar|encuentra|localiza)"
+                        r"\b[^\n]{0,100}\b(?:google\s+)?drive\b",
         "drive_upload": r"(?:s[uú]be(?:me|lo|la|los|las)?|sub[ií]r(?:lo|la)?|cuelga(?:me|lo|la)?"
                         r"|guarda(?:me|lo|la)?|gu[aá]rda(?:melo|mela|lo|la)|copia|mete|pon)"
                         r"\b[^\n]{0,50}\b(?:google\s+)?drive\b",
@@ -1032,6 +1073,26 @@ async def _llm_text(order: str) -> str:
 
 DRIVE_CARPETA_RESERVA = "nexus"          # solo si umbrales.json falta o está roto
 DRIVE_MIME_CARPETA = "application/vnd.google-apps.folder"
+DRIVE_RAIZ = "root"                 # id literal que Drive acepta para «Mi unidad»
+DRIVE_PALABRAS_RAIZ = {"raíz", "raiz", "root", "mi unidad", "mi drive", "drive"}
+# Campos que se piden SIEMPRE. Sin `fields` la API devuelve un puñado mínimo y
+# faltarían `parents` (imprescindible para mover) o `webViewLink`.
+DRIVE_CAMPOS = "id, name, mimeType, parents, webViewLink, modifiedTime, size"
+DRIVE_CAMPOS_LISTA = f"files({DRIVE_CAMPOS})"
+# Exportación de los formatos nativos de Google (Docs/Sheets/Slides no se
+# descargan con alt=media: hay que pasar por files.export). Tabla oficial de
+# «Export MIME types for Google Workspace documents».
+DRIVE_EXPORTACION = {
+    "application/vnd.google-apps.document": ("text/markdown", ".md"),
+    "application/vnd.google-apps.spreadsheet": ("text/csv", ".csv"),
+    "application/vnd.google-apps.presentation": ("application/pdf", ".pdf"),
+    "application/vnd.google-apps.drawing": ("image/png", ".png"),
+}
+
+
+class DriveNoEncontrado(LookupError):
+    """El nombre que dijo el usuario no existe en su Drive. Se DICE, no se adivina:
+    con el scope completo, «parecido» sería tocar un documento real equivocado."""
 REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
 
 _ultimo_subido: dict = {}                # id/enlace de lo último que subió nexus
@@ -1068,26 +1129,39 @@ def _drive_service():
     return build("drive", "v3", credentials=_get_creds(), cache_discovery=False)
 
 
-def _drive_carpeta_id(svc, nombre: str) -> str:
-    """Devuelve el id de la carpeta de destino; la crea si no existe.
+def _drive_carpeta_id(svc, nombre: str, padre: str = "", crear: bool = True) -> str:
+    """Id de una carpeta, que puede ser una RUTA anidada tipo «Clientes/2026/agosto».
 
-    OJO con el scope drive.file: files.list SOLO devuelve ficheros creados por esta
-    app. Si tú creaste «nexus» a mano, esta búsqueda NO la encuentra y nexus creará
-    otra carpeta con el mismo nombre. No es un bug: es la contrapartida de no pedir
-    acceso a todo tu Drive (ver el comentario largo junto a SCOPES)."""
-    q = (f"name = '{_drive_escape(nombre)}' and mimeType = '{DRIVE_MIME_CARPETA}' "
-         f"and trashed = false")
-    res = svc.files().list(q=q, spaces="drive", pageSize=10,
-                           fields="files(id, name)",
-                           supportsAllDrives=True,
-                           includeItemsFromAllDrives=True).execute()
-    encontradas = res.get("files", [])
-    if encontradas:
-        return encontradas[0]["id"]
-    carpeta = svc.files().create(
-        body={"name": nombre, "mimeType": DRIVE_MIME_CARPETA},
-        fields="id", supportsAllDrives=True).execute()
-    return carpeta["id"]
+    Cada tramo se busca DENTRO del anterior (`'<id>' in parents`); el primero se
+    busca en todo el Drive, que es lo que hace que ahora sí valga una carpeta que
+    creaste tú a mano. `crear=False` para las operaciones de LECTURA: listar o
+    buscar en una carpeta que no existe NO debe crearla de rebote — devuelve "".
+    «raíz»/«root»/«mi drive» apuntan a la raíz real (el id literal es "root")."""
+    actual = padre
+    for tramo in [t.strip() for t in str(nombre).replace("\\", "/").split("/") if t.strip()]:
+        if tramo.lower() in DRIVE_PALABRAS_RAIZ:
+            actual = DRIVE_RAIZ
+            continue
+        q = (f"name = '{_drive_escape(tramo)}' and mimeType = '{DRIVE_MIME_CARPETA}' "
+             f"and trashed = false")
+        if actual:
+            q += f" and '{_drive_escape(actual)}' in parents"
+        res = svc.files().list(q=q, spaces="drive", pageSize=10,
+                               fields="files(id, name)",
+                               supportsAllDrives=True,
+                               includeItemsFromAllDrives=True).execute()
+        encontradas = res.get("files", [])
+        if encontradas:
+            actual = encontradas[0]["id"]
+            continue
+        if not crear:
+            return ""
+        cuerpo = {"name": tramo, "mimeType": DRIVE_MIME_CARPETA}
+        if actual:
+            cuerpo["parents"] = [actual]
+        actual = svc.files().create(body=cuerpo, fields="id",
+                                    supportsAllDrives=True).execute()["id"]
+    return actual or DRIVE_RAIZ
 
 
 def _drive_subir(ruta: Path, carpeta: str = "", mimetype: str = "") -> dict:
@@ -1136,18 +1210,172 @@ def _drive_mime(ruta: Path) -> str:
 
 
 def _drive_listar(limite: int = 10, carpeta: str = "") -> list[dict]:
-    """Lo que nexus ha subido, lo más reciente primero. Con drive.file esto es
-    literalmente «lo mío»: no puede listar el resto del Drive aunque quisiera."""
+    """El contenido de una carpeta, lo más reciente primero. Con el scope completo
+    vale CUALQUIER carpeta del Drive, no solo la de nexus. `crear=False`: listar
+    nunca debe crear la carpeta que buscabas (eso sería inventarse la respuesta)."""
     nombre_carpeta = carpeta or _umbrales_drive()["carpeta"]
     svc = _drive_service()
-    padre = _drive_carpeta_id(svc, nombre_carpeta)
+    padre = _drive_carpeta_id(svc, nombre_carpeta, crear=False)
+    if not padre:
+        return []
     res = svc.files().list(
         q=f"'{_drive_escape(padre)}' in parents and trashed = false",
         spaces="drive", pageSize=max(1, min(limite, 50)),
         orderBy="modifiedTime desc",
-        fields="files(id, name, webViewLink, modifiedTime, size)",
+        fields=DRIVE_CAMPOS_LISTA,
         supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
     return res.get("files", [])
+
+
+# ── CRUD: localizar, buscar, crear, mover, renombrar, reemplazar, descargar ──
+def _drive_localizar(svc, nombre: str, carpeta: str = "") -> list[dict]:
+    """Ficheros o carpetas con ese nombre EXACTO. Exacto y no «parecido» a
+    propósito: tocar el documento equivocado de un Drive real no se deshace solo."""
+    q = f"name = '{_drive_escape(nombre)}' and trashed = false"
+    if carpeta:
+        padre = _drive_carpeta_id(svc, carpeta, crear=False)
+        if not padre:
+            return []
+        q += f" and '{_drive_escape(padre)}' in parents"
+    res = svc.files().list(q=q, spaces="drive", pageSize=10, orderBy="modifiedTime desc",
+                           fields=DRIVE_CAMPOS_LISTA, supportsAllDrives=True,
+                           includeItemsFromAllDrives=True).execute()
+    return res.get("files", [])
+
+
+def _drive_uno(svc, nombre: str, carpeta: str = "") -> dict:
+    hallados = _drive_localizar(svc, nombre, carpeta)
+    if not hallados:
+        raise DriveNoEncontrado(nombre)
+    return hallados[0]
+
+
+def _drive_buscar(texto: str = "", tipo: str = "", carpeta: str = "",
+                  limite: int = 15) -> list[dict]:
+    """Búsqueda por trozo de nombre y/o tipo. `contains` es el operador de la guía
+    oficial de búsqueda de Drive; `=` sería nombre exacto y aquí queremos aproximar."""
+    svc = _drive_service()
+    partes = ["trashed = false"]
+    if texto:
+        partes.append(f"name contains '{_drive_escape(texto)}'")
+    if tipo == "carpeta":
+        partes.append(f"mimeType = '{DRIVE_MIME_CARPETA}'")
+    elif tipo:
+        partes.append(f"mimeType contains '{_drive_escape(tipo)}'")
+    if carpeta:
+        padre = _drive_carpeta_id(svc, carpeta, crear=False)
+        if not padre:
+            return []
+        partes.append(f"'{_drive_escape(padre)}' in parents")
+    res = svc.files().list(q=" and ".join(partes), spaces="drive",
+                           pageSize=max(1, min(limite, 50)), orderBy="modifiedTime desc",
+                           fields=DRIVE_CAMPOS_LISTA, supportsAllDrives=True,
+                           includeItemsFromAllDrives=True).execute()
+    return res.get("files", [])
+
+
+def _drive_crear_carpeta(ruta: str) -> dict:
+    """Crea la carpeta (y los tramos intermedios que falten si es una ruta a/b/c)."""
+    svc = _drive_service()
+    fid = _drive_carpeta_id(svc, ruta, crear=True)
+    return svc.files().get(fileId=fid, fields=DRIVE_CAMPOS,
+                           supportsAllDrives=True).execute()
+
+
+def _drive_mover(nombre: str, destino: str = "") -> dict:
+    """files.update con addParents/removeParents: mover NO es borrar y crear, es
+    cambiar de padre. No es destructivo, así que va directo, sin confirmación."""
+    svc = _drive_service()
+    f = _drive_uno(svc, nombre)
+    padre_nuevo = _drive_carpeta_id(svc, destino or _umbrales_drive()["carpeta"])
+    viejos = ",".join(f.get("parents") or [])
+    movido = svc.files().update(fileId=f["id"], addParents=padre_nuevo,
+                                removeParents=viejos or None, fields=DRIVE_CAMPOS,
+                                supportsAllDrives=True).execute()
+    movido["destino"] = destino or _umbrales_drive()["carpeta"]
+    return movido
+
+
+def _drive_renombrar(nombre: str, nuevo: str) -> dict:
+    svc = _drive_service()
+    f = _drive_uno(svc, nombre)
+    return svc.files().update(fileId=f["id"], body={"name": nuevo},
+                              fields=DRIVE_CAMPOS, supportsAllDrives=True).execute()
+
+
+def _drive_reemplazar(nombre: str, ruta: Path) -> dict:
+    """Sustituye el CONTENIDO de un fichero que ya está en Drive conservando su id
+    (y por tanto su enlace, que es lo que le has pegado a ChatGPT/Claude)."""
+    from googleapiclient.http import MediaFileUpload
+    svc = _drive_service()
+    f = _drive_uno(svc, nombre)
+    media = MediaFileUpload(str(ruta), mimetype=_drive_mime(ruta), resumable=True)
+    try:
+        return svc.files().update(fileId=f["id"], media_body=media, fields=DRIVE_CAMPOS,
+                                  supportsAllDrives=True).execute()
+    finally:
+        try:                              # ver el comentario de _drive_subir
+            media.stream().close()
+        except Exception:
+            pass
+
+
+def _drive_dentro(svc, fid: str, limite: int = 100) -> int:
+    """Cuántos elementos hay dentro de una carpeta. Sirve para AVISAR antes de
+    borrarla: vaciar una carpeta en silencio es exactamente lo que no se hace."""
+    res = svc.files().list(q=f"'{_drive_escape(fid)}' in parents and trashed = false",
+                           spaces="drive", pageSize=max(1, min(limite, 100)),
+                           fields="files(id, name)", supportsAllDrives=True,
+                           includeItemsFromAllDrives=True).execute()
+    return len(res.get("files", []))
+
+
+def _drive_descargar(nombre: str, destino_dir: Path) -> Path:
+    """Baja un fichero de Drive al disco. Los formatos nativos de Google (Docs,
+    Sheets, Slides) NO se bajan con alt=media: hay que exportarlos (files.export)."""
+    from googleapiclient.http import MediaIoBaseDownload
+    svc = _drive_service()
+    f = _drive_uno(svc, nombre)
+    mime = f.get("mimeType", "")
+    if mime == DRIVE_MIME_CARPETA:
+        raise IsADirectoryError(f.get("name", nombre))
+    nombre_final = f.get("name") or nombre
+    if mime.startswith("application/vnd.google-apps"):
+        exp, ext = DRIVE_EXPORTACION.get(mime, ("application/pdf", ".pdf"))
+        peticion = svc.files().export_media(fileId=f["id"], mimeType=exp)
+        if not nombre_final.lower().endswith(ext):
+            nombre_final += ext
+    else:
+        peticion = svc.files().get_media(fileId=f["id"])
+    destino_dir.mkdir(parents=True, exist_ok=True)
+    salida = destino_dir / nombre_final
+    with open(salida, "wb") as fh:
+        bajada = MediaIoBaseDownload(fh, peticion)
+        terminado = False
+        while not terminado:
+            _, terminado = bajada.next_chunk()
+    return salida
+
+
+# Los dos borrados reciben el fichero YA LOCALIZADO, no un nombre. A propósito:
+# si volvieran a buscarlo, entre el aviso («esta carpeta tiene 3 cosas dentro»)
+# y el «sí» del usuario podría haber aparecido otro fichero con ese nombre y se
+# borraría uno distinto del que se le enseñó. Se borra EL id que se le enseñó.
+def _drive_a_papelera(f: dict) -> dict:
+    """BORRADO POR DEFECTO: `trashed = true`, que es REVERSIBLE desde
+    drive.google.com/drive/trash. Nunca files.delete por defecto — regla del
+    proyecto tras el incidente del tablero, y con el Drive entero aún más."""
+    return _drive_service().files().update(
+        fileId=f["id"], body={"trashed": True},
+        fields="id, name, mimeType, trashed", supportsAllDrives=True).execute()
+
+
+def _drive_destruir(f: dict) -> dict:
+    """files.delete: DEFINITIVO, no pasa por la papelera, no hay vuelta atrás.
+    NO SE LLAMA NUNCA DESDE handle() DIRECTAMENTE: solo desde dentro del
+    `action` de un confirm.request(), igual que board.purge_trash() y purga."""
+    _drive_service().files().delete(fileId=f["id"], supportsAllDrives=True).execute()
+    return f
 
 
 def _drive_fichero_pedido(text: str) -> Path | None:
@@ -1186,10 +1414,121 @@ def _drive_fichero_pedido(text: str) -> Path | None:
     return None
 
 
+# ── De la frase al nombre: qué toco y dónde ────────────────────────────────
+_DRIVE_RELLENO = {"de", "del", "en", "el", "la", "los", "las", "mi", "mis", "un", "una",
+                  "a", "al", "que", "drive", "google", "carpeta", "archivo", "fichero"}
+_DRIVE_GENERICOS = {"archivo", "archivos", "fichero", "ficheros", "documento",
+                    "documentos", "carpeta", "carpetas", "directorio", "directorios",
+                    "todos", "todas", "cosa", "cosas"}
+_DRIVE_COLA = (r"(?:\s+(?:de|del|en|dentro\s+de)\s+(?:mi\s+|el\s+|tu\s+)?"
+               r"(?:google\s+)?drive\b.*)?$")
+
+
+def _drive_entrecomillado(text: str) -> str:
+    m = re.search(r"[«\"']([^«»\"'\n]{1,120})[»\"']", text)
+    return m.group(1).strip() if m else ""
+
+
+def _drive_objetivo(text: str) -> str:
+    """El nombre de LO QUE se toca. Por orden: entrecomillado, lo que va detrás de
+    «carpeta/archivo/fichero/documento», o un nombre con extensión suelto."""
+    citado = _drive_entrecomillado(text)
+    if citado:
+        return citado
+    m = re.search(r"\b(?:carpetas?|directorios?|archivos?|ficheros?|documentos?|informes?)\s+"
+                  r"(?:llamad[oa]\s+)?(?:el\s+|la\s+|mi\s+)?([\w.\-]+(?:/[\w.\-]+)*)",
+                  text, re.IGNORECASE)
+    if m and m.group(1).lower() not in _DRIVE_RELLENO:
+        return m.group(1)
+    m = re.search(r"(?:^|\s)([\w\-.]+\.[A-Za-z0-9]{1,5})\b", text)
+    return m.group(1).strip() if m else ""
+
+
+def _drive_carpeta_pedida(text: str) -> str:
+    """La carpeta que nombra la orden («en la carpeta X», «a la raíz»), o "" para
+    quedarse con la de umbrales.json. Acepta rutas anidadas «a/b/c»."""
+    if re.search(r"\b(?:a|en|hacia|hasta|de)\s+(?:la\s+)?ra[ií]z\b", text, re.IGNORECASE):
+        return "raiz"
+    m = re.search(r"\b(?:carpeta|directorio|folder)\s+(?:nuev[ao]\s+)?(?:llamad[oa]\s+)?"
+                  r"(?:el\s+|la\s+|mi\s+)?[«\"']?([\w .\-]*[\w\-](?:/[\w .\-]*[\w\-])*)[»\"']?",
+                  text, re.IGNORECASE)
+    if not m:
+        return ""
+    nombre = m.group(1).strip()
+    # el hueco admite espacios (hay carpetas «Informes de clientes»), así que puede
+    # haberse llevado la cola: «carpeta Informes de mi drive» → «Informes».
+    nombre = re.sub(r"\s+(?:de|del|en|dentro\s+de)\s+(?:mi\s+|el\s+|tu\s+)?"
+                    r"(?:google\s+)?drive\s*$", "", nombre, flags=re.IGNORECASE).strip()
+    return "" if nombre.lower() in _DRIVE_RELLENO else nombre
+
+
+def _drive_dos_partes(text: str, verbos: str, enlaces: str) -> tuple[str, str]:
+    """«<verbo> ORIGEN <enlace> DESTINO [en drive]» → (origen, destino). Lo usan
+    mover y renombrar, que son las dos órdenes con dos nombres dentro."""
+    m = re.search(rf"\b(?:{verbos})\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+)?"
+                  r"(?:archivo\s+|fichero\s+|documento\s+|carpeta\s+|directorio\s+|informe\s+)?"
+                  r"[«\"']?(?P<orig>[^«»\"'\n]+?)[»\"']?\s+"
+                  rf"(?:{enlaces})\s+(?:la\s+|el\s+|mi\s+)?"
+                  r"(?:carpeta\s+|directorio\s+)?[«\"']?(?P<dest>[^«»\"'\n]+?)[»\"']?"
+                  + _DRIVE_COLA, text, re.IGNORECASE)
+    if not m:
+        return "", ""
+    orig, dest = m.group("orig").strip(), m.group("dest").strip()
+    if orig.lower() in _DRIVE_RELLENO or not dest:
+        return "", ""
+    return orig, dest
+
+
+def _drive_texto_buscado(text: str) -> tuple[str, str]:
+    """(trozo de nombre, tipo) de «busca los pdf de contratos en drive».
+
+    Primero se corta la COLA de ubicación («en drive», «en la carpeta X»): sin
+    eso, «localiza informe en la carpeta Clientes de drive» veía la palabra
+    «carpeta» y se ponía a buscar carpetas en vez del informe."""
+    cabeza = re.split(r"\s+(?:en|dentro\s+de)\s+(?:mi\s+|el\s+|tu\s+|la\s+)?"
+                      r"(?:google\s+)?(?:drive|carpeta|directorio)\b",
+                      text, maxsplit=1, flags=re.IGNORECASE)[0]
+    tipo = ""
+    if re.search(r"\bcarpetas?\b", cabeza, re.IGNORECASE):
+        tipo = "carpeta"
+    else:
+        m = re.search(r"\b(pdf|png|jpe?g|csv|zip|docx?|xlsx?|md|markdown|json|txt)s?\b",
+                      cabeza, re.IGNORECASE)
+        if m:
+            tipo = m.group(1).lower()
+    citado = _drive_entrecomillado(text)
+    if citado:
+        return citado, tipo
+    m = re.search(r"\b(?:busca(?:me)?|b[uú]sca(?:me)?|buscar|encuentra|localiza)\s+"
+                  r"(?:me\s+)?(?P<q>[^«»\"'\n]+)$", cabeza, re.IGNORECASE)
+    if not m:
+        return "", tipo
+    q = " ".join(p for p in m.group("q").split()
+                 if p.lower() not in _DRIVE_RELLENO
+                 and p.lower() not in _DRIVE_GENERICOS
+                 and p.lower().rstrip("s") != tipo)
+    return q.strip(), tipo
+
+
+def _drive_es_definitivo(text: str) -> bool:
+    """¿Ha pedido borrado PERMANENTE? Solo entonces se plantea files.delete, y aun
+    así detrás de confirm.request()."""
+    return bool(re.search(r"\b(?:definitiv\w+|permanente\w*|para\s+siempre|del\s+todo"
+                          r"|sin\s+papelera|no\s+la\s+quiero\s+en\s+la\s+papelera"
+                          r"|destruye\w*|destruir)\b", text, re.IGNORECASE))
+
+
+def _drive_ficha(f: dict) -> str:
+    que = "carpeta" if f.get("mimeType") == DRIVE_MIME_CARPETA else "archivo"
+    enlace = f.get("webViewLink") or ""
+    return f"• {que} «{f.get('name', '?')}»" + (f" — {enlace}" if enlace else "")
+
+
 DRIVE_SIN_SCOPE_MSG = (
     "Para usar Google Drive necesito un permiso que tu autorización actual no "
-    "tiene todavía (drive.file: solo los archivos que cree yo, nada más de tu "
-    "Drive). Arreglo: borra config/google_token.json y vuelve a pedírmelo — se "
+    "tiene todavía. Desde el 02/08/2026 pido el permiso de Drive COMPLETO "
+    "(auth/drive), que es lo que me deja tocar carpetas tuyas y no solo las que "
+    "yo creo. Arreglo: borra config/google_token.json y vuelve a pedírmelo — se "
     "abrirá el navegador UNA vez para que lo autorices. Si Google se queja de "
     "que la API no está habilitada, entra en console.cloud.google.com → APIs y "
     "servicios → habilita «Google Drive API» en el mismo proyecto que ya usas "
@@ -1579,6 +1918,146 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": "Tus tareas de Google:\n" + "\n".join(f"• {t}" for t in tasks) +
                              "\n\nDi «crea una tarea en el to-do: …» si quieres añadir otra."}
 
+        # ── DRIVE: CRUD de ficheros Y carpetas ───────────────────────────────
+        # Lo que MODIFICA (crear carpeta, mover, renombrar) va directo: es
+        # reversible a mano. Lo que BORRA lleva cinturón, y está unos párrafos
+        # más abajo, en drive_delete.
+        if intent == "drive_folder_create":
+            ruta_carpeta = _drive_carpeta_pedida(text) or _drive_entrecomillado(text)
+            if not ruta_carpeta or ruta_carpeta == "raiz":
+                return {"reply": "Dime cómo se llama la carpeta: «crea la carpeta "
+                                 "Informes en drive». Si me das una ruta "
+                                 "(«crea la carpeta Clientes/2026/agosto en drive») "
+                                 "creo los tramos que falten."}
+            f = await asyncio.to_thread(_drive_crear_carpeta, ruta_carpeta)
+            return {"reply": f"Carpeta «{ruta_carpeta}» lista en tu Drive: "
+                             f"{f.get('webViewLink') or '(sin enlace)'}",
+                    "data": {"drive": f}}
+
+        if intent == "drive_move":
+            origen, destino = _drive_dos_partes(
+                text, r"mu[eé]ve(?:me|lo|la)?|mover|traslada|trasladar|ll[eé]va(?:me|lo|la)?|pasa",
+                r"a|al|hacia|hasta|dentro\s+de|en")
+            if not origen:
+                return {"reply": "No te he pillado qué muevo ni adónde. Dilo así: "
+                                 "«mueve informe-2026-08-02.md a la carpeta Clientes "
+                                 "en drive» (o «a la raíz de drive»)."}
+            f = await asyncio.to_thread(_drive_mover, origen, destino)
+            return {"reply": f"Movido: «{f.get('name')}» está ahora en "
+                             f"«{f.get('destino')}». Sigue siendo el mismo archivo, "
+                             f"con el mismo enlace: {f.get('webViewLink') or '(sin enlace)'}",
+                    "data": {"drive": f}}
+
+        if intent == "drive_rename":
+            origen, nuevo = _drive_dos_partes(
+                text, r"ren[oó]mbra(?:me|lo|la)?|renombrar"
+                      r"|c[aá]mbia(?:le)?\s+el\s+nombre(?:\s+(?:de|del|a|al))?",
+                r"a|por|como")
+            if not origen:
+                return {"reply": "Dime el nombre de ahora y el nuevo: «renombra "
+                                 "informe.md a informe-final.md en drive»."}
+            f = await asyncio.to_thread(_drive_renombrar, origen, nuevo)
+            return {"reply": f"Renombrado: «{origen}» → «{f.get('name')}». El enlace no "
+                             f"cambia: {f.get('webViewLink') or '(sin enlace)'}",
+                    "data": {"drive": f}}
+
+        if intent == "drive_replace":
+            # Actualizar ≠ volver a subir: subir otra vez deja DOS ficheros con el
+            # mismo nombre y un enlace nuevo. El enlace viejo es justo el que le
+            # has pegado a ChatGPT/Claude, así que se conserva el id.
+            ruta = _drive_fichero_pedido(text)
+            if not ruta:
+                return {"reply": "No sé qué archivo local uso para actualizarlo. Dime "
+                                 "«actualiza informe-2026-08-02.md en drive» y cojo ese "
+                                 "de data/reports."}
+            f = await asyncio.to_thread(_drive_reemplazar, ruta.name, ruta)
+            return {"reply": f"Actualizado «{f.get('name')}» en tu Drive: mismo archivo y "
+                             f"MISMO ENLACE ({f.get('webViewLink') or 'sin enlace'}), "
+                             "contenido nuevo. No he dejado un duplicado.",
+                    "data": {"drive": f}}
+
+        if intent == "drive_download":
+            nombre = _drive_objetivo(text)
+            if not nombre:
+                return {"reply": "Dime qué archivo bajo: «descarga informe.md de drive». "
+                                 "Los Google Docs/Sheets/Slides te los exporto (a .md, "
+                                 ".csv y .pdf respectivamente)."}
+            destino_dir = REPORTS_DIR.parent / "drive"
+            ruta = await asyncio.to_thread(_drive_descargar, nombre, destino_dir)
+            return {"reply": f"Descargado «{ruta.name}» en {ruta}.",
+                    "data": {"drive": {"name": ruta.name, "ruta": str(ruta)}}}
+
+        if intent == "drive_search":
+            texto_q, tipo = _drive_texto_buscado(text)
+            carpeta_q = _drive_carpeta_pedida(text)
+            if not texto_q and not tipo:
+                return {"reply": "Dime qué busco: «busca contratos en drive», «busca los "
+                                 "pdf de 2026 en drive» o «busca las carpetas de clientes "
+                                 "en drive»."}
+            hallados = await asyncio.to_thread(_drive_buscar, texto_q, tipo, carpeta_q, 15)
+            if not hallados:
+                return {"reply": f"En tu Drive no encuentro nada con «{texto_q or tipo}»"
+                                 + (f" dentro de «{carpeta_q}»" if carpeta_q else "") +
+                                 ". Busco por trozo de nombre, no por contenido."}
+            return {"reply": f"{len(hallados)} resultado(s) en tu Drive:\n" +
+                             "\n".join(_drive_ficha(f) for f in hallados),
+                    "data": {"drive": hallados}}
+
+        if intent == "drive_delete":
+            # ⚠️ EL SITIO DELICADO DE TODA LA SKILL. Con el scope completo esto
+            # apunta a documentos REALES del usuario, y aquí se llega por una
+            # regex. Por eso: (1) por defecto PAPELERA, que se deshace;
+            # (2) el borrado definitivo solo dentro de confirm.request();
+            # (3) una carpeta con cosas dentro DICE cuántas antes de tocar nada.
+            nombre = _drive_objetivo(text)
+            if not nombre:
+                return {"reply": "No pienso adivinar qué borro de tu Drive. Dímelo por su "
+                                 "nombre exacto: «borra informe-viejo.md de drive» (va a "
+                                 "la papelera de Drive, se recupera)."}
+            definitivo = _drive_es_definitivo(text)
+            canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
+            svc = await asyncio.to_thread(_drive_service)
+            f = await asyncio.to_thread(_drive_uno, svc, nombre)
+            es_carpeta = f.get("mimeType") == DRIVE_MIME_CARPETA
+            dentro = await asyncio.to_thread(_drive_dentro, svc, f["id"]) if es_carpeta else 0
+            from backend.core import confirm
+
+            if definitivo or dentro:
+                que = "carpeta" if es_carpeta else "archivo"
+                aviso = (f"⚠️ La {que} «{f.get('name')}» de tu Drive")
+                if dentro:
+                    aviso += (f" tiene {dentro} elemento(s) dentro"
+                              f"{' (al menos)' if dentro >= 100 else ''} y se van con ella")
+                aviso += (". Borrado DEFINITIVO: no pasa por la papelera y NO se puede "
+                          "recuperar. " if definitivo else
+                          ". Va a la papelera de Drive, de donde se puede recuperar. ")
+                aviso += "¿Lo confirmas? Responde «sí» o «no»."
+
+                def _ejecutar(_d=definitivo, _f=f):
+                    if _d:
+                        _drive_destruir(_f)
+                        return (f"Destruido para siempre: «{_f.get('name')}». "
+                                "Esa no vuelve.")
+                    _drive_a_papelera(_f)
+                    return (f"«{_f.get('name')}» está en la papelera de tu Drive. "
+                            "Se restaura desde drive.google.com/drive/trash.")
+                return {"reply": confirm.request(
+                    channel=canal, kind="drive_borrar", summary=aviso,
+                    action=_ejecutar, request_text=text,
+                    targets=[{"id": f.get("id"), "title": f.get("name"),
+                              "mimeType": f.get("mimeType")}],
+                    cancel_reply="Vale, no toco nada de tu Drive."),
+                    "data": {"confirm": True, "dentro": dentro,
+                             "definitivo": definitivo}}
+
+            borrado = await asyncio.to_thread(_drive_a_papelera, f)
+            return {"reply": f"«{borrado.get('name')}» a la papelera de tu Drive. NO está "
+                             "borrado del todo: se restaura desde "
+                             "drive.google.com/drive/trash. Si quieres que desaparezca "
+                             "de verdad, dime «bórralo definitivamente de drive» y te "
+                             "pediré confirmación.",
+                    "data": {"drive": borrado}}
+
         if intent == "drive_upload":
             ruta = _drive_fichero_pedido(text)
             if ruta is None:
@@ -1587,7 +2066,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                                  "nombre («sube informe-2026-08-02.md a drive») o genera "
                                  "antes el informe y yo subo el último .md de "
                                  "data/reports. Ahora mismo ahí no hay ninguno."}
-            carpeta = _umbrales_drive()["carpeta"]
+            # la carpeta de umbrales.json es el DEFECTO, no una cárcel: si la orden
+            # nombra otra («sube el informe a la carpeta Clientes de drive»), manda esa.
+            carpeta = _drive_carpeta_pedida(text) or _umbrales_drive()["carpeta"]
             f = await asyncio.to_thread(_drive_subir, ruta, carpeta)
             _ultimo_subido = f
             enlace = f.get("webViewLink") or "(Drive no ha devuelto enlace)"
@@ -1612,20 +2093,24 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                              f"{u.get('webViewLink', '(sin enlace)')}"}
 
         if intent == "drive_list":
-            carpeta = _umbrales_drive()["carpeta"]
-            subidos = await asyncio.to_thread(_drive_listar, 10, carpeta)
+            pedida = _drive_carpeta_pedida(text)
+            carpeta = pedida or _umbrales_drive()["carpeta"]
+            subidos = await asyncio.to_thread(_drive_listar, 25, carpeta)
             if not subidos:
-                # Ojo al matiz: «no he subido nada» ≠ «tu Drive está vacío». Con
-                # drive.file nexus NO ve el resto de tu Drive y no puede afirmarlo.
-                return {"reply": f"No he subido nada a la carpeta «{carpeta}». Del resto "
-                                 "de tu Drive no puedo decirte nada: solo tengo permiso "
-                                 "sobre los archivos que creo yo."}
-            lineas = [f"{i+1}. {u.get('name')} — {u.get('webViewLink', 'sin enlace')}"
-                      for i, u in enumerate(subidos)]
-            return {"reply": f"Lo que he subido a «{carpeta}» ({len(subidos)}, lo más "
-                             f"reciente primero):\n" + "\n".join(lineas) +
-                             "\n\nSolo veo lo mío: el resto de tu Drive no lo toco.",
-                    "data": {"drive": subidos}}
+                if pedida:
+                    # NO se dice «no existe»: _drive_listar devuelve lo mismo para
+                    # «no hay carpeta» que para «carpeta sin nada dentro».
+                    return {"reply": f"En «{carpeta}» no veo nada dentro. Si la carpeta "
+                                     "tiene otro nombre dímelo tal cual (respeto "
+                                     "mayúsculas y acentos), o prueba «busca "
+                                     f"{carpeta} en drive»."}
+                return {"reply": f"No he subido nada a la carpeta «{carpeta}» y ahí "
+                                 "dentro tampoco hay nada tuyo. Puedo listarte "
+                                 "cualquier otra: «qué hay en la carpeta X de drive»."}
+            lineas = [f"{i+1}. {_drive_ficha(u)[2:]}" for i, u in enumerate(subidos)]
+            return {"reply": f"Contenido de «{carpeta}» ({len(subidos)}, lo más "
+                             f"reciente primero):\n" + "\n".join(lineas),
+                    "data": {"drive": subidos, "carpeta": carpeta}}
 
     except FileNotFoundError as exc:
         # Distinguir «faltan las credenciales» de «el archivo que ibas a subir ya no
@@ -1637,6 +2122,19 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                              "No he subido nada. Dime el nombre correcto o vuelve a "
                              "generar el informe."}
         return {"reply": SETUP_MSG}
+    except DriveNoEncontrado as exc:
+        # Va ANTES del except genérico: DriveNoEncontrado es un LookupError y allí
+        # abajo se convertiría en un «error raro» sin decir lo único que importa.
+        return {"reply": f"En tu Drive no encuentro nada que se llame «{exc}», así que "
+                         "no he tocado nada. Busco por nombre EXACTO a propósito: con "
+                         "permiso sobre todo tu Drive, coger «el más parecido» es cómo "
+                         "se acaba moviendo el documento equivocado. Comprueba el "
+                         f"nombre (respeto mayúsculas y acentos) o dime «busca {exc} "
+                         "en drive» y te enseño lo que hay."}
+    except IsADirectoryError as exc:
+        return {"reply": f"«{exc}» es una carpeta, y una carpeta no se descarga de una "
+                         f"pieza. Dime «qué hay en la carpeta {exc} de drive» y bajamos "
+                         "los archivos que quieras."}
     except Exception as exc:
         msg = str(exc).lower()
         # DRIVE PRIMERO, y por un motivo concreto: la comprobación de «acceso
@@ -1650,6 +2148,17 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                     "access_token_scope", "forbidden", "403",
                     "has not been used", "accessnotconfigured", "disabled")):
                 return {"reply": DRIVE_SIN_SCOPE_MSG}
+            if any(k in msg for k in ("notfound", "not found", "404", "file not found")):
+                return {"reply": "Drive dice que ese archivo ya no está (404). O lo han "
+                                 "borrado, o está en la papelera, o el enlace es de otra "
+                                 "cuenta. No he cambiado nada."}
+            if any(k in msg for k in ("insufficientfilepermissions", "permission",
+                                      "cannotmodify", "not writable")):
+                return {"reply": "Ese archivo es de tu Drive pero no te deja modificarlo: "
+                                 "suele ser un documento COMPARTIDO del que no eres "
+                                 "dueño, o está en una unidad compartida con permisos de "
+                                 "solo lectura. Pídele permiso de edición al dueño; yo "
+                                 "no lo puedo saltar."}
             if isinstance(exc, (PermissionError, OSError)) and not isinstance(exc, FileNotFoundError):
                 return {"reply": f"No he podido leer el archivo para subirlo: {exc}. "
                                  "Comprueba que existe y que no lo tiene abierto otro "
