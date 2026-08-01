@@ -149,7 +149,11 @@ public class MainActivity extends Activity {
         root.setPadding(pad, pad, pad, pad);
 
         TextView title = new TextView(this);
-        title.setText("◈\n\nW A B I K S");
+        // El nombre va con espacios entre letras (es el estilo del rotulo). OJO:
+        // asi escrito, un grep de «nexus» NO lo encuentra. Aqui puso «W A B I K S»
+        // hasta el 31/07/2026, meses despues del cambio de nombre, y ningun
+        // buscar-y-reemplazar lo pillo nunca por eso mismo.
+        title.setText("◈\n\nn e x u s");
         title.setTextColor(Color.parseColor("#22d3ee"));
         title.setTextSize(30f);
         title.setGravity(Gravity.CENTER);
@@ -349,7 +353,14 @@ public class MainActivity extends Activity {
                 return false;
             }
             @Override public void onPageFinished(WebView v, String u) {
-                webLoaded = true;
+                // El unico sitio donde consta que hay conexion: el HUD ha cargado.
+                // Solo la primera vez de este showWeb(); despues el HUD navega por
+                // dentro y no hace falta anunciar nada en cada pantalla.
+                if (!webLoaded) {
+                    webLoaded = true;
+                    Toast.makeText(MainActivity.this, "✔ Conectado con nexus",
+                            Toast.LENGTH_SHORT).show();
+                }
             }
             @Override public void onReceivedError(WebView v, WebResourceRequest req,
                                                   WebResourceError err) {
@@ -408,7 +419,14 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override public void run() {
                     if (data.startsWith("http://") || data.startsWith("https://")) {
-                        Toast.makeText(MainActivity.this, "✔ Vinculado con nexus", Toast.LENGTH_SHORT).show();
+                        // OJO: aqui NO se dice «vinculado». Lo unico que sabemos es que
+                        // el texto del QR parece una URL. Antes se cantaba victoria aqui
+                        // mismo (31/07/2026) y el usuario leia «✔ Vinculado con nexus»
+                        // justo antes de que la carga fallara y le devolviera al inicio.
+                        // El «conectado» lo dice onPageFinished, cuando el HUD ha cargado
+                        // DE VERDAD. Un QR bien escrito no es una conexion.
+                        Toast.makeText(MainActivity.this, "QR leido. Conectando con nexus...",
+                                Toast.LENGTH_SHORT).show();
                         saveLink(data);
                     } else {
                         Toast.makeText(MainActivity.this, "Ese QR no es de nexus", Toast.LENGTH_LONG).show();

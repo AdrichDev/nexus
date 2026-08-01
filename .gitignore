@@ -78,6 +78,19 @@ config/secrets.json*
 *.key
 *.crt
 movil/*.keystore
+movil/*.keystore.viejo*
+# La clave del keystore, que COMPILAR_APK.bat genera al vuelo la primera vez.
+# Es local: firma tu app en tu movil y no sale de aqui. Nunca al repo.
+movil/keystore.pass
+# clave.txt: la clave en plano que escribes tu para GUARDAR_CLAVE.ps1. El script
+# la borra al validarla, pero por si queda a medias, fuera del repo tambien.
+movil/clave.txt
+
+# Restos de compilar la app (COMPILAR_APK.bat). El nexus.apk firmado SI se
+# sube: es lo que se instala en el movil. Lo de aqui es basura intermedia.
+movil/build/
+movil/nexus-anterior.apk
+movil/*.idsig
 
 # ── ★ MATERIAL PERSONAL: audio, vídeo y transcripciones ───────────────────────
 #   «Audios ruben» y las notas de voz de WhatsApp están en la carpeta PADRE

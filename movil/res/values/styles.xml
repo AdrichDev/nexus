@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Paleta CIAN de nexus: base #070e18, acento #22d3ee -->
+    <color name="nexusBg">#070e18</color>
+    <color name="nexusCy">#22d3ee</color>
+    <style name="NexusTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/nexusBg</item>
+        <item name="android:statusBarColor">@color/nexusBg</item>
+        <item name="android:navigationBarColor">@color/nexusBg</item>
+        <item name="android:colorAccent">@color/nexusCy</item>
+        <item name="android:colorPrimary">@color/nexusCy</item>
+        <item name="android:colorEdgeEffect">@color/nexusCy</item>
+    </style>
+</resources>
