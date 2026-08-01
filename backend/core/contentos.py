@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 
 import httpx
 
+from . import contentos_demo
 from .config import DATA_DIR, settings
 
 STORE = DATA_DIR / "contentos.json"
@@ -180,24 +181,13 @@ def _hour_of(ts: str) -> int:
 
 # ------------------------------------------------------------------ demo
 def _demo_metrics() -> dict:
-    base = 12840
-    series = [base - 420 + int(420 * (i / 29) + 55 * ((i * 7) % 5 - 2)) for i in range(30)]
-    reels = [
-        {"name": "El error que mata tus automatizaciones", "type": "REELS", "eng": 1840,
-         "likes": 1620, "comments": 220, "when": "07-12", "hour": 19, "reach": 24100},
-        {"name": "3 tareas que NO deberías automatizar", "type": "CAROUSEL", "eng": 1210,
-         "likes": 1090, "comments": 120, "when": "07-09", "hour": 13, "reach": 15600},
-        {"name": "POV: la IA gestiona tu agenda", "type": "REELS", "eng": 2260,
-         "likes": 1980, "comments": 280, "when": "07-06", "hour": 20, "reach": 31200},
-        {"name": "Lo que aprendí automatizando mi negocio", "type": "REELS", "eng": 980,
-         "likes": 860, "comments": 120, "when": "07-03", "hour": 12, "reach": 12800},
-        {"name": "Mi stack de herramientas 2026", "type": "CAROUSEL", "eng": 1520,
-         "likes": 1360, "comments": 160, "when": "06-30", "hour": 19, "reach": 18900},
-        {"name": "Automatiza tu Instagram en 5 pasos", "type": "REELS", "eng": 1680,
-         "likes": 1490, "comments": 190, "when": "06-27", "hour": 21, "reach": 22400},
-    ]
-    return {"username": "marca.personal", "followers": base, "media_count": 214,
-            "reach_month": 184200, "followers_series": series, "posts": reels, "real": False}
+    """Los datos de mentira YA NO VIVEN AQUÍ: están en `contentos_demo.py`.
+
+    Estaban en este módulo y `dashboard()` los enchufaba con un `or` silencioso,
+    así que «12.840 seguidores» salía por el HUD igual que si viniera de la
+    Graph API. Aislarlos permite que un test lea este fichero y compruebe que no
+    queda ni un literal de métrica, y que algún día se retiren de un tirón."""
+    return contentos_demo.metricas()
 
 
 # ------------------------------------------------------------------ ensamblado
@@ -289,22 +279,65 @@ async def dashboard() -> dict:
     }
 
 
+def _bloque_datos() -> tuple[str, list[float]]:
+    """El bloque DATOS que acompaña al prompt, y las cifras que autoriza.
+
+    Hoy va VACÍO a propósito: `generate()` no consulta la Graph API, así que no
+    tiene ni una métrica que ofrecer. Escribirlo así —«no tienes datos»— en vez
+    de no escribir nada es lo que convierte el silencio en una instrucción: sin
+    el bloque, el modelo asume que puede tirar de lo que sepa, y de ahí salen
+    las cifras inventadas. Cuando la Fase 2 sirva el panel con procedencia, este
+    bloque se llenará con las cifras MEDIDAS y solo con esas."""
+    hoy = datetime.now()
+    # El año es un dato real y aparece en títulos legítimos («mi stack 2026»):
+    # va en las permitidas para que el validador no se cargue una idea buena.
+    permitidas = [float(hoy.year), float(hoy.year + 1)]
+    return ("DATOS (las únicas cifras de rendimiento que puedes usar):\n"
+            "  (vacío — no hay ninguna métrica medida de esta cuenta ahora mismo)\n"
+            f"Año actual: {hoy.year}."), permitidas
+
+
+# Lo que se contesta cuando el modelo mete una cifra que nadie le ha dado. NO se
+# disfraza de respuesta del modelo: se dice quién ha parado esto y por qué. Y no
+# se citan las cifras rechazadas: se publicaría a medias justo lo que se está
+# tirando, y una métrica inventada en pantalla se copia igual de fácil aunque
+# vaya con una advertencia al lado.
+_RECHAZO = ("He tirado esto antes de enseñártelo: el modelo ha metido {n} cifra(s) "
+            "de rendimiento que yo no le he dado, o sea que se las ha inventado, y "
+            "eso no sale de aquí. Vuelve a pedírmelo, o conecta Instagram en ⚙ "
+            "(«conecta mi instagram») para que trabaje con números tuyos de verdad.")
+
+
 async def generate(kind: str, topic: str = "") -> str:
-    """Genera una idea o un guion con el LLM y (si es idea) la guarda."""
-    from . import llm
+    """Genera una idea o un guion con el LLM y (si es idea) la guarda.
+
+    01/08/2026: antes esto llamaba al modelo a pelo y devolvía lo que viniera.
+    Ahora van dos cinturones. El primero es el prompt (`REGLA_CONTENT_OS` +
+    bloque DATOS): se le PIDE que no invente cifras. El segundo es
+    `procedencia.sin_cifras_inventadas()`: se COMPRUEBA. Hace falta el segundo
+    porque el primero es una petición, y una petición se incumple sin avisar."""
+    from . import llm, procedencia
     topic = (topic or "").strip()
+    datos, permitidas = _bloque_datos()
+    system = f"{llm.REGLA_CONTENT_OS}\n\n{datos}"
     if kind == "script":
         prompt = (f"Escribe un guion de reel de Instagram para la marca Nexus sobre: "
                   f"{topic or 'automatización y productividad'}. Estructura: GANCHO (2s, "
                   "resultado visible), desarrollo en 3 golpes, y CTA. Tono cercano y directo. "
                   "Español. Máx 120 palabras.")
-        text, _ = await llm.ask_llm(prompt)
-        return text
+        text, _ = await llm.ask_llm(prompt, system=system)
+        malas = procedencia.cifras_no_fundamentadas(text, permitidas)
+        return _RECHAZO.format(n=len(malas)) if malas else text
     # idea
     prompt = (f"Dame 1 idea de contenido de Instagram para la marca Nexus"
               f"{' sobre ' + topic if topic else ''}: un gancho potente en una frase, "
               "orientado a resultado. Solo la idea, sin preámbulos. Español.")
-    text, _ = await llm.ask_llm(prompt)
+    text, _ = await llm.ask_llm(prompt, system=system)
     idea = text.strip().strip('"').split("\n")[0][:160]
+    malas = procedencia.cifras_no_fundamentadas(idea, permitidas)
+    if malas:
+        # Y NO se guarda: una idea inventada en data/contentos.json vuelve a
+        # salir mañana ya sin el contexto de que era mentira.
+        return _RECHAZO.format(n=len(malas))
     add_item("idea", idea)
     return idea

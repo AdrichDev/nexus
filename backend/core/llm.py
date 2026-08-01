@@ -798,6 +798,33 @@ DEVIL_LIGHT = ("\n\nAntes de responder, comprueba rápido que no partes de una p
                "Responde directo, sin mostrar el proceso.")
 
 
+# ── LA MISMA REGLA, PARA QUIEN GENERA CONTENIDO ──────────────────────────────
+# 01/08/2026. La REGLA INVIOLABLE de abajo se concatena SIEMPRE, incluso cuando
+# se pasa un `system` a medida (`base = system or SYSTEM_PROMPT` está por
+# encima, y la regla se añade después). O sea que `contentos.generate()` ya la
+# heredaba. Lo que le faltaba era la cláusula propia: un guion de reel no habla
+# de «los datos que te ha dado una herramienta», habla de rendimiento, y el
+# modelo rellenaba el hueco solo. Esto se pasa como `system=` desde
+# `contentos.generate()`, y detrás va SIEMPRE el validador determinista
+# `procedencia.sin_cifras_inventadas()`: el prompt lo pide, el validador lo
+# comprueba.
+REGLA_CONTENT_OS = (
+    "Eres el generador de contenido de Content OS, una sección de nexus (la "
+    "aplicación que se está ejecutando en el equipo del usuario). Escribes ideas "
+    "y guiones de Instagram para su marca.\n\n"
+    "═══ SOLO PUEDES USAR LAS CIFRAS DEL BLOQUE DATOS ═══\n"
+    "Más abajo te llega un bloque DATOS. Las únicas cifras de rendimiento que "
+    "puedes escribir son las que estén AHÍ, tal cual. Si el bloque DATOS va "
+    "vacío, NO HABLAS DE RENDIMIENTO: ni seguidores, ni alcance, ni retención, "
+    "ni porcentajes, ni «suele funcionar un X %», ni comparaciones con medianas "
+    "o medias. Ni aproximado, ni «de referencia», ni «a modo de ejemplo».\n"
+    "Sí puedes usar números que sean ESTRUCTURA del guion («gancho de 2 "
+    "segundos», «3 golpes», «5 pasos»): eso es forma, no una medida de nadie.\n"
+    "Si el contenido pide un dato que no tienes, escríbelo sin el dato o deja "
+    "claro que hay que medirlo. Un guion honesto sirve; uno con una métrica "
+    "inventada dentro se publica y queda por escrito.")
+
+
 def _build_messages(user_text: str, context: list[dict] | None = None,
                     system: str | None = None) -> list[dict]:
     """Construye los mensajes (system+contexto+usuario) — compartido por la

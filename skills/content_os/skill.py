@@ -1,11 +1,16 @@
-"""Minion Content OS — Instagram: analítica, inspiración, patrones y guiones."""
+"""Minion Content OS — Instagram: analítica, patrones y guiones.
+
+01/08/2026: se retiró la vía de «aprender» reels ajenos descargándolos con
+yt-dlp y transcribiéndolos. Era scraping de contenido de terceros, o sea justo
+lo que prohíbe la regla del proyecto. Lo ya transcrito en `data/inspiration/`
+NO se borra (borrar exige confirmación explícita) y se puede seguir leyendo,
+pero avisando de su origen. Ver `_download_and_transcribe` y `_aviso_origen`.
+"""
 from __future__ import annotations
 
 import datetime as dt
 import json
 import re
-import subprocess
-import tempfile
 from pathlib import Path
 
 import httpx
@@ -17,15 +22,24 @@ SCRIPTS_DIR = DATA / "scripts"
 SKILL = {
     "name": "Content OS",
     "description": "Instagram vía Graph API: métricas reales de tu cuenta, ranking de reels, "
-                   "aprendizaje de reels ajenos por transcripción, patrones ganadores y "
-                   "guiones gancho+desarrollo+CTA",
+                   "patrones ganadores sobre material propio y guiones "
+                   "gancho+desarrollo+CTA. No descarga ni transcribe contenido ajeno.",
     "patterns": {
         # Anclas de dominio: instagram/ig, reel, guion, contenido. Los intents
         # con URL/tema (inspire, script) van antes que los genéricos de listado.
         "connect": r"conecta(?:r)? (?:mi |el )?instagram|vincula (?:mi )?instagram"
                    r"|con[eé]ctame (?:el |a )?instagram|conecta(?:r)? (?:el )?content os"
                    r"|configura (?:mi )?instagram",
-        "analytics": r"anal[ií]tica de (?:mi )?instagram|c[oó]mo va (?:mi|el) instagram"
+        # COLISIÓN AUDITADA (01/08/2026). `skills_loader` recorre las carpetas
+        # por orden ALFABÉTICO y gana la primera regex que case (rx.search, sin
+        # anclar): «content_os» va antes que «instagram» y se tragaba
+        # `instagram.ig_estado`. «cómo va EL instagram» pregunta por la
+        # integración («¿está eso funcionando?») y lo contesta ig_estado con la
+        # lista de lo que falta; «cómo va MI instagram» pregunta por la cuenta y
+        # lo contesta esto. Por eso aquí se queda «mi» y se suelta «el».
+        # Se suelta SOLO esa: quitar más mandaría frases al planificador del
+        # cerebro, que es donde se inventa cosas.
+        "analytics": r"anal[ií]tica de (?:mi )?instagram|c[oó]mo va mi instagram"
                      r"|c[oó]mo va mi cuenta de instagram|m[ií]s m[eé]tricas de (?:ig|instagram)"
                      r"|(?:m[eé]tricas|estad[ií]sticas|insights|alcance) de (?:mi )?(?:instagram|ig)\b",
         "best": r"m[ií]s mejores (?:reels|v[ií]deos de instagram|posts? de instagram)"
@@ -57,26 +71,43 @@ def _ig_user(ctx) -> str:
 
 
 # ---------------------------------------------------------------- inspiración
+# LA VÍA OFICIAL, para no repetirla en cuatro sitios.
+_VIA_LEGITIMA = (
+    "La vía que sí tengo es la oficial: la Graph API. Con «analiza la cuenta de "
+    "instagram de <usuario>» consulto `business_discovery` y te doy lo que Meta "
+    "publica de esa cuenta (seguidores, publicaciones, interacción de sus posts) "
+    "sin descargar nada. Y si quieres trabajar sobre un reel concreto, "
+    "cuéntamelo tú: pégame el gancho o lo que dice, y lo analizo contigo.")
+
+
 def _download_and_transcribe(url: str) -> str | None:
-    """Descarga un reel público con yt-dlp y lo transcribe con whisper."""
-    try:
-        import yt_dlp  # noqa: F401
-        from faster_whisper import WhisperModel  # noqa: F401
-    except ImportError:
-        return None
-    tmp = Path(tempfile.mkdtemp())
-    out = tmp / "clip.%(ext)s"
-    try:
-        subprocess.run(["yt-dlp", "-x", "--audio-format", "mp3", "-o", str(out), url],
-                       capture_output=True, timeout=120, check=True)
-        audio = next(tmp.glob("clip.*"), None)
-        if not audio:
-            return None
-        from backend.core.stt import _get_model
-        segments, _ = _get_model().transcribe(str(audio), language="es", vad_filter=True)
-        return " ".join(s.text.strip() for s in segments)
-    except Exception:
-        return None
+    """RETIRADA. Descargaba un reel ajeno con yt-dlp y lo transcribía.
+
+    01/08/2026: esto es scraping de contenido de terceros, que es justo lo que
+    prohíbe la política del propio proyecto («Nada de scraping de terceros ni de
+    datos de sus audiencias. Instagram se consulta por la Graph API»). Llevaba
+    meses en el código porque nadie la había mirado con esa regla delante.
+
+    Falla CERRADO en la primera línea, no se limita a quedarse sin llamadas:
+    dejarla operativa «por si acaso» es dejar la puerta abierta a que alguien la
+    vuelva a enchufar sin darse cuenta de lo que enchufa. El cuerpo se queda de
+    testigo, comentado, hasta que se borre con confirmación explícita."""
+    raise RuntimeError(
+        "vía retirada por política (nada de scraping de terceros); "
+        "pendiente de borrado con tu confirmación")
+
+
+def _aviso_origen() -> str:
+    """De dónde salió lo que hay en data/inspiration/.
+
+    Son transcripciones descargadas ANTES de retirar esa vía. No se borran (eso
+    exige confirmación explícita del usuario, regla del proyecto: solo lectura
+    por defecto) y se pueden seguir leyendo, pero quien lea un análisis basado
+    en ellas tiene derecho a saber de dónde vienen y que ese material ya no
+    crece."""
+    return ("⚠ Ojo con el origen: esto sale de transcripciones heredadas, "
+            "descargadas antes de retirar esa vía por política. Ni se amplían ni "
+            "se descargan más. ")
 
 
 def _load_inspirations() -> list[dict]:
@@ -122,12 +153,27 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         token, uid = settings.secret("ig_access_token"), (str(settings.get("ig_user_id", "") or "").strip()
                 or str(settings.get("ig_business_account_id", "") or "").strip())
         if not token or not uid:
-            # Ejemplo coherente (como el panel Content OS) mientras no hay token
-            return {"reply": "📊 Instagram (ejemplo — conecta tu cuenta en ⚙ para datos "
-                             "reales):\n• Seguidores: 12.840 (+3,2% 30 días)\n"
-                             "• Alcance mensual: 184,2K (+18,4%)\n• Retención media Reels: 48,6%\n"
-                             "• Señal: el gancho de 'resultado visible' va por encima de tu "
-                             "mediana en 4 de 8 reels. Repítelo cambiando el tema."}
+            # AQUÍ SE CONTABA LA MENTIRA (hasta el 01/08/2026). Esto devolvía
+            # «12.840 seguidores (+3,2%)», «alcance 184,2K», «retención 48,6%» y,
+            # lo peor de todo, «el gancho de resultado visible va por encima de
+            # tu mediana en 4 de 8 reels»: una conclusión estadística sobre una
+            # mediana que nadie había calculado y ocho reels que no existían.
+            # Iba precedido de «(ejemplo — conecta tu cuenta…)», que no salva
+            # nada: el resto del texto contradice la coletilla, y esto sale por
+            # el chat, que es donde el usuario más habla. Se contesta como
+            # `ig_estado`: qué falta y cómo se consigue.
+            falta = []
+            if not token:
+                falta.append("«ig_access_token» (el token de la Graph API)")
+            if not uid:
+                falta.append("«ig_user_id» (el id de tu cuenta business/creator)")
+            return {"reply": "📊 De tu Instagram no sé nada todavía, y no me lo voy a "
+                             "inventar: no tengo la cuenta conectada.\n"
+                             "Me falta en ⚙: " + " y ".join(falta) + ".\n"
+                             "Se sacan en developers.facebook.com con una cuenta Business "
+                             "vinculada a una página de Facebook. Di «conecta mi instagram» "
+                             "y te guío paso a paso; en cuanto estén, te saco seguidores, "
+                             "alcance y ranking de reels de verdad."}
         try:
             async with httpx.AsyncClient(timeout=12) as cli:
                 prof = (await cli.get(f"https://graph.facebook.com/v19.0/{uid}",
@@ -166,40 +212,26 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"Error: {exc}"}
 
     if intent == "inspire":
-        rest = match.group("rest").strip()
-        url_m = re.search(r"https?://\S+", rest)
-        if not url_m:
-            return {"reply": "Pásame el enlace del reel: «inspiración de @creador "
-                             "https://instagram.com/reel/...»"}
-        url = url_m.group(0)
-        creator = (re.search(r"@(\w[\w.]+)", rest) or [None, "creador"])[1] \
-            if "@" in rest else "creador"
-        import asyncio
-        transcript = await asyncio.to_thread(_download_and_transcribe, url)
-        if not transcript:
-            return {"reply": "No he podido descargar/transcribir ese reel. Necesito yt-dlp "
-                             "y faster-whisper instalados (pip install yt-dlp faster-whisper), "
-                             "y que el reel sea público. ¿Instalo las dependencias?"}
-        INSP_DIR.mkdir(parents=True, exist_ok=True)
-        rec = {"creator": creator, "url": url, "transcript": transcript,
-               "date": dt.date.today().isoformat()}
-        fname = INSP_DIR / f"{creator}-{dt.datetime.now():%Y%m%d%H%M%S}.json"
-        fname.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
-        graph.write_note(f"insp {creator} {fname.stem[-6:]}",
-                         f"Reel de @{creator} ({url}):\n\n{transcript[:8000]}\n\n"
-                         "Enlaces: [[inspiracion]] [[content]]")
-        if pg.online:
-            pg.remember(f"[reel @{creator}] {transcript[:2000]}", kind="knowledge",
-                        tags=["inspiracion", creator])
-        return {"reply": f"Aprendido el reel de @{creator} ({len(transcript)} caracteres "
-                         "transcritos y guardados). Cuando tengas varios, di «analiza los "
-                         "patrones» y te digo qué funciona."}
+        # ESTE INTENT YA NO DESCARGA NADA (01/08/2026). Antes bajaba el reel con
+        # yt-dlp y lo transcribía con whisper: scraping de contenido ajeno, o
+        # sea justo lo que prohíbe la regla del proyecto. La REGEX SE QUEDA a
+        # propósito: si se retirase, la frase caería al planificador del
+        # cerebro, que es donde se inventa cosas. Mejor una puerta que contesta
+        # la verdad que ninguna puerta.
+        rest = (match.group("rest").strip() if match else "").strip()
+        creator = (re.search(r"@([\w.]+)", rest) or [None, ""])[1] if "@" in rest else ""
+        cabeza = (f"De ese reel de @{creator} no te puedo sacar nada por esa vía: "
+                  if creator else "De ese reel no te puedo sacar nada por esa vía: ")
+        return {"reply": cabeza + "descargarlo y transcribirlo es scraping de "
+                         "contenido de otra persona, y este proyecto no hace eso.\n\n"
+                         + _VIA_LEGITIMA}
 
     if intent == "patterns":
         insp = _load_inspirations()
         if not insp:
-            return {"reply": "Aún no he aprendido ningún reel de inspiración. Dame algunos: "
-                             "«inspiración de @creador <url del reel>»."}
+            # Ya no hay forma de darle más material por aquí: no se ofrece.
+            return {"reply": "No tengo ninguna transcripción de la que sacar patrones.\n\n"
+                             + _VIA_LEGITIMA}
         from backend.core.llm import ask_llm
         corpus = "\n\n".join(f"[@{i['creator']}] {i['transcript'][:800]}" for i in insp[:12])
         analysis, _ = await ask_llm(
@@ -208,7 +240,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             "3) temas recurrentes, 4) tipo de CTA. Sé concreto y accionable:\n" + corpus[:9000])
         graph.write_note("patrones content", f"Patrones detectados:\n\n{analysis}\n\n"
                                               "Enlaces: [[content]] [[patrones]]")
-        return {"reply": f"He analizado {len(insp)} reels de inspiración:\n\n{analysis[:1000]}"
+        return {"reply": _aviso_origen()
+                         + f"\n\nHe analizado {len(insp)} reels de inspiración:\n\n{analysis[:1000]}"
                          "\n\nDi «genera un guion sobre <tema>» y aplico estos patrones a tu contenido."}
 
     if intent == "script":
@@ -217,9 +250,13 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         insp = _load_inspirations()
         pat_note = graph.search("patrones", 3)
         ctx_txt = "\n".join(n["line"] for n in pat_note)
+        # Si el guion se apoya en las transcripciones heredadas, se dice. El
+        # aviso va DELANTE del guion, no en un pie que nadie lee.
+        aviso = ""
         if insp and not ctx_txt:
             ctx_txt = "Ejemplos aprendidos:\n" + "\n".join(
                 f"[@{i['creator']}] {i['transcript'][:300]}" for i in insp[:5])
+            aviso = _aviso_origen() + "\n\n"
         script, _ = await ask_llm(
             f"Escribe un GUION de reel de Instagram sobre «{topic}» aplicando los patrones "
             "ganadores del creador. Estructura: **GANCHO** (primeros 3 seg, brutal), "
@@ -229,7 +266,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         safe = re.sub(r"[^\w ]", "", topic)[:30].strip()
         out = SCRIPTS_DIR / f"guion-{safe}-{dt.datetime.now():%H%M%S}.md"
         out.write_text(f"# Guion: {topic}\n\n{script}\n", encoding="utf-8")
-        return {"reply": f"Guion sobre «{topic}» listo (data/scripts/{out.name}):\n\n{script[:1000]}"}
+        return {"reply": aviso + f"Guion sobre «{topic}» listo "
+                                 f"(data/scripts/{out.name}):\n\n{script[:1000]}"}
 
     if intent == "ideas":
         from backend.core.llm import ask_llm
@@ -244,5 +282,5 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          "¿Alguna te encaja? Di «genera un guion sobre <la idea>» y te lo escribo."}
 
     return {"reply": "Esa orden de Content OS no la tengo. Prueba: «analítica de instagram», "
-                     "«inspiración de @creador <url>», «analiza los patrones» o "
+                     "«mis mejores reels», «analiza los patrones» o "
                      "«genera un guion sobre <tema>»."}

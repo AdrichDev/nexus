@@ -25,25 +25,57 @@ Chain strategy: pending
 400-line budget risk: Medium
 ```
 
-Si al implementar se supera 800, el corte natural (documentado en `design.md`) es:
-**(1)** backend + contrato + suite de contrato, **(2)** HUD + CSS + `?v=NN` + suite
-de enrutado y política.
+## PARTIDO EN DOS ENTREGAS (decisión del usuario, 01/08/2026)
 
-### Unidad de trabajo
+En los tres bloques del cambio `002` la estimación se quedó corta unas 2,3 veces
+(390→1160, 490→1256, 420→938). Con ese patrón, las 600-700 de aquí apuntan a
+~1500 sobre un presupuesto de 800. El usuario decidió partirlo antes de empezar,
+no a mitad.
 
-| Unidad | Objetivo | PR | Test enfocado | Arnés en tiempo real | Límite de reversión |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Procedencia + dashboard honesto + generador + enrutado + HUD | único | `.venv\Scripts\python.exe tests\test_content_os_honestidad.py` | `run.bat`, tras reiniciar probar «cómo va el instagram» y «analiza este reel de @x …» | `git revert` del commit + bajar `?v=29`→`?v=28` o recarga dura |
+**El corte NO es el que sugería `design.md`** («backend+contrato» / «HUD»). Ese
+corte deja la aplicación rota entre entregas: la Fase 2 cambia el contrato del
+payload de `/api/contentos` y la Fase 5 es quien lo consume, así que entregar el
+contrato sin su consumidor deja el HUD pintando objetos donde había números.
+
+Regla del corte real: **el contrato y quien lo consume viajan en la misma
+entrega**; lo que no toca el contrato va antes.
+
+| Entrega | Fases | Tareas | Qué consigue | ¿Rompe algo visible? |
+| --- | --- | --- | --- | --- |
+| **A** | 1, 3, 4 | 11 | Cimientos (`procedencia.py`, umbrales, demo aislada), la regla extendida al generador, y **se acaban las cifras falsas en el chat** | No. Todo aditivo salvo `skill.py`, que solo pasa a decir la verdad |
+| **B** | 2, 5, 6 | 12 | Contrato del payload honesto **y** el HUD que lo pinta, juntos | No. Contrato y consumidor entran a la vez |
+
+Cada entrega deja `run_all.py` en **TODO VERDE** por sí sola.
+
+> **ENTREGA A APLICADA (01/08/2026)** — Fases 1, 3 y 4 completas, `run_all.py`
+> TODO VERDE, sin commitear. Líneas REALES: **1.032** autoras (321 en ficheros
+> ya seguidos + 711 en los tres ficheros nuevos), de las cuales 452 son la suite
+> nueva. La estimación de esta entrega eran 400-500: se quedó corta 2,1x, o sea
+> justo el patrón medido en el cambio `002`. **La entrega B parte de un
+> presupuesto ya consumido**: replantear su tamaño antes de empezar.
+
+La entrega A ataca primero lo que hoy más miente: `skills/content_os/skill.py`
+responde en el chat «12.840 seguidores, retención 48,6 %» y, peor, una conclusión
+estadística inventada («el gancho de resultado visible va por encima de tu mediana
+en 4 de 8 reels») sobre una mediana que nadie ha calculado. Eso sale por el canal
+donde el usuario más habla, y no depende de ningún contrato: se puede arreglar ya.
+
+### Unidades de trabajo
+
+| Unidad | Objetivo | Test enfocado | Arnés en tiempo real | Límite de reversión |
+| --- | --- | --- | --- | --- |
+| A | Procedencia + generador honesto + enrutado | `.venv\Scripts\python.exe tests\test_content_os_honestidad.py` | `run.bat` (obligatorio: `skills_loader` solo lee las carpetas al arrancar) y probar «cómo va el instagram» y «analiza este reel de @x …» | `git revert` del commit |
+| B | Contrato del dashboard + HUD + cierre | mismo fichero, casos de contrato | recarga del HUD | `git revert` + bajar `?v=29`→`?v=28` o recarga dura |
 
 ---
 
 ## Fase 1: Fundamentos — procedencia, demo, umbrales
 
-- [ ] 1.1 Crear `backend/core/procedencia.py`: `dato(valor, origen, periodo=None, delta=None, n=None, aviso="")`, constantes `MEDIDO/DEMOSTRACION/SIN_DATOS`, `_carga_umbrales_content_os()` (patrón `remote.py:54`), `sin_cifras_inventadas(texto, permitidas)`. Test: `test_content_os_honestidad.py` — `dato()` con origen inválido lanza `ValueError`.
-- [ ] 1.2 Añadir sección `content_os` a `config/umbrales.json`: `n_minimo`, `etiquetas` (origen), `textos` (estados vacíos), `validador.magnitud_minima`. Test: cambiar un valor y comprobar que la salida cambia (con `extra`).
-- [ ] 1.3 Crear `backend/core/contentos_demo.py`: mover `_demo_metrics()` (`contentos.py:182-200`) a `metricas()`, estampar `origen=DEMOSTRACION` en el retorno. Test: `metricas()["origen"] == DEMOSTRACION`.
-- [ ] 1.4 Crear `tests/test_content_os_honestidad.py` con harness `check(cond, msg)`; incluir los tests de 1.1/1.2/1.3 y `sin_cifras_inventadas()` tumba «tus reels tienen 48,6 % de retención» y deja pasar «3 golpes y un CTA».
-- [ ] 1.5 Registrar `test_content_os_honestidad.py` en la lista de `tests/run_all.py:61`.
+- [x] 1.1 Crear `backend/core/procedencia.py`: `dato(valor, origen, periodo=None, delta=None, n=None, aviso="")`, constantes `MEDIDO/DEMOSTRACION/SIN_DATOS`, `_carga_umbrales_content_os()` (patrón `remote.py:54`), `sin_cifras_inventadas(texto, permitidas)`. Test: `test_content_os_honestidad.py` — `dato()` con origen inválido lanza `ValueError`.
+- [x] 1.2 Añadir sección `content_os` a `config/umbrales.json`: `n_minimo`, `etiquetas` (origen), `textos` (estados vacíos), `validador.magnitud_minima`. Test: cambiar un valor y comprobar que la salida cambia (con `extra`).
+- [x] 1.3 Crear `backend/core/contentos_demo.py`: mover `_demo_metrics()` (`contentos.py:182-200`) a `metricas()`, estampar `origen=DEMOSTRACION` en el retorno. Test: `metricas()["origen"] == DEMOSTRACION`.
+- [x] 1.4 Crear `tests/test_content_os_honestidad.py` con harness `check(cond, msg)`; incluir los tests de 1.1/1.2/1.3 y `sin_cifras_inventadas()` tumba «tus reels tienen 48,6 % de retención» y deja pasar «3 golpes y un CTA».
+- [x] 1.5 Registrar `test_content_os_honestidad.py` en la lista de `tests/run_all.py:61`.
 
 ## Fase 2: Dashboard honesto
 
@@ -54,15 +86,15 @@ de enrutado y política.
 
 ## Fase 3: Generador con la regla extendida
 
-- [ ] 3.1 `backend/core/llm.py`: exportar `REGLA_CONTENT_OS` («solo puedes usar las cifras del bloque DATOS que te llega; si va vacío, no hables de rendimiento») junto al bloque `REGLA INVIOLABLE` (~:776). Test: `_build_messages(..., system="x")` sigue conteniendo `REGLA INVIOLABLE` (regresión silenciosa).
-- [ ] 3.2 `contentos.generate()`: pasar `system=REGLA_CONTENT_OS` + bloque DATOS calculado a `ask_llm()`; aplicar `procedencia.sin_cifras_inventadas()` al resultado; si rechaza, sustituir por la respuesta honesta antes de guardar o devolver. Test: una cifra no fundamentada en el texto del modelo se rechaza/filtra.
+- [x] 3.1 `backend/core/llm.py`: exportar `REGLA_CONTENT_OS` («solo puedes usar las cifras del bloque DATOS que te llega; si va vacío, no hables de rendimiento») junto al bloque `REGLA INVIOLABLE` (~:776). Test: `_build_messages(..., system="x")` sigue conteniendo `REGLA INVIOLABLE` (regresión silenciosa).
+- [x] 3.2 `contentos.generate()`: pasar `system=REGLA_CONTENT_OS` + bloque DATOS calculado a `ask_llm()`; aplicar `procedencia.sin_cifras_inventadas()` al resultado; si rechaza, sustituir por la respuesta honesta antes de guardar o devolver. Test: una cifra no fundamentada en el texto del modelo se rechaza/filtra.
 
 ## Fase 4: Enrutado honesto (colisión D7 — matriz de amenazas)
 
-- [ ] 4.1 **RED**: en `test_content_os_honestidad.py`, test de enrutado — «cómo va el instagram» y «analiza este reel de @x …» caen en `content_os` vía `skills_loader.route()`, y la respuesta debe citar la vía Graph API / `business_discovery`. Debe **fallar** contra el código actual (cifras de ejemplo en `analytics`, descarga en `inspire`).
-- [ ] 4.2 `skills/content_os/skill.py` `analytics` (`:126-130`): sustituir las cifras de ejemplo («12.840 seguidores», «184,2K», «retención 48,6 %», la conclusión de «4 de 8 reels») por una respuesta honesta al estilo `ig_estado` (qué falta, cómo conectar). Hace pasar la mitad `analytics` del RED de 4.1.
-- [ ] 4.3 `skill.py` `inspire`: explica la política, reencamina a `business_discovery` (`skills/instagram/scripts/ig.py:336`); `_download_and_transcribe` pasa a fallo cerrado — primera línea `raise RuntimeError("vía retirada por política; pendiente de borrado con tu confirmación")`. Hace pasar la mitad `inspire` del RED de 4.1. Test adicional: cero llamadas a `_download_and_transcribe` desde `handle()` (AST + llamada directa).
-- [ ] 4.4 `skill.py` `patterns`/`script`: anteponer `_aviso_origen()` — «transcripción heredada anterior a este cambio» — cuando lean `data/inspiration/`. Test: la respuesta incluye el aviso de origen heredado.
+- [x] 4.1 **RED**: en `test_content_os_honestidad.py`, test de enrutado — «cómo va el instagram» y «analiza este reel de @x …» caen en `content_os` vía `skills_loader.route()`, y la respuesta debe citar la vía Graph API / `business_discovery`. Debe **fallar** contra el código actual (cifras de ejemplo en `analytics`, descarga en `inspire`).
+- [x] 4.2 `skills/content_os/skill.py` `analytics` (`:126-130`): sustituir las cifras de ejemplo («12.840 seguidores», «184,2K», «retención 48,6 %», la conclusión de «4 de 8 reels») por una respuesta honesta al estilo `ig_estado` (qué falta, cómo conectar). Hace pasar la mitad `analytics` del RED de 4.1.
+- [x] 4.3 `skill.py` `inspire`: explica la política, reencamina a `business_discovery` (`skills/instagram/scripts/ig.py:336`); `_download_and_transcribe` pasa a fallo cerrado — primera línea `raise RuntimeError("vía retirada por política; pendiente de borrado con tu confirmación")`. Hace pasar la mitad `inspire` del RED de 4.1. Test adicional: cero llamadas a `_download_and_transcribe` desde `handle()` (AST + llamada directa).
+- [x] 4.4 `skill.py` `patterns`/`script`: anteponer `_aviso_origen()` — «transcripción heredada anterior a este cambio» — cuando lean `data/inspiration/`. Test: la respuesta incluye el aviso de origen heredado.
 
 ## Fase 5: HUD
 

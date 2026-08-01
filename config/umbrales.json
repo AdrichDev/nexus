@@ -233,6 +233,53 @@
    "Anade o quita cadenas aqui, no en el codigo."
   ]
  },
+ "content_os": {
+  "_que_es": [
+   "Vocabulario y umbrales del panel Content OS (001-honestidad-content-os).",
+   "",
+   "01/08/2026: Content OS servia numeros sin decir de donde salian. El panel",
+   "mezclaba lo de la Graph API con un dataset de mentira mediante un 'or'",
+   "silencioso, y la skill contestaba en el chat '12.840 seguidores, retencion",
+   "media 48,6%' con una coletilla de '(ejemplo)' que el resto del texto",
+   "contradecia. Peor todavia: cerraba con 'el gancho de resultado visible va",
+   "por encima de tu mediana en 4 de 8 reels', una conclusion estadistica sobre",
+   "una mediana que nadie habia calculado y ocho reels que no existian.",
+   "",
+   "Desde aqui se manda el VOCABULARIO (como se llama cada origen y que se dice",
+   "cuando no hay nada) y el UMBRAL del validador. Nada de esto esta escrito en",
+   "el codigo: cambia un texto, reinicia nexus, y cambia lo que se lee."
+  ],
+  "n_minimo": 3,
+  "_n_minimo": "Cuantos casos hacen falta para que un aprendizaje deje de ser un apunte. Es el espejo del N_MINIMO=3 de skills/instagram/inteligencia.py: son dos numeros que pueden separarse, y por eso se dice aqui. Unificarlos exige tocar la skill, que queda fuera de este cambio.",
+  "etiquetas": {
+   "_que_es": "Como se llama cada origen de cara al usuario. El HUD no inventa rotulos: los lee de aqui.",
+   "medido": "medido",
+   "demostración": "demostración",
+   "sin_datos": "todavía no lo sé"
+  },
+  "textos": {
+   "_que_es": "Lo que se dice cuando NO hay dato. Un panel vacio no ensena que se gana conectando la cuenta, pero rellenarlo con mentiras es peor: aqui se dice la verdad con palabras utiles.",
+   "sin_procedencia": "sin procedencia",
+   "sin_calendario": "Todavía no hay nada en el calendario.",
+   "sin_ideas": "Todavía no hay ideas guardadas. Di «dame ideas de reels».",
+   "sin_inspiraciones": "Todavía no hay inspiraciones guardadas.",
+   "sin_aprendizajes": "Todavía no hay aprendizajes.",
+   "apunte_manual": "apunte tuyo, sin evidencia",
+   "sin_retencion": "La Graph API no da el tiempo de visualización de un reel, así que la retención no se puede calcular todavía."
+  },
+  "validador": {
+   "_que_es": [
+    "Frontera del validador determinista de procedencia.sin_cifras_inventadas().",
+    "",
+    "Un numero grande, con decimales, con separador de millares o con % es casi",
+    "siempre una METRICA. Un entero pequeno ('3 golpes', '2 segundos') es casi",
+    "siempre estructura del guion. Por debajo de este numero, y sin % ni coma,",
+    "una cifra que el modelo no tenia pasa igual: censurar '3 golpes' romperia",
+    "el generador sin ganar nada."
+   ],
+   "magnitud_minima": 100
+  }
+ },
  "purga": {
   "_que_es": [
    "Motor de reglas de purga.py (002-memoria-y-conocimiento, bloque B).",
