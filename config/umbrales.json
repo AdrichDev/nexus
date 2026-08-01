@@ -300,6 +300,43 @@
   "_minutos_vigencia_plan": "Cuanto vive una previsualizacion antes de que aplicar() la rechace por caducada.",
   "papelera_aviso_items": 3000,
   "_papelera_aviso_items": "Aviso INFORMATIVO al superar este numero de items en la papelera. No es un tope: la papelera no tiene limite, capar el indice rompería la reversibilidad prometida.",
+  "emparejar_por_contenido": {
+   "_que_es": [
+    "INCIDENTE: previsualizar() daba filas_pg=0 en TODAS las categorias porque",
+    "filas_ligadas_a_nota() ata fila y nota por la marca de origen '[fichero]',",
+    "y solo 233 de 697 filas knowledge la llevan. Las otras 464 son anteriores",
+    "al bloque C y quedaron huerfanas: retirar las 35 notas de la FP habria",
+    "dejado 10 filas de tablespaces/actividades/2DAM vivas y buscables.",
+    "",
+    "Segundo camino, SOLO para notas sin ninguna fila con marca de origen:",
+    "se compara el vocabulario de la nota con el de cada fila huerfana. Se",
+    "exige que la NOTA cubra casi todo el vocabulario de la FILA (no al reves):",
+    "una fila ajena siempre trae terminos que la nota no tiene. ANTE LA DUDA NO",
+    "SE CASA: es peor llevarse una fila ajena que dejar una propia."
+   ],
+   "activo": true,
+   "tipos": [
+    "knowledge"
+   ],
+   "_tipos": "Tipos de fila elegibles. 'conversation' JAMAS entra: es el registro de conversacion del usuario, no conocimiento derivado de una nota.",
+   "longitud_minima_termino": 4,
+   "minimo_terminos_fila": 6,
+   "_minimo_terminos_fila": "Una fila con menos terminos distintivos que esto NO se casa nunca: es demasiado corta para juzgarla sin inventar.",
+   "minimo_terminos_comunes": 6,
+   "solape_minimo": 0.75,
+   "_solape_minimo": "Fraccion del vocabulario de la FILA que la nota tiene que cubrir. 0.75 = tres de cada cuatro terminos de la fila estan en la nota.",
+   "palabras_vacias": [
+    "para", "como", "este", "esta", "estos", "estas", "pero", "porque",
+    "cuando", "donde", "desde", "hasta", "sobre", "entre", "tambien",
+    "también", "todos", "todas", "todo", "toda", "otro", "otra", "otros",
+    "otras", "cada", "menos", "sido", "hacer", "hace", "puede", "pueden",
+    "tiene", "tienen", "aunque", "segun", "según", "ademas", "además",
+    "mismo", "misma", "asi", "así", "solo", "sólo", "nota", "notas",
+    "archivo", "carpeta", "fichero", "documento", "http", "https", "www",
+    "null", "true", "false", "none"
+   ],
+   "_palabras_vacias": "Palabras genericas y andamiaje de cabecera ('Carpeta:', 'Archivo:'): inflarian el solape sin decir nada del tema."
+  },
   "categorias": {
    "papeleo-personal": {
     "personal": true,

@@ -206,3 +206,19 @@ respaldo por ficheros: cada bloque exige además su paso de «verificación
 manual» (A5.3, B7.3, C6.3) con el contenedor arriba antes de considerarse
 cerrado. No se toca `config/settings.json` ni `config/secrets.json` en
 ningún bloque; todo umbral nuevo va a `config/umbrales.json`.
+
+---
+
+## Bloque B-bis — alcance real de la purga sobre las filas huérfanas
+
+Añadido tras medir la base real: `previsualizar()` daba `filas_pg: 0` en todas
+las categorías porque `filas_ligadas_a_nota()` ata fila y nota por la marca
+`[fichero]` y solo 233 de 697 filas `knowledge` la llevan. Retirar las 35 notas
+de la FP habría dejado 10 filas vivas y buscables.
+
+- [x] B8.1 `memory.filas_sin_marca_origen()`: filas activas sin marca `[fichero]` ni columna `origen` (las 464 anteriores al bloque C).
+- [x] B8.2 `purga.terminos()` + `purga.emparejar_por_contenido()`: segundo camino por vocabulario, sin LLM, umbrales en `config/umbrales.json` → `purga.emparejar_por_contenido`. Solo entra cuando la nota no tiene NINGUNA fila con marca; ante la duda, no casa.
+- [x] B8.3 `purga.titulo_encabezado()`: la otra marca de origen (`# nombre-de-la-nota` en la primera línea), exacta y sin umbral — rescata filas que el vocabulario no puede juzgar (el CV salió del PDF con las letras separadas y solo deja cuatro términos).
+- [x] B8.4 Cada fila llega a `previsualizar()` con SU motivo y cuenta en `filas_pg`; `aplicar()` retira exactamente los ids que se enseñaron. Arbitraje: se la queda la nota que mejor la explica.
+- [x] B8.5 Tests en `tests/test_purga.py`: acierta con la fila propia, NO se lleva la ajena, no juzga filas sin materia, el encabezado rescata el CV, y la marca de origen sigue mandando.
+- [x] B8.6 Purga ejecutada con las decisiones del usuario: `estudios-dam` (35 notas + 37 filas), `papeleo-personal` (12 notas + 12 filas, a la papelera, NO borrado definitivo) y `duplicados-exactos` (338 filas). Índice único `memories_huella_idx` creado tras confirmar la limpieza. Reversibilidad demostrada restaurando y volviendo a retirar un lote completo.

@@ -73,6 +73,12 @@ _FAKE_UMBRALES = {
         },
         "duplicados-exactos": {"personal": False},
     },
+    "emparejar_por_contenido": {
+        "activo": True, "tipos": ["knowledge"], "longitud_minima_termino": 4,
+        "minimo_terminos_fila": 6, "minimo_terminos_comunes": 6,
+        "solape_minimo": 0.75,
+        "palabras_vacias": ["para", "como", "esta", "sobre", "documento"],
+    },
 }
 
 
@@ -86,6 +92,7 @@ class _CorpusTemporal:
         self._orig = (purga.MEMORY_DIR, purga.PAPELERA_DIR, purga.PAPELERA_FILE,
                       purga.EXPORT_DIR, purga._umbrales_purga, purga._planes.copy())
         self._orig_ligadas = mem.pg.filas_ligadas_a_nota
+        self._orig_huerfanas = mem.pg.filas_sin_marca_origen
         purga.MEMORY_DIR = self.tmp / "memory"
         purga.PAPELERA_DIR = purga.MEMORY_DIR / "papelera"
         purga.PAPELERA_FILE = purga.PAPELERA_DIR / "papelera.json"
@@ -98,6 +105,10 @@ class _CorpusTemporal:
         # lee `memories` real por nombre — se anula aquí SIEMPRE, salvo que el
         # propio test la reinstaure a propósito (con datos de prueba propios).
         mem.pg.filas_ligadas_a_nota = lambda nombre_fichero: []
+        # Mismo motivo para el SEGUNDO camino (emparejar por contenido): sin
+        # anularlo, una nota de prueba podría reclamar filas huérfanas REALES
+        # del usuario. Cada test que lo necesite pone sus propias filas.
+        mem.pg.filas_sin_marca_origen = lambda tipos=None: []
         return self
 
     def nota(self, ruta_rel: str, contenido: str) -> Path:
@@ -110,6 +121,7 @@ class _CorpusTemporal:
         (purga.MEMORY_DIR, purga.PAPELERA_DIR, purga.PAPELERA_FILE,
          purga.EXPORT_DIR, purga._umbrales_purga, planes_orig) = self._orig
         mem.pg.filas_ligadas_a_nota = self._orig_ligadas
+        mem.pg.filas_sin_marca_origen = self._orig_huerfanas
         purga._planes.clear()
         purga._planes.update(planes_orig)
         return False
@@ -120,6 +132,7 @@ def _tabla_prueba(conn, n_dim=3):
     with conn.cursor() as cur:
         cur.execute(
             f"CREATE TABLE {nombre} (id BIGSERIAL PRIMARY KEY, "
+            f"kind TEXT NOT NULL DEFAULT 'note', "
             f"content TEXT NOT NULL DEFAULT '', huella TEXT, "
             f"retirado_en TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT now())")
     return nombre
@@ -311,19 +324,23 @@ def test_duplicados_exactos_conserva_mas_antigua():
         skip("test_duplicados_exactos_conserva_mas_antigua (nexus_memoria_postgres no responde)")
         return
     huella_test = f"huella-test-purga-{uuid.uuid4().hex[:10]}"
-    ids = []
+    # Sobre TABLA DE PRUEBA, no sobre `memories`: desde que la purga real de
+    # 002 creó `memories_huella_idx` (índice ÚNICO parcial), meter dos filas
+    # con la misma huella en la tabla real es imposible — que es exactamente
+    # lo que se buscaba. El agrupado se sigue probando, aparte.
+    conn = mem.pg.connect()
+    tabla = _tabla_prueba(conn)
     try:
         vieja = mem.pg._rows(
-            "INSERT INTO memories (kind, content, huella, created_at) "
+            f"INSERT INTO {tabla} (kind, content, huella, created_at) "
             "VALUES ('note', %s, %s, now() - interval '1 hour') RETURNING id",
             ("contenido de prueba dup A (test_purga.py)", huella_test))[0]["id"]
-        ids.append(vieja)
         nueva = mem.pg._rows(
-            "INSERT INTO memories (kind, content, huella, created_at) "
+            f"INSERT INTO {tabla} (kind, content, huella, created_at) "
             "VALUES ('note', %s, %s, now()) RETURNING id",
             ("contenido de prueba dup B (test_purga.py)", huella_test))[0]["id"]
-        ids.append(nueva)
-        grupos = [g for g in mem.pg.duplicados_exactos() if g["huella"] == huella_test]
+        grupos = [g for g in mem.pg.duplicados_exactos(tabla=tabla)
+                  if g["huella"] == huella_test]
         check(len(grupos) == 1, "duplicados_exactos(): detecta el grupo de prueba")
         g = grupos[0]
         check(g["conservar"]["id"] == vieja,
@@ -331,8 +348,7 @@ def test_duplicados_exactos_conserva_mas_antigua():
         check([f["id"] for f in g["sobran"]] == [nueva],
               "duplicados_exactos(): la más nueva queda en «sobran»")
     finally:
-        if ids:
-            mem.pg._rows("DELETE FROM memories WHERE id = ANY(%s)", (ids,))
+        _drop_tabla(conn, tabla)
 
 
 def test_indice_unico_solo_tras_limpieza_confirmada():
@@ -340,9 +356,15 @@ def test_indice_unico_solo_tras_limpieza_confirmada():
         skip("test_indice_unico_solo_tras_limpieza_confirmada (nexus_memoria_postgres no responde)")
         return
     original_dups = mem.pg.duplicados_exactos
+    original_existe = mem.pg._indice_huella_existe
     try:
         # bloqueado: quedan duplicados (fake, sin tocar la tabla real memories)
         mem.pg.duplicados_exactos = lambda: [{"huella": "x", "conservar": {"id": 1}, "sobran": [{"id": 2}]}]
+        # Y el índice se finge inexistente: en producción `crear_indice_huella`
+        # sale por «ya existía» ANTES de mirar duplicados (es idempotente a
+        # propósito), y desde que la purga real de 002 creó el índice sobre
+        # `memories` este test se quedaba sin ejercitar su propio guardián.
+        mem.pg._indice_huella_existe = lambda tabla="memories": False
         r_bloqueado = mem.pg.crear_indice_huella()
         check(r_bloqueado["ok"] is False,
               "crear_indice_huella(): con duplicados pendientes, NO se crea")
@@ -350,6 +372,7 @@ def test_indice_unico_solo_tras_limpieza_confirmada():
               "crear_indice_huella(): el motivo explica que hay que limpiar antes")
     finally:
         mem.pg.duplicados_exactos = original_dups
+        mem.pg._indice_huella_existe = original_existe
 
     conn = mem.pg.connect()
     tabla = _tabla_prueba(conn)
@@ -511,6 +534,146 @@ def test_exportar_traversal_rechazado():
               "exportar(): destino fuera de las carpetas permitidas -> RECHAZADO, no recortado")
         check("permit" in rx["error"].lower() or "permiso" in rx["error"].lower(),
               "exportar(): el motivo explica que no está entre las carpetas permitidas")
+
+
+# ============ B2.1-bis: filas huérfanas casadas por CONTENIDO ===============
+# INCIDENTE: `previsualizar()` daba `filas_pg: 0` en todas las categorías
+# porque solo 233 de 697 filas llevan la marca de origen `[fichero]`. Retirar
+# las 35 notas de la FP habría dejado 10 filas de tablespaces/actividades/2DAM
+# vivas y buscables. Estos tests fijan las DOS mitades del arreglo: que el
+# emparejamiento por contenido acierte con la fila propia, y que NO se lleve
+# la ajena (llevarse una ajena es peor que dejar una propia).
+
+# Nota inventada para el test: vocabulario que no existe en el proyecto.
+_NOTA_APICULTURA = """# doc Colmenar del Cerro Bermejo
+
+Revision del colmenar: 14 colmenas Langstroth, dos nucleos de fecundacion.
+La reina Buckfast marcada en azul sigue poniendo. Tratamiento de varroa con
+acido oxalico goteado en noviembre. Cosecha de romero: 38 kilos.
+Roadmap de prueba dam pendiente para la asignatura.
+"""
+
+# La MISMA nota tal como quedo guardada en `memories`, sin marca de origen Y
+# con OTRO encabezado: asi este test ejercita el vocabulario y no el atajo del
+# encabezado, que tiene su propio test.
+_FILA_PROPIA = """# Revision de mayo
+
+Revision del colmenar: 14 colmenas Langstroth, dos nucleos de fecundacion.
+La reina Buckfast marcada en azul sigue poniendo. Tratamiento de varroa con
+acido oxalico goteado en noviembre. Cosecha de romero: 38 kilos.
+"""
+
+# Fila de OTRA cosa. Comparte palabras sueltas ("azul", "kilos", "reina",
+# "noviembre") a proposito: si el criterio fuese "comparten algo", se la
+# llevaria por delante.
+_FILA_AJENA = """# doc Cena de noviembre
+
+Menu cerrado con Silvia: solomillo Wellington, guarnicion de patata azul,
+tarta de queso. Compramos tres kilos en el mercado. La reina de la noche
+fue la tarta. Reservado el salon Trafalgar del hotel Montesclaros.
+"""
+
+
+def _huerfana(fid, texto):
+    return {"id": fid, "terminos": purga.terminos(texto, purga._cfg_contenido()),
+            "titulo": purga.titulo_encabezado(texto)}
+
+
+def test_emparejar_por_contenido_acierta_con_su_fila():
+    with _CorpusTemporal():
+        cfg = purga._cfg_contenido()
+        pool = [_huerfana(901, _FILA_PROPIA), _huerfana(902, _FILA_AJENA)]
+        casadas = purga.emparejar_por_contenido(
+            "doc Colmenar del Cerro Bermejo.md",
+            purga.terminos(_NOTA_APICULTURA, cfg), pool, cfg)
+        check([f["id"] for f in casadas] == [901],
+              "emparejar_por_contenido(): casa la fila propia y SOLO esa")
+        motivo = casadas[0]["motivo"]
+        check("sin marca de origen" in motivo and "vocabulario" in motivo
+              and "Colmenar" in motivo,
+              "emparejar_por_contenido(): cada fila llega con SU motivo explicable")
+        check(casadas[0]["solape"] >= cfg["solape_minimo"],
+              "emparejar_por_contenido(): el motivo trae el solape medido, no una etiqueta")
+
+
+def test_emparejar_por_contenido_no_se_lleva_la_ajena():
+    with _CorpusTemporal():
+        cfg = purga._cfg_contenido()
+        casadas = purga.emparejar_por_contenido(
+            "doc Colmenar del Cerro Bermejo.md",
+            purga.terminos(_NOTA_APICULTURA, cfg),
+            [_huerfana(902, _FILA_AJENA)], cfg)
+        check(casadas == [],
+              "emparejar_por_contenido(): fila de otro tema -> NO se casa "
+              "(peor llevarse una ajena que dejar una propia)")
+        # Fila demasiado corta para juzgarla: tampoco se casa, aunque TODO lo
+        # suyo este en la nota (solape 100% sobre cuatro palabras no dice nada).
+        cortas = purga.emparejar_por_contenido(
+            "doc Colmenar del Cerro Bermejo.md",
+            purga.terminos(_NOTA_APICULTURA, cfg),
+            [_huerfana(903, "colmenas varroa romero")], cfg)
+        check(cortas == [],
+              "emparejar_por_contenido(): fila sin materia suficiente -> NO se casa")
+
+
+def test_encabezado_de_origen_rescata_lo_que_el_vocabulario_no_juzga():
+    # INCIDENTE REAL: la fila del CV salió del PDF con las letras separadas
+    # («T é c n i c o  S u p e r i o r»), así que solo deja CUATRO términos
+    # utilizables y el criterio de vocabulario la descarta con razón. Su
+    # encabezado, en cambio, es el nombre exacto de la nota.
+    fila_cv = ("# doc CV_ADRIAN_CHOZAS_VINUESA\n\nCarpeta: 20. FP DAM Euroformac\n"
+               "T é c n i c o  S u p e r i o r  e n  D e s a r r o l l o\n")
+    with _CorpusTemporal():
+        cfg = purga._cfg_contenido()
+        pool = [_huerfana(910, fila_cv), _huerfana(911, _FILA_AJENA)]
+        casadas = purga.emparejar_por_contenido(
+            "doc CV_ADRIAN_CHOZAS_VINUESA.md",
+            purga.terminos("curriculum vitae de prueba", cfg), pool, cfg)
+        check([f["id"] for f in casadas] == [910],
+              "emparejar_por_contenido(): el encabezado «# nombre-de-la-nota» "
+              "casa la fila que el vocabulario no puede juzgar")
+        check("encabezado de origen" in casadas[0]["motivo"],
+              "emparejar_por_contenido(): el motivo dice que la ató el encabezado")
+        check(purga.titulo_encabezado("sin encabezado\n# tarde") == "",
+              "titulo_encabezado(): solo la PRIMERA línea vale como marca")
+
+
+def test_previsualizar_cuenta_las_huerfanas_con_motivo():
+    with _CorpusTemporal() as c:
+        c.nota("doc Colmenar del Cerro Bermejo.md", _NOTA_APICULTURA)
+        orig = purga._huerfanas_con_terminos
+        try:
+            purga._huerfanas_con_terminos = lambda cfg: [
+                _huerfana(901, _FILA_PROPIA), _huerfana(902, _FILA_AJENA)]
+            plan = purga.previsualizar()
+        finally:
+            purga._huerfanas_con_terminos = orig
+        cats = {x["id"]: x for x in plan["categorias"]}
+        item = cats["estudios-dam"]["items"][0]
+        check(item["filas_pg"] == 1,
+              "previsualizar(): filas_pg ya NO miente con ceros, cuenta las huérfanas")
+        check([f["id"] for f in item["filas"]] == [901],
+              "previsualizar(): lleva la fila propia, no la ajena")
+        check(bool(item["filas"][0]["motivo"]),
+              "previsualizar(): cada fila viaja con su motivo, igual que las notas")
+
+
+def test_la_marca_de_origen_sigue_mandando():
+    with _CorpusTemporal() as c:
+        c.nota("doc Colmenar del Cerro Bermejo.md", _NOTA_APICULTURA)
+        orig_l, orig_h = mem.pg.filas_ligadas_a_nota, purga._huerfanas_con_terminos
+        try:
+            mem.pg.filas_ligadas_a_nota = lambda nombre_fichero: [{"id": 800}]
+            purga._huerfanas_con_terminos = lambda cfg: [_huerfana(901, _FILA_PROPIA)]
+            plan = purga.previsualizar()
+        finally:
+            mem.pg.filas_ligadas_a_nota, purga._huerfanas_con_terminos = orig_l, orig_h
+        cats = {x["id"]: x for x in plan["categorias"]}
+        filas = cats["estudios-dam"]["items"][0]["filas"]
+        check([f["id"] for f in filas] == [800],
+              "previsualizar(): con marca de origen NO se usa el segundo camino")
+        check("marca de origen" in filas[0]["motivo"],
+              "previsualizar(): el motivo dice que la ató la marca, no el vocabulario")
 
 
 # =============================== runner =====================================

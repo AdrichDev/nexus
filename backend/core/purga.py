@@ -26,7 +26,9 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import re
 import shutil
+import unicodedata
 import uuid
 from pathlib import Path
 
@@ -125,21 +127,198 @@ def _huella_corpus() -> dict:
 
 
 # ---------------------------------------------------------------------
+#  B2.1-bis — segundo camino: filas huérfanas casadas por CONTENIDO
+#
+#  INCIDENTE (medido sobre la base real, 01/08/2026): `previsualizar()`
+#  devolvía `filas_pg: 0` en TODAS las categorías. `filas_ligadas_a_nota()`
+#  ata fila y nota por la marca de origen `[fichero]` que escribe el buzón,
+#  y solo 233 de las 697 filas `knowledge` la llevan; las otras 464 son
+#  anteriores al bloque C y quedaron huérfanas. Consecuencia verificada:
+#  retirar las 35 notas de la FP habría dejado 10 filas con tablespaces,
+#  actividades y 2DAM VIVAS y buscables en la memoria vectorial — justo lo
+#  contrario de lo que se pidió.
+#
+#  Este segundo camino NO sustituye al primero: la marca de origen sigue
+#  mandando cuando existe. Solo entra cuando una nota no tiene NINGUNA fila
+#  marcada. El criterio es de vocabulario, explicable y sin LLM: se exige
+#  que la NOTA cubra casi todo el vocabulario de la FILA (no al revés), que
+#  es la dirección conservadora — una fila ajena siempre trae términos que
+#  la nota no tiene. Ante la duda NO se casa: es peor llevarse una fila
+#  ajena que dejar una propia.
+# ---------------------------------------------------------------------
+_RE_TERMINO = re.compile(r"[0-9a-záéíóúüñçàèìòùâêîôû]+")
+
+_CONTENIDO_POR_DEFECTO = {
+    "activo": True,
+    "tipos": ["knowledge"],
+    "longitud_minima_termino": 4,
+    "minimo_terminos_fila": 6,
+    "minimo_terminos_comunes": 6,
+    "solape_minimo": 0.75,
+    "palabras_vacias": [],
+}
+
+
+def _cfg_contenido() -> dict:
+    """Umbrales del emparejamiento por contenido. NUNCA a fuego: salen de
+    `config/umbrales.json` → `purga.emparejar_por_contenido`. Los valores de
+    `_CONTENIDO_POR_DEFECTO` solo tapan el hueco de una clave que falte, para
+    que un JSON incompleto no reviente la previsualización."""
+    cfg = dict(_CONTENIDO_POR_DEFECTO)
+    cfg.update(_umbrales_purga().get("emparejar_por_contenido") or {})
+    return cfg
+
+
+def terminos(texto: str, cfg: dict | None = None) -> set[str]:
+    """Vocabulario distintivo de un texto: palabras normalizadas (NFKC +
+    minúsculas) de al menos `longitud_minima_termino` caracteres que no
+    estén en `palabras_vacias`. Se conservan las tildes a propósito
+    («año» ≠ «ano», la misma razón que en `memory.huella()`)."""
+    cfg = cfg or _cfg_contenido()
+    minimo = int(cfg.get("longitud_minima_termino", 4))
+    vacias = {str(w).lower() for w in (cfg.get("palabras_vacias") or [])}
+    plano = unicodedata.normalize("NFKC", texto).lower()
+    return {t for t in _RE_TERMINO.findall(plano)
+            if len(t) >= minimo and t not in vacias}
+
+
+def titulo_encabezado(texto: str) -> str:
+    """Primera línea de un texto si es un encabezado markdown, ya limpia.
+
+    Es la OTRA marca de origen, más vieja que `[fichero]`: el importador que
+    dejó las 464 filas huérfanas escribía el nombre del documento como título
+    (`# doc CV_ADRIAN_CHOZAS_VINUESA`). Es exacta, así que no necesita
+    umbrales — y rescata las filas que el vocabulario no puede juzgar, como
+    el CV, que salió del PDF con las letras separadas («T é c n i c o») y
+    solo deja cuatro términos utilizables."""
+    primera = (texto or "").lstrip().split("\n", 1)[0].strip()
+    if not primera.startswith("#"):
+        return ""
+    return " ".join(primera.lstrip("#").split()).casefold()
+
+
+def emparejar_por_contenido(nombre_nota: str, terminos_nota: set,
+                            huerfanas: list[dict], cfg: dict | None = None,
+                            ya_asignadas: set | None = None) -> list[dict]:
+    """Filas huérfanas que se llevaría esta nota, cada una CON SU MOTIVO.
+
+    `huerfanas` es `[{"id": int, "terminos": set[str], "titulo": str}]`,
+    calculado una sola vez por previsualización. Casan, por este orden:
+      1. la fila cuyo encabezado es EXACTAMENTE el nombre de la nota;
+      2. si no, por vocabulario, y solo si:
+         * tiene al menos `minimo_terminos_fila` términos propios — con
+           menos no hay materia para juzgarla y NO se casa;
+         * comparte al menos `minimo_terminos_comunes` con la nota;
+         * la nota cubre `solape_minimo` de su vocabulario.
+    Una fila ya asignada a otra nota no se reclama dos veces."""
+    cfg = cfg or _cfg_contenido()
+    min_fila = int(cfg.get("minimo_terminos_fila", 6))
+    min_comunes = int(cfg.get("minimo_terminos_comunes", 6))
+    solape_min = float(cfg.get("solape_minimo", 0.75))
+    ya = ya_asignadas if ya_asignadas is not None else set()
+    titulo_nota = " ".join(Path(nombre_nota).stem.split()).casefold()
+    out: list[dict] = []
+    for fila in huerfanas:
+        if fila["id"] in ya:
+            continue
+        if titulo_nota and fila.get("titulo") == titulo_nota:
+            out.append({
+                "id": fila["id"], "encabezado": True, "solape": 1.0,
+                "comunes": len(fila["terminos"]),
+                "motivo": (f"encabezado de origen «# {Path(nombre_nota).stem}» "
+                           f"en la primera línea de la fila"),
+            })
+            continue
+        propios = fila["terminos"]
+        if len(propios) < min_fila:
+            continue
+        comunes = propios & terminos_nota
+        if len(comunes) < min_comunes:
+            continue
+        solape = len(comunes) / len(propios)
+        if solape < solape_min:
+            continue
+        out.append({
+            "id": fila["id"],
+            "encabezado": False,
+            "solape": round(solape, 4),
+            "comunes": len(comunes),
+            "motivo": (f"fila sin marca de origen: «{nombre_nota}» cubre el "
+                       f"{solape:.0%} de su vocabulario ({len(comunes)} de "
+                       f"{len(propios)} términos: "
+                       f"{', '.join(sorted(comunes)[:5])}…), umbral "
+                       f"{solape_min:.0%}"),
+        })
+    return out
+
+
+def _huerfanas_con_terminos(cfg: dict) -> list[dict]:
+    """Pool de filas huérfanas del almacén, troceado en términos UNA sola vez
+    por previsualización: son ~464 filas y recorrerlas nota a nota sería
+    tirar el tiempo."""
+    from . import memory
+    if not cfg.get("activo", True) or not memory.pg.online:
+        return []
+    try:
+        filas = memory.pg.filas_sin_marca_origen(cfg.get("tipos"))
+    except Exception:
+        return []
+    return [{"id": f["id"],
+             "terminos": terminos(f.get("content") or "", cfg),
+             "titulo": titulo_encabezado(f.get("content") or "")}
+            for f in filas]
+
+
+# ---------------------------------------------------------------------
 #  B2.2 — previsualización obligatoria y previa
 # ---------------------------------------------------------------------
 def previsualizar() -> dict:
     """`{id, caduca, categorias:[{id, personal, items:[{ruta, motivo,
-    filas_pg}]}]}`. NO cambia nada — ni un fichero se mueve, ni una fila se
-    toca. Ninguna categoría viene marcada."""
+    filas_pg, filas:[{id, motivo}]}]}]}`. NO cambia nada — ni un fichero se
+    mueve, ni una fila se toca. Ninguna categoría viene marcada.
+
+    Cada fila llega con SU motivo, igual que las notas: o la marca de origen
+    la delata, o la casó el vocabulario (y entonces se dice cuánto solapa).
+    `aplicar()` retira exactamente estos ids, no los que recalcule después:
+    lo que se enseña es lo que se hace."""
     from . import memory
     clasif = clasificar()
     cfg = _umbrales_purga().get("categorias") or {}
-    por_cat: dict[str, list] = {}
-    for ruta, info in clasif.items():
+    cfg_cont = _cfg_contenido()
+    huerfanas = _huerfanas_con_terminos(cfg_cont)
+    por_ruta: dict[str, list] = {}
+    # Una fila huérfana puede parecerse a varias notas. Se la queda la que
+    # MEJOR la explica (mayor solape, luego más términos comunes), no la
+    # primera del recorrido: así el motivo que lee el usuario es el bueno.
+    disputa: dict[int, tuple] = {}
+    for ruta in sorted(clasif):
+        info = clasif[ruta]
         nombre = Path(info["ruta_abs"]).name
-        filas_pg = len(memory.pg.filas_ligadas_a_nota(nombre)) if memory.pg.online else 0
-        por_cat.setdefault(info["categoria"], []).append({
-            "ruta": ruta, "motivo": info["regla"], "filas_pg": filas_pg})
+        marcadas = memory.pg.filas_ligadas_a_nota(nombre) if memory.pg.online else []
+        por_ruta[ruta] = [{"id": f["id"],
+                           "motivo": f"marca de origen «[{nombre}]» en el propio texto"}
+                          for f in marcadas]
+        if por_ruta[ruta] or not huerfanas:
+            continue
+        # Segundo camino, SOLO sin marca: ver el bloque B2.1-bis.
+        try:
+            cuerpo = Path(info["ruta_abs"]).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            cuerpo = ""
+        for f in emparejar_por_contenido(
+                nombre, terminos(f"{nombre}\n{cuerpo}", cfg_cont), huerfanas, cfg_cont):
+            clave = (f["encabezado"], f["solape"], f["comunes"])
+            if f["id"] not in disputa or clave > disputa[f["id"]][0]:
+                disputa[f["id"]] = (clave, ruta, f)
+    for _clave, ruta, f in disputa.values():
+        por_ruta[ruta].append({"id": f["id"], "motivo": f["motivo"]})
+
+    por_cat: dict[str, list] = {}
+    for ruta in sorted(clasif):
+        filas = sorted(por_ruta[ruta], key=lambda x: x["id"])
+        por_cat.setdefault(clasif[ruta]["categoria"], []).append({
+            "ruta": ruta, "motivo": clasif[ruta]["regla"],
+            "filas_pg": len(filas), "filas": filas})
 
     if "duplicados-exactos" in cfg:
         grupos = memory.pg.duplicados_exactos() if memory.pg.online else []
@@ -244,8 +423,14 @@ def _retirar_categoria(cat: dict, lote: str) -> dict:
             elif "symlink" in r.get("razon", ""):
                 symlinks += 1
             if memory.pg.online:
-                ligadas = [f["id"] for f in memory.pg.filas_ligadas_a_nota(nombre)]
-                filas += memory.pg.retirar_filas(ligadas, lote)
+                # Se retiran los ids QUE SE ENSEÑARON en la previsualización,
+                # no los que se recalculen ahora: si no, lo aplicado podría no
+                # ser lo revisado. Sin `filas` (plan viejo) se recalcula el
+                # camino de la marca, que es el comportamiento de siempre.
+                ids = [f["id"] for f in item.get("filas") or []]
+                if not ids and "filas" not in item:
+                    ids = [f["id"] for f in memory.pg.filas_ligadas_a_nota(nombre)]
+                filas += memory.pg.retirar_filas(ids, lote)
         elif item.get("fila_id") and memory.pg.online:
             filas += memory.pg.retirar_filas([item["fila_id"]], lote)
     return {"notas": movidas, "symlinks_omitidos": symlinks, "filas": filas}

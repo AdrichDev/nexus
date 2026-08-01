@@ -717,12 +717,19 @@ class PgMemory:
             n += 1
         return {"ok": True, "actualizadas": n}
 
-    def duplicados_exactos(self) -> list[dict]:
+    def duplicados_exactos(self, tabla: str = "memories") -> list[dict]:
         """Informe de SOLO LECTURA: agrupa por huella con `count(*) > 1`, dice
         qué fila se conservaría (la más antigua) y cuáles sobran. NO BORRA
         NADA — alimenta a `purga.py` (categoría `duplicados-exactos`) en el
         bloque B (memoria-deduplicacion, escenario «Previsualización de
-        duplicados antes de limpiar»)."""
+        duplicados antes de limpiar»).
+
+        `tabla` es parametrizable por el mismo motivo que en
+        `crear_indice_huella()`: desde que la purga real creó
+        `memories_huella_idx`, `test_purga.py` YA NO PUEDE meter dos filas
+        con la misma huella en `memories` para probar el agrupado — el
+        índice único se lo impide, que es justo lo que se quería. En
+        producción siempre es `memories`."""
         conn = self.connect()
         if conn is None:
             return []
@@ -730,13 +737,13 @@ class PgMemory:
         # retirada por purga.py no debe seguir contando como «duplicado
         # pendiente» — si no, B4.2 nunca vería la limpieza como confirmada.
         grupos = self._rows(
-            "SELECT huella, count(*) AS n FROM memories "
+            f"SELECT huella, count(*) AS n FROM {tabla} "
             "WHERE huella IS NOT NULL AND retirado_en IS NULL "
             "GROUP BY huella HAVING count(*) > 1 ORDER BY n DESC")
         out = []
         for g in grupos:
             filas = self._rows(
-                "SELECT id, kind, content, created_at FROM memories "
+                f"SELECT id, kind, content, created_at FROM {tabla} "
                 "WHERE huella = %s AND retirado_en IS NULL "
                 "ORDER BY created_at ASC, id ASC", (g["huella"],))
             if len(filas) < 2:
@@ -755,6 +762,27 @@ class PgMemory:
         return self._rows(
             "SELECT id FROM memories WHERE content LIKE %s AND retirado_en IS NULL",
             (f"[{nombre_fichero}]%",))
+
+    def filas_sin_marca_origen(self, tipos: list[str] | None = None) -> list[dict]:
+        """Filas HUÉRFANAS: ni marca `[fichero]` en el texto ni columna
+        `origen` (que el bloque C añadió a todo lo ingerido). Son las 464 de
+        697 filas `knowledge` anteriores al bloque C.
+
+        INCIDENTE que obliga a esto: `previsualizar()` devolvía `filas_pg: 0`
+        en todas las categorías porque `filas_ligadas_a_nota()` solo ve las
+        233 filas con marca. Retirar las 35 notas de la FP habría dejado 10
+        filas de tablespaces / actividades / 2DAM vivas y buscables en la
+        memoria vectorial, justo lo contrario de lo que se pidió.
+
+        Excluye a propósito las filas que YA tienen dueño (marca u `origen`):
+        esas se ligan por el camino de siempre y nadie más puede reclamarlas.
+        `purga.py` las casa por CONTENIDO; aquí solo se sacan del almacén."""
+        tipos = list(tipos or ["knowledge"])
+        return self._rows(
+            "SELECT id, content FROM memories "
+            "WHERE retirado_en IS NULL AND origen IS NULL "
+            "AND content NOT LIKE '[%%' AND kind = ANY(%s) ORDER BY id",
+            (tipos,))
 
     def retirar_filas(self, ids: list[int], lote: str) -> int:
         """`UPDATE`, nunca `DELETE`: retirar es un cambio de estado
