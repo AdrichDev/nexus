@@ -285,6 +285,21 @@
    "magnitud_minima": 100
   }
  },
+ "drive": {
+  "_que_es": "Donde aterrizan en Google Drive los informes que genera nexus.",
+  "_por_que_aqui": [
+   "El nombre de la carpeta NO esta en el codigo a proposito. Cambialo aqui,",
+   "reinicia nexus, y el informe diario pasa a caer en otra carpeta sin tocar",
+   "Python ni volver a autorizar nada.",
+   "",
+   "OJO: nexus pide el permiso 'drive.file', que solo le deja ver y tocar LOS",
+   "FICHEROS QUE CREA EL MISMO. Consecuencia practica: si pones aqui el nombre",
+   "de una carpeta que creaste TU a mano, nexus no la ve y creara otra con ese",
+   "mismo nombre. No es un fallo: es el precio de no darle acceso a todo tu",
+   "Drive personal por subir un .md al dia."
+  ],
+  "carpeta": "nexus"
+ },
  "purga": {
   "_que_es": [
    "Motor de reglas de purga.py (002-memoria-y-conocimiento, bloque B).",

@@ -1,4 +1,4 @@
-# 📧 Google Workspace — Gmail + Calendar + Tasks (REALES)
+# 📧 Google Workspace — Gmail + Calendar + Tasks + Drive (REALES)
 
 Habla con tu cuenta de Google de verdad, vía OAuth2 (nunca con tu contraseña).
 Lee, cuenta, resume, envía y borra correos; hace triaje con IA de lo urgente y lo
@@ -49,11 +49,35 @@ Tasks (To-Do):
 - «tareas de google» / «qué tengo en el to-do» → lista de pendientes
 - «crea una tarea en el to-do: pagar al proveedor el viernes» → tarea REAL
 
+Drive:
+- «sube el informe a drive» → sube el .md más reciente de `data/reports` y
+  devuelve el enlace
+- «sube informe-2026-08-02.md a drive» → sube ESE fichero (con espacios en el
+  nombre, entre comillas: «sube "mi informe.md" a drive»)
+- «qué hay en mi drive» / «qué has subido a drive» → lo que ha subido nexus
+- «dame el enlace de drive» → el enlace de lo último subido
+
+Para qué sirve: el informe diario de competencia se genera en `.md`, se manda por
+correo y se sube a Drive, para que después ChatGPT o Claude —conectados a ese
+Drive— trabajen sobre él sin que nadie suba nada a mano.
+
+**El permiso que pide es `drive.file`, y es a propósito**: solo deja ver y tocar
+**los ficheros que crea el propio nexus**. No puede leer el resto de tu Drive
+aunque se lo pidas. Consecuencia práctica: la carpeta de destino la crea nexus;
+si tú ya tenías una carpeta con ese nombre creada a mano, nexus no la ve y creará
+la suya. Es el precio de no darle acceso a todos tus documentos personales.
+
+El nombre de la carpeta está en `config/umbrales.json` → `drive.carpeta` (por
+defecto `nexus`). Se cambia ahí, se reinicia nexus, y ya.
+
+**La primera vez que uses una orden de Drive se abrirá el navegador** para
+reautorizar: el token que tienes guardado no incluye el permiso de Drive.
+
 ## Configuración (una sola vez, ~5 minutos)
 
 1. https://console.cloud.google.com → proyecto nuevo (ej. «nexus»).
-2. **APIs y servicios → Biblioteca**: habilita *Gmail API*, *Google Calendar API*
-   y *Google Tasks API*.
+2. **APIs y servicios → Biblioteca**: habilita *Gmail API*, *Google Calendar API*,
+   *Google Tasks API* y *Google Drive API*.
 3. **Pantalla de consentimiento OAuth**: tipo *Externo*, modo «Prueba», y en
    **Usuarios de prueba** añade TU cuenta (si no, Google bloquea el acceso).
 4. **Credenciales → ID de cliente OAuth → «App de escritorio»**. ⚠ NO «Aplicación

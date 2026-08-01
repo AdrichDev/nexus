@@ -1,4 +1,4 @@
-"""Minion Google Workspace — Gmail, Calendar y Tasks REALES vía OAuth2.
+"""Minion Google Workspace — Gmail, Calendar, Tasks y Drive REALES vía OAuth2.
 
 La cuenta se conecta con config/google_credentials.json (ver SKILL.md).
 Si faltan librerías o credenciales, responde con las instrucciones exactas.
@@ -21,7 +21,24 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",       # ENVIAR correos
     "https://www.googleapis.com/auth/calendar.events",  # CREAR/editar eventos (antes readonly)
     "https://www.googleapis.com/auth/tasks",            # CREAR/editar tareas (antes readonly)
+    "https://www.googleapis.com/auth/drive.file",       # SUBIR/releer SOLO lo que crea nexus
 ]
+# POR QUÉ «drive.file» Y NO «drive» A SECAS. Es una decisión, no un descuido: dentro de
+# seis meses alguien verá que subir un informe a una carpeta que creó a mano «falla» y
+# le entrará la tentación de ampliar a «auth/drive». NO LO HAGAS.
+#   * drive.file → nexus solo ve y toca LOS FICHEROS QUE ÉL MISMO HA CREADO (Google,
+#                  textual: «See, edit, create, and delete only the specific Google
+#                  Drive files you use with this app»).
+#   * drive      → acceso a TODO el Drive personal de Adrian: nóminas, contratos, fotos,
+#                  lo que haya. Para una tarea que solo necesita ESCRIBIR sus propios
+#                  informes y volver a leerlos, eso es regalar la casa entera por poder
+#                  entrar al garaje.
+# Lo que hace falta (subir el .md diario, listarlo, dar el enlace) cabe entero en
+# drive.file: files.create y files.list lo admiten — verificado en el discovery doc
+# oficial drive.v3 (rev. 20260428) que viene dentro de google-api-python-client.
+# CONSECUENCIA ACEPTADA: la carpeta de destino la crea nexus. Una carpeta que hayas
+# creado TÚ a mano no la ve (no es «suya»): la buscará, no la encontrará y creará la
+# suya. Ese es el precio de no pedir el Drive entero, y se paga con gusto.
 # OJO: al ampliar scopes (calendar/tasks de solo-lectura → escritura), el token viejo
 # ya no cubre los permisos nuevos. _get_creds() detecta que el token no es superset de
 # SCOPES, lo borra y relanza la autorización UNA vez (igual que al añadir «enviar»).
@@ -39,8 +56,8 @@ REDIRECT_HOST = "127.0.0.1"
 REDIRECT_URI = f"http://{REDIRECT_HOST}:{OAUTH_PORT}/"
 
 SKILL = {
-    "name": "Google (Gmail/Calendar)",
-    "description": "Gmail, Calendar y Tasks reales por OAuth2: lee, cuenta, resume, envía y borra correos; triaje con IA que crea tareas; eventos que se crean, mueven y cancelan",
+    "name": "Google (Gmail/Calendar/Drive)",
+    "description": "Gmail, Calendar, Tasks y Drive reales por OAuth2: lee, cuenta, resume, envía y borra correos; triaje con IA que crea tareas; eventos que se crean, mueven y cancelan; sube informes a Drive y devuelve el enlace",
     # ORDEN IMPORTA (el router prueba los patterns en orden de este dict):
     # lo más específico primero para que «de quién son», «cuántos sin leer»,
     # «resume» o «envía» NO caigan en el patrón genérico de listar correos.
@@ -127,6 +144,33 @@ SKILL = {
                 r"|\b(mi|la|el)\s+(agenda|calendario)\b|\bagenda\s+de\s+google\b|\bpr[oó]ximos\s+eventos\b|\bqu[eé]\s+tengo\s+(hoy|ma[ñn]ana|esta\s+semana|el\s+\w+)\b",
         "gtasks": r"\btareas\s+de\s+google\b|\bgoogle\s+tasks?\b|\bto-?do\s+de\s+google\b"
                   r"|\bqu[eé]\s+(?:tengo|hay)\s+en\s+(?:el|mi)\s+to-?do\b",
+
+        # ── DRIVE ────────────────────────────────────────────────────────────
+        # Van LAS ÚLTIMAS del dict A PROPÓSITO: así no pueden robarle una frase a
+        # ningún intent de Gmail/Calendar/Tasks que ya funcionaba. Y TODAS exigen
+        # la palabra literal «drive», que hoy no aparece en el patrón de ninguna
+        # otra skill — sin esa ancla, un «sube el informe» se lo comería
+        # autoprovision (docker_up empieza por «sube»).
+        # ORDEN INTERNO, y no es cosmético: drive_link antes que drive_list porque
+        # drive_list acepta «dame»/«muéstrame» y se tragaría «dame el enlace de
+        # drive»; y drive_upload antes que drive_link porque «sube esto a drive y
+        # dame el enlace» es una SUBIDA, no una consulta.
+        # INCIDENTE, que costó media hora: el resto de este fichero usa [^.\n] como
+        # hueco para no saltar de frase. Aquí NO vale, porque el hueco tiene que
+        # dejar pasar un NOMBRE DE FICHERO y los nombres de fichero llevan punto:
+        # «sube informe-2026-08-02.md a drive» no casaba con [^.\n] y se iba al
+        # planificador del cerebro. Aquí el hueco es [^\n] y quien acota es la
+        # palabra «drive», que es obligatoria en las tres.
+        "drive_upload": r"(?:s[uú]be(?:me|lo|la|los|las)?|sub[ií]r(?:lo|la)?|cuelga(?:me|lo|la)?"
+                        r"|guarda(?:me|lo|la)?|gu[aá]rda(?:melo|mela|lo|la)|copia|mete|pon)"
+                        r"\b[^\n]{0,50}\b(?:google\s+)?drive\b",
+        "drive_link": r"\b(?:enlace|link|url|direcci[oó]n)\b[^\n]{0,30}\b(?:google\s+)?drive\b"
+                      r"|\bdrive\b[^\n]{0,20}\b(?:enlace|link|url)\b",
+        "drive_list": r"(?:qu[eé]\s+(?:hay|tengo|has\s+subido)|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?"
+                      r"|l[ií]sta(?:me)?|dame|dime|ver|revisa|mira|abre|consulta)"
+                      r"\b[^\n]{0,30}\b(?:google\s+)?drive\b"
+                      r"|\b(?:ficheros?|archivos?|documentos?|informes?)\b[^\n]{0,20}"
+                      r"\b(?:de|en)\s+(?:mi\s+|el\s+)?(?:google\s+)?drive\b",
     },
 }
 
@@ -134,7 +178,7 @@ _last_emails: list[dict] = []
 
 SETUP_MSG = (
     "Google aún no está conectado. Pasos: 1) console.cloud.google.com → proyecto nuevo → "
-    "habilita las APIs de Gmail, Calendar y Tasks. 2) Credenciales → ID de cliente OAuth "
+    "habilita las APIs de Gmail, Calendar, Tasks y Drive. 2) Credenciales → ID de cliente OAuth "
     "→ tipo «App de escritorio» (IMPORTANTE: NO «Aplicación web» — la de escritorio acepta "
     "cualquier localhost SIN registrar nada). 3) Pantalla de consentimiento OAuth: en modo "
     "«Prueba» añade TU cuenta de Google como «Usuario de prueba» (si no, Google bloquea el "
@@ -974,6 +1018,185 @@ async def _llm_text(order: str) -> str:
     return ""
 
 
+# ── GOOGLE DRIVE ─────────────────────────────────────────────────────────────
+# Para qué existe esto: el informe diario de competencia se genera en .md, se manda
+# por correo (_send_gmail) y se sube AQUÍ, para que después ChatGPT o Claude —que
+# están conectados a ese Drive— trabajen sobre él. Sin esta pieza el ciclo se corta
+# en el correo y hay que subir el archivo a mano todos los días.
+#
+# Todo lo de abajo está escrito contra el discovery doc oficial de drive.v3
+# (rev. 20260428, el que trae google-api-python-client) y la guía de búsqueda de
+# Google. Nada de nombres de campo de memoria: files.create + files.list, el
+# mimeType de carpeta «application/vnd.google-apps.folder», y el operador `q` con
+# la sintaxis `name = 'x' and mimeType = '...' and trashed = false`.
+
+DRIVE_CARPETA_RESERVA = "nexus"          # solo si umbrales.json falta o está roto
+DRIVE_MIME_CARPETA = "application/vnd.google-apps.folder"
+REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
+
+_ultimo_subido: dict = {}                # id/enlace de lo último que subió nexus
+
+
+def _umbrales_drive() -> dict:
+    """Lee la sección «drive» de config/umbrales.json. El nombre de la carpeta NO
+    está a fuego en el código a propósito: si mañana Adrian quiere que los informes
+    caigan en «Informes nexus» o en «CONTENIDO», se cambia una línea del JSON y ya,
+    sin tocar Python ni volver a autorizar nada."""
+    vals = {"carpeta": DRIVE_CARPETA_RESERVA}
+    try:
+        import json as _j
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (_j.loads(f.read_text(encoding="utf-8")) or {}).get("drive") or {}
+            if isinstance(leido.get("carpeta"), str) and leido["carpeta"].strip():
+                vals["carpeta"] = leido["carpeta"].strip()
+    except Exception:
+        pass                              # archivo roto → reserva, nunca reventar
+    return vals
+
+
+def _drive_escape(valor: str) -> str:
+    """Escapa un literal para el parámetro `q`. Google lo dice explícitamente: la
+    comilla simple y la contrabarra se escapan con contrabarra. Sin esto, una
+    carpeta llamada «Adri's» genera una consulta rota (error 400) en vez de una
+    búsqueda que no encuentra nada, que es peor porque parece un fallo de red."""
+    return valor.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _drive_service():
+    from googleapiclient.discovery import build
+    return build("drive", "v3", credentials=_get_creds(), cache_discovery=False)
+
+
+def _drive_carpeta_id(svc, nombre: str) -> str:
+    """Devuelve el id de la carpeta de destino; la crea si no existe.
+
+    OJO con el scope drive.file: files.list SOLO devuelve ficheros creados por esta
+    app. Si tú creaste «nexus» a mano, esta búsqueda NO la encuentra y nexus creará
+    otra carpeta con el mismo nombre. No es un bug: es la contrapartida de no pedir
+    acceso a todo tu Drive (ver el comentario largo junto a SCOPES)."""
+    q = (f"name = '{_drive_escape(nombre)}' and mimeType = '{DRIVE_MIME_CARPETA}' "
+         f"and trashed = false")
+    res = svc.files().list(q=q, spaces="drive", pageSize=10,
+                           fields="files(id, name)",
+                           supportsAllDrives=True,
+                           includeItemsFromAllDrives=True).execute()
+    encontradas = res.get("files", [])
+    if encontradas:
+        return encontradas[0]["id"]
+    carpeta = svc.files().create(
+        body={"name": nombre, "mimeType": DRIVE_MIME_CARPETA},
+        fields="id", supportsAllDrives=True).execute()
+    return carpeta["id"]
+
+
+def _drive_subir(ruta: Path, carpeta: str = "", mimetype: str = "") -> dict:
+    """Sube un fichero a la carpeta configurada y devuelve id, nombre y enlace.
+
+    `resumable=True` a propósito: un informe de competencia con imágenes o varios
+    cientos de KB por una conexión doméstica es justo el caso en el que una subida
+    simple se corta a la mitad y hay que empezar de cero."""
+    from googleapiclient.http import MediaFileUpload
+    nombre_carpeta = carpeta or _umbrales_drive()["carpeta"]
+    svc = _drive_service()
+    padre = _drive_carpeta_id(svc, nombre_carpeta)
+    mime = mimetype or _drive_mime(ruta)
+    media = MediaFileUpload(str(ruta), mimetype=mime, resumable=True)
+    try:
+        creado = svc.files().create(
+            body={"name": ruta.name, "parents": [padre]},
+            media_body=media,
+            # webViewLink es el enlace «para abrirlo en el navegador»; es el que hay
+            # que pegarle a ChatGPT/Claude. webContentLink es de descarga directa y
+            # NO sirve para eso.
+            fields="id, name, webViewLink, mimeType, size",
+            supportsAllDrives=True).execute()
+    finally:
+        # MediaFileUpload deja el fichero ABIERTO y solo lo cierra en su __del__.
+        # En Windows eso significa que, mientras el objeto siga vivo, el .md queda
+        # bloqueado y nadie puede moverlo ni reescribirlo. Se cierra a mano, que es
+        # de las cosas que se descubren tarde y siempre con el informe del día.
+        try:
+            media.stream().close()
+        except Exception:
+            pass
+    creado["carpeta"] = nombre_carpeta
+    return creado
+
+
+def _drive_mime(ruta: Path) -> str:
+    """text/markdown para los .md (RFC 7763). Se pone a mano porque el mimetypes de
+    Python NO conoce .md y devolvería None → Drive lo guardaría como binario y
+    ChatGPT/Claude no sabrían leerlo."""
+    ext = ruta.suffix.lower()
+    if ext in (".md", ".markdown"):
+        return "text/markdown"
+    import mimetypes
+    return mimetypes.guess_type(ruta.name)[0] or "application/octet-stream"
+
+
+def _drive_listar(limite: int = 10, carpeta: str = "") -> list[dict]:
+    """Lo que nexus ha subido, lo más reciente primero. Con drive.file esto es
+    literalmente «lo mío»: no puede listar el resto del Drive aunque quisiera."""
+    nombre_carpeta = carpeta or _umbrales_drive()["carpeta"]
+    svc = _drive_service()
+    padre = _drive_carpeta_id(svc, nombre_carpeta)
+    res = svc.files().list(
+        q=f"'{_drive_escape(padre)}' in parents and trashed = false",
+        spaces="drive", pageSize=max(1, min(limite, 50)),
+        orderBy="modifiedTime desc",
+        fields="files(id, name, webViewLink, modifiedTime, size)",
+        supportsAllDrives=True, includeItemsFromAllDrives=True).execute()
+    return res.get("files", [])
+
+
+def _drive_fichero_pedido(text: str) -> Path | None:
+    """Qué fichero hay que subir. Por orden: 1) una ruta o un nombre con extensión
+    dicho en la propia orden; 2) el informe .md más reciente de data/reports.
+    Si no hay ninguno devuelve None y el handler lo DICE, en vez de subir algo que
+    el usuario no ha pedido — subir el fichero equivocado al Drive de alguien es de
+    los errores que no se deshacen solos."""
+    m = re.search(r"[«\"']([^«»\"'\n]+\.[A-Za-z0-9]{1,5})[»\"']", text)
+    if not m:
+        m = re.search(r"\b([A-Za-z]:[\\/][^\s«»\"']+\.[A-Za-z0-9]{1,5})", text)
+    if not m:
+        # INCIDENTE: aquí había [\w .\-]+ , que ADMITE ESPACIOS y es codicioso, así
+        # que en «sube viejo.md a drive» se llevaba también el verbo y buscaba un
+        # fichero llamado «sube viejo.md». Sin espacios: un nombre con espacios se
+        # dice entre comillas y lo coge la primera regex.
+        m = re.search(r"(?:^|\s)([\w\-.]+\.(?:md|markdown|txt|pdf|docx|xlsx|csv|json|html?))\b",
+                      text, re.IGNORECASE)
+    if m:
+        cand = Path(m.group(1).strip()).expanduser()
+        if cand.is_file():
+            return cand
+        enreports = REPORTS_DIR / cand.name
+        if enreports.is_file():
+            return enreports
+        if REPORTS_DIR.is_dir():        # el usuario no escribe respetando mayúsculas
+            for p in REPORTS_DIR.iterdir():
+                if p.is_file() and p.name.lower() == cand.name.lower():
+                    return p
+        return None                     # nombrado y no encontrado → se DICE, no se suple
+    if REPORTS_DIR.is_dir():
+        mds = sorted((p for p in REPORTS_DIR.glob("*.md") if p.is_file()),
+                     key=lambda p: p.stat().st_mtime, reverse=True)
+        if mds:
+            return mds[0]
+    return None
+
+
+DRIVE_SIN_SCOPE_MSG = (
+    "Para usar Google Drive necesito un permiso que tu autorización actual no "
+    "tiene todavía (drive.file: solo los archivos que cree yo, nada más de tu "
+    "Drive). Arreglo: borra config/google_token.json y vuelve a pedírmelo — se "
+    "abrirá el navegador UNA vez para que lo autorices. Si Google se queja de "
+    "que la API no está habilitada, entra en console.cloud.google.com → APIs y "
+    "servicios → habilita «Google Drive API» en el mismo proyecto que ya usas "
+    "para Gmail."
+)
+
+
 def _write_creds(cid: str, csec: str) -> None:
     import json
     CREDS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -1014,7 +1237,7 @@ def _ensure_credentials(ctx) -> bool:
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
-    global _last_emails
+    global _last_emails, _ultimo_subido
     # Diagnóstico preciso: distinguir librerías que faltan de credenciales que faltan
     try:
         import googleapiclient  # noqa: F401
@@ -1356,10 +1579,81 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": "Tus tareas de Google:\n" + "\n".join(f"• {t}" for t in tasks) +
                              "\n\nDi «crea una tarea en el to-do: …» si quieres añadir otra."}
 
-    except FileNotFoundError:
+        if intent == "drive_upload":
+            ruta = _drive_fichero_pedido(text)
+            if ruta is None:
+                # Honestidad antes que iniciativa: NO se sube «algo parecido».
+                return {"reply": "No sé qué archivo quieres que suba. Dímelo por su "
+                                 "nombre («sube informe-2026-08-02.md a drive») o genera "
+                                 "antes el informe y yo subo el último .md de "
+                                 "data/reports. Ahora mismo ahí no hay ninguno."}
+            carpeta = _umbrales_drive()["carpeta"]
+            f = await asyncio.to_thread(_drive_subir, ruta, carpeta)
+            _ultimo_subido = f
+            enlace = f.get("webViewLink") or "(Drive no ha devuelto enlace)"
+            return {"reply": f"Subido a tu Drive, carpeta «{carpeta}»: «{f.get('name')}».\n"
+                             f"{enlace}\n"
+                             f"(id {f.get('id')}) — ya puedes decirle a ChatGPT o Claude "
+                             f"que lo lea de ahí.",
+                    "data": {"drive": f}}
+
+        if intent == "drive_link":
+            if _ultimo_subido.get("webViewLink"):
+                return {"reply": f"«{_ultimo_subido.get('name')}» → "
+                                 f"{_ultimo_subido['webViewLink']}"}
+            carpeta = _umbrales_drive()["carpeta"]
+            subidos = await asyncio.to_thread(_drive_listar, 1, carpeta)
+            if not subidos:
+                return {"reply": f"Todavía no he subido nada a la carpeta «{carpeta}» de "
+                                 "tu Drive, así que no hay enlace que darte. Di «sube el "
+                                 "informe a drive» y te devuelvo el enlace."}
+            u = subidos[0]
+            return {"reply": f"Lo último que subí: «{u.get('name')}» → "
+                             f"{u.get('webViewLink', '(sin enlace)')}"}
+
+        if intent == "drive_list":
+            carpeta = _umbrales_drive()["carpeta"]
+            subidos = await asyncio.to_thread(_drive_listar, 10, carpeta)
+            if not subidos:
+                # Ojo al matiz: «no he subido nada» ≠ «tu Drive está vacío». Con
+                # drive.file nexus NO ve el resto de tu Drive y no puede afirmarlo.
+                return {"reply": f"No he subido nada a la carpeta «{carpeta}». Del resto "
+                                 "de tu Drive no puedo decirte nada: solo tengo permiso "
+                                 "sobre los archivos que creo yo."}
+            lineas = [f"{i+1}. {u.get('name')} — {u.get('webViewLink', 'sin enlace')}"
+                      for i, u in enumerate(subidos)]
+            return {"reply": f"Lo que he subido a «{carpeta}» ({len(subidos)}, lo más "
+                             f"reciente primero):\n" + "\n".join(lineas) +
+                             "\n\nSolo veo lo mío: el resto de tu Drive no lo toco.",
+                    "data": {"drive": subidos}}
+
+    except FileNotFoundError as exc:
+        # Distinguir «faltan las credenciales» de «el archivo que ibas a subir ya no
+        # está»: antes ambos salían como SETUP_MSG y mandaban a reconfigurar Google
+        # por un .md que alguien había movido.
+        if intent.startswith("drive_") and getattr(exc, "filename", "") \
+                and "google_credentials" not in str(getattr(exc, "filename", "")):
+            return {"reply": f"Ese archivo ya no está donde decía: {exc.filename}. "
+                             "No he subido nada. Dime el nombre correcto o vuelve a "
+                             "generar el informe."}
         return {"reply": SETUP_MSG}
     except Exception as exc:
         msg = str(exc).lower()
+        # DRIVE PRIMERO, y por un motivo concreto: la comprobación de «acceso
+        # bloqueado» de abajo captura «400» y «unauthorized», así que se tragaba el
+        # fallo típico de Drive (token viejo sin el scope nuevo, o la Drive API sin
+        # habilitar) y soltaba un texto de redirect_uri que no arregla nada. Un
+        # mensaje que manda a arreglar lo que no está roto es peor que ninguno.
+        if intent.startswith("drive_"):
+            if any(k in msg for k in (
+                    "insufficient", "scope", "insufficientpermissions",
+                    "access_token_scope", "forbidden", "403",
+                    "has not been used", "accessnotconfigured", "disabled")):
+                return {"reply": DRIVE_SIN_SCOPE_MSG}
+            if isinstance(exc, (PermissionError, OSError)) and not isinstance(exc, FileNotFoundError):
+                return {"reply": f"No he podido leer el archivo para subirlo: {exc}. "
+                                 "Comprueba que existe y que no lo tiene abierto otro "
+                                 "programa (Word bloquea el archivo mientras lo edita)."}
         # «Acceso bloqueado / solicitud no válida» = Error 400 del cliente OAuth.
         blocked = any(k in msg for k in (
             "redirect_uri", "mismatch", "invalid_request", "invalid request",
@@ -1377,5 +1671,5 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          "Si es de autorización, borra config/google_token.json y reintenta."}
 
     return {"reply": "Esa orden de Google no la tengo mapeada. Prueba «lee mis correos», "
-                     "«cuántos correos sin leer», «qué tengo en el calendario» o "
-                     "«tareas de google»."}
+                     "«cuántos correos sin leer», «qué tengo en el calendario», "
+                     "«tareas de google» o «sube el informe a drive»."}
