@@ -1,0 +1,65 @@
+# openspec/config.yaml
+schema: spec-driven
+
+context: |
+  Tech stack: FastAPI + uvicorn ASGI backend, pywebview desktop shell, vanilla HTML/CSS/JS frontend (no build step, manual ?v=NN cache-busting in frontend/index.html lines 9 and 126)
+  Architecture: backend/desktop.py boots uvicorn + native window; ASGI app at backend.app:app; fixed port 127.0.0.1:8177; backend/core/skills_loader.py routes by first-match regex, folders scanned alphabetically, intents in dict order, unmatched phrases fall to the LLM planner in backend/core/brain.py
+  Data: Postgres 16 + pgvector at 127.0.0.1:5433 (container nexus_memoria_postgres, db nexus_core), self-repairing schema in backend/core/memory.py:191, provisioned by skills/autoprovision/; n8n at localhost:5678 (container openclaw_3a_n8n) for automations
+  Testing: custom check()-based scripts, no pytest/no formal coverage; full suite via tests/run_all.py (must stay all-green, gate for the project); Playwright e2e via tests/e2e/run_e2e.py (needs PYTHONIOENCODING=utf-8, targets 9/9 flows)
+  Style: Spanish with accents + UTF-8 everywhere (ASCII-only .bat files for cmd codepage), thresholds/keywords live in config/umbrales.json never hardcoded, no fabricated figures/descriptions (REGLA INVIOLABLE in backend/core/llm.py), read-only by default — deletions need explicit user confirmation
+  Env: Python 3.12 in root .venv, MUST invoke .venv\Scripts\python.exe (system Python is 3.14 and breaks faster-whisper/pythonnet); editing any skill.py requires an app restart (skills_loader only reads folders at boot)
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes, especially anything touching skills_loader ordering, the Postgres/pgvector schema, or n8n workflows
+    - State impact on the closed-loop Content OS pipeline (data→patterns→hypotheses→experiments→content→measurement→validation→memory→replanning) when relevant
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - New persistent entities (BrandProfile, Observation, Hypothesis, Experiment, Insight, Evidence, MemoryEntry) must document their Postgres/pgvector schema deltas and self-repair behavior
+  design:
+    - Document architecture decisions with rationale, not just the outcome
+    - Note skills_loader ordering impact for any new or renamed skill folder (alphabetical folder order + dict-order intents, first match wins)
+    - For learning-engine work, state explicitly which parts are deterministic vs LLM-assisted (no invented numbers/descriptions rule applies everywhere)
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Register every new test suite file in tests/run_all.py's suite list — an unregistered suite never runs
+  apply:
+    guidelines:
+      - Follow existing code patterns; comments explain the INCIDENT that motivated the code, not just the what
+      - Never touch config/settings.json or config/secrets.json without explicit user permission
+      - Restart nexus (cmd /c start "" run.bat, which also kills the process on 8177) after editing any skill.py before testing behavior
+      - Always invoke .venv\Scripts\python.exe, never a bare python
+    tdd: true
+    test_command: ".venv\\Scripts\\python.exe tests\\run_all.py"
+  verify:
+    test_command: ".venv\\Scripts\\python.exe tests\\run_all.py"
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Confirm with the user before archiving any change that deletes data or weakens the read-only-by-default rule
+
+testing:
+  strict_tdd: true
+  detected: 2026-08-01
+  test_runner:
+    command: ".venv\\Scripts\\python.exe tests\\run_all.py"
+    framework: "custom check()-based scripts (no pytest)"
+  test_layers:
+    unit: true
+    integration: true
+    e2e: true
+  layers_detail:
+    unit: "tests/test_*.py run individually, e.g. .venv\\Scripts\\python.exe tests\\test_nucleo.py"
+    integration: "suites that boot a real uvicorn server, e.g. test_entrega_real.py, test_acceso_remoto.py (auto-retried once by run_all.py in case of slow startup)"
+    e2e: "Playwright real-UI flows via tests/e2e/run_e2e.py, requires PYTHONIOENCODING=utf-8, target 9/9 flows"
+  coverage:
+    available: false
+    command: ""
+  quality_tools:
+    linter: ""
+    type_checker: ""
+    formatter: ""
+  registration_rule: "Every new test suite file MUST be added to the suite tuple in tests/run_all.py or it will never execute."
