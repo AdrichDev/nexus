@@ -428,6 +428,145 @@ def test_enrutado():
         check(route(frase) is not None, f"«{frase}» no se cae al planificador")
 
 
+# ══════════════ 10. El contrato del payload (entrega B) ══════════════
+# Claves cuyo número NO necesita sobre: contadores de evidencia, posiciones del
+# calendario y las series que se le pasan tal cual a `charts.js` para dibujar.
+# Es una lista BLANCA explícita y corta a propósito: todo lo que no esté aquí y
+# sea un número tiene que traer su procedencia o no viaja.
+_LIBRES = {"analyzed", "n", "consistent", "promising", "observations", "apuntes",
+           "complete_pct", "eng", "likes", "comments", "hour", "reach",
+           "median", "median_eng", "value", "x", "y"}
+
+
+def _numeros_sueltos(nodo, ruta="payload"):
+    """Todo número del payload que NO viaje dentro de un sobre `dato`."""
+    fuera = []
+    if isinstance(nodo, dict):
+        if "origen" in nodo and "valor" in nodo:
+            return fuera                # es un sobre: su interior es legítimo
+        for k, v in nodo.items():
+            if k == "charts" or k in _LIBRES:
+                continue
+            fuera += _numeros_sueltos(v, f"{ruta}.{k}")
+    elif isinstance(nodo, list):
+        for i, v in enumerate(nodo):
+            fuera += _numeros_sueltos(v, f"{ruta}[{i}]")
+    elif isinstance(nodo, (int, float)) and not isinstance(nodo, bool):
+        fuera.append(f"{ruta} = {nodo}")
+    return fuera
+
+
+def test_dashboard_contrato():
+    print("· el payload de /api/contentos: ninguna cifra viaja fuera de un sobre")
+    from backend.core import contentos, procedencia
+
+    d = run(contentos.dashboard())
+    k = d.get("kpis") or {}
+
+    sueltos = _numeros_sueltos(d)
+    check(not sueltos, f"números sin procedencia en el payload: {sueltos[:4]}")
+
+    for campo in ("followers", "reach_month", "media_count", "retention"):
+        s = k.get(campo)
+        check(isinstance(s, dict) and s.get("origen") in procedencia.ORIGENES,
+              f"kpis.{campo} no viaja en un sobre con origen válido: {s!r}")
+
+    # La tarjeta que era ficción entera: no existe ninguna entidad Experiment en
+    # el proyecto, así que el KPI desaparece, no se queda en «—».
+    check("experiments" not in k, "la tarjeta «Experimentos» sigue en el payload")
+
+    ret = k.get("retention") if isinstance(k.get("retention"), dict) else {}
+    check(ret.get("origen") == procedencia.SIN_DATOS,
+          "la retención se sigue presentando como algo calculado")
+    check(ret.get("valor") is None, f"la retención trae un valor: {ret.get('valor')!r}")
+    check(bool(ret.get("aviso")), "la retención no dice POR QUÉ no se puede calcular")
+
+    # Sin credenciales configuradas (el estado real de hoy) nada puede decir «medido».
+    for campo, s in k.items():
+        check(not isinstance(s, dict) or s.get("origen") != procedencia.MEDIDO,
+              f"kpis.{campo} se declara medido sin cuenta conectada")
+    check(d.get("modo") == procedencia.DEMOSTRACION, "el payload no declara su modo")
+    voc = d.get("vocabulario") or {}
+    check(bool(voc.get("textos")) and bool(voc.get("etiquetas")),
+          "el payload no lleva los textos de umbrales.json: el HUD los tendría a fuego")
+    check(bool(d.get("vacios", {}).get("ideas")),
+          "las secciones vacías no traen su texto «Todavía no hay…»")
+
+
+def test_sin_literales():
+    print("· 48.6, 4.1, 18.4 y 3.2 ya no están escritos en contentos.py")
+    fuente = (ROOT / "backend" / "core" / "contentos.py").read_text(encoding="utf-8")
+    for lit in ("48.6", "4.1", "18.4", "3.2"):
+        check(lit not in fuente,
+              f"el literal {lit} sigue en backend/core/contentos.py")
+    check("experiments" not in fuente,
+          "la clave «experiments» sigue en backend/core/contentos.py")
+
+
+def test_evidencia_y_aprendizajes():
+    print("· un apunte no es una evidencia, y un 0 % no es «calidad medida»")
+    from backend.core import contentos
+
+    fuente = (ROOT / "backend" / "core" / "contentos.py").read_text(encoding="utf-8")
+    # Lo que no puede haber es una ASIGNACIÓN de etiqueta: `"conf": "consistente"`.
+    # Leerla (`l.get("conf")`) es legítimo; ponerla a mano sobre un texto que
+    # nadie ha medido es justo el incidente.
+    check('"conf": "' not in fuente,
+          "todavía se teclea a mano una etiqueta de confianza en contentos.py")
+
+    d = run(contentos.dashboard())
+    ev = d.get("evidence") or {}
+    # Un 0 se lee como «calidad pésima, medida». La verdad es «no medido».
+    check(ev.get("complete_pct") is None,
+          f"complete_pct vale {ev.get('complete_pct')!r} en vez de None")
+    check(ev.get("suficiente") is False, "evidence no dice que la muestra no basta")
+    check(bool(ev.get("aviso")), "evidence no explica qué falta para concluir algo")
+    check(ev.get("consistent") == 0 and ev.get("promising") == 0,
+          "un apunte sin evidencia sigue sumando como conclusión")
+    aprend = d.get("learnings") or []
+    check(ev.get("apuntes") == len(aprend),
+          f"los apuntes de semilla no se cuentan como apuntes ({ev.get('apuntes')})")
+    for l in aprend:
+        check("conf" not in l, f"aprendizaje sin evidencia con etiqueta de confianza: {l!r}")
+        check(l.get("origen") == "apunte_manual", f"aprendizaje sin origen: {l!r}")
+        check(bool(l.get("etiqueta")), "el apunte no se rotula con el texto de umbrales.json")
+
+    # Y al revés: con muestra, periodo y método, la etiqueta SÍ se gana.
+    contentos.add_item("learning", {
+        "text": "Los reels de menos de 20 s se terminan más.", "n": 9,
+        "periodo": "junio 2026", "metodo": "mediana de engagement",
+        "conf": "consistente"})
+    d2 = run(contentos.dashboard())
+    con = [l for l in (d2.get("learnings") or []) if l.get("n")]
+    check(bool(con) and con[0].get("conf") == "consistente",
+          "un aprendizaje CON n, periodo y método pierde su etiqueta")
+    check(d2.get("evidence", {}).get("complete_pct") is not None,
+          "con evidencia real, complete_pct sigue nulo")
+
+
+def test_hud_contrato():
+    print("· el HUD se niega a pintar lo que no trae sobre")
+    js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "frontend" / "css" / "command.css").read_text(encoding="utf-8")
+
+    check("function cosDato" in js, "no existe cosDato(): el único camino a la pantalla")
+    check("sin_procedencia" in js,
+          "cosDato() no tiene la red de «— sin procedencia» para un valor sin sobre")
+    check("k.experiments" not in js, "el HUD sigue pintando la tarjeta de Experimentos")
+    check("(k.retention || 0)" not in js,
+          "el HUD sigue pintando la retención como un número")
+    check("ev.complete_pct || 0" not in js,
+          "el HUD convierte un complete_pct nulo en 0 %: eso es inventarse una medida")
+    check("k.followers_delta" not in js and "k.reach_delta" not in js,
+          "el HUD sigue leyendo los deltas sueltos que ya no existen")
+    check(js.count("cosMarca(") >= 4,
+          "el modo demostración no está marcado en CADA bloque, solo en la cabecera")
+    check(html.count("?v=29") >= 2 and "?v=28" not in html,
+          "falta subir el cache-busting a ?v=29 en frontend/index.html (líneas 9 y 126)")
+    check(".cos-marca" in css, "faltan los estilos de la marca de origen")
+
+
 def main() -> int:
     test_sobre()
     test_umbrales()
@@ -439,6 +578,10 @@ def main() -> int:
     test_inspire_politica()
     test_aviso_heredado()
     test_enrutado()
+    test_dashboard_contrato()
+    test_sin_literales()
+    test_evidencia_y_aprendizajes()
+    test_hud_contrato()
     print()
     print("=" * 50)
     print(f"{_pass} OK, {len(_fail)} fallo(s)")

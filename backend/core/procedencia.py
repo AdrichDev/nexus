@@ -58,6 +58,13 @@ _RESERVA = {
         "apunte_manual": "apunte tuyo, sin evidencia",
         "sin_retencion": ("La Graph API no da el tiempo de visualización de un "
                           "reel, así que la retención no se puede calcular."),
+        "unidad_evidencia": "aprendizajes con muestra, periodo y método",
+        "sin_evidencia": ("Solo hay {n} aprendizaje(s) con muestra, periodo y "
+                          "método (hacen falta {minimo}): todavía no hay nada "
+                          "concluyente."),
+        "periodo_seguidores": "últimos 30 días",
+        "periodo_alcance": "últimos 28 días",
+        "periodo_publicaciones": "histórico de la cuenta",
     },
     "validador": {"magnitud_minima": 100},
 }

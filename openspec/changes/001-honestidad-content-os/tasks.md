@@ -79,10 +79,10 @@ donde el usuario más habla, y no depende de ningún contrato: se puede arreglar
 
 ## Fase 2: Dashboard honesto
 
-- [ ] 2.1 `contentos.py` `dashboard()`: `metricas = await _ig_metrics(); origen = MEDIDO if metricas else DEMOSTRACION; metricas = metricas or contentos_demo.metricas()`; envolver `followers`, `reach_month`, `media_count` en `dato()`; `retention` → `dato(None, SIN_DATOS, aviso=…)` (Graph API no da tiempo de visualización sin cuenta); deltas dentro del sobre o `None`; eliminar la clave `experiments`. Test: barrido del payload — ningún número fuera de sobre; `experiments` ausente.
-- [ ] 2.2 `_seed()` (`:52-57`) y `add_item("learning", …)` (`:85-87`) sin `conf` tecleado; un learning nuevo entra con `origen: "apunte"` salvo que traiga `evidencia` completa (`n`, periodo, método). Test: aprendizaje de semilla sale sin `conf`.
-- [ ] 2.3 Reconstruir `evidence` al estilo `radiografia()` (`inteligencia.py:312`): `{unidad, n, suficiente, aviso, complete_pct: None|int, consistent, promising, observations, apuntes}`; `complete_pct` solo cuenta learnings con evidencia completa. Test: `complete_pct is None` con cero evidencia; nunca `0` como calidad.
-- [ ] 2.4 Test de lectura del módulo: `48.6`, `4.1`, `18.4` no aparecen como literales en `backend/core/contentos.py`.
+- [x] 2.1 `contentos.py` `dashboard()`: `metricas = await _ig_metrics(); origen = MEDIDO if metricas else DEMOSTRACION; metricas = metricas or contentos_demo.metricas()`; envolver `followers`, `reach_month`, `media_count` en `dato()`; `retention` → `dato(None, SIN_DATOS, aviso=…)` (Graph API no da tiempo de visualización sin cuenta); deltas dentro del sobre o `None`; eliminar la clave `experiments`. Test: barrido del payload — ningún número fuera de sobre; `experiments` ausente.
+- [x] 2.2 `_seed()` (`:52-57`) y `add_item("learning", …)` (`:85-87`) sin `conf` tecleado; un learning nuevo entra con `origen: "apunte"` salvo que traiga `evidencia` completa (`n`, periodo, método). Test: aprendizaje de semilla sale sin `conf`.
+- [x] 2.3 Reconstruir `evidence` al estilo `radiografia()` (`inteligencia.py:312`): `{unidad, n, suficiente, aviso, complete_pct: None|int, consistent, promising, observations, apuntes}`; `complete_pct` solo cuenta learnings con evidencia completa. Test: `complete_pct is None` con cero evidencia; nunca `0` como calidad.
+- [x] 2.4 Test de lectura del módulo: `48.6`, `4.1`, `18.4` no aparecen como literales en `backend/core/contentos.py`.
 
 ## Fase 3: Generador con la regla extendida
 
@@ -98,20 +98,31 @@ donde el usuario más habla, y no depende de ningún contrato: se puede arreglar
 
 ## Fase 5: HUD
 
-- [ ] 5.1 `frontend/js/command.js`: `cosDato(d)` — único pintor de cifras; sin `d.origen` pinta `—` y «sin procedencia», nunca el número.
-- [ ] 5.2 `command.js` `cosKpi()` (`:1606`) recibe el sobre completo; retirar la 4ª tarjeta «Experimentos» (`:1533`).
-- [ ] 5.3 `command.js` `cosPanel()`: parámetro `extra` con chip de origen (demo/nada) en la cabecera de cada bloque (KPIs, gráficas, ranking, próxima acción, aprendizajes).
-- [ ] 5.4 `frontend/css/command.css`: `.cos-marca`, `.cos-marca.demo`, `.cos-marca.nada`, estado apagado del anillo de datos.
-- [ ] 5.5 `frontend/index.html`: `?v=28` → `?v=29` en `:9` y `:126` (cache-busting manual, obligatorio si se toca CSS/JS).
+- [x] 5.1 `frontend/js/command.js`: `cosDato(d)` — único pintor de cifras; sin `d.origen` pinta `—` y «sin procedencia», nunca el número.
+- [x] 5.2 `command.js` `cosKpi()` (`:1606`) recibe el sobre completo; retirar la 4ª tarjeta «Experimentos» (`:1533`).
+- [x] 5.3 `command.js` `cosPanel()`: parámetro `extra` con chip de origen (demo/nada) en la cabecera de cada bloque (KPIs, gráficas, ranking, próxima acción, aprendizajes).
+- [x] 5.4 `frontend/css/command.css`: `.cos-marca`, `.cos-marca.demo`, `.cos-marca.nada`, estado apagado del anillo de datos.
+- [x] 5.5 `frontend/index.html`: `?v=28` → `?v=29` en `:9` y `:126` (cache-busting manual, obligatorio si se toca CSS/JS).
 
 Test: `tests/e2e/run_e2e.py` `flujo_contentos` sigue con ≥6 secciones plegables (no
 afirma nada sobre KPIs, así que no requiere cambio).
 
 ## Fase 6: Cierre y verificación
 
-- [ ] 6.1 Completar `test_content_os_honestidad.py` con el caso de contrato restante: `learnings[]` con `conf` solo si trae `n`+periodo+método.
-- [ ] 6.2 Reiniciar nexus (`run.bat`) — obligatorio tras tocar `skills/content_os/skill.py` (`skills_loader` solo lee carpetas al arrancar) — y ejecutar `.venv\Scripts\python.exe tests\run_all.py` → **TODO VERDE**.
-- [ ] 6.3 (si procede) `PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe tests/e2e/run_e2e.py` → objetivo 9/9.
+- [x] 6.1 Completar `test_content_os_honestidad.py` con el caso de contrato restante: `learnings[]` con `conf` solo si trae `n`+periodo+método.
+- [x] 6.2 Reiniciar nexus (`run.bat`) — obligatorio tras tocar `skills/content_os/skill.py` (`skills_loader` solo lee carpetas al arrancar) — y ejecutar `.venv\Scripts\python.exe tests\run_all.py` → **TODO VERDE**.
+- [x] 6.3 (si procede) `PYTHONIOENCODING=utf-8 .venv/Scripts/python.exe tests/e2e/run_e2e.py` → objetivo 9/9.
+
+> **ENTREGA B APLICADA (01/08/2026)** — Fases 2, 5 y 6 completas: 23/23 tareas.
+> `run_all.py` TODO VERDE, e2e 9/9, sin commitear. Líneas REALES de la entrega B:
+> **462** autoras (`git diff --stat` sobre ficheros ya seguidos; ningún fichero
+> nuevo). Estimación 450-550: por primera vez en esta sesión, dentro.
+>
+> **Salvedad de la 6.2**: NO se ha reiniciado la instancia de nexus del usuario
+> (PID 59748, puerto 8177): sigue con el código viejo cargado y hay que cerrarla
+> y volver a abrirla con `run.bat` para ver el panel nuevo. La verificación de
+> runtime se hizo contra un PROCESO NUEVO en el puerto 8178, y la e2e levanta su
+> propio uvicorn con datos de arenero.
 
 ## Orden de dependencia
 

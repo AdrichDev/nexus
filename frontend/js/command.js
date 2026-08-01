@@ -1474,12 +1474,52 @@
     </section>`;
   }
 
+  // Vocabulario de Content OS: llega DENTRO del payload (config/umbrales.json).
+  // El HUD no tiene ni un rótulo de procedencia a fuego.
+  let COS_VOC = {};
+
+  const cosCls = (o) => o === 'medido' ? 'ok' : o === 'demostración' ? 'demo' : 'nada';
+
+  /* El chip de procedencia de un bloque entero. El badge de la cabecera no
+     bastaba: bastaba con hacer scroll para perderlo de vista y volver a leer
+     los KPIs como si fueran tuyos. Va en CADA bloque que enseñe demostración. */
+  function cosMarca(origen) {
+    const et = (COS_VOC.etiquetas || {})[origen];
+    const tx = COS_VOC.textos || {};
+    return `<span class="cos-marca ${cosCls(origen)}">${esc(et || tx.sin_procedencia || 'sin procedencia')}</span>`;
+  }
+
+  /* EL ÚNICO CAMINO DE UNA CIFRA A LA PANTALLA.
+
+     Si el valor no llega dentro de un sobre `{valor, origen, …}`, esto NO pinta
+     el número: pinta «— sin procedencia». Es deliberado y es una red, no un
+     adorno. El incidente de 01/08/2026 fue justo esto: números de un dataset de
+     mentira pintados igual que los de la Graph API, indistinguibles mirando la
+     pantalla. Cualquier fuga futura del contrato se ve aquí en vez de colarse. */
+  function cosDato(s, fmt, sufijo) {
+    const tx = COS_VOC.textos || {}, et = COS_VOC.etiquetas || {};
+    if (!s || typeof s !== 'object' || !et[s.origen]) {
+      return { v: '—', cls: 'nada', et: tx.sin_procedencia || 'sin procedencia',
+               aviso: '', delta: null, periodo: '' };
+    }
+    const vacio = (s.valor === null || s.valor === undefined);
+    return {
+      v: vacio ? '—' : ((fmt ? fmt(s.valor) : String(s.valor)) + (sufijo || '')),
+      cls: cosCls(s.origen), et: et[s.origen], aviso: s.aviso || '',
+      delta: vacio ? null : s.delta, periodo: s.periodo || '',
+    };
+  }
+
   async function mountContentOS() {
     const box = $('#cos'); if (!box) return;
     const d = await api('/api/contentos');
     if (!d) { box.innerHTML = '<div class="empty">No he podido cargar Content OS.</div>'; return; }
     const k = d.kpis || {}, na = d.next_action || {}, ev = d.evidence || {};
-    const delta = (v) => `<span class="cos-delta ${v >= 0 ? 'up' : 'dn'}">${v >= 0 ? '▲' : '▼'} ${Math.abs(v)}%</span>`;
+    COS_VOC = d.vocabulario || {};
+    const vac = d.vacios || {};
+    // Los deltas ya no se pintan aquí: viajan DENTRO del sobre y los pinta
+    // `cosKpi()`, que sabe callarse cuando no hay con qué comparar. Antes, el
+    // delta de alcance caía a cero y se pintaba «▲ 0 %» en verde: una medida.
     const confCls = { 'consistente': 'c', 'prometedora': 'p', 'observación': 'o' };
 
     // ── Plan: cada publicación se abre para ver su ficha ──────────────────
@@ -1497,18 +1537,21 @@
           <div class="cos-campo"><span>Estado</span>${esc(p.status || '—')}</div>
           ${p.note ? `<div class="cos-campo"><span>Nota</span>${esc(p.note)}</div>` : ''}
         </div>
-      </article>`).join('') || '<div class="empty">Sin publicaciones planificadas.</div>';
+      </article>`).join('') || `<div class="empty">${esc(vac.calendar || '—')}</div>`;
 
     const ideas = (d.ideas || []).map((i) => `<div class="cos-idea">${esc(i)}</div>`).join('')
-      || '<div class="empty">Ninguna idea todavía. Genera una o dictásela a nexus.</div>';
+      || `<div class="empty">${esc(vac.ideas || '—')}</div>`;
     const insp = (d.inspirations || []).map((i) =>
       `<div class="cos-insp"><span class="cos-insp-src">${esc(i.src || '')}</span>
         <span class="cos-insp-n">${esc(i.note || '')}</span></div>`).join('')
-      || '<div class="empty">—</div>';
+      || `<div class="empty">${esc(vac.inspirations || '—')}</div>`;
+    // Un apunte se pinta como apunte: sin punto de color de confianza y con el
+    // rótulo «apunte tuyo, sin evidencia». Antes, un `confCls[l.conf] || 'o'`
+    // le ponía «observación» a cualquier cosa que no trajera etiqueta.
     const learn = (d.learnings || []).map((l) =>
-      `<div class="cos-learn ${confCls[l.conf] || 'o'}"><span class="cos-dot"></span>
-        <div class="cos-learn-t">${esc(l.text)}<em>${esc(l.conf)}</em></div></div>`).join('')
-      || '<div class="empty">Sin aprendizajes acumulados.</div>';
+      `<div class="cos-learn ${l.conf ? (confCls[l.conf] || 'o') : 'apunte'}"><span class="cos-dot"></span>
+        <div class="cos-learn-t">${esc(l.text)}<em>${esc(l.conf || l.etiqueta || '')}</em></div></div>`).join('')
+      || `<div class="empty">${esc(vac.learnings || '—')}</div>`;
     const best = (d.best || []).map((b) => `<div class="cos-rank up">▲ <span class="cos-rank-n">${esc(b.name)}</span><span>${b.eng}</span></div>`).join('');
     const worst = (d.worst || []).map((b) => `<div class="cos-rank dn">▼ <span class="cos-rank-n">${esc(b.name)}</span><span>${b.eng}</span></div>`).join('');
 
@@ -1521,42 +1564,52 @@
       <div class="cos-next">
         <div class="cos-next-ic">✦</div>
         <div class="cos-next-body">
-          <div class="cos-tag">${esc(na.signal || 'Señal')}</div>
+          <div class="cos-tag">${esc(na.signal || 'Señal')} ${cosMarca(na.origen)}</div>
           <h3>${esc(na.title || '')}</h3><p>${esc(na.detail || '')}</p>
           <span class="cos-mini">${na.analyzed || 0} publicaciones analizadas</span>
         </div>
       </div>
+      <div class="cos-bloque-m">Cifras del panel: ${cosMarca(d.modo)}</div>
       <div class="cos-kpis">
-        ${cosKpi('Seguidores', fmtN(k.followers), delta(k.followers_delta || 0), 'últimos 30 días')}
-        ${cosKpi('Alcance mensual', fmtN(k.reach_month), delta(k.reach_delta || 0), 'vs. periodo previo')}
-        ${cosKpi('Retención media', (k.retention || 0) + '%', delta(k.retention_delta || 0), 'reels')}
-        ${cosKpi('Experimentos', String(k.experiments || 0), '<span class="cos-mini2">activos</span>', 'en curso')}
+        ${cosKpi('Seguidores', k.followers, fmtN)}
+        ${cosKpi('Alcance mensual', k.reach_month, fmtN)}
+        ${cosKpi('Retención media', k.retention, null, '%')}
+        ${cosKpi('Publicaciones', k.media_count, fmtN)}
       </div>
       <div class="cos-secs">
         ${cosPanel('plan', `<div class="cos-cal">${cal}</div>`, (d.calendar || []).length)}
         ${cosPanel('ideas', `<div class="cos-gen"><input id="cos-idea-in" placeholder="tema (opcional)…"><button id="cos-idea-btn">✦ Generar idea IA</button></div>
           <div id="cos-ideas" class="cos-ideas">${ideas}</div>`, (d.ideas || []).length)}
         ${cosPanel('aprende', `<div class="cos-learns">${learn}</div>`, (d.learnings || []).length,
-          `${ev.complete_pct || 0}% de datos`)}
+          ev.complete_pct == null ? `${ev.apuntes || 0} apuntes, sin evidencia`
+            : `${ev.complete_pct}% de datos`)}
         ${cosPanel('inspira', `<div class="cos-insps">${insp}</div>`, (d.inspirations || []).length)}
         ${cosPanel('guion', `<div class="cos-gen"><input id="cos-script-in" placeholder="tema del reel…"><button id="cos-script-btn">▶ Generar guion</button></div>
           <div id="cos-script" class="cos-script"></div>`, null)}
         ${cosPanel('salud', `<div class="cos-health">
-            <div class="cos-ring" style="--p:${ev.complete_pct || 0}"><b>${ev.complete_pct || 0}%</b><small>datos</small></div>
+            <!-- El 0 de --p es la LONGITUD del arco cuando no hay nada que dibujar,
+                 no un porcentaje: el número que se lee es «—», y el anillo va gris. -->
+            <div class="cos-ring ${ev.complete_pct == null ? 'nada' : ''}" style="--p:${ev.complete_pct == null ? 0 : ev.complete_pct}"><b>${ev.complete_pct == null ? '—' : ev.complete_pct + '%'}</b><small>datos</small></div>
             <div class="cos-ev">
               <div><span class="cos-dot c"></span>${ev.consistent || 0} consistentes</div>
               <div><span class="cos-dot p"></span>${ev.promising || 0} prometedoras</div>
               <div><span class="cos-dot o"></span>${ev.observations || 0} observaciones</div>
+              <div><span class="cos-dot"></span>${ev.apuntes || 0} apuntes tuyos, sin evidencia</div>
             </div>
-          </div>`, null)}
-        ${cosPanel('metricas', `<div class="cos-charts">
+          </div>
+          <div class="cos-mini">${esc(ev.unidad || '')}: ${ev.n || 0}${ev.suficiente ? '' : ' ⚠'}</div>
+          ${ev.aviso ? `<div class="cos-aviso">${esc(ev.aviso)}</div>` : ''}`, null)}
+        ${cosPanel('metricas', `<div class="cos-bloque-m">Gráficas y ranking: ${cosMarca(d.modo)}</div>
+          <div class="cos-charts">
           ${cosChart('Seguidores (30 días)', 'ch-foll')}
           ${cosChart('Alcance por publicación', 'ch-reach')}
           ${cosChart('Rendimiento vs. mediana', 'ch-dev')}
           ${cosChart('Mezcla de contenido', 'ch-pie')}
           ${cosChart('Hora de publicación vs. engagement', 'ch-scatter')}
-          <div class="panel cos-chart"><h2>Mejores y peores</h2><div class="cos-ranks">${best}${worst}</div></div>
-        </div>`, null)}
+          <div class="panel cos-chart"><h2>Mejores y peores</h2>
+            <div class="cos-bloque-m">${cosMarca(d.modo)}</div>
+            <div class="cos-ranks">${best}${worst}</div></div>
+        </div>`, null, cosMarca(d.modo))}
       </div>`;
 
     // ── plegar / desplegar, y que lo recuerde ─────────────────────────────
@@ -1603,7 +1656,20 @@
       btn.disabled = false; btn.textContent = '▶ Generar guion';
     });
   }
-  const cosKpi = (lbl, val, delta, sub) => `<div class="cos-kpi"><div class="cos-kpi-l">${lbl}</div><div class="cos-kpi-v">${val}</div><div class="cos-kpi-d">${delta} ${sub}</div></div>`;
+  /* Una tarjeta de KPI recibe el SOBRE entero, no un número ya cocinado. Así el
+     rótulo de procedencia y el motivo de un dato que falta viajan pegados a la
+     cifra y no hay forma de pintar uno sin el otro. */
+  function cosKpi(lbl, sobre, fmt, sufijo) {
+    const s = cosDato(sobre, fmt, sufijo);
+    const d = (s.delta === null || s.delta === undefined || isNaN(s.delta)) ? ''
+      : `<span class="cos-delta ${s.delta >= 0 ? 'up' : 'dn'}">${s.delta >= 0 ? '▲' : '▼'} ${Math.abs(s.delta)}%</span> `;
+    return `<div class="cos-kpi ${s.cls}">
+      <div class="cos-kpi-l">${lbl}</div>
+      <div class="cos-kpi-v">${s.v}</div>
+      <div class="cos-kpi-d">${d}<span class="cos-marca ${s.cls}">${esc(s.et)}</span></div>
+      ${(s.aviso || s.periodo) ? `<div class="cos-kpi-av">${esc(s.aviso || s.periodo)}</div>` : ''}
+    </div>`;
+  }
   const cosChart = (title, id) => `<div class="panel cos-chart"><h2>${title}</h2><canvas id="${id}"></canvas></div>`;
   const fmtN = (n) => { n = Number(n) || 0; return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'K' : String(n); };
 

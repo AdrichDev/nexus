@@ -50,11 +50,15 @@ def _seed() -> dict:
             {"src": "@creador.automatiza", "note": "Gancho de resultado visible en 2 s"},
             {"src": "@marca.saas", "note": "Carruseles con 1 idea por tarjeta"},
         ],
+        # Sin etiqueta de confianza. Estas tres frases venían con «consistente»,
+        # «prometedora» y «observación» TECLEADAS a mano: una etiqueta de rigor
+        # sobre un texto de semilla que nadie ha medido. Ahora entran como lo
+        # que son —apuntes— y `dashboard()` las rotula como tales.
         "learnings": [
             {"text": "Los reels con gancho de resultado en los 2 primeros segundos "
-                     "retienen +30% sobre tu mediana.", "conf": "consistente"},
-            {"text": "Publicar a las 19:30 supera al mediodía en alcance.", "conf": "prometedora"},
-            {"text": "Los carruseles de 6 tarjetas guardan más que los de 10.", "conf": "observación"},
+                     "retienen más que la media."},
+            {"text": "Publicar a las 19:30 supera al mediodía en alcance."},
+            {"text": "Los carruseles de 6 tarjetas guardan más que los de 10."},
         ],
     }
 
@@ -84,8 +88,12 @@ def add_item(kind: str, value) -> bool:
         data.setdefault("inspirations", []).insert(0, value if isinstance(value, dict)
                                                     else {"src": "", "note": str(value)})
     elif kind == "learning":
+        # Un aprendizaje dictado entra SIN etiqueta de confianza. Antes se le
+        # ponía «observación» de oficio, y eso convertía cualquier frase suelta
+        # en algo con pinta de hallazgo verificado. La etiqueta se gana trayendo
+        # muestra, periodo y método (ver `_tiene_evidencia()`).
         data.setdefault("learnings", []).insert(0, value if isinstance(value, dict)
-                                                 else {"text": str(value), "conf": "observación"})
+                                                 else {"text": str(value)})
     elif kind == "calendar" and isinstance(value, dict):
         data.setdefault("calendar", []).append(value)
     else:
@@ -179,17 +187,6 @@ def _hour_of(ts: str) -> int:
         return 12
 
 
-# ------------------------------------------------------------------ demo
-def _demo_metrics() -> dict:
-    """Los datos de mentira YA NO VIVEN AQUÍ: están en `contentos_demo.py`.
-
-    Estaban en este módulo y `dashboard()` los enchufaba con un `or` silencioso,
-    así que «12.840 seguidores» salía por el HUD igual que si viniera de la
-    Graph API. Aislarlos permite que un test lea este fichero y compruebe que no
-    queda ni un literal de métrica, y que algún día se retiren de un tirón."""
-    return contentos_demo.metricas()
-
-
 # ------------------------------------------------------------------ ensamblado
 def _build_charts(m: dict) -> dict:
     posts = m.get("posts", [])
@@ -226,30 +223,121 @@ def _rank(posts: list[dict]) -> tuple[list, list]:
     return best, worst
 
 
-def _pct(cur: int, prev: int) -> float:
-    return round((cur - prev) / prev * 100, 1) if prev else 0.0
+def _pct(cur: int, prev: int):
+    """La variación entre dos puntos, o None si no hay con qué compararla.
+
+    Devolvía `0.0` cuando no había punto previo, y el HUD lo pintaba como
+    «▲ 0 %»: una medida de «no ha cambiado nada» donde en realidad no se había
+    medido nada. Un delta que no existe es None, no cero."""
+    return round((cur - prev) / prev * 100, 1) if prev else None
+
+
+def _tiene_evidencia(l: dict) -> bool:
+    """Un aprendizaje solo sostiene una etiqueta de confianza si trae las tres
+    cosas que la sostienen: muestra (`n`), periodo y método. Sin las tres es un
+    apunte del usuario, y se rotula como tal."""
+    return bool(l.get("n")) and bool(l.get("periodo")) and bool(l.get("metodo"))
+
+
+def _evidencia(learnings: list[dict], u: dict) -> tuple[list[dict], dict]:
+    """Los aprendizajes rotulados y la salud de datos, al estilo `radiografia()`.
+
+    Se reutiliza el vocabulario de `skills/instagram/inteligencia.py:312`
+    (`unidad`, `n`, `suficiente`, `aviso`) en vez de inventar uno nuevo: es el
+    mismo concepto —cuánta muestra hay y si da para concluir algo— y el usuario
+    ya lo lee así en el informe de Instagram."""
+    textos = u.get("textos") or {}
+    minimo = int(u.get("n_minimo", 3))
+    salida, con_ev = [], []
+    for l in learnings:
+        item = dict(l)
+        if _tiene_evidencia(l):
+            item["origen"] = "medido"
+            con_ev.append(item)
+        else:
+            # Fuera la etiqueta: nadie ha medido esto.
+            item.pop("conf", None)
+            item["origen"] = "apunte_manual"
+            item["etiqueta"] = textos.get("apunte_manual", "")
+        salida.append(item)
+
+    n = len(con_ev)
+    consistentes = sum(1 for l in con_ev if l.get("conf") == "consistente")
+    prometedoras = sum(1 for l in con_ev if l.get("conf") == "prometedora")
+    ev = {
+        "unidad": textos.get("unidad_evidencia", ""),
+        "n": n,
+        "suficiente": n >= minimo,
+        "aviso": "" if n >= minimo else textos.get("sin_evidencia", "").format(
+            n=n, minimo=minimo),
+        # None, NUNCA 0. Un cero se lee como «calidad pésima, medida»; la verdad
+        # es «no medido». Son cosas distintas y el HUD las pinta distinto.
+        "complete_pct": (round((consistentes + prometedoras * 0.6) / n * 100)
+                         if n else None),
+        "consistent": consistentes,
+        "promising": prometedoras,
+        "observations": sum(1 for l in con_ev if l.get("conf") == "observación"),
+        "apuntes": len(salida) - n,
+    }
+    return salida, ev
 
 
 async def dashboard() -> dict:
+    """El payload de `/api/contentos`, con la procedencia de cada cifra.
+
+    01/08/2026: ninguna cifra sale de aquí suelta. Todas van en un sobre
+    `procedencia.dato()` con su origen, su periodo y —si no se puede calcular—
+    el motivo. El HUD tiene un único pintor y se niega a pintar lo que no traiga
+    sobre, así que cualquier fuga futura se ve en pantalla en vez de colarse."""
+    from . import procedencia
+
     store = _load()
-    metrics = await _ig_metrics() or _demo_metrics()
-    charts = _build_charts(metrics)
-    best, worst = _rank(metrics.get("posts", []))
-    series = metrics.get("followers_series") or []
-    foll_delta = _pct(series[-1], series[0]) if len(series) > 1 else 3.2
-    engs = [p.get("eng", 0) for p in metrics.get("posts", [])]
-    retention = 48.6  # proxy; con métricas reales de reel se calcula de avg_watch/length
-    learnings = store.get("learnings", [])
-    ev = {
-        "consistent": sum(1 for l in learnings if l.get("conf") == "consistente"),
-        "promising": sum(1 for l in learnings if l.get("conf") == "prometedora"),
-        "observations": sum(1 for l in learnings if l.get("conf") == "observación"),
+    u = procedencia.umbrales()
+    textos = u.get("textos") or {}
+
+    # La rama es EXPLÍCITA. Era `await _ig_metrics() or _demo_metrics()`: un `or`
+    # que no dejaba rastro de qué había pasado, así que los 12.840 seguidores de
+    # mentira salían por el HUD con la misma cara que un dato de la Graph API.
+    metricas = await _ig_metrics()
+    origen = procedencia.MEDIDO if metricas else procedencia.DEMOSTRACION
+    if metricas is None:
+        metricas = contentos_demo.metricas()
+
+    charts = _build_charts(metricas)
+    best, worst = _rank(metricas.get("posts", []))
+    series = metricas.get("followers_series") or []
+    # Sin dos puntos de serie no hay variación. Antes caía en un 3,2 % escrito a
+    # mano que el panel pintaba en verde como si fuera crecimiento real.
+    foll_delta = _pct(series[-1], series[0]) if len(series) > 1 else None
+    engs = [p.get("eng", 0) for p in metricas.get("posts", [])]
+    aprendizajes, ev = _evidencia(store.get("learnings", []), u)
+
+    kpis = {
+        "followers": procedencia.dato(
+            metricas.get("followers"), origen,
+            periodo=textos.get("periodo_seguidores"), delta=foll_delta),
+        "reach_month": procedencia.dato(
+            metricas.get("reach_month"), origen,
+            periodo=textos.get("periodo_alcance"),
+            # El delta de alcance era un literal. La Graph API sirve el periodo
+            # actual, no el anterior: hasta que se guarde histórico, no hay con
+            # qué comparar y se dice, en vez de enseñar un ▲ inventado.
+            delta=None),
+        "media_count": procedencia.dato(
+            metricas.get("media_count"), origen,
+            periodo=textos.get("periodo_publicaciones")),
+        # La retención NO se puede calcular: la Graph API no da el tiempo de
+        # visualización de un reel. Era un literal con un comentario al lado que
+        # decía «proxy», y el HUD lo pintaba como «Retención media 48,6 %».
+        "retention": procedencia.dato(None, procedencia.SIN_DATOS,
+                                      aviso=textos.get("sin_retencion", "")),
     }
-    total = max(1, len(learnings))
-    ev["complete_pct"] = round((ev["consistent"] * 1 + ev["promising"] * 0.6) / total * 100)
-    # siguiente mejor acción (heurística sobre lo que funciona)
+    # Y «Experimentos: 2» ya no está. No existe ninguna entidad Experiment en el
+    # proyecto: ese número era ficción entera, así que la tarjeta desaparece.
+
     top = best[0] if best else None
     next_action = {
+        "origen": origen,
         "signal": "Señal inicial",
         "title": "Repite el gancho de resultado visible, pero cambia el tema."
         if top else "Publica un reel con gancho en los 2 primeros segundos.",
@@ -259,20 +347,25 @@ async def dashboard() -> dict:
         "analyzed": len(engs),
     }
     return {
-        "connected": bool(metrics.get("real")),
-        "username": metrics.get("username", ""),
+        "connected": bool(metricas.get("real")),
+        "modo": origen,
+        "username": metricas.get("username", ""),
         "operator": settings.get("operator_name", "Operador"),
-        "kpis": {
-            "followers": metrics.get("followers", 0), "followers_delta": foll_delta,
-            "reach_month": metrics.get("reach_month", 0), "reach_delta": 18.4,
-            "retention": retention, "retention_delta": 4.1,
-            "experiments": 2, "media_count": metrics.get("media_count", 0),
+        # El vocabulario viaja con el payload para que el HUD no tenga ni un
+        # rótulo a fuego: se cambia el texto en config/umbrales.json y ya está.
+        "vocabulario": {"etiquetas": u.get("etiquetas") or {}, "textos": textos},
+        "vacios": {
+            "calendar": textos.get("sin_calendario", ""),
+            "ideas": textos.get("sin_ideas", ""),
+            "inspirations": textos.get("sin_inspiraciones", ""),
+            "learnings": textos.get("sin_aprendizajes", ""),
         },
+        "kpis": kpis,
         "next_action": next_action,
         "calendar": store.get("calendar", []),
         "ideas": store.get("ideas", []),
         "inspirations": store.get("inspirations", []),
-        "learnings": learnings,
+        "learnings": aprendizajes,
         "evidence": ev,
         "best": best, "worst": worst,
         "charts": charts,

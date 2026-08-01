@@ -791,6 +791,28 @@ a.ext:hover{text-shadow:0 0 8px var(--cy)}
 .cos-ring small{position:relative;font-size:9px;color:var(--txt-dim);letter-spacing:1px}
 .cos-ev{display:flex;flex-direction:column;gap:8px;font-size:12px;color:var(--txt-dim)}
 .cos-ev b{color:#eaf6ff}
+
+/* ── Procedencia (001-honestidad-content-os) ──────────────────────────────────
+   El chip que dice de dónde sale cada cifra. `demo` va en ámbar y `nada` en
+   gris apagado: el ojo tiene que poder separar un dato medido de uno de
+   demostración SIN leer, porque el incidente fue justo que se leían igual. */
+.cos-marca{display:inline-block;font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;
+  padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--txt-dim);vertical-align:middle}
+.cos-marca.ok{color:var(--ok);border-color:rgba(89,255,156,.4)}
+.cos-marca.demo{color:var(--warn);border-color:rgba(255,178,77,.35);background:rgba(255,178,77,.07)}
+.cos-marca.nada{color:var(--txt-dim);border-style:dashed;opacity:.85}
+.cos-bloque-m{font-size:10.5px;color:var(--txt-dim);letter-spacing:.4px;margin:0 0 8px}
+.cos-kpi-av{font-size:10.5px;color:var(--txt-dim);margin-top:6px;line-height:1.4}
+.cos-kpi.demo{border-color:rgba(255,178,77,.28)}
+/* Un KPI sin dato no compite visualmente con uno medido: apagado y sin brillo. */
+.cos-kpi.nada .cos-kpi-v{color:var(--txt-dim);font-weight:600}
+.cos-aviso{font-size:11.5px;color:var(--warn);margin-top:10px;line-height:1.45}
+/* El anillo de salud SIN medida: gris, no un 0 % en color, que se lee como
+   «calidad pésima medida» cuando la verdad es «no medido». */
+.cos-ring.nada{background:conic-gradient(rgba(120,170,190,.12) 0 100%)}
+.cos-ring.nada b{color:var(--txt-dim)}
+.cos-learn.apunte .cos-dot{background:transparent;border:1px dashed var(--txt-dim)}
+.cos-learn.apunte .cos-learn-t em{color:var(--warn);opacity:.85}
 .cos-charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .cos-chart canvas{width:100%;height:180px;display:block}
 .cos-ranks{display:flex;flex-direction:column;gap:6px}
