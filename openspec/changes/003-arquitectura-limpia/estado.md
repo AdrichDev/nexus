@@ -171,9 +171,18 @@ se verifica; el traslado va por grupos y puede esperar.
 
 1. **Credenciales de Instagram.** Sin ellas no hay datos propios ni de
    competencia. Es el primer dominó de todo lo que queda de Content OS.
-2. **Reautorización de Google.** El scope de Drive cambió; la primera orden de
-   Drive abrirá el navegador una vez.
-3. **RDD no es operable desde Claude Code.** Desactivado a petición tuya.
+2. **RDD no es operable desde Claude Code.** Desactivado a petición tuya.
+
+**Google ya NO es un bloqueante** (03/08/2026). Aquí figuraba como pendiente de
+reautorizar, y era falso: el token está autorizado desde el 02/08 a las 23:59
+con los cinco permisos, incluido Drive. Comprobado ejecutando —Gmail contesta
+«0 sin leer · 223 en bandeja», Drive lista y Calendar devuelve los próximos
+eventos— y comprobado también que el arranque **no** vuelve a pedir nada: la URL
+de OAuth salió una sola vez, en el arranque que estaba haciendo la autorización.
+
+Y el refresco automático funciona: forzando un token caducado (sobre una copia,
+nunca sobre el real), `_get_creds()` lo renueva y **reescribe el fichero** con
+la caducidad nueva. No hay llamadas de más.
 
 ## Dudas y pendientes anotados, no tocados
 
