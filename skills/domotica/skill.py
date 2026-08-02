@@ -32,25 +32,64 @@ import socket
 import subprocess
 import time
 
+# Sustantivo de TV, compartido por todos los patrones de televisión.
+# Las alternativas van de más larga a más corta: «televisor» debe ganarle a «tele».
+_TV = r"(?:televisi[oó]n|televisor(?:es)?|smart\s*tv|tele|tv)"
+# Pronombre enclítico opcional: «apágalo», «enciéndemela», «quítale», «ponlos».
+# Se pega SIEMPRE a la forma con tilde del verbo, porque el enclítico la desplaza
+# (apaga→apágalo, enciende→enciéndelo, sube→súbeme).
+_CL = r"(?:(?:me|te|le|nos|se)?(?:lo|la|los|las)?)"
+
 SKILL = {
     "name": "Casa / Domótica",
     "description": "Escanea tu red (nombre, marca, IP y MAC de cada aparato) y controla la casa: TVs por su nombre —encender, apagar, volumen, canal, apps—, PCs por Wake-on-LAN y luces/enchufes/persianas vía Home Assistant",
     # ORDEN: lo específico (TV, WoL, descubrir) ANTES del genérico de casa (HA).
+    # Y dentro de la TV, «silenciar» ANTES de «apagar»/«encender»: «quita el sonido
+    # de la tele» y «pon la tele en silencio» casarían también con esos dos.
     "patterns": {
-        "descubrir": r"(?:escanea(?:me)?|escaneo|esc[aá]ner|rastrea|sondea|detecta|busca|descubre|lista|revisa|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|dime|cu[aá]nt[oa]s|qu[eé]\s+hay|qu[eé]\s+dispositivos|qu[eé]\s+aparatos)\b[^.\n]{0,30}\b(?:dispositivos?|aparatos?|cacharros?|(?:en\s+)?(?:la\s+red|mi\s+red|el\s+wifi)|red\s+local|conectad|dom[oó]tic)",
-        "tv_off": r"(?:apaga|ap[aá]ga(?:me|la)?|desconecta)\b[^.\n]{0,18}\b(?:la\s+)?(?:tele|televisi[oó]n|tv|smart\s*tv)\b",
-        "tv_on": r"(?:enci[eé]nde(?:me|la)?|arranca|pr[eé]nde(?:me|la)?|activa|pon\s+en\s+marcha)\b[^.\n]{0,18}\b(?:la\s+)?(?:tele|televisi[oó]n|tv|smart\s*tv)\b"
-                 r"|(?:pon(?:me)?|quiero\s+ver)\s+(?:la\s+)?(?:tele|televisi[oó]n|tv)\b",
+        "descubrir": r"(?:escan[eé]a(?:me)?|escaneo|esc[aá]ner|r[aá]strea(?:me)?|sondea|detecta|busca|"
+                     r"b[uú]sca(?:me)?|descubre|lista|revisa|mira|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|"
+                     r"dime|cu[aá]nt[oa]s|qui[eé]n(?:es)?|qu[eé]\s+hay|qu[eé]\s+dispositivos|"
+                     r"qu[eé]\s+aparatos)\b[^.\n]{0,30}\b(?:dispositivos?|aparatos?|cacharros?|"
+                     r"(?:en\s+)?(?:la\s+red|mi\s+red|el\s+wifi)|red\s+local|conectad|dom[oó]tic)"
+                     r"|\bqu[eé]\s+(?:dispositivos?|aparatos?|cacharros?)\b",
+        "tv_mute": r"(?:sil[eé]ncia" + _CL + r"|mut[eé]a" + _CL + r"|c[aá]lla" + _CL +
+                   r"|qu[ií]ta" + _CL + r"\s+el\s+(?:sonido|ruido|volumen)|sin\s+sonido)"
+                   r"\b[^.\n]{0,20}\b(?:de\s+)?(?:la\s+)?" + _TV + r"\b"
+                   r"|\b" + _TV + r"\b[^.\n]{0,15}\ben\s+silencio\b",
+        "tv_off": r"(?:ap[aá]ga" + _CL + r"|desconecta|qu[ií]ta" + _CL + r"|corta)"
+                  r"\b[^.\n]{0,18}\b(?:la\s+)?" + _TV + r"\b",
+        "tv_on": r"(?:enci[eé]nde" + _CL + r"|arranca|pr[eé]nde" + _CL + r"|activa|pon\s+en\s+marcha)"
+                 r"\b[^.\n]{0,18}\b(?:la\s+)?" + _TV + r"\b"
+                 r"|(?:p[oó]n" + _CL + r"|quiero\s+ver|dale\s+a)\s+(?:la\s+)?" + _TV + r"\b",
         # OJO: exige mención de «tele/tv» para NO robarle a la skill de MÚSICA
         # órdenes como «pon spotify»/«pon youtube» (que van a media, no a la TV).
-        "tv_app": r"(?:abre|pon|lanza|quiero\s+ver)\b[^.\n]{0,25}\b(?P<app>netflix|youtube|prime\s*video|prime|disney\+?|hbo\s*max|hbo|movistar|spotify|plex|twitch)\b[^.\n]{0,20}\b(?:en\s+)?(?:la\s+)?(?:tele|tv|televisi[oó]n|smart\s*tv)\b"
-                  r"|\b(?:en\s+)?(?:la\s+)?(?:tele|tv|televisi[oó]n|smart\s*tv)\b[^.\n]{0,20}\b(?:abre|pon|lanza|quiero\s+ver)?\s*(?P<app2>netflix|youtube|prime\s*video|prime|disney\+?|hbo\s*max|hbo|movistar|spotify|plex|twitch)\b",
-        "tv_mute": r"(?:silencia|mutea|calla|qu[ií]ta(?:le|me)?\s+el\s+(?:sonido|ruido|volumen)|pon\s+en\s+silencio|sin\s+sonido)\b[^.\n]{0,15}\b(?:de\s+)?(?:la\s+)?(?:tele|tv|televisi[oó]n)\b",
-        "tv_volume": r"(?P<dir>sube|s[uú]be\w*|baja|b[aá]ja\w*|m[aá]s|menos)\b[^.\n]{0,15}\b(?:el\s+)?volumen\b",
-        "tv_channel": r"(?:pon(?:me)?|c[aá]mbia(?:me)?(?:\s+al?)?|cambia(?:\s+al?)?|salta\s+al?|quiero)\b[^.\n]{0,15}\b(?:el\s+)?canal\s+(?P<n>\d+)|(?P<dir2>siguiente|anterior)\s+canal|canal\s+(?P<dir3>siguiente|anterior)",
-        "wol": r"(?:enci[eé]nde(?:me)?|arranca|despierta|levanta|pr[eé]nde(?:me)?)\b[^.\n]{0,20}\b(?P<dev>pc|ordenador|ordenata|port[aá]til|equipo|servidor|m[aá]quina|torre|sobremesa|nas)\b",
+        "tv_app": r"(?:abre|pon|lanza|quiero\s+ver)\b[^.\n]{0,25}\b(?P<app>netflix|youtube|prime\s*video|prime|disney\+?|hbo\s*max|hbo|movistar|spotify|plex|twitch)\b[^.\n]{0,20}\b(?:en\s+)?(?:la\s+)?" + _TV + r"\b"
+                  r"|\b(?:en\s+)?(?:la\s+)?" + _TV + r"\b[^.\n]{0,20}\b(?:abre|pon|lanza|quiero\s+ver)?\s*(?P<app2>netflix|youtube|prime\s*video|prime|disney\+?|hbo\s*max|hbo|movistar|spotify|plex|twitch)\b",
+        # El volumen «a secas» es el de la tele; si la orden nombra OTRO destino
+        # (música, spotify, el PC…) se deja pasar a las skills de media/sistema.
+        "tv_volume": r"(?P<dir>s[uú]be\w*|b[aá]ja\w*|m[aá]s|menos)\b[^.\n]{0,15}\b(?:el\s+)?volumen\b"
+                     r"(?!\s*(?:de(?:l)?\s+|en\s+|a\s+)?(?:la\s+|el\s+|mi\s+)?"
+                     r"(?:m[uú]sica|canci[oó]n|spotify|youtube|v[ií]deo|pel[ií]cula|serie|pc|"
+                     r"ordenador|equipo|sistema|windows|navegador|juego|micr[oó]fono|discord))",
+        "tv_channel": r"(?:p[oó]n" + _CL + r"|c[aá]mbia" + _CL + r"(?:\s+al?)?|salta\s+al?|pasa\s+al?|quiero)"
+                      r"\b[^.\n]{0,15}\b(?:el\s+)?canal\s+(?:(?P<n>\d+)|(?P<nw>uno|dos|tres|cuatro|"
+                      r"cinco|seis|siete|ocho|nueve|diez))\b"
+                      r"|(?P<dir2>siguiente|anterior)\s+canal|canal\s+(?P<dir3>siguiente|anterior)",
+        "wol": r"(?:enci[eé]nde" + _CL + r"|arranca|despierta|despi[eé]rta" + _CL + r"|levanta|"
+               r"lev[aá]nta" + _CL + r"|pr[eé]nde" + _CL + r")\b[^.\n]{0,20}\b"
+               r"(?P<dev>pc|ordenador|ordenata|port[aá]til|equipo|servidor|m[aá]quina|torre|sobremesa|nas)\b",
         # GENÉRICO → Home Assistant (todo lo domotizado)
-        "casa": r"(?:enci[eé]nde(?:me)?|apaga|ap[aá]ga(?:me)?|desconecta|pon(?:me)?|s[uú]be(?:me)?|b[aá]ja(?:me)?|activa|desactiva|cierra|ci[eé]rra(?:me)?|abre|[aá]bre(?:me)?|arranca|para)\b[^.\n]{0,45}\b(?P<what>luz|luces|l[aá]mpara|foco|led|bombilla|enchufe|regleta|persiana|estor|toldo|termostato|calefacci[oó]n|aire|climatizaci[oó]n|ventilador|calefactor|estufa|radiador|caldera|riego|aspersor|toma|sal[oó]n|comedor|cocina|habitaci[oó]n|dormitorio|cuarto|ba[ñn]o|aseo|pasillo|entrada|recibidor|garaje|jard[ií]n|terraza|balc[oó]n|porche|trastero|s[oó]tano|buhardilla|oficina|despacho)\b",
+        "casa": r"(?:enci[eé]nde" + _CL + r"|ap[aá]ga" + _CL + r"|desconecta|p[oó]n" + _CL +
+                r"|s[uú]be" + _CL + r"|b[aá]ja" + _CL + r"|activa|desactiva|ci[eé]rra" + _CL +
+                r"|[aá]bre" + _CL + r"|qu[ií]ta" + _CL + r"|arranca|para)"
+                r"\b[^.\n]{0,45}\b(?P<what>luz|luces|l[aá]mpara|foco|led|bombilla|enchufe|regleta|"
+                r"persiana|estor|toldo|termostato|calefacci[oó]n|aire|climatizaci[oó]n|ventilador|"
+                r"calefactor|estufa|radiador|caldera|riego|aspersor|toma|humidificador|purificador|"
+                r"cafetera|horno|lavadora|secadora|lavavajillas|puerta|port[oó]n|cancela|"
+                r"sal[oó]n|comedor|cocina|habitaci[oó]n|dormitorio|cuarto|ba[ñn]o|aseo|pasillo|"
+                r"entrada|recibidor|garaje|jard[ií]n|terraza|balc[oó]n|porche|trastero|s[oó]tano|"
+                r"buhardilla|oficina|despacho)\b",
     },
 }
 
@@ -163,7 +202,7 @@ def _subnets() -> list[str]:
             _add(info[4][0])
     except Exception:
         pass
-    return bases or (["192.168.1"] if not bases else bases)
+    return bases or ["192.168.1"]
 
 
 _SWEEP_PORTS = (80, 443, 22, 445, 7)     # tocamos varios: alguno suele contestar
@@ -263,7 +302,7 @@ _MAC_VENDORS = {
     "3C:2A:F4": "Impresora (Brother)", "00:80:77": "Impresora (Brother)",
 }
 
-# --- Ampliación (2026-07): más móviles/portátiles/TVs/consolas/routers de consumo ---
+# Más OUI de consumo: móviles, portátiles, TVs, consolas y routers domésticos.
 _MAC_VENDORS.update({
     # Apple (móviles/iPad/Mac — muy comunes)
     "04:0C:CE": "Apple", "28:CF:E9": "Apple", "28:E7:CF": "Apple", "3C:15:C2": "Apple",
@@ -579,9 +618,8 @@ def _save_tv(ctx, tv: dict) -> None:
 
 
 def _save_estado(ctx, tv: dict, encendido: bool) -> None:
-    """Guarda si el aparato quedó ENCENDIDO o APAGADO (v24, queja de Adri: «no
-    cambia el estado a encender en nexus»). Persiste en known_devices, así que
-    sobrevive al reinicio y el botón sale correcto la próxima vez."""
+    """Guarda en known_devices si el aparato quedó ENCENDIDO o APAGADO, para que el
+    estado sobreviva al reinicio."""
     import datetime as _dt
     try:
         devs = _known(ctx)
@@ -602,9 +640,8 @@ def _save_estado(ctx, tv: dict, encendido: bool) -> None:
 
 
 def _mark_paired(ctx, tv: dict, paired: bool = True) -> None:
-    """Persiste que el aparato quedó EMPAREJADO/CONECTADO (permiso aceptado en su pantalla).
-    Así la UI lo muestra «✓ Conectado» de forma permanente, aunque reinicies o reescanees.
-    Agnóstico: no depende de la marca, solo de que el emparejamiento haya ido bien."""
+    """Persiste que el aparato quedó EMPAREJADO (permiso aceptado en su pantalla), para
+    que la UI lo muestre como conectado tras reiniciar o reescanear."""
     try:
         devs = _known(ctx)
         for d in devs:
@@ -622,11 +659,10 @@ def _mark_paired(ctx, tv: dict, paired: bool = True) -> None:
 
 
 async def _resolve_tv(ctx) -> dict | None:
-    """Elige la TV a controlar SIN bloquear. Antes lanzaba un SSDP SÍNCRONO de
-    2,5 s EN CADA orden de TV (congelaba el loop y sumaba retraso fijo). Ahora:
-    1º la de known_devices (instantáneo), 2º la caché (10 min), 3º SSDP en un
-    hilo, y lo encontrado se PERSISTE con su MAC (tabla ARP) para que las
-    siguientes órdenes sean inmediatas y el encendido por WoL sea posible."""
+    """Elige la TV a controlar sin bloquear el loop. Por orden: known_devices
+    (instantáneo) -> caché de 10 min -> SSDP en un hilo -> escaneo completo. Lo
+    encontrado se persiste con su MAC (tabla ARP) para que la siguiente orden sea
+    inmediata y el encendido por Wake-on-LAN sea posible."""
     for d in _known(ctx):
         if "tv" in (d.get("brand", "") + d.get("name", "")).lower() or d.get("is_tv"):
             if not d.get("mac") and d.get("ip"):
@@ -651,12 +687,8 @@ async def _resolve_tv(ctx) -> dict | None:
 
     tv = await asyncio.to_thread(_scan)
     if not tv:
-        # ÚLTIMO RECURSO: el buscador visual (scan_api) detecta TVs con MÁS señales
-        # que el SSDP rápido (mDNS, sondeo de puertos, marca por MAC/vendor). Si el
-        # buscador la ve pero el SSDP rápido no, aquí caíamos en «no encuentro TV»
-        # aunque la TV estuviera delante -> voz fallaba y entraba en bucle. Usamos el
-        # MISMO descubrimiento completo y la MISMA heurística de TV que el buscador,
-        # y persistimos lo hallado para que las siguientes órdenes sean instantáneas.
+        # Último recurso: el descubrimiento completo ve TVs que el SSDP rápido no ve
+        # (mDNS, sondeo de puertos, marca por MAC). Misma heurística que el buscador.
         try:
             scan = await _discover_all(ctx)
             for ip in sorted(scan["devices"], key=_ip_key):
@@ -694,11 +726,9 @@ def wake_on_lan(mac: str, broadcast: str = "255.255.255.255") -> bool:
 
 
 def _wol_burst(mac: str, ip: str = "", broadcast: str = "") -> bool:
-    """Ráfaga Wake-on-LAN: broadcast global, broadcast de la subred de la TV y
-    UNICAST a su última IP, por los puertos 9 y 7, repetido 3 veces. Las TVs por
-    WiFi (WoWLAN) muchas veces SOLO despiertan con el paquete dirigido a su IP;
-    un único paquete al broadcast global a veces ni llega. Antes se mandaba UNO
-    solo a 255.255.255.255 → «Encendiendo…» y la TV ni se inmutaba."""
+    """Ráfaga Wake-on-LAN: broadcast global, broadcast de la subred del aparato y
+    UNICAST a su última IP, por los puertos 9 y 7, repetido 3 veces. Las TVs por WiFi
+    (WoWLAN) muchas veces solo despiertan con el paquete dirigido a su IP."""
     hexmac = re.sub(r"[^0-9a-fA-F]", "", mac or "")
     if len(hexmac) != 12:
         return False
@@ -746,17 +776,11 @@ async def _tv_esta_viva(ip: str, timeout: float = 1.2) -> bool:
 
 
 async def _tv_power_on(ctx, tv: dict) -> dict:
-    """ENCENDER es encender, nunca un interruptor.
+    """ENCENDER es encender, nunca un interruptor. Se mira primero si la TV está viva:
 
-    BUG que arregla (25/07/2026, reportado por Adri): «la primera vez que lo
-    pulsas se enciende y se apaga después». Antes se mandaba el Wake-on-LAN Y la
-    tecla EN PARALELO, y en Samsung esa tecla es KEY_POWER, que es un TOGGLE: el
-    WoL despertaba la tele y, un instante después, el toggle la volvía a apagar.
-
-    Ahora: primero se mira si la TV está viva.
-      * viva      → orden de ENCENDER específica (KEY_POWERON / PowerOn). Si ya
-                    está encendida, no pasa nada: es idempotente.
-      * dormida   → SOLO Wake-on-LAN. Ninguna tecla, para no apagarla al despertar.
+      * viva    -> orden de ENCENDER específica (KEY_POWERON / PowerOn), idempotente.
+      * dormida -> SOLO Wake-on-LAN. Ninguna tecla: KEY_POWER es un toggle y volvería
+                   a apagar la TV justo después de que el WoL la despierte.
     """
     name = tv.get("name") or "la TV"
     ip = tv.get("ip", "")
@@ -782,7 +806,7 @@ async def _tv_power_on(ctx, tv: dict) -> dict:
             sent_wol = await asyncio.to_thread(
                 _wol_burst, mac, ip, ctx["settings"].get("wol_broadcast", ""))
     elif mac:
-        # DORMIDA: solo Wake-on-LAN. Mandar además la tecla era lo que la apagaba.
+        # Dormida: solo Wake-on-LAN (la tecla la volvería a apagar).
         sent_wol = await asyncio.to_thread(
             _wol_burst, mac, ip, ctx["settings"].get("wol_broadcast", ""))
     else:
@@ -826,11 +850,10 @@ _ROKU_APPS = {"netflix": "12", "youtube": "837", "prime": "13", "prime video": "
 
 # ---------------------------------------------------------------- Samsung Tizen
 async def _samsung(ctx, ip: str, key: str, tvid: str = "") -> bool:
-    """Envía una tecla a una Samsung moderna (Tizen) por WebSocket. La 1ª vez la
-    TV muestra un aviso para permitir el control; el token se guarda para no repetir.
-    El token se guarda POR TV (clave = su MAC/IP): con DOS Samsung en casa (p.ej. salón
-    y habitación) cada una tiene el suyo. Antes se guardaba en una única clave global y la
-    segunda TV pisaba el token de la primera -> volvía a pedir permiso en pantalla cada vez."""
+    """Envía una tecla a una Samsung moderna (Tizen) por WebSocket. La primera vez la TV
+    muestra un aviso para permitir el control; el token se guarda para no repetir. El
+    token va POR TV (clave = su MAC/IP): con dos Samsung en casa, cada una tiene el suyo
+    y no se pisan."""
     try:
         import base64
         import json
@@ -860,11 +883,9 @@ async def _samsung(ctx, ip: str, key: str, tvid: str = "") -> bool:
             if sc:
                 kw["ssl"] = sc
             async with websockets.connect(url, **kw) as ws:
-                # Esperamos la AUTORIZACION: la 1a vez la TV muestra un aviso y hay que
-                # aceptarlo con el mando (damos hasta 30 s). Con el token guardado es
-                # inmediato. La tecla SOLO surte efecto tras «ms.channel.connect»; por eso
-                # antes «pedia conectar» pero no hacia nada (mandaba la tecla sin autorizar
-                # y no guardaba el token, asi que volvia a preguntar cada vez).
+                # Esperamos la AUTORIZACION: la primera vez hay que aceptar el aviso con
+                # el mando (hasta 30 s); con el token guardado es inmediato. La tecla solo
+                # surte efecto tras «ms.channel.connect».
                 deadline = loop.time() + (30 if not token else 6)
                 while loop.time() < deadline:
                     try:
@@ -903,10 +924,16 @@ async def _tv_key(ctx, tv: dict, roku_path: str, samsung_key: str) -> bool:
 
 
 # ---------------------------------------------------------------- Home Assistant
+def _ha_config(ctx) -> tuple[str, str]:
+    """(url, token) de Home Assistant tal y como están configurados. Sirve para
+    distinguir «no está configurado» de «está configurado pero no responde»."""
+    return ((ctx["settings"].get("homeassistant_url", "") or "").rstrip("/"),
+            ctx["settings"].secret("homeassistant_token") or "")
+
+
 async def _ha_states(ctx) -> list[dict]:
     import httpx
-    url = (ctx["settings"].get("homeassistant_url", "") or "").rstrip("/")
-    token = ctx["settings"].secret("homeassistant_token")
+    url, token = _ha_config(ctx)
     if not url or not token:
         return []
     try:
@@ -921,8 +948,9 @@ async def _ha_states(ctx) -> list[dict]:
 
 async def _ha_call(ctx, domain: str, service: str, entity_id: str) -> bool:
     import httpx
-    url = (ctx["settings"].get("homeassistant_url", "") or "").rstrip("/")
-    token = ctx["settings"].secret("homeassistant_token")
+    url, token = _ha_config(ctx)
+    if not url or not token:
+        return False
     try:
         async with httpx.AsyncClient(timeout=8) as cli:
             r = await cli.post(f"{url}/api/services/{domain}/{service}",
@@ -1039,9 +1067,8 @@ def _upnp_name_from_xml(xml: str) -> dict:
 
 async def _upnp_friendly(ip: str, location: str, sem: asyncio.Semaphore) -> dict:
     """Baja la descripción UPnP (el XML de la cabecera LOCATION del SSDP) y saca el
-    friendlyName real de TVs/altavoces. Antes se ignoraba y las TVs salían con un tipo
-    genérico («TV Samsung») en vez de su nombre («TV habitación Norte»). Con tope de
-    tiempo corto y en paralelo para NO meter lag en el escaneo."""
+    friendlyName real de TVs/altavoces: el nombre que el aparato difunde, en vez de un
+    tipo genérico. Tope de tiempo corto y en paralelo para no meter lag."""
     if not location:
         return {}
     try:
@@ -1059,9 +1086,8 @@ async def _upnp_friendly(ip: str, location: str, sem: asyncio.Semaphore) -> dict
 
 async def _samsung_tv_name(ip: str, sem: asyncio.Semaphore) -> str:
     """Nombre REAL de una Samsung moderna vía su API REST: GET http://ip:8001/api/v2/
-    -> device.name (el nombre que TÚ le pusiste, «TV habitación Norte»). Es MUCHO más
-    fiable que el SSDP: mismas puertas por las que ya la controlas (8001/8002), y responde
-    aunque la TV no conteste al M-SEARCH. Solo funciona con la TV encendida."""
+    -> device.name (el nombre que le pusiste en la propia TV). Más fiable que el SSDP:
+    usa las mismas puertas por las que ya la controlas. Solo con la TV encendida."""
     try:
         import httpx
     except Exception:
@@ -1083,7 +1109,7 @@ async def _samsung_tv_name(ip: str, sem: asyncio.Semaphore) -> str:
 
 async def _roku_name(ip: str, sem: asyncio.Semaphore) -> str:
     """Nombre real de una Roku/TCL Roku TV: GET http://ip:8060/query/device-info ->
-    <user-device-name> (el que le pusiste) o <friendly-device-name>."""
+    <user-device-name> o <friendly-device-name>."""
     try:
         import httpx
     except Exception:
@@ -1146,7 +1172,7 @@ async def _discover_all(ctx) -> dict:
     ips.discard("")
     # LIMPIEZA: fuera broadcast/multicast (no son aparatos) y fuera los ADAPTADORES
     # VIRTUALES de este mismo PC (Docker/VMware/VirtualBox/Hyper-V/WSL), que si no
-    # aparecían como «PC_ADRI» / «Home Assistant» duplicados. Dejamos solo la IP real.
+    # salen duplicados como aparatos distintos. Dejamos solo la IP real.
     primary = _primary_ip()
     mine = _local_ips() if primary else set()
     ips = {ip for ip in ips
@@ -1213,6 +1239,10 @@ def _norm_txt(s: str) -> str:
     return "".join(c for c in s if not unicodedata.combining(c))
 
 
+# canal dicho con letra: «pon el canal cinco»
+_NUM_PALABRA = {"uno": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5",
+                "seis": "6", "siete": "7", "ocho": "8", "nueve": "9", "diez": "10"}
+
 # palabras de estancia/tipo que por sí solas NO identifican un aparato concreto
 _ROOM_WORDS = {"habitacion", "salon", "cocina", "cuarto", "bano", "pasillo", "entrada",
                "dormitorio", "comedor", "garaje", "jardin", "terraza", "oficina",
@@ -1269,8 +1299,8 @@ async def _power_named_device(ctx, d: dict, on: bool) -> dict:
               "mac": d.get("mac", ""), "is_tv": True}
         if on:
             return await _tv_power_on(ctx, tv)
-        # KEY_POWEROFF (apagar), nunca KEY_POWER (interruptor): por voz pasa lo
-        # mismo que por el botón — «apaga la tele» no puede encenderla.
+        # KEY_POWEROFF (apagar), nunca KEY_POWER (interruptor): «apaga la tele» no
+        # puede acabar encendiéndola.
         ok = await _tv_key(ctx, tv, "keypress/PowerOff", "KEY_POWEROFF")
         if ok:
             _save_estado(ctx, tv, False)
@@ -1292,10 +1322,9 @@ async def _power_named_device(ctx, d: dict, on: bool) -> dict:
 async def handle(intent: str, text: str, match, ctx) -> dict:
     t = text.lower()
 
-    # RESOLUCIÓN POR NOMBRE (antes que nada en las órdenes de encender/apagar):
-    # si nombras un aparato TUYO por su nombre propio —una TV llamada «Habitación
-    # Norte»—, se controla ESE, aunque el nombre lleve «habitación» y el router
-    # lo mandara a Home Assistant. Este era el bug: por voz no encendía/apagaba.
+    # RESOLUCIÓN POR NOMBRE, antes que nada en las órdenes de encender/apagar: si la
+    # frase nombra un aparato tuyo, se controla ESE aunque su nombre lleve palabras de
+    # estancia («habitación») que enrutarían la orden a Home Assistant.
     if intent in ("casa", "tv_on", "tv_off"):
         d = _resolve_named_device(ctx, text)
         if d:
@@ -1350,24 +1379,31 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": head + "\n" + "\n".join(lines) + extra}
 
     if intent == "wol":
-        # buscar la MAC del equipo por nombre en known_devices; si no, wol_mac de config
-        target = None
-        for d in _known(ctx):
-            if d.get("mac"):
-                target = d
-                break
-        mac = (target or {}).get("mac") or ctx["settings"].get("wol_mac", "")
+        # Orden de preferencia: el equipo NOMBRADO en la frase > la MAC del PC
+        # configurada en ⚙ > un aparato guardado que NO sea una TV. Sin este
+        # último filtro se mandaba el paquete a la primera MAC de known_devices,
+        # que casi siempre es la TV que guarda el escáner.
+        equipo = _resolve_named_device(ctx, text)
+        if equipo and _is_tv_device(equipo):
+            equipo = None
+        mac = (equipo or {}).get("mac") or ctx["settings"].get("wol_mac", "")
+        if not mac:
+            for d in _known(ctx):
+                if d.get("mac") and not _is_tv_device(d):
+                    equipo, mac = d, d["mac"]
+                    break
         if not mac:
             return {"reply": "Me falta la MAC del equipo para mandarle el paquete mágico. "
                              "Apúntala en ⚙ (MAC del PC / Wake-on-LAN) o añade el equipo a tus "
                              "dispositivos con su MAC; a partir de ahí, «enciende el pc» y listo."}
+        nombre = (equipo or {}).get("name") or "el equipo"
         ok = await asyncio.to_thread(wake_on_lan, mac,
                                      ctx["settings"].get("wol_broadcast", "255.255.255.255"))
-        return {"reply": f"Paquete de encendido enviado a {mac}. Dale unos segundos para "
-                         "arrancar; recuerda que el equipo debe tener el Wake-on-LAN "
+        return {"reply": f"Paquete de encendido enviado a {nombre} ({mac}). Dale unos segundos "
+                         "para arrancar; recuerda que el equipo debe tener el Wake-on-LAN "
                          "activado en la BIOS/adaptador." if ok
-                else "No he podido enviar el Wake-on-LAN: revisa que la MAC en ⚙ tenga el "
-                     "formato AA:BB:CC:DD:EE:FF y que estés en la misma red que el equipo."}
+                else f"No he podido enviar el Wake-on-LAN a {mac}: revisa que la MAC en ⚙ tenga "
+                     "el formato AA:BB:CC:DD:EE:FF y que estés en la misma red que el equipo."}
 
     if intent in ("tv_on", "tv_off", "tv_mute", "tv_volume", "tv_channel", "tv_app"):
         tv = await _resolve_tv(ctx)
@@ -1398,7 +1434,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                     else _tv_fail(tv)}
 
         if intent == "tv_channel":
-            n = match.group("n")
+            n = match.group("n") or _NUM_PALABRA.get(_norm_txt(match.group("nw") or ""), "")
             d = (match.group("dir2") or match.group("dir3") or "").lower()
             if n:
                 ok = True
@@ -1427,7 +1463,13 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "casa":
         states = await _ha_states(ctx)
         if not states:
-            return {"reply": SETUP_HA}
+            url, token = _ha_config(ctx)
+            if not url or not token:
+                return {"reply": SETUP_HA}
+            return {"reply": f"Tengo Home Assistant configurado en {url}, pero no me ha devuelto "
+                             "ninguna entidad: o no responde, o el token ya no vale. Compruébalo "
+                             "en ⚙ (sección CASA) — ahí puedes probar la URL y el token en vivo "
+                             "antes de guardarlos."}
         ent = _match_entity(text, states)
         if not ent:
             return {"reply": "En Home Assistant no veo nada que se llame así. Dímelo con el "
@@ -1560,10 +1602,9 @@ def _is_generic_name(name: str, brand: str = "") -> bool:
 
 
 def _pick_name(dev: dict, kn, label: str) -> str:
-    """Nombre a mostrar: el nombre PROPIO que TÚ le pusiste (⚙) > friendlyName UPnP (el
-    que difunde la TV/altavoz, "TV habitación Norte") > NetBIOS > mDNS/DNS > un nombre
-    auto-guardado genérico (respaldo) > etiqueta por tipo. CLAVE: un nombre GENÉRICO
-    guardado («TV Samsung») NO tapa al real; ese era el bug por el que salía siempre así."""
+    """Nombre a mostrar, por orden: el nombre PROPIO puesto en ⚙ > friendlyName UPnP (el
+    que difunde el aparato) > NetBIOS > mDNS/DNS > un nombre auto-guardado genérico >
+    etiqueta por tipo. Un nombre genérico guardado («TV Samsung») nunca tapa al real."""
     if kn and kn.get("name") and not _is_generic_name(kn["name"], kn.get("brand", "")):
         return kn["name"]
     if dev.get("friendly"):
@@ -1593,9 +1634,9 @@ async def scan_api(ctx) -> dict:
         kn = known_by_ip.get(ip) or known_by_mac.get((dev["mac"] or "").upper())
         label = _label_device(dev)
         name = _pick_name(dev, kn, label)
-        # Si el aparato difunde su nombre real (friendlyName) y lo guardado es genérico
-        # o vacío, apréndelo (reescribiendo «TV Samsung») para que perdure aunque luego
-        # esté apagado. NO pisa un nombre PROPIO que tú hayas puesto en ⚙.
+        # Si el aparato difunde su nombre real y lo guardado es genérico o vacío, se
+        # aprende para que perdure aunque luego esté apagado. Nunca pisa un nombre
+        # propio puesto en ⚙.
         if dev.get("friendly") and kn and _is_generic_name(kn.get("name", ""), kn.get("brand", "")) \
                 and (kn.get("name") or "") != dev["friendly"]:
             kn["name"] = dev["friendly"]
@@ -1629,9 +1670,9 @@ async def scan_api(ctx) -> dict:
                     "controllable": k_tv, "connected": bool(kd.get("paired")),
                     "services": [], "live": False, "icon": "📺" if k_tv else "📟"})
     # Nombre REAL de las TVs de forma AGNÓSTICA (Tizen/Roku/Chromecast…), preguntando a
-    # cada aparato por sus endpoints estándar. Se hace AQUÍ porque es donde sabemos que es
-    # una TV (por lo guardado), aunque el MAC no delate la marca (vendor='') y aunque no
-    # conteste al ping (live=False): responde en su puerto de control. Solo las genéricas.
+    # cada aparato por sus endpoints estándar. Va aquí porque es donde ya sabemos que es
+    # una TV, aunque la MAC no delate la marca y aunque no conteste al ping: responde en
+    # su puerto de control. Solo para las que tienen nombre genérico.
     tvs = [d for d in out if d.get("kind") == "tv" and d.get("ip")
            and _is_generic_name(d.get("name", ""), d.get("brand", ""))]
     if tvs:
@@ -1718,19 +1759,16 @@ async def control_api(ctx, payload: dict) -> dict:
               "mac": payload.get("mac", ""), "name": payload.get("name", "la TV")}
         if not tv["ip"] and not tv["mac"]:
             return {"ok": False, "reply": "No tengo IP ni MAC de esa TV."}
-        # PERSISTIR la TV en known_devices EN EL INSTANTE en que se interactúa con ella
-        # desde el buscador. Sin esto, la TV vista en el escáner NUNCA se guardaba y las
-        # órdenes por voz (que resuelven la TV desde known_devices) contestaban «no
-        # encuentro TV» y entraban en bucle. Si solo tenemos IP, sacamos su MAC de la
-        # tabla ARP para que el encendido por Wake-on-LAN funcione en frío.
+        # Persistimos la TV en known_devices en cuanto se interactúa con ella desde el
+        # buscador: las órdenes por voz resuelven la TV desde ahí. Si solo tenemos IP,
+        # sacamos su MAC de la tabla ARP para que el WoL funcione en frío.
         if not tv["mac"] and tv["ip"]:
             mac = await asyncio.to_thread(_mac_for_ip, tv["ip"])
             if mac:
                 tv["mac"] = mac
-        # Persistimos SOLO la identidad (ip/mac/marca), NO el nombre que manda el frontend
-        # («TV Samsung» genérico): si lo guardáramos, taparía el nombre real que difunde la
-        # TV (friendlyName) y en la app saldría «TV Samsung» para siempre. El nombre de
-        # pantalla lo decide el escaneo (friendlyName) o el que TÚ pongas en ⚙.
+        # Solo la identidad (ip/mac/marca), NO el nombre que manda el frontend: un nombre
+        # genérico guardado taparía el real que difunde la TV. El nombre de pantalla lo
+        # decide el escaneo (friendlyName) o el que pongas en ⚙.
         _save_tv(ctx, {"ip": tv["ip"], "brand": tv["brand"], "mac": tv["mac"], "is_tv": True})
         name = tv["name"]
         if action == "on":
