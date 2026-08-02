@@ -107,6 +107,7 @@ SKILL = {
         "play": r"(?:\b(pon|ponme|p[oó]n|reproduce|reprod[uú]ce(?:me)?|suena|pincha|dale\s+a|pon\s+la\s+canci[oó]n)\b"
                 r"\s+(?!.*\b(volumen|brillo|alarma|despertador|temporizador|cron[oó]metro|"
                 r"recordatorio|aviso|tarea|nota|copia\s+de\s+seguridad|"
+                r"web|p[aá]gina|p[aá]gina\s+web|"
                 r"modo\s+\w+|tema\s+(?:oscuro|claro)|fondo\s+de\s+pantalla|wallpaper)\b)(?P<q>.+?)"
                 r"(?:\s+en\s+(?P<svc>spotify|youtube|yt|apple\s*music|itunes|m[uú]sica\s+de\s+youtube))?\s*$)"
                 r"|(?:\b(abre|escucha(?:r)?|quiero\s+(?:escuchar|o[ií]r)|reproduce)\s+(?:una\s+|la\s+|el\s+)?(?:canci[oó]n|tema|m[uú]sica)\s+"

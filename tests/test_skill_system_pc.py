@@ -67,9 +67,19 @@ ACTIVAN = {
                   "qué se está comiendo la ram", "qué consume más cpu"],
     "kill": ["cierra el proceso chrome", "ciérrame el proceso chrome",
              "mata spotify", "mátame el proceso spotify", "termina discord.exe",
-             "cierra la aplicación discord", "cierra el programa spotify"],
+             "cierra la aplicación discord", "cierra el programa spotify",
+             # forma corta: es como se dice de verdad, y antes caía al planificador
+             "cierra chrome", "ciérrame chrome", "cierra el chrome", "cierra spotify",
+             "cierra discord", "termina spotify", "cierra el navegador",
+             "cierra la calculadora"],
     "open_app": ["abre spotify", "ábreme spotify", "arranca la calculadora"],
-    "open_web": ["abre la web de marca", "ábreme la página de renfe"],
+    # Cualquier web, no una lista de sitios: con la palabra «web/página», con un
+    # dominio a pelo, o con los verbos de navegar.
+    "open_web": ["abre la web de marca", "ábreme la página de renfe",
+                 "ponme la web del as", "entra en la web de marca",
+                 "abre marca.com", "ábreme marca.com", "abre www.marca.com",
+                 "métete en elmundo.es", "visita github.com",
+                 "abre https://ejemplo.org/ruta"],
     "youtube": ["abre youtube y busca lofi"],
     "volume": ["pon el volumen al 40", "volumen al 75%", "sube el volumen del pc"],
     "screenshot": ["haz una captura de pantalla", "hazme un pantallazo",
@@ -97,8 +107,29 @@ for frase, esperado in (("cierra el proceso chrome", "chrome"),
                         ("cierra el programa spotify", "spotify")):
     r = sl.route(frase)
     gd = r[2].groupdict() if r else {}
-    nombre = next((gd.get(k) for k in ("proc", "proc2", "proc3", "proc4") if gd.get(k)), "")
+    nombre = next((gd.get(k) for k in ("proc", "proc2", "proc3", "proc4", "proc5")
+                   if gd.get(k)), "")
     check(nombre == esperado, f"«{frase}» captura «{nombre}» en vez de «{esperado}»")
+
+# El cierre corto captura el programa, no el artículo ni el verbo.
+for frase, esperado in (("cierra chrome", "chrome"), ("cierra el chrome", "chrome"),
+                        ("ciérrame spotify", "spotify"), ("termina discord", "discord"),
+                        ("cierra el navegador", "navegador")):
+    r = sl.route(frase)
+    gd = r[2].groupdict() if r else {}
+    nombre = next((gd.get(k) for k in ("proc", "proc2", "proc3", "proc4", "proc5")
+                   if gd.get(k)), "")
+    check(nombre == esperado, f"«{frase}» captura «{nombre}» en vez de «{esperado}»")
+
+# La URL se captura entera, venga como venga.
+for frase, esperado in (("abre la web de marca", "marca"), ("abre marca.com", "marca.com"),
+                        ("abre www.marca.com", "www.marca.com"),
+                        ("métete en elmundo.es", "elmundo.es"),
+                        ("ponme la web del as", "as")):
+    r = sl.route(frase)
+    gd = r[2].groupdict() if r else {}
+    url = (gd.get("url") or gd.get("url2") or "").strip()
+    check(url == esperado, f"«{frase}» captura la web «{url}» en vez de «{esperado}»")
 
 # ------------------------------------------------- 3) fronteras con otras skills
 print("== 3) fronteras: no roba lo que es de otras skills, ni al revés ==")
@@ -118,6 +149,18 @@ for f in ("abre el tablero", "abre los correos", "abre las pestañas"):
     r = sl.route(f)
     check(not r or r[0].folder != "system_pc" or r[1] != "open_app",
           f"«{f}» no es una app instalada y lo coge open_app")
+
+# Y el cierre corto no puede tragarse lo que no es un programa. Estas frases o
+# son de otra skill o no son de nadie, pero de system_pc/kill no son.
+NO_SON_PROGRAMAS = ("cierra el tablero", "cierra las tareas", "cierra la sesión",
+                    "cierra la ventana", "cierra la pestaña de twitter",
+                    "cierra la persiana", "cierra la tele", "cierra los correos",
+                    "cierra la factura", "cierra el chat", "cierra la boca",
+                    "cierra el trato", "cierra el debate", "cierra el tema")
+for f in NO_SON_PROGRAMAS:
+    r = sl.route(f)
+    check(not r or not (r[0].folder == "system_pc" and r[1] == "kill"),
+          f"«{f}» no es un programa y lo coge system_pc/kill")
 
 # ------------------------------------------------- 4) dobles: nada real se toca
 print("== 4) cerrar procesos: directo, sin preguntar, y con puntería ==")
@@ -184,10 +227,20 @@ check(sum(1 for p in PS.procesos if p.terminado) == 2,
       "«cierra el proceso chrome» no ha terminado los dos chrome.exe")
 check(confirm.pending("pc") is None,
       "cerrar procesos ha armado una confirmación, y tiene que ser directo")
-check("chrome" in reply.lower() and "cerrado" in reply.lower(),
-      "la respuesta no dice qué programa ha cerrado")
+check("chrome" in reply.lower(), "la respuesta no dice qué programa ha cerrado")
+check(any(reply.startswith(p.split("{")[0]) or p.format(prog="Chrome") in reply
+          for p in MOD._CERRADO_FRASES),
+      "la respuesta no usa ninguna de las frases de cierre previstas")
 check("101" not in reply and "pid" not in reply.lower(),
       "la respuesta suelta PIDs, y eso al operador no le dice nada")
+# La frase se varía: repetida muchas veces, siempre igual suena a grabación.
+frases_vistas = set()
+for _ in range(40):
+    for p in PS.procesos:
+        p.terminado = False
+    frases_vistas.add(_handle("cierra el proceso chrome").get("reply", ""))
+check(len(frases_vistas) >= 3,
+      f"la confirmación de cierre no varía: solo {len(frases_vistas)} frase(s) en 40 intentos")
 check(all(not p.terminado for p in PS.procesos if p.info["name"] != "chrome.exe"),
       "ha terminado procesos que NO casaban con el nombre pedido")
 

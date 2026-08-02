@@ -13,11 +13,15 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 - «qué temperatura tiene la cpu» / «cómo van las temperaturas» / «está muy caliente la gpu»
 - «lista los procesos» / «lístame los procesos» / «qué procesos hay» /
   «qué se está comiendo la ram»
-- «cierra el proceso chrome» / «ciérrame el proceso chrome» / «mata spotify» /
-  «termina discord.exe» / «cierra el programa spotify» → **lo cierra en el acto**,
-  sin preguntar, y responde con una línea: «Chrome cerrado»
+- **Cerrar cualquier programa, con o sin ancla**: «cierra chrome» / «ciérrame
+  spotify» / «cierra el navegador» / «termina discord» / «mata spotify», y también
+  las formas largas «cierra el proceso chrome» / «cierra el programa spotify» /
+  «termina discord.exe». **Lo cierra en el acto**, sin preguntar, y contesta con
+  una línea que varía («Chrome cerrado», «Listo, Chrome fuera», …)
 - «abre spotify» / «ábreme la calculadora» / «arranca el bloc de notas»
-- «abre la web de marca» / «ábreme la página de renfe»
+- **Abrir cualquier web**, no hay lista de sitios: «abre la web de marca» /
+  «ábreme la página de renfe» / «ponme la web del as» / «entra en la web de X» /
+  «abre marca.com» / «métete en elmundo.es» / «abre https://…»
 - «abre youtube y busca lofi»
 - «pon el volumen al 40» / «volumen al 75%»
 - «haz una captura de pantalla» / «hazme un pantallazo»
@@ -39,8 +43,16 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 - **«instala X en steam» → games**, que va antes y tiene el catálogo real.
   Aquí solo se LANZAN juegos ya instalados, desde «abre <juego>».
 - **«lanza discord» → la skill discord**, que va antes por alfabeto.
-- Cerrar procesos exige ancla: la palabra «proceso», un «.exe», «la app/el programa X»
-  o el verbo «mata». Un «cierra X» a secas no dispara nada aquí.
+- **«cierra X» a secas SÍ es de aquí**, porque es como se dice de verdad. La
+  acotación no la pone un ancla, la pone una lista de exclusión (`_NO_ES_PROGRAMA`)
+  con lo que es de otros: la pestaña es de `chrome`, el tablero y las tareas de
+  `tasks_board`, la persiana y la tele de `domotica`, los correos de
+  `google_workspace`. Y con lo que no es un programa: la sesión, la ventana, el
+  trato, el tema, la boca. **Skill nueva que reclame «cierra <sustantivo>»: hay
+  que añadir ese sustantivo a la lista**, o system_pc se lo queda —va antes que
+  `tasks_board`, `telefono`, `tools` y `vigilancias` por orden alfabético.
+- Los nombres coloquiales se traducen al ejecutable con `_ALIAS_PROCESO`:
+  «el navegador» → `chrome`, «la calculadora» → `calc`, «las notas» → `notepad`.
 
 ## Seguridad
 
@@ -49,11 +61,12 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
   programas hay abiertos). El brain resuelve el «sí»/«no» antes que ningún router;
   si el operador contesta otra cosa la confirmación se descarta, y caduca a los
   5 minutos. Todo queda en `data/logs/audit.jsonl`.
-- **Cerrar procesos NO pide confirmación, y es deliberado**: «cierra el proceso X»
-  es una orden directa y se ejecuta como tal. La salvaguarda es la puntería, no la
+- **Cerrar programas NO pide confirmación, y es deliberado**: «cierra X» es una
+  orden directa y se ejecuta como tal. La salvaguarda es la puntería, no la
   pregunta: primero se busca el nombre exacto (con o sin `.exe`) y solo si no casa
   ninguno se cae a la coincidencia por subcadena, para que «cierra el proceso code»
-  no se lleve por delante a `codecs_host`.
+  no se lleve por delante a `codecs_host`. Si no hay nada abierto con ese nombre,
+  lo dice y no toca nada.
 - El apagado y el reinicio se lanzan con 15 s de margen (`shutdown /s|/r /t 15`),
   cancelables desde una consola con `shutdown /a`.
 

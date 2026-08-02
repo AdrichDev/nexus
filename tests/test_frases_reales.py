@@ -420,8 +420,44 @@ def test_el_tamano_de_lote_sigue_al_modelo_que_haya_puesto():
         settings.get = orig_get
 
 
+def test_cerrar_y_abrir_son_ordenes_de_pc(load_skills=None):
+    """02/08/2026. «Nexus, cierra esto» tiene que cerrarlo, no preguntar ni
+    razonar. Y «ábreme la web de X» vale para CUALQUIER web, no para una lista.
+
+    Lo que fallaba: «cierra chrome», «cierra spotify», «cierra el navegador» y
+    «cierra la calculadora» no casaban con ningún patrón y acababan en el
+    planificador. «abre marca.com» lo cogía open_app e intentaba lanzar un
+    programa llamado «marca.com». Y «ponme la web del as» se lo llevaba la
+    música, porque media va antes por orden alfabético.
+    """
+    from backend.core import skills_loader as sl
+    sl.load_skills()
+
+    for frase in ("cierra chrome", "ciérrame chrome", "cierra el chrome",
+                  "cierra spotify", "cierra discord", "termina spotify",
+                  "cierra el navegador", "cierra la calculadora"):
+        r = sl.route(frase)
+        check(bool(r) and r[0].folder == "system_pc" and r[1] == "kill",
+              f"«{frase}» va a " + (f"{r[0].folder}/{r[1]}" if r else "el planificador"))
+
+    for frase in ("ábreme la web de marca", "ponme la web del as", "abre marca.com",
+                  "ábreme marca.com", "abre www.marca.com", "entra en la web de marca",
+                  "métete en elmundo.es", "abre la página de renfe"):
+        r = sl.route(frase)
+        check(bool(r) and r[0].folder == "system_pc" and r[1] == "open_web",
+              f"«{frase}» va a " + (f"{r[0].folder}/{r[1]}" if r else "el planificador"))
+
+    # Y la música sigue siendo música: el arreglo de «la web» no se la come.
+    for frase, dueno in (("pon despacito", "media"), ("pon la canción despacito", "media"),
+                         ("pon música", "media"), ("pon netflix en la tele", "domotica")):
+        r = sl.route(frase)
+        check(bool(r) and r[0].folder == dueno,
+              f"«{frase}» es de {dueno} y va a " + (f"{r[0].folder}" if r else "el planificador"))
+
+
 def main() -> int:
     for f in (test_analizar_una_cuenta_sin_arroba, test_lo_mio_sigue_siendo_mio,
+              test_cerrar_y_abrir_son_ordenes_de_pc,
               test_marcar_una_tarea_como_hecha, test_el_tablero_no_revienta_sin_grupos,
               test_marcar_de_punta_a_punta,
               test_el_id_de_cuenta_vale_lo_pongas_donde_lo_pongas,

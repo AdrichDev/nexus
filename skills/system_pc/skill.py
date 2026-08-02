@@ -17,6 +17,46 @@ except ImportError:
 
 SHOTS_DIR = Path(__file__).resolve().parents[2] / "data" / "captures"
 
+# Nombre coloquial → nombre real del ejecutable, para que «cierra el navegador»
+# encuentre chrome.exe y «cierra la calculadora» encuentre calc.exe.
+_ALIAS_PROCESO = {
+    "navegador": "chrome", "explorador": "explorer", "terminal": "cmd",
+    "consola": "cmd", "calculadora": "calc", "notas": "notepad",
+    "bloc de notas": "notepad", "musica": "spotify", "música": "spotify",
+}
+
+# Confirmaciones de cierre. Todas nombran el programa y ninguna añade PIDs ni
+# recuentos: quien da la orden solo necesita saber que ya está hecho.
+_CERRADO_FRASES = (
+    "{prog} cerrado",
+    "Listo, {prog} fuera",
+    "{prog} ya no está en marcha",
+    "Hecho: {prog} cerrado",
+    "Adiós a {prog}",
+    "{prog} apagado",
+)
+
+# Lo que NO es un programa que se pueda cerrar. Va como lookahead negativo en el
+# patrón «kill» para que «cierra X» a secas siga siendo una orden de PC sin
+# robarle la frase a las skills que van detrás por orden alfabético. Cada bloque
+# dice de quién es lo que protege.
+_NO_ES_PROGRAMA = (
+    r"(?!(?:"
+    r"la|los|las|una|unos|unas|"                                   # artículos sueltos
+    r"procesos?|aplicaci[oó]n|app|programa|"                        # ancla, ya tratada arriba
+    r"pesta[ñn]as?|marcadores?|historial|navegaci[oó]n|"            # chrome
+    r"tablero|tareas?|notas?|listas?|proyectos?|"                   # tasks_board / coach
+    r"facturas?|presupuestos?|"                                     # billing
+    r"correos?|mails?|e-?mails?|bandeja|calendario|"                # google_workspace
+    r"tele|televisi[oó]n|persianas?|cortinas?|puertas?|garaje|"     # domotica
+    r"luz|luces|gas|grifo|calefacci[oó]n|"                          # domotica
+    r"chats?|conversaci[oó]n|hilos?|mensajes?|"                     # comms / telefono
+    r"sesi[oó]n|ventanas?|pantallas?|di[aá]logos?|men[uú]s?|"       # no son programas
+    r"paneles?|modal|pico|boca|ojos?|puertos?|"
+    r"trato|acuerdo|caso|tema|asunto|debate|discusi[oó]n"           # metáforas
+    r")\b)"
+)
+
 SKILL = {
     "name": "Sistema / PC",
     "description": ("Control real del PC: CPU/RAM/GPU con temperaturas, procesos, abrir apps "
@@ -43,24 +83,39 @@ SKILL = {
                      r"|qu[eé] procesos (?:hay|corren|est[aá]n|tengo)|top de procesos"
                      r"|qu[eé] [^.\n]{0,25}(?:consume|consumiendo|come|comiendo|gasta|gastando|"
                      r"chupa|chupando)[^.\n]{0,15}\b(?:ram|memoria|cpu)\b",
-        # Matar procesos: SIEMPRE con ancla de dominio («proceso», «.exe», la app/
-        # el programa, o el verbo «mata», que es inequívocamente de PC). Un «cierra X»
-        # o «termina X» a secas NO cae aquí (sería robarle a tareas, correo, etc.).
-        # La última alternativa excluye los sustantivos de ancla para que
-        # «mátame el proceso spotify» capture «spotify» y no «proceso».
+        # Cerrar un programa. Las tres primeras formas llevan ancla explícita
+        # («proceso», «la app/el programa», un «.exe»). La cuarta y la quinta son
+        # las que se dicen de verdad —«mata chrome», «cierra spotify»— y por eso
+        # no piden ancla: la acotación va por LISTA DE EXCLUSIÓN, con los
+        # sustantivos que son de otras skills (la pestaña es de chrome, el tablero
+        # de tasks_board, la persiana de domotica) o que no son un programa (la
+        # sesión, la ventana). Sin esa lista, un «cierra X» genérico aquí se
+        # tragaría medio proyecto, porque system_pc va antes que tasks_board,
+        # telefono, tools y vigilancias por orden alfabético.
         "kill": r"\b(?:ci[eé]rra|m[aá]ta|termina|finaliza)(?:me|le)?\s+(?:el\s+)?procesos?\s+(?:de\s+)?(?P<proc>[\w.\-]+)"
                 r"|\b(?:ci[eé]rra|m[aá]ta|termina|finaliza)(?:me|le)?\s+(?:la\s+(?:app|aplicaci[oó]n)|el\s+programa)\s+(?:de\s+)?(?P<proc2>[\w.\-]+)"
                 r"|\b(?:ci[eé]rra|m[aá]ta|termina|finaliza)(?:me|le)?\s+(?P<proc3>[\w.\-]+\.exe)\b"
-                r"|\bm[aá]ta(?:me)?\s+(?:a\s+|al\s+|el\s+)?"
-                r"(?!la\b|los\b|las\b|una?\b|unos\b|unas\b|procesos?\b|aplicaci[oó]n\b|app\b|programa\b)"
-                r"(?P<proc4>[\w.\-]{2,})",
+                r"|\bm[aá]ta(?:me)?\s+(?:a\s+|al\s+|el\s+)?" + _NO_ES_PROGRAMA +
+                r"(?P<proc4>[\w.\-]{2,})"
+                r"|\b(?:ci[eé]rra|termina|finaliza)(?:me|le)?\s+(?:el\s+|la\s+|los\s+|las\s+|mi\s+)?"
+                + _NO_ES_PROGRAMA + r"(?P<proc5>[\w.\-]{2,})\s*$",
         "youtube": r"\b[aá]bre(?:me)?\b.*youtube(\s+y\s+(busca|pon)\s+(?P<yt>.+))?|\bpon(?:me)?\b.*en youtube\s+(?P<yt2>.+)",
         # «abre la web/página (de) X»: captura TODO el nombre del sitio, no solo la
         # primera palabra. ANTES capturaba \S+ y con «abre la web de youtube» la URL
         # era literalmente "de" → abría https://de (el famoso «de/»). El «de» ahora
         # se ignora y el handler resuelve alias conocidos, dominios o busca en Google.
-        "open_web": r"\b[aá]bre(?:me)?\b.*?\b(?:la\s+)?(?:web|p[aá]gina)(?:\s+web)?\s+"
-                    r"(?:de\s+la\s+|de\s+los\s+|del\s+|de\s+|la\s+|el\s+)?(?P<url>.+)",
+        # Abrir CUALQUIER web, sin lista de sitios: el handler resuelve la URL
+        # (dominio literal → caché aprendida → el modelo la deduce y la memoriza).
+        # Tres formas: con la palabra «web/página», una URL o dominio a pelo, y
+        # los verbos de navegar («entra en», «métete en», «llévame a»).
+        # «llévame a» y «vete a» quedan fuera a propósito: son de mapas (places),
+        # que además va antes por orden alfabético.
+        "open_web": r"\b(?:[aá]bre(?:me)?|p[oó]n(?:me)?|saca(?:me)?|entra\s+en|m[eé]tete\s+en|"
+                    r"visita)\b.*?\b(?:la\s+)?(?:web|p[aá]gina)(?:\s+web)?\s+"
+                    r"(?:de\s+la\s+|de\s+los\s+|del\s+|de\s+|la\s+|el\s+)?(?P<url>.+)"
+                    r"|\b(?:[aá]bre(?:me)?|entra\s+en|m[eé]tete\s+en|visita)\s+"
+                    r"(?:la\s+)?(?P<url2>https?://\S+|(?:www\.)?[\w\-]+(?:\.[\w\-]+)*"
+                    r"\.(?:com|es|org|net|io|dev|app|tv|me|info|eu|co|gov|edu)(?:/\S*)?)\b",
         "reindex": r"reindexa (las )?(aplicaciones|apps)|(?:actualiza|reconstruye) el [ií]ndice de (apps|aplicaciones)|reescanea (las )?(aplicaciones|apps)",
         "list_apps": r"qu[eé] (aplicaciones|apps|programas) (conoces|tienes|hay|tengo)( instalad[oa]s)?"
                      r"|(?:lista|mu[eé]strame|ens[eé][ñn]ame)\s+(?:de\s+|las?\s+|los\s+)?(?:aplicaciones|apps|programas)\s+instalad[oa]s",
@@ -374,11 +429,14 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "kill":
         gd = match.groupdict()
-        name = next((gd.get(k) for k in ("proc", "proc2", "proc3", "proc4") if gd.get(k)), "")
+        name = next((gd.get(k) for k in ("proc", "proc2", "proc3", "proc4", "proc5")
+                     if gd.get(k)), "")
         if psutil is None:
             return {"reply": f"Sin psutil no puedo tocar procesos de verdad (pip install psutil "
                              f"y reinicia). No he terminado «{name}»."}
-        low = name.lower()
+        # El nombre coloquial no es el del ejecutable: «cierra el navegador» tiene
+        # que buscar chrome.exe. Misma tabla que usa la apertura de apps.
+        low = _ALIAS_PROCESO.get(name.lower().strip(), name.lower().strip())
         exactos, parciales = [], []
         for p in psutil.process_iter(["name", "pid"]):
             n = (p.info.get("name") or "")
@@ -416,8 +474,12 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         programa = programa.rsplit(".", 1)[0] if programa.lower().endswith(".exe") else programa
         extra = f" ({fallidos} instancia(s) se han resistido, seguramente por permisos)" \
             if fallidos else ""
-        return {"reply": f"{programa.title()} cerrado{extra}.",
-                "data": {"killed": ok, "failed": fallidos}}
+        # Se varía la frase: es una orden que se repite muchas veces al día y
+        # siempre la misma respuesta suena a grabación.
+        import random
+        plantilla = random.choice(_CERRADO_FRASES)
+        return {"reply": plantilla.format(prog=programa.title()) + extra + ".",
+                "data": {"killed": ok, "failed": fallidos, "program": programa}}
 
     if intent == "youtube":
         q = (match.groupdict().get("yt") or match.groupdict().get("yt2") or "").strip()
@@ -427,7 +489,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": f"Abriendo YouTube{f' y buscando «{q}»' if q else ''}."}
 
     if intent == "open_web":
-        raw = (match.group("url") or "").strip().rstrip(".?!,;:")
+        gd = match.groupdict()
+        raw = (gd.get("url") or gd.get("url2") or "").strip().rstrip(".?!,;:")
         low_raw = raw.lower()
         # 1) URL o dominio explícito → directo, sin pensar
         if raw.startswith("http://") or raw.startswith("https://"):
