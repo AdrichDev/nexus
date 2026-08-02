@@ -14,8 +14,8 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 - «lista los procesos» / «lístame los procesos» / «qué procesos hay» /
   «qué se está comiendo la ram»
 - «cierra el proceso chrome» / «ciérrame el proceso chrome» / «mata spotify» /
-  «termina discord.exe» / «cierra el programa spotify» → previsualiza qué procesos
-  casan (nombre y PID) y **pide confirmación** antes de terminarlos
+  «termina discord.exe» / «cierra el programa spotify» → **lo cierra en el acto**,
+  sin preguntar, y responde con una línea: «Chrome cerrado»
 - «abre spotify» / «ábreme la calculadora» / «arranca el bloc de notas»
 - «abre la web de marca» / «ábreme la página de renfe»
 - «abre youtube y busca lofi»
@@ -44,12 +44,16 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 
 ## Seguridad
 
-- **Apagar, reiniciar y matar procesos pasan por `backend/core/confirm.py`.** El
-  handler arma la acción y devuelve la pregunta con lo que se va a llevar por
-  delante (cuántos programas hay abiertos; qué procesos casan, con su PID). El
-  brain resuelve el «sí»/«no» antes que ningún router; si el operador contesta
-  otra cosa la confirmación se descarta, y caduca a los 5 minutos. Todo queda en
-  `data/logs/audit.jsonl`.
+- **Apagar y reiniciar pasan por `backend/core/confirm.py`.** El handler arma la
+  acción y devuelve la pregunta con lo que se va a llevar por delante (cuántos
+  programas hay abiertos). El brain resuelve el «sí»/«no» antes que ningún router;
+  si el operador contesta otra cosa la confirmación se descarta, y caduca a los
+  5 minutos. Todo queda en `data/logs/audit.jsonl`.
+- **Cerrar procesos NO pide confirmación, y es deliberado**: «cierra el proceso X»
+  es una orden directa y se ejecuta como tal. La salvaguarda es la puntería, no la
+  pregunta: primero se busca el nombre exacto (con o sin `.exe`) y solo si no casa
+  ninguno se cae a la coincidencia por subcadena, para que «cierra el proceso code»
+  no se lleve por delante a `codecs_host`.
 - El apagado y el reinicio se lanzan con 15 s de margen (`shutdown /s|/r /t 15`),
   cancelables desde una consola con `shutdown /a`.
 

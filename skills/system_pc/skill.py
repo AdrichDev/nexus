@@ -379,43 +379,45 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"Sin psutil no puedo tocar procesos de verdad (pip install psutil "
                              f"y reinicia). No he terminado «{name}»."}
         low = name.lower()
-        victimas = []
+        exactos, parciales = [], []
         for p in psutil.process_iter(["name", "pid"]):
             n = (p.info.get("name") or "")
-            if n and low in n.lower():
-                victimas.append((p, n, p.info.get("pid")))
+            if not n:
+                continue
+            nl = n.lower()
+            if nl == low or nl == f"{low}.exe" or nl.rsplit(".", 1)[0] == low:
+                exactos.append((p, n, p.info.get("pid")))
+            elif low in nl:
+                parciales.append((p, n, p.info.get("pid")))
+        # El nombre exacto manda: «cierra el proceso code» no debe llevarse
+        # también a «codecs_host». Solo si no casa ninguno se usa la subcadena.
+        victimas = exactos or parciales
         if not victimas:
             return {"reply": f"No encuentro ningún proceso llamado «{name}». "
                              "Di «lista los procesos» y te enseño los que hay en marcha."}
-        from backend.core import confirm
-        canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
-        muestra = " · ".join(f"{n} (pid {pid})" for _p, n, pid in victimas[:8])
-        if len(victimas) > 8:
-            muestra += f" · …y {len(victimas) - 8} más"
 
-        def _terminar(_v=tuple(victimas)):
-            ok, fallidos = 0, 0
-            for p, _n, _pid in _v:
-                try:
-                    p.terminate()
-                    ok += 1
-                except Exception:                          # noqa: BLE001
-                    fallidos += 1
-            if not ok:
-                return (f"No he podido terminar ninguno de los {len(_v)} proceso(s): "
-                        "seguramente hagan falta permisos de administrador.")
-            extra = f" ({fallidos} se han resistido, probablemente por permisos)" if fallidos else ""
-            return f"Terminados {ok} proceso(s){extra}. Lo que no hubieras guardado, se ha perdido."
-
-        pregunta = (f"⚠ «{name}» casa con {len(victimas)} proceso(s) en marcha:\n"
-                    f"   {muestra}\n"
-                    "Cerrarlos pierde lo que no esté guardado. ¿Los termino? «sí» o «no».")
-        return {"reply": confirm.request(
-            channel=canal, kind="matar_procesos", summary=pregunta,
-            action=_terminar, request_text=text,
-            targets=[{"name": n, "pid": pid} for _p, n, pid in victimas],
-            cancel_reply=f"Vale, dejo «{name}» en paz."),
-            "data": {"confirm": True, "count": len(victimas)}}
+        # Cerrar procesos es directo, sin confirmación: es lo que se le pide.
+        ok, fallidos = 0, 0
+        for p, _n, _pid in victimas:
+            try:
+                p.terminate()
+                ok += 1
+            except Exception:                              # noqa: BLE001
+                fallidos += 1
+        if not ok:
+            return {"reply": f"No he podido terminar ninguno de los {len(victimas)} proceso(s) "
+                             f"de «{name}»: seguramente hagan falta permisos de administrador."}
+        # Un solo nombre, sin PIDs: lo que el operador quiere saber es que ya está.
+        programa = victimas[0][1]
+        for _p, n, _pid in victimas:
+            if n.lower().startswith(low):
+                programa = n
+                break
+        programa = programa.rsplit(".", 1)[0] if programa.lower().endswith(".exe") else programa
+        extra = f" ({fallidos} instancia(s) se han resistido, seguramente por permisos)" \
+            if fallidos else ""
+        return {"reply": f"{programa.title()} cerrado{extra}.",
+                "data": {"killed": ok, "failed": fallidos}}
 
     if intent == "youtube":
         q = (match.groupdict().get("yt") or match.groupdict().get("yt2") or "").strip()

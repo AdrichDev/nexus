@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Auditoría de la skill SISTEMA/PC: activación con frases naturales, enrutado
-real, fronteras con clima/domotica/games/discord, y confirmación obligatoria
-antes de matar procesos, apagar o reiniciar.
+real, fronteras con clima/domotica/games/discord, confirmación obligatoria antes
+de apagar o reiniciar, y cierre de procesos directo pero con puntería.
 
 No apaga, no reinicia y no mata nada: psutil se sustituye por un doble con una
 lista de procesos inventada y `os.system` se intercepta para apuntar el comando
@@ -120,7 +120,7 @@ for f in ("abre el tablero", "abre los correos", "abre las pestañas"):
           f"«{f}» no es una app instalada y lo coge open_app")
 
 # ------------------------------------------------- 4) dobles: nada real se toca
-print("== 4) matar procesos exige confirmación y previsualiza qué se lleva ==")
+print("== 4) cerrar procesos: directo, sin preguntar, y con puntería ==")
 
 
 class _ProcDoble:
@@ -135,7 +135,8 @@ class _ProcDoble:
 class _PsutilDoble:
     def __init__(self):
         self.procesos = [_ProcDoble("chrome.exe", 101), _ProcDoble("chrome.exe", 102),
-                         _ProcDoble("code.exe", 200), _ProcDoble("explorer.exe", 300)]
+                         _ProcDoble("code.exe", 200), _ProcDoble("codecs_host.exe", 201),
+                         _ProcDoble("explorer.exe", 300)]
 
     def process_iter(self, _campos=None):
         return list(self.procesos)
@@ -175,37 +176,43 @@ def _handle(frase):
     return asyncio.run(MOD.handle(r[1], frase, r[2], CTX))
 
 
+# Cerrar procesos es deliberadamente directo: la orden se ejecuta al vuelo.
 confirm.clear()
 res = _handle("cierra el proceso chrome")
 reply = res.get("reply", "")
-check(not any(p.terminado for p in PS.procesos),
-      "¡«cierra el proceso chrome» ha matado procesos SIN confirmación!")
-check(confirm.pending("pc") is not None, "matar procesos no arma ninguna confirmación")
-check("chrome.exe" in reply and "101" in reply,
-      "la pregunta no enseña qué procesos (nombre y PID) se va a llevar")
-check("2 proceso" in reply, "la pregunta no dice CUÁNTOS procesos casan")
-check("sí" in reply.lower() and "no" in reply.lower(), "la pregunta no pide un sí/no")
-
-respuesta = asyncio.run(confirm.answer("no", "pc")) or ""
-check(not any(p.terminado for p in PS.procesos), "un «no» ha matado procesos igualmente")
-
-confirm.clear()
-_handle("cierra el proceso chrome")
-respuesta = asyncio.run(confirm.answer("sí", "pc")) or ""
 check(sum(1 for p in PS.procesos if p.terminado) == 2,
-      "tras el «sí» no ha terminado los dos chrome.exe")
+      "«cierra el proceso chrome» no ha terminado los dos chrome.exe")
+check(confirm.pending("pc") is None,
+      "cerrar procesos ha armado una confirmación, y tiene que ser directo")
+check("chrome" in reply.lower() and "cerrado" in reply.lower(),
+      "la respuesta no dice qué programa ha cerrado")
+check("101" not in reply and "pid" not in reply.lower(),
+      "la respuesta suelta PIDs, y eso al operador no le dice nada")
 check(all(not p.terminado for p in PS.procesos if p.info["name"] != "chrome.exe"),
       "ha terminado procesos que NO casaban con el nombre pedido")
-check("2" in respuesta, "no informa de cuántos ha terminado")
-confirm.clear()
 
-# proceso inexistente: lo dice, no arma nada
+# El nombre exacto manda sobre la subcadena: «code» no se lleva «codecs_host».
+for p in PS.procesos:
+    p.terminado = False
+_handle("cierra el proceso code")
+check([p.info["pid"] for p in PS.procesos if p.terminado] == [200],
+      "«cierra el proceso code» se lleva por delante procesos que solo lo contienen")
+
+# Sin nombre exacto sí vale la subcadena: «codecs» encuentra codecs_host.exe.
+for p in PS.procesos:
+    p.terminado = False
+_handle("cierra el proceso codecs")
+check([p.info["pid"] for p in PS.procesos if p.terminado] == [201],
+      "sin nombre exacto no cae a la coincidencia por subcadena")
+
+# proceso inexistente: lo dice y no toca nada
 for p in PS.procesos:
     p.terminado = False
 res = _handle("cierra el proceso noexistejamas")
 check("no encuentro" in res.get("reply", "").lower(),
       "un proceso inexistente no se avisa con claridad")
-check(confirm.pending("pc") is None, "arma una confirmación para un proceso que no existe")
+check(not any(p.terminado for p in PS.procesos),
+      "un proceso inexistente ha acabado terminando algo")
 
 # ------------------------------------------------- 5) apagado y reinicio
 print("== 5) apagar y reiniciar: nada se ejecuta sin confirmación ==")
