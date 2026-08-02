@@ -20,9 +20,7 @@ import re
 import tempfile
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
-from pathlib import Path
 
-import httpx
 
 from . import net
 from .config import settings
@@ -322,24 +320,6 @@ async def _eleven_bytes(text: str) -> bytes | None:
     except Exception as exc:
         await bus.emit("log", {"level": "warn", "msg": f"ElevenLabs falló: {exc}"})
         return None
-
-
-async def _speak_edge(text: str) -> bool:
-    data = await _edge_bytes(text)
-    if not data:
-        return False
-    url = _serve_audio(data, "mp3")
-    await bus.emit("audio", {"url": url})   # ← el HUD lo reproduce EN LA APP
-    return True
-
-
-async def _speak_elevenlabs(text: str) -> bool:
-    data = await _eleven_bytes(text)
-    if not data:
-        return False
-    url = _serve_audio(data, "mp3")
-    await bus.emit("audio", {"url": url})
-    return True
 
 
 async def synthesize(text: str) -> str | None:

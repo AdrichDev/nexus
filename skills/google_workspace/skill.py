@@ -810,22 +810,6 @@ async def _email_actions_job(ctx, channel: str) -> dict:
     return {"reply": reply}
 
 
-async def _ack(ctx, msg: str) -> None:
-    """Acuse INMEDIATO: pinta y DICE «dame un segundo…» antes del análisis pesado, para
-    que no haya silencio mientras nexus lee los correos por detrás."""
-    try:
-        await ctx["bus"].emit("chat", {"user": "", "reply": msg,
-                                       "provider": "minion:google_workspace",
-                                       "skill": "google_workspace"})
-    except Exception:
-        pass
-    try:
-        from backend.core import tts
-        await tts.speak(msg)
-    except Exception:
-        pass
-
-
 def _parse_json_array(raw: str, n: int) -> list:
     """Extrae un array JSON de la respuesta del LLM (tolera ```json y texto alrededor)."""
     import json

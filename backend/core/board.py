@@ -341,21 +341,11 @@ def move_task(query: str, state_raw: str) -> dict | None:
     return None
 
 
-def set_meta(query: str, due: str | None = None, priority: str | None = None) -> dict | None:
-    tasks = _load()
-    q = _norm(query)
-    for t in tasks:
-        if t["id"] == query.strip() or q in _norm(t["title"]):
-            if due is not None:
-                t["due"] = due
-            if priority is not None:
-                t["priority"] = priority
-            t["updatedAt"] = _now()
-            _save(tasks)
-            return t
-    return None
-
-
+# NO HAY «set_meta()» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
+# Cambiaba `due` y `priority` de una tarea. Justo debajo, `edit_task()` cambia
+# eso Y ADEMÁS el título y el estado, con la misma búsqueda por id-o-título. Un
+# análisis de código muerto la delató: no la llamaba nadie, ni el tablero ni las
+# rutas de /api/board. Si necesitas tocar metadatos, usa `edit_task()`.
 def edit_task(query: str, title: str | None = None, due: str | None = None,
               priority: str | None = None, state: str | None = None) -> dict | None:
     """Edita una tarea (por id exacto o por título). Cambia solo lo que llega."""
@@ -421,17 +411,6 @@ def board() -> dict:
     """Las 4 columnas del kanban (contrato estable del HUD y de /api/board)."""
     tasks = _load()
     return {s: [t for t in tasks if t["state"] == s] for s in STATES}
-
-
-def board_full() -> dict:
-    """Las 4 columnas + canceladas/archivadas (solo si tienen algo)."""
-    tasks = _load()
-    out = {s: [t for t in tasks if t["state"] == s] for s in STATES}
-    for s in EXTRA_STATES:
-        items = [t for t in tasks if t["state"] == s]
-        if items:
-            out[s] = items
-    return out
 
 
 def overdue(days_soon: int = 2) -> tuple[list[dict], list[dict]]:

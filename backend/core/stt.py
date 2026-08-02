@@ -11,12 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import random
-import tempfile
 import threading
 import time
-import wave
-from pathlib import Path
 
 # Silenciar avisos de HuggingFace antes de importar whisper
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
@@ -58,15 +54,6 @@ BARGE_CONFIRM = 0.18             # s de voz SOSTENIDA para confirmar (ignora cli
 # Así el barge-in NO salta con ruido de calle (banda ancha, sin tono) ni tecleo
 # (transitorios sin tono): ambos dan autocorrelación baja en la banda de pitch.
 VOICE_AC = 0.30                  # autocorrelación normalizada mínima en la banda de pitch
-
-_MOCK_PHRASES = [
-    "qué me toca hacer hoy",
-    "estado del sistema",
-    "hazle una factura a Ubix por el servicio de diseño de 350 euros",
-    "recuérdame pagar al proveedor de China el viernes",
-    "cuánto es la integral de x cuadrado",
-]
-
 
 def _norm_name(s) -> str:
     """Nombre normalizado para comparar: minúsculas, sin acentos, espacios simples."""

@@ -6,7 +6,6 @@
   3) Memoria: «recuerda que X» y «qué sabes de mí» enrutan bien; la memoria
      tiene los métodos de guardar/listar (+ roundtrip real si hay DB accesible).
 """
-import ast
 import asyncio
 import importlib
 import importlib.util

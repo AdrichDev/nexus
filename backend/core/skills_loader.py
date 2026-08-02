@@ -16,7 +16,6 @@ from __future__ import annotations
 import importlib.util
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from .config import SKILLS_DIR
 

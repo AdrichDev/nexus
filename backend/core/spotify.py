@@ -23,7 +23,6 @@ import os
 import time
 from urllib.parse import quote, urlencode
 
-import httpx
 
 from . import net
 from .config import ROOT, settings

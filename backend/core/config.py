@@ -46,7 +46,8 @@ SKILLS_DIR = _prefer_external("skills")
 FRONTEND_DIR = _prefer_external("frontend")
 CONFIG_DIR = Path(_ENV_CONFIG) if _ENV_CONFIG else ROOT / "config"
 CONFIG_FILE = CONFIG_DIR / "settings.json"
-CONFIG_EXAMPLE = BUNDLE / "config" / "settings.example.json"
+# La ruta a settings.example.json NO vive aquí: quien copia la plantilla cuando
+# falta el settings.json es run.bat, no el backend (02/08/2026).
 
 load_dotenv(ROOT / ".env")
 

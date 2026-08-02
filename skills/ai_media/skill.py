@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
-import httpx
 
 OUT_DIR = Path(__file__).resolve().parents[2] / "data" / "captures"
 

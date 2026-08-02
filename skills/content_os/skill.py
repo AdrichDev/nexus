@@ -65,9 +65,12 @@ def _token(ctx) -> str:
         ctx["settings"], "secret") else ""
 
 
-def _ig_user(ctx) -> str:
-    return (str(ctx["settings"].get("ig_user_id", "") or "").strip()
-            or str(ctx["settings"].get("ig_business_account_id", "") or "").strip())
+# NO HAY «_ig_user(ctx)» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
+# Resolvía el «ig_user_id o si no ig_business_account_id». No la llamaba NADIE:
+# los tres sitios de este fichero que necesitan ese id se escriben esa misma línea
+# a mano, y `backend/core/contentos.py:_ig_creds()` también. El ayudante nació
+# muerto al lado de su propia duplicación. Si algún día se unifica, el sitio es
+# `contentos._ig_creds()`, que sí está vivo.
 
 
 # ---------------------------------------------------------------- inspiración

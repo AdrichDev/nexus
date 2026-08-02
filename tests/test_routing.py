@@ -258,7 +258,6 @@ def test_board_kind_time_fields():
 
 # ============ TEST 3i: TTS nunca lee rutas ni separadores ============
 def test_tts_rutas_separadores():
-    import types as _types
     path = os.path.join(ROOT, "backend", "core", "tts.py")
     tree = ast.parse(open(path, encoding="utf-8").read())
     fn = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_speak_norm"]

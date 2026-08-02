@@ -17,7 +17,6 @@ Ejecutar:  python tests/test_specs_v23_hermes.py    (desde la carpeta nexus)
 import asyncio
 import importlib.util
 import os
-import re
 import sys
 import tempfile
 import time

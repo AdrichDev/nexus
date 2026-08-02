@@ -14,7 +14,6 @@ Ejecutar:  python tests/test_specs_v20.py    (desde la carpeta nexus)
 import ast
 import asyncio
 import datetime as dt
-import importlib.util
 import json
 import os
 import re

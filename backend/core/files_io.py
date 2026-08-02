@@ -390,12 +390,6 @@ def write_text(path, contenido: str, *, overwrite: bool = False,
             "bytes": info["bytes"], "verificado": True}
 
 
-def resolve_target(nombre: str, base) -> Path:
-    """Ruta final a partir de un nombre y una carpeta base ya resuelta."""
-    n = (nombre or "").strip().strip('"\'')
-    p = Path(n).expanduser()
-    return p if p.is_absolute() else Path(base).expanduser() / n
-
 # ── QUÉ FORMATO USAR CUANDO NADIE LO DICE ────────────────────────────────────
 # Norma de Adri (30/07/2026): «todos los informes por defecto han de crearse en
 # archivos .md salvo que se pida expresamente otra cosa».

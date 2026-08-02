@@ -108,17 +108,13 @@ def _needs_web(text: str) -> bool:
     return bool(_WEB_TRIGGERS.search(t))
 
 
-# Solo interpretamos con el LLM (coste extra) si la frase PARECE una orden; la charla
-# normal va directa a conversación → evita la DOBLE llamada al modelo por mensaje.
-_IMPERATIVE_RX = re.compile(
-    r"\b(abre|abrir|abre\w*|pon|ponme|poner|reproduce|play|busca|buscar|encuentra|"
-    r"crea|crear|cre[aá]me|haz|hazme|env[ií]a|env[ií]ame|manda|m[aá]ndame|escribe|escr[ií]beme|"
-    r"redacta|apaga|enciende|prende|sube|baja|silencia|mutea|cambia|arranca|levanta|instala|"
-    r"actualiza|descarga|mueve|copia|renombra|borra|elimina|programa|recu[eé]rdame|planifica|"
-    r"calcula|traduce|resume|res[uú]me\w*|lee|l[eé]eme|dame|d[ií]me|mu[eé]stra\w*|ejecuta|lanza|"
-    r"para\b|det[eé]n|conecta|vincula|escanea|detecta|controla|juega|reproduce|silencia|"
-    r"apúntame|ap[uú]nta|agenda|env[ií]ale|escr[ií]bele|ll[aá]ma)\b", re.IGNORECASE)
-
+# NO HAY «_IMPERATIVE_RX» NI «_looks_imperative()» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
+# Eran de la política ANTIGUA: solo se interpretaba con el LLM si la frase parecía
+# una orden (lista blanca de verbos), para ahorrar la doble llamada al modelo. Esa
+# política la sustituyó la de aquí abajo — Adri: «si entiende la acción, tiene que
+# ejecutar» —, donde lo ÚNICO que no pasa por el intérprete es la charla pura. La
+# lista de verbos se quedó en el fichero sin que la llamara nadie; un análisis de
+# código muerto la delató. El filtro que manda ahora es `_SMALLTALK_RX`.
 
 # CHARLA PURA (saludos, gracias, ok...): lo ÚNICO que no pasa por el intérprete.
 # Todo lo demás, si ningún regex casó, va al MODELO para que decida la skill —
@@ -128,10 +124,6 @@ _SMALLTALK_RX = re.compile(
     r"qu[eé]\s+tal|c[oó]mo\s+est[aá]s|gracias|muchas\s+gracias|vale|ok(?:ey)?|"
     r"genial|perfecto|guay|de\s+acuerdo|entendido|adi[oó]s|hasta\s+luego|chao|"
     r"(?:ja|je|ji|jo){2,}|s[ií]|no)\b[\s!¡.,?¿]*$", re.IGNORECASE)
-
-
-def _looks_imperative(text: str) -> bool:
-    return bool(_IMPERATIVE_RX.search(text or ""))
 
 
 # MULTI-ORDEN en una sola frase: «cuántos correos Y dime la agenda de julio».

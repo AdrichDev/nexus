@@ -5,7 +5,6 @@ Cubre: routing de TODAS las skills + colisiones entre skills, planificador
 
 Ejecutar:  python tests/test_all.py       (desde la carpeta nexus)
 """
-import ast
 import importlib
 import importlib.util
 import os
@@ -266,7 +265,6 @@ if __name__ == "__main__":
         try:
             t()
         except Exception as e:
-            import traceback
             _fail.append(f"{t.__name__} EXCEPCIÓN: {type(e).__name__}: {e}")
             print("  EXCEPCIÓN:", type(e).__name__, e)
     print(f"\n{'='*54}\n{_pass} pasados, {len(_fail)} fallados")

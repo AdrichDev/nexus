@@ -792,10 +792,11 @@ lo que no se sostenga. Entrega solo la respuesta final, ya depurada por ese exam
 Si detectas que {operator} parte de un dato o premisa equivocada, corrígelo con
 argumentos. Prefiere la verdad útil al halago."""
 
-# Versión LIGERA (nivel «equilibrado»): una sola comprobación, sin encarecer la latencia.
-DEVIL_LIGHT = ("\n\nAntes de responder, comprueba rápido que no partes de una premisa "
-               "falsa y, si {operator} se basa en un dato equivocado, corrígelo. "
-               "Responde directo, sin mostrar el proceso.")
+# NO HAY «DEVIL_LIGHT» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
+# Era una versión corta de DEVIL_INSTRUCTION pensada para el nivel «equilibrado».
+# Nunca se llegó a enganchar: el abogado del diablo va SIEMPRE con la instrucción
+# completa (así lo anuncia el propio HUD, ver frontend/js/command.js) y el nivel de
+# razonamiento solo controla cuánto se extiende la respuesta, no cuánto se cuestiona.
 
 
 # ── LA MISMA REGLA, PARA QUIEN GENERA CONTENIDO ──────────────────────────────

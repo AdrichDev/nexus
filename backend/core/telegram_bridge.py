@@ -16,8 +16,6 @@ import os
 
 import httpx
 
-from pathlib import Path
-import tempfile
 
 from .config import DATA_DIR
 from .events import bus

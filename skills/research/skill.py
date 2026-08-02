@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import datetime as dt
-import html
 import re
 import webbrowser
 from pathlib import Path
 
-import httpx
 
 REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
 
@@ -30,9 +28,6 @@ SKILL = {
                    r"|\bmis\s+informes\b|historial\s+de\s+informes",
     },
 }
-
-TAG_RE = re.compile(r"<[^>]+>")
-
 
 # v19: la búsqueda y la lectura de páginas usan el MOTOR CENTRAL de nexus
 # (backend/core/websearch.py): multi-fuente (Google News RSS + DDG Lite + DDG

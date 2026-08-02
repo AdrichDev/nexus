@@ -27,7 +27,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 import httpx
 
@@ -137,12 +137,11 @@ def hay_cerebro() -> bool:
     return bool(_STATUS.active and _STATUS.verified)
 
 
-def mensaje_sin_cerebro() -> str:
-    """El mensaje honesto cuando NO hay cerebro. Nunca se inventa una respuesta."""
-    if _STATUS.error_public:
-        return _STATUS.error_public
-    return ("Ahora mismo no tengo ningún modelo funcionando, así que no puedo darte "
-            "una respuesta de verdad. Elige un cerebro en ⚙ y lo pruebo al momento.")
+# NO HAY «mensaje_sin_cerebro()» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
+# Devolvía el mensaje honesto de «no tengo modelo». No la llamaba nadie: quien de
+# verdad lo dice es `llm.py:664`, que construye ese MISMO texto por su cuenta. O
+# sea, una copia muerta al lado de la viva. Si hay que tocar el mensaje, se toca
+# en llm.py; el estado para decidirlo se lee con `hay_cerebro()`.
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -255,13 +254,6 @@ class OllamaClient:
         if self._base:
             return self._base
         return str(settings.get("ollama_url", "http://localhost:11434")).rstrip("/")
-
-    async def is_up(self) -> bool:
-        try:
-            r = await net.client().get(f"{self.base}/api/tags", timeout=self.timeout)
-            return r.status_code == 200
-        except Exception:
-            return False
 
     async def list_models(self) -> list[dict]:
         """Lo que Ollama SIRVE ahora mismo. Lanza OllamaNoDisponible si no está."""

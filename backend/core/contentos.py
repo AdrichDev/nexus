@@ -110,19 +110,6 @@ def _ig_creds() -> tuple[str, str]:
             or str(settings.get("ig_business_account_id", "") or "").strip())
 
 
-async def ig_connected() -> bool:
-    token, uid = _ig_creds()
-    if not (token and uid):
-        return False
-    try:
-        async with httpx.AsyncClient(timeout=6) as cli:
-            r = await cli.get(f"{GRAPH}/{uid}",
-                              params={"fields": "username", "access_token": token})
-        return r.status_code == 200 and "error" not in r.json()
-    except Exception:
-        return False
-
-
 async def _ig_metrics() -> dict | None:
     """Métricas REALES de Instagram Graph API. None si falla (→ usamos demo)."""
     token, uid = _ig_creds()

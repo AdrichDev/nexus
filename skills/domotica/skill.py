@@ -30,7 +30,6 @@ import asyncio
 import re
 import socket
 import subprocess
-import sys
 import time
 
 SKILL = {

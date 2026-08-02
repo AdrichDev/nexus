@@ -13,10 +13,6 @@ escucha todo — y mientras hay un ciclo de voz en marcha.
 from __future__ import annotations
 
 import asyncio
-import os
-import tempfile
-import wave
-from pathlib import Path
 
 from .config import settings
 from .events import bus

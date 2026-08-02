@@ -19,7 +19,6 @@ Ejecutar:  python tests/test_dispositivos.py    (desde la carpeta nexus)
 """
 import asyncio
 import importlib.util
-import os
 import re
 import sys
 from pathlib import Path

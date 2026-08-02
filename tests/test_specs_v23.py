@@ -19,7 +19,6 @@ import os
 import re
 import sys
 import tempfile
-import types
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

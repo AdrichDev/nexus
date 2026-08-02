@@ -3,7 +3,6 @@
 Ejecutar:  python tests/run_all.py   (desde la carpeta nexus)  ->  exit 0 si OK.
 """
 import ast
-import importlib.util
 import os
 import subprocess
 import sys

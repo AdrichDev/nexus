@@ -90,12 +90,12 @@ def _fusiona(base: dict, encima) -> dict:
     return out
 
 
-def recarga_umbrales() -> None:
-    """Olvida lo leído. Para cuando se toca el archivo sin reiniciar."""
-    global _cache_archivo
-    _cache_archivo = None
-
-
+# NO HAY «recarga_umbrales()» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
+# Vaciaba `_cache_archivo` para releer config/umbrales.json sin reiniciar. No la
+# llamaba nadie — y aun así alguien copió el patrón a backend/core/procedencia.py,
+# donde tampoco lo llamaba nadie (ver la nota de allí). Una función muerta
+# replicada es peor que una sola, así que se van las dos. nexus relee los umbrales
+# al arrancar, y tras tocar una skill HAY QUE REINICIAR de todos modos.
 def cargar_umbrales(extra=None) -> dict:
     """Los umbrales vigentes: reserva + archivo + lo que pise esta cuenta."""
     global _cache_archivo
