@@ -54,6 +54,18 @@ for folder in sorted(os.listdir(skdir)):
         fails += 1
 print(f"  {nsk} skills revisadas")
 
+# LA SUITE NO PUEDE TOCAR LA CONFIGURACIÓN DE VERDAD.
+# `test_dispositivos.py` hacía `settings.set("llm_provider","ollama")` sobre el
+# config/settings.json REAL y no lo devolvía. Resultado: cada pasada de los tests
+# le cambiaba el cerebro a Adrián — elegía Gemini, corría la suite, y al arrancar
+# nexus salía qwen3. Tardó en verse porque el síntoma aparecía mucho después y
+# lejos de la causa. Se fotografía antes y se compara al final.
+_CFG = os.path.join(ROOT, "config", "settings.json")
+try:
+    _cfg_antes = open(_CFG, encoding="utf-8").read()
+except Exception:
+    _cfg_antes = None
+
 # 3) lanzar las suites unitarias
 for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_renovacion.py", "test_mejoras_v19.py", "test_specs_v20.py",
@@ -70,7 +82,8 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_skill_backup.py", "test_skill_telefono.py",
               "test_skills_pequenas_1.py", "test_skills_pequenas_2.py",
               "test_frontend_modulos.py", "test_capas_backend.py",
-              "test_lo_prometido.py", "test_grafo_solo_conocimiento.py"):
+              "test_lo_prometido.py", "test_grafo_solo_conocimiento.py",
+              "test_grafo_vista.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.
@@ -92,6 +105,34 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
     if r.returncode != 0:
         fails += 1
         print(r.stderr[-500:])
+
+print("== 4) la suite no ha tocado config/settings.json ==")
+if _cfg_antes is None:
+    print("  (no había settings.json que vigilar)")
+else:
+    try:
+        _cfg_ahora = open(_CFG, encoding="utf-8").read()
+    except Exception:
+        _cfg_ahora = ""
+    if _cfg_ahora == _cfg_antes:
+        print("  intacto ✔")
+    else:
+        import json as _json
+        try:
+            a, b = _json.loads(_cfg_antes), _json.loads(_cfg_ahora)
+            cambios = sorted({k for k in set(a) | set(b) if a.get(k) != b.get(k)})
+        except Exception:
+            cambios = ["(no he podido comparar clave a clave)"]
+        print("  ✖ LA SUITE HA CAMBIADO LOS AJUSTES DE VERDAD:", ", ".join(cambios))
+        print("    Un test está escribiendo en config/settings.json en vez de en su")
+        print("    sandbox. Aísla NEXUS_CONFIG_DIR o parchea settings.get, pero no")
+        print("    dejes escrito nada: esto le cambia la configuración al usuario.")
+        try:                                     # se devuelve lo que había
+            open(_CFG, "w", encoding="utf-8").write(_cfg_antes)
+            print("    (he restaurado el fichero a como estaba)")
+        except Exception:
+            pass
+        fails += 1
 
 print(f"\n{'#'*54}\nRESULTADO GLOBAL: {'TODO VERDE ✔' if fails == 0 else str(fails)+' bloque(s) con fallos ✖'}")
 sys.exit(1 if fails else 0)

@@ -142,6 +142,32 @@ _CARPETAS_NO_CONOCIMIENTO = ("papelera", "daily")
 _PREFIJOS_NO_CONOCIMIENTO = ("diario-",)
 
 
+# Hasta cuántas notas de una misma carpeta se enlazan TODAS CON TODAS. Por
+# encima se deja solo el radio a la carpeta: una malla crece al cuadrado y a
+# partir de aquí deja de leerse.
+_MALLA_MAX_CARPETA = 12
+
+# La carpeta madre se declara de dos maneras según cuándo se ingiriera la nota:
+# el frontmatter `dominio:` (formato actual) o la línea `Carpeta:` del cuerpo
+# (formato viejo). Y si no hay ninguna, vale la carpeta del disco.
+_RX_DOMINIO = re.compile(r"^dominio:\s*(.+?)\s*$", re.MULTILINE)
+_RX_CARPETA = re.compile(r"^Carpeta:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _carpeta_de(path, texto: str) -> str:
+    """Carpeta madre de una nota, o cadena vacía si está suelta en la raíz."""
+    m = _RX_DOMINIO.search(texto) or _RX_CARPETA.search(texto)
+    if m:
+        return m.group(1).strip()
+    rel = path.parent
+    try:
+        if rel != MEMORY_DIR:
+            return rel.name
+    except Exception:                                      # noqa: BLE001
+        pass
+    return ""
+
+
 def _excluido_por_nombre(nombre: str) -> bool:
     """True si ese NOMBRE de nota no es conocimiento. Vale para ficheros y enlaces."""
     return str(nombre).strip().lower().startswith(_PREFIJOS_NO_CONOCIMIENTO)
@@ -222,16 +248,40 @@ class NoteGraph:
         las notas que dependen del MISMO conocimiento quedan CONECTADAS entre
         sí y comparten grupo/color en el HUD."""
         nodes, edges = [], []
+        carpetas: dict[str, str] = {}          # nota → su carpeta madre
         for path in MEMORY_DIR.rglob("*.md"):
             if _fuera_del_conocimiento(path):
                 continue
             name = path.stem
             nodes.append(name)
             try:
-                for target in WIKILINK.findall(path.read_text(encoding="utf-8")):
-                    edges.append([name, target.strip()])
-            except Exception:
-                pass
+                texto = path.read_text(encoding="utf-8")
+            except Exception:                              # noqa: BLE001
+                texto = ""
+            carpeta = _carpeta_de(path, texto)
+            if carpeta:
+                carpetas[name] = carpeta
+            for target in WIKILINK.findall(texto):
+                edges.append([name, target.strip()])
+
+        # LA CARPETA MADRE ES UNA RELACIÓN, no solo una etiqueta. Dos documentos
+        # de la misma carpeta hablan de lo mismo aunque nadie los haya enlazado a
+        # mano, así que se conectan solos: cada nota con el nodo de su carpeta y,
+        # si el grupo es pequeño, también entre ellas.
+        #
+        # El tope existe porque una malla crece al cuadrado: 6 notas son 15
+        # líneas y se lee; 30 notas serían 435 y no se ve nada. Por encima del
+        # tope se deja solo el radio a la carpeta, que ya las mantiene unidas.
+        por_carpeta: dict[str, list[str]] = {}
+        for nota, carpeta in carpetas.items():
+            por_carpeta.setdefault(carpeta, []).append(nota)
+        for carpeta, miembros in por_carpeta.items():
+            for nota in miembros:
+                edges.append([nota, carpeta])
+            if len(miembros) <= _MALLA_MAX_CARPETA:
+                for i, a in enumerate(sorted(miembros)):
+                    for b in sorted(miembros)[i + 1:]:
+                        edges.append([a, b])
         # Un enlace a algo que no existe como nota crea un hub virtual. Eso está
         # bien para agrupar («conocimiento», «documentos»), pero resucitaba lo
         # excluido: cada `resumen AAAA-MM-DD` enlaza a su `[[diario-…]]`
@@ -243,7 +293,8 @@ class NoteGraph:
             if b not in known:
                 known.add(b)
                 nodes.append(b)
-        return {"nodes": nodes, "edges": edges}
+        return {"nodes": nodes, "edges": edges, "carpetas": carpetas,
+                "raiz": sorted(por_carpeta)}
 
 
 # ----------------------------------------------------------------------

@@ -47,83 +47,289 @@ function knNoteColor(nm) {
   if (l.includes('factura') || l.includes('cliente')) return '#ffe74d';
   return '#9d7dff';
 }
+/* ---------------------------------------------------------------- el MUNDO
+   El grafo vive en un lienzo de coordenadas propio (el «mundo»), más grande que
+   la ventana, y lo que se ve es una cámara encima: `knView` guarda el zoom y el
+   desplazamiento.
+
+   Antes no había mundo: los nodos se posicionaban en coordenadas de pantalla y
+   el arrastre las escribía sin límite. Al llevar un nodo contra un borde se
+   salía del contenedor, el contenedor crecía, `clientWidth` cambiaba y en el
+   siguiente montaje TODO se recolocaba sobre un tamaño distinto: el grafo se
+   comprimía y los nodos se apilaban. Con un mundo de tamaño fijo eso no puede
+   pasar — el borde de la ventana ya no es el borde de nada. */
+const WORLD = { w: 2400, h: 1700 };
+const ZOOM_MIN = 0.25, ZOOM_MAX = 3;
+let knView = { z: 1, x: 0, y: 0 };          // zoom y esquina superior izquierda
+let knPan = null;                            // arrastre del fondo
+let knByName = {};                           // nombre de nota → nodo
+
+function knAplicaVista() {
+  const world = $('#kn-world');
+  if (!world) return;
+  world.style.transform = `translate(${-knView.x}px, ${-knView.y}px) scale(${knView.z})`;
+  const lbl = $('#kn-zlabel');
+  if (lbl) lbl.textContent = Math.round(knView.z * 100) + '%';
+}
+
+/** Acerca o aleja manteniendo quieto el punto de pantalla (px, py). */
+function knZoom(factor, px, py) {
+  const stage = $('#kn-stage');
+  if (!stage) return;
+  const r = stage.getBoundingClientRect();
+  const sx = (px ?? r.width / 2), sy = (py ?? r.height / 2);
+  const antes = knView.z;
+  const z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, antes * factor));
+  if (z === antes) return;
+  // el punto del mundo bajo el cursor no se mueve
+  knView.x = (knView.x + sx) * (z / antes) - sx;
+  knView.y = (knView.y + sy) * (z / antes) - sy;
+  knView.z = z;
+  knLimitaVista();
+  knAplicaVista();
+}
+
+/** La cámara no puede salirse del mundo: si no, se ve el vacío y uno se pierde. */
+function knLimitaVista() {
+  const stage = $('#kn-stage');
+  if (!stage) return;
+  const vw = stage.clientWidth, vh = stage.clientHeight;
+  const maxX = Math.max(0, WORLD.w * knView.z - vw);
+  const maxY = Math.max(0, WORLD.h * knView.z - vh);
+  knView.x = Math.min(maxX, Math.max(0, knView.x));
+  knView.y = Math.min(maxY, Math.max(0, knView.y));
+}
+
+/** Encaja todo el grafo en la ventana y lo centra. */
+function knAjustar() {
+  const stage = $('#kn-stage');
+  if (!stage || !knNodes.length) return;
+  // Se encuadra EL CONOCIMIENTO, no las 32 skills. Esta pantalla es la de tus
+  // notas: si el ajuste tiene que meter también el anillo entero de módulos, el
+  // racimo de documentos acaba diminuto y en una esquina. Las skills siguen ahí,
+  // alrededor; para verlas basta con alejar.
+  const foco = knNodes.filter((n) => n.note || n.carpeta);
+  const usar = foco.length > 1 ? foco : knNodes;
+  const xs = usar.map((n) => n.x), ys = usar.map((n) => n.y);
+  const x0 = Math.min(...xs) - 90, x1 = Math.max(...xs) + 90;
+  const y0 = Math.min(...ys) - 90, y1 = Math.max(...ys) + 90;
+  // SUELO del ajuste automático. Meter 36 nodos en la ventana daba un 39%: se
+  // veía todo y no se leía nada. Por debajo de este suelo se prefiere dejar algo
+  // fuera —para eso está arrastrar el fondo— antes que un grafo ilegible. El
+  // zoom MANUAL sí puede bajar hasta ZOOM_MIN: ahí lo pides tú.
+  const AJUSTE_MIN = 0.6;
+  const z = Math.min(ZOOM_MAX, Math.max(AJUSTE_MIN,
+    Math.min(stage.clientWidth / (x1 - x0), stage.clientHeight / (y1 - y0))));
+  knView.z = z;
+  knView.x = (x0 + x1) / 2 * z - stage.clientWidth / 2;
+  knView.y = (y0 + y1) / 2 * z - stage.clientHeight / 2;
+  knLimitaVista();
+  knAplicaVista();
+}
+
 export function mountKnowledge() {
   cancelAnimationFrame(knRaf);
-  const stage = $('#kn-stage'), links = $('#kn-links');
+  const stage = $('#kn-stage'), world = $('#kn-world'), links = $('#kn-links');
+  if (!stage || !world || !links) return;
   knStageEl = stage;
-  const dpr = window.devicePixelRatio || 1;
-  const W = stage.clientWidth, H = stage.clientHeight;
-  links.width = W * dpr; links.height = H * dpr; links.style.width = W + 'px'; links.style.height = H + 'px';
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = WORLD.w, H = WORLD.h;
+  world.style.width = W + 'px'; world.style.height = H + 'px';
+  links.width = W * dpr; links.height = H * dpr;
+  links.style.width = W + 'px'; links.style.height = H + 'px';
   const ctx = links.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  stage.querySelectorAll('.knode').forEach((e) => e.remove());
+  world.querySelectorAll('.knode').forEach((e) => e.remove());
   const cx = W / 2, cy = H / 2, nodes = [], byKey = {};
-  knNodes = nodes;
+  knNodes = nodes; knByName = {};
   let edges = [];
   const place = (data) => {
     const el = document.createElement('div');
-    el.className = 'knode' + (data.core ? ' core' : '') + (data.note ? ' note' : '');
+    el.className = 'knode' + (data.core ? ' core' : '')
+      + (data.note ? ' note' : '') + (data.carpeta ? ' carpeta' : '');
     el.style.setProperty('--c', data.color);
-    const sz = data.core ? 90 : data.note ? 34 : 56;
+    const sz = data.core ? 90 : data.carpeta ? 66 : data.note ? 38 : 56;
     el.style.width = el.style.height = sz + 'px';
     el.innerHTML = `<span>${esc(data.label)}</span>`;
-    stage.appendChild(el);
-    const n = Object.assign({ el, sz, x: data.x0 ?? cx, y: data.y0 ?? cy, vx: 0, vy: 0, moved: false }, data);
-    nodes.push(n); if (data.key) byKey[data.key] = n;
-    el.addEventListener('mousedown', (e) => { e.preventDefault(); knDrag = n; n.moved = false; n._sx = e.clientX; n._sy = e.clientY; });
+    world.appendChild(el);
+    const n = Object.assign({ el, sz, x: data.x0 ?? cx, y: data.y0 ?? cy, moved: false }, data);
+    nodes.push(n);
+    if (data.key) byKey[data.key] = n;
+    if (data.raw) knByName[data.raw] = n;
+    el.addEventListener('mousedown', (e) => {
+      e.preventDefault(); e.stopPropagation();          // no arrastra el fondo
+      knDrag = n; n.moved = false; n._sx = e.clientX; n._sy = e.clientY;
+    });
     el.addEventListener('click', () => {
       if (n.moved) return;
       if (n.core) return openNode('__core__');
       if (n.note) return openNote(n.raw);
+      if (n.carpeta) return;                             // la carpeta solo agrupa
       return openNode(n.folder);
     });
     return n;
   };
   const core = place({ core: 1, key: 'nexus', label: 'nexus', color: '#22d3ee', x0: cx, y0: cy });
   core.fixed = true;
-  const keys = Object.keys(CATALOG), R = Math.min(W, H) * 0.30;
-  keys.forEach((k, i) => { const a = i / keys.length * Math.PI * 2 - Math.PI / 2;
+  // Las 32 skills van FUERA y tu conocimiento DENTRO. Estaba al revés: los
+  // módulos ocupaban el anillo cercano y los documentos quedaban en la periferia,
+  // así que la pantalla de «nodos de conocimiento» se abría enseñando sobre todo
+  // fontanería. Lo que importa aquí son tus notas.
+  const keys = Object.keys(CATALOG), R = Math.min(W, H) * 0.42;
+  keys.forEach((k, i) => {
+    const a = i / keys.length * Math.PI * 2 - Math.PI / 2;
     place({ folder: k, key: 'skill:' + k, label: CATALOG[k].label, color: CATALOG[k].color,
-      x0: cx + Math.cos(a) * R * 1.3, y0: cy + Math.sin(a) * R }); });
+      x0: cx + Math.cos(a) * R * 1.35, y0: cy + Math.sin(a) * R });
+  });
   api('/api/graph').then((g) => {
     const gn = (g?.nodes || []), ge = (g?.edges || []);
-    const groupOf = computeMemGroups(gn, ge);   // notas enlazadas = mismo color/grupo
-    const notes = gn.slice(0, 26), R2 = Math.min(W, H) * 0.44;
-    notes.forEach((nm, i) => { const a = i / Math.max(1, notes.length) * Math.PI * 2 + 0.4;
-      place({ note: 1, key: 'note:' + nm, raw: nm, group: groupOf[nm],
-        label: nm.length > 13 ? nm.slice(0, 12) + '…' : nm,
-        color: memGroupColor[nm] || knNoteColor(nm),
-        x0: cx + Math.cos(a) * R2 * 1.3, y0: cy + Math.sin(a) * R2 }); });
-    edges = ge.map(([f, t]) => [byKey['note:' + f], byKey['note:' + t]]).filter(([a, b]) => a && b);
+    const carpetas = g?.carpetas || {}, raices = g?.raiz || [];
+    const groupOf = computeMemGroups(gn, ge);   // enlazadas o de la misma carpeta = mismo color
+    // Las carpetas se colocan en su propia órbita, y sus archivos EN RACIMO
+    // alrededor de la suya: así se ve de un vistazo qué depende de qué.
+    const R3 = Math.min(W, H) * 0.15;      // carpetas: anillo INTERIOR
+    const centroCarpeta = {};
+    raices.forEach((c, i) => {
+      const a = i / Math.max(1, raices.length) * Math.PI * 2 + 0.9;
+      const x0 = cx + Math.cos(a) * R3 * 1.25, y0 = cy + Math.sin(a) * R3;
+      centroCarpeta[c] = { x0, y0 };
+      place({ carpeta: 1, key: 'note:' + c, raw: c, group: groupOf[c],
+        label: c.length > 16 ? c.slice(0, 15) + '…' : c,
+        color: memGroupColor[c] || '#7cf6c0', x0, y0 });
+    });
+    const sueltas = gn.filter((n) => !raices.includes(n));
+    const porCarpeta = {};
+    sueltas.forEach((n) => { (porCarpeta[carpetas[n] || ''] = porCarpeta[carpetas[n] || ''] || []).push(n); });
+    Object.entries(porCarpeta).forEach(([c, miembros]) => {
+      const base = centroCarpeta[c] || { x0: cx, y0: cy };
+      const rad = c ? 150 : Math.min(W, H) * 0.24;   // sueltas: entre carpetas y skills
+      miembros.forEach((nm, i) => {
+        const a = i / Math.max(1, miembros.length) * Math.PI * 2 + (c ? 0.2 : 0.4);
+        place({ note: 1, key: 'note:' + nm, raw: nm, group: groupOf[nm],
+          label: nm.length > 15 ? nm.slice(0, 14) + '…' : nm,
+          color: memGroupColor[nm] || knNoteColor(nm),
+          x0: (c ? base.x0 : cx) + Math.cos(a) * rad * (c ? 1 : 1.3),
+          y0: (c ? base.y0 : cy) + Math.sin(a) * rad });
+      });
+    });
+    edges = ge.map(([f, t]) => [byKey['note:' + f], byKey['note:' + t]])
+      .filter(([a, b]) => a && b && a !== b);
+    knPintaArbol(raices, porCarpeta, carpetas);
+    knAjustar();
   });
   // Nodos QUIETOS: se quedan donde están; solo se mueven si los arrastras.
-  // El bucle solo redibuja las líneas y coloca los nodos (sin física ni deriva).
   function frame() {
     ctx.clearRect(0, 0, W, H);
     const coreN = nodes.find((n) => n.core); if (coreN) { coreN.x = cx; coreN.y = cy; }
-    for (const n of nodes) { if (n.core) continue;
-      ctx.strokeStyle = n.color + (n.note ? '22' : '38'); ctx.lineWidth = n.note ? 1 : 1.5;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(n.x, n.y); ctx.stroke(); }
+    for (const n of nodes) {
+      if (n.core || n.note) continue;                    // radios solo a skills y carpetas
+      ctx.strokeStyle = n.color + '38'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(n.x, n.y); ctx.stroke();
+    }
     ctx.lineWidth = 1.2;
-    for (const [a, b] of edges) { ctx.strokeStyle = (a.color || '#7cf6c0') + '66';
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
-    for (const n of nodes) { n.el.style.left = (n.x - n.sz / 2) + 'px'; n.el.style.top = (n.y - n.sz / 2) + 'px'; }
+    for (const [a, b] of edges) {
+      ctx.strokeStyle = (a.color || '#7cf6c0') + (a.hl || b.hl ? 'cc' : '55');
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    for (const n of nodes) {
+      n.el.style.left = (n.x - n.sz / 2) + 'px';
+      n.el.style.top = (n.y - n.sz / 2) + 'px';
+    }
     knRaf = requestAnimationFrame(frame);
   }
   frame();
+  knAplicaVista();
+
+  // ---- zoom con Ctrl + rueda, y con los botones ----
+  stage.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;                    // sin Ctrl, la rueda es de la página
+    e.preventDefault();
+    const r = stage.getBoundingClientRect();
+    knZoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  $('#kn-zoom')?.addEventListener('click', (e) => {
+    const b = e.target.closest('.kn-zbtn'); if (!b) return;
+    if (b.dataset.z === 'fit') return knAjustar();
+    knZoom(b.dataset.z === 'in' ? 1.25 : 1 / 1.25);
+  });
+  // ---- arrastrar el FONDO para moverse por el mundo ----
+  stage.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.knode') || e.target.closest('#kn-zoom')) return;
+    knPan = { x: e.clientX, y: e.clientY, vx: knView.x, vy: knView.y };
+    stage.classList.add('panning');
+  });
 }
-// arrastre global de nodos
+
+/** El árbol de la izquierda: carpetas, sus archivos, y lo que anda suelto. */
+function knPintaArbol(raices, porCarpeta, carpetas) {
+  const tree = $('#kn-tree');
+  if (!tree) return;
+  const item = (nm, color) =>
+    `<div class="kn-file" data-note="${esc(nm)}" style="--c:${color}">
+       <i></i><span>${esc(nm)}</span></div>`;
+  let html = '';
+  raices.forEach((c) => {
+    const col = memGroupColor[c] || '#7cf6c0';
+    const hijos = porCarpeta[c] || [];
+    html += `<div class="kn-folder" style="--c:${col}">
+        <div class="kn-fname" data-note="${esc(c)}">▾ ${esc(c)} <b>${hijos.length}</b></div>
+        ${hijos.map((n) => item(n, memGroupColor[n] || knNoteColor(n))).join('')}
+      </div>`;
+  });
+  const sueltas = porCarpeta[''] || [];
+  if (sueltas.length) {
+    html += `<div class="kn-folder" style="--c:#8aa0b3">
+        <div class="kn-fname">▾ sin carpeta <b>${sueltas.length}</b></div>
+        ${sueltas.map((n) => item(n, memGroupColor[n] || knNoteColor(n))).join('')}
+      </div>`;
+  }
+  tree.innerHTML = html || '<div class="empty">Todavía no hay nada en la memoria.</div>';
+  // Pasar el ratón resalta el nodo en el grafo; pulsar lo abre y lo centra.
+  tree.querySelectorAll('[data-note]').forEach((el) => {
+    const nombre = el.dataset.note;
+    el.addEventListener('mouseenter', () => { const n = knByName[nombre]; if (n) { n.hl = 1; n.el.classList.add('hl'); } });
+    el.addEventListener('mouseleave', () => { const n = knByName[nombre]; if (n) { n.hl = 0; n.el.classList.remove('hl'); } });
+    el.addEventListener('click', () => {
+      const n = knByName[nombre];
+      if (n) knCentraEn(n);
+      if (n && !n.carpeta) openNote(nombre);
+    });
+  });
+}
+
+/** Deja un nodo en el centro de la ventana sin cambiar el zoom. */
+function knCentraEn(n) {
+  const stage = $('#kn-stage');
+  if (!stage) return;
+  knView.x = n.x * knView.z - stage.clientWidth / 2;
+  knView.y = n.y * knView.z - stage.clientHeight / 2;
+  knLimitaVista();
+  knAplicaVista();
+}
+
+// arrastre global: nodos y fondo
 document.addEventListener('mousemove', (e) => {
+  if (knPan) {
+    knView.x = knPan.vx - (e.clientX - knPan.x);
+    knView.y = knPan.vy - (e.clientY - knPan.y);
+    knLimitaVista(); knAplicaVista();
+    return;
+  }
   if (!knDrag || !knStageEl) return;
   const r = knStageEl.getBoundingClientRect();
   if (Math.hypot(e.clientX - knDrag._sx, e.clientY - knDrag._sy) > 4) knDrag.moved = true;
-  const nx = e.clientX - r.left, ny = e.clientY - r.top;
-  // En «Nodos de conocimiento» cada nodo se mueve INDIVIDUALMENTE (no en bloque).
-  // (El movimiento en bloque por grupo se mantiene en la vista Memoria.)
-  knDrag.x = nx; knDrag.y = ny; knDrag.x0 = nx; knDrag.y0 = ny; knDrag.vx = 0; knDrag.vy = 0;
+  // De pantalla a MUNDO: sin deshacer el zoom, el nodo se iría a otra parte.
+  const nx = (e.clientX - r.left + knView.x) / knView.z;
+  const ny = (e.clientY - r.top + knView.y) / knView.z;
+  // Y acotado al mundo: soltar un nodo fuera era lo que descuadraba el grafo.
+  const m = knDrag.sz / 2 + 4;
+  knDrag.x = Math.min(WORLD.w - m, Math.max(m, nx));
+  knDrag.y = Math.min(WORLD.h - m, Math.max(m, ny));
+  knDrag.x0 = knDrag.x; knDrag.y0 = knDrag.y;
 });
 document.addEventListener('mouseup', () => {
   if (knDrag) { knDrag.x0 = knDrag.x; knDrag.y0 = knDrag.y; }   // se queda donde lo sueltas
   knDrag = null;
+  if (knPan) { knPan = null; $('#kn-stage')?.classList.remove('panning'); }
 });
 /* ============ MINI-VENTANAS flotantes (nodos de conocimiento y memoria) ============
    Cada nodo se abre en su propia ventanita con ✕; puedes abrir varias a la vez

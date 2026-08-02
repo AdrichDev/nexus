@@ -432,10 +432,38 @@ body::after{
 .mnote:last-child{border:0}
 .mnote span{color:var(--txt-dim);font-size:11px}
 
-/* node graph view */
-#kn-stage{position:relative;height:calc(100vh - 260px);min-height:440px}
-#kn-links{position:absolute;inset:0}
-#kn-stage{flex:1;min-height:0}
+/* node graph view — distribución tipo Obsidian: árbol a la izquierda, grafo a
+   la derecha. El grafo es una VENTANA (overflow:hidden) sobre un mundo mayor:
+   así arrastrar un nodo contra un borde ya no puede estirar el contenedor ni
+   recolocar el resto (era lo que comprimía y apilaba el grafo). */
+#kn-split{display:flex;gap:14px;height:calc(100vh - 260px);min-height:440px}
+#kn-tree{flex:0 0 250px;overflow:auto;padding:10px;border:1px solid var(--line);
+  border-radius:12px;background:rgba(6,14,24,.45)}
+#kn-stage{position:relative;flex:1;min-width:0;overflow:hidden;
+  border:1px solid var(--line);border-radius:12px;cursor:grab}
+#kn-stage.panning{cursor:grabbing}
+#kn-world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+#kn-links{position:absolute;top:0;left:0}
+
+/* árbol de carpetas */
+.kn-folder{margin-bottom:12px;border-left:2px solid var(--c);padding-left:8px}
+.kn-fname{font-size:12px;font-weight:700;color:var(--c);cursor:pointer;
+  padding:2px 0;letter-spacing:.4px;text-shadow:0 0 8px var(--c)}
+.kn-fname b{color:var(--txt-dim);font-weight:400;font-size:10px}
+.kn-file{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--txt-dim);
+  padding:3px 0 3px 6px;cursor:pointer;border-radius:6px}
+.kn-file i{width:7px;height:7px;border-radius:50%;background:var(--c);
+  box-shadow:0 0 6px var(--c);flex:0 0 auto}
+.kn-file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kn-file:hover{background:rgba(34,211,238,.10);color:var(--txt)}
+
+/* controles de zoom */
+#kn-zoom{position:absolute;right:10px;bottom:10px;display:flex;align-items:center;gap:6px;
+  background:rgba(6,14,24,.8);border:1px solid var(--line);border-radius:10px;padding:4px 8px;z-index:6}
+.kn-zbtn{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);
+  background:transparent;color:var(--txt);cursor:pointer;font-size:13px;line-height:1}
+.kn-zbtn:hover{border-color:var(--cy);color:var(--cy)}
+#kn-zlabel{font-size:11px;color:var(--txt-dim);min-width:38px;text-align:right}
 .knode{position:absolute;border-radius:50%;cursor:pointer;display:flex;align-items:center;
   justify-content:center;text-align:center;border:2px solid var(--c);color:var(--c);
   background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.12),transparent 60%),rgba(6,14,24,.7);
@@ -444,6 +472,11 @@ body::after{
 .knode:hover{transform:scale(1.18);box-shadow:0 0 28px var(--c);z-index:5}
 .knode.core{font-size:15px;letter-spacing:2px;border-width:3px}
 .knode.note{font-size:8px;font-weight:400;border-width:1px;opacity:.85}
+/* la carpeta madre: más grande que sus archivos y con el borde a trazos, para
+   que se lea como contenedor y no como un documento más */
+.knode.carpeta{font-size:9px;border-style:dashed;border-width:2px;opacity:.95}
+/* resaltado al pasar el ratón por el árbol de la izquierda */
+.knode.hl{transform:scale(1.25);box-shadow:0 0 34px var(--c);z-index:6;opacity:1}
 
 /* talkbar */
 #talkbar{display:flex;align-items:center;gap:16px;padding:0 20px;border-top:1px solid var(--line);
@@ -675,10 +708,22 @@ a.ext:hover{text-shadow:0 0 8px var(--cy)}
 .cc-chat-in button{background:var(--cy);border:none;color:#04121a;font-weight:700;padding:0 15px;
   border-radius:6px;cursor:pointer}
 
-/* grafo de memoria interactivo */
-#mem-graph-wrap{position:relative}
-#mem-graph{width:100%;height:380px;display:block}
-#mem-tip{position:absolute;bottom:6px;left:8px;font-size:11px;color:var(--cy-soft)}
+/* grafo de memoria interactivo — distribución tipo Obsidian: el árbol de
+   carpetas a la izquierda y el grafo a la derecha, dentro de una ventana que
+   RECORTA (overflow:hidden). Ese recorte es parte del arreglo: antes el lienzo
+   era el mundo entero y arrastrar un nodo contra un borde lo apilaba ahí. */
+#mem-split{display:flex;gap:12px}
+#mem-tree{flex:0 0 230px;max-height:520px;overflow:auto;padding:8px;
+  border:1px solid var(--line);border-radius:10px;background:rgba(6,14,24,.45)}
+#mem-graph-wrap{position:relative;flex:1;min-width:0;overflow:hidden;
+  border:1px solid var(--line);border-radius:10px}
+#mem-graph{width:100%;height:520px;display:block}
+#mem-tip{position:absolute;bottom:6px;left:8px;font-size:11px;color:var(--cy-soft);
+  pointer-events:none;text-shadow:0 0 8px #000}
+#mem-zoom{position:absolute;right:8px;bottom:8px;display:flex;align-items:center;gap:6px;
+  background:rgba(6,14,24,.8);border:1px solid var(--line);border-radius:10px;padding:4px 8px}
+#mem-zlabel{font-size:11px;color:var(--txt-dim);min-width:38px;text-align:right}
+.mem-ayuda{margin-top:8px;font-size:11px;color:var(--txt-dim)}
 
 .section-title{font-size:20px;font-weight:300;color:#eaf6ff;margin-bottom:4px;letter-spacing:2px;
   text-transform:uppercase}

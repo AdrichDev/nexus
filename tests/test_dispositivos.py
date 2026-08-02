@@ -287,7 +287,13 @@ def test_mensajes_coherentes_cuando_no_hay_cerebro():
     """Queja de Adri (25/07): la pantalla decía «5 modelos detectados · EN USO» y
     el chat «no he podido hablar con Ollama». Dos mensajes que se contradicen."""
     import backend.core.llm as L
-    L.settings.set("llm_provider", "ollama")
+    # NO se escribe en los ajustes de verdad. Esta línea ponía
+    # llm_provider=ollama en el config/settings.json REAL y no lo devolvía, así
+    # que CADA pasada de la suite le cambiaba el cerebro a Adrián: elegía Gemini
+    # y al arrancar nexus salía qwen3. El test solo necesita que el proveedor
+    # LEÍDO sea ollama, no dejarlo escrito.
+    _get = L.settings.get
+    L.settings.get = lambda k, d=None: "ollama" if k == "llm_provider" else _get(k, d)
     L._ollama_instalados = lambda: []
     r = asyncio.run(L.MockProvider().chat([{"role": "user", "content": "¿qué tal?"}]))
     check("modo simulación" not in r, "se acabó la jerga de «modo simulación»")
@@ -306,6 +312,7 @@ def test_mensajes_coherentes_cuando_no_hay_cerebro():
     d2 = L._diagnostico_ollama_404("qwen3:8b")
     check("no está respondiendo" in d2 and "tu disco" in d2,
           "y el diagnóstico explica que tener el modelo en disco no basta")
+    L.settings.get = _get                       # se devuelve el lector de verdad
 
 
 def test_el_selector_distingue_disponible_de_en_disco():
