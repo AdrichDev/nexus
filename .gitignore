@@ -185,3 +185,4 @@ config/purga_local.json
 # CLAUDE.md, y quien clone el repo lo quiere.
 .openclaw/
 .windsurf/
+.serena/
