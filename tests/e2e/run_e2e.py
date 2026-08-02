@@ -48,6 +48,15 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "data" / "e2e"
 EVID = OUT / "evidencias"
 
+# La consola de Windows abre en cp1252 y este runner imprime «▸», «✔» y tildes.
+# Sin esto reventaba con UnicodeEncodeError ANTES del primer flujo: la e2e no
+# fallaba, es que no llegaba a ejecutarse, y parecía que estaba pasando.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:                                          # noqa: BLE001
+    pass
+
 _results: list[dict] = []
 _t0 = time.time()
 
