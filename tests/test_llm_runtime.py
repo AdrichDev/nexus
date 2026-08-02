@@ -349,6 +349,47 @@ def test_verificacion_no_persiste():
         check("SIN VERIFICAR" in st.resumen(), f"el resumen lo dice: {st.resumen()!r}")
 
 
+def test_el_cerebro_elegido_sobrevive_al_reinicio():
+    """Adrián ponía Gemini y nexus arrancaba con qwen3 (03/08/2026).
+
+    `verify_current()` corre EN CADA ARRANQUE con persistir=False, y aun así
+    `activate_cloud_model()` escribía `llm_provider` en disco antes de la sonda
+    para restaurarlo después. Entre el `set` y el `restore` el disco tiene un
+    proveedor que nadie ha elegido: si el proceso muere ahí, o si dos
+    verificaciones se solapan, esa preferencia prestada se queda puesta.
+
+    La sonda no lo necesita: llama a `prov.chat()` sobre el proveedor elegido.
+    """
+    _reset_estado()
+    settings.set("llm_provider", "gemini")
+    settings.set("llm_local", False)
+    settings.set("gemini_model", "gemini-2.5-flash")
+
+    # Verificar NO puede tocar la preferencia guardada, ni siquiera un instante.
+    tocados: list = []
+    real_set = settings.set
+
+    def espia(k, v):
+        if k in ("llm_provider", "llm_local"):
+            tocados.append((k, v))
+        return real_set(k, v)
+
+    settings.set = espia
+    try:
+        run(rt.verify_current(force=True))
+    finally:
+        settings.set = real_set
+
+    check(tocados == [],
+          f"verificar ha escrito la preferencia del cerebro: {tocados}. "
+          "Con persistir=False no puede tocarla NI para restaurarla luego")
+    check(settings.get("llm_provider") == "gemini",
+          f"tras verificar, el cerebro elegido ya no es gemini sino "
+          f"{settings.get('llm_provider')!r}")
+    check(settings.get("ollama_model") != settings.get("llm_provider"),
+          "el proveedor ha acabado apuntando al modelo local")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  8. CATÁLOGO PARA EL HUD (clasificado en el backend)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -468,7 +509,8 @@ def test_voz_publica():
 def main() -> int:
     for f in (test_clasificacion, test_activacion_correcta, test_ollama_apagado,
               test_modelo_ausente_y_etiqueta, test_embeddings_no_valen,
-              test_variantes_de_fallo, test_verificacion_no_persiste, test_catalogo,
+              test_variantes_de_fallo, test_verificacion_no_persiste,
+              test_el_cerebro_elegido_sobrevive_al_reinicio, test_catalogo,
               test_sin_fallback_simulado, test_codigo_entregado, test_voz_publica):
         try:
             f()

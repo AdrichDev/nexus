@@ -431,13 +431,26 @@ async def activate_cloud_model(provider: str, model: str = "",
 
     campo = {"openai": "openai_model", "anthropic": "anthropic_model",
              "gemini": "gemini_model", "cloud": "cloud_model"}.get(provider, "")
-    previo = {"llm_provider": settings.get("llm_provider"),
-              "llm_local": settings.get("llm_local")}
+    # VERIFICAR NO PUEDE CAMBIAR LO QUE HAY GUARDADO. La sonda llama a
+    # `prov.chat()` directamente sobre el proveedor elegido, así que no necesita
+    # que `llm_provider` valga nada en concreto: solo el campo del modelo, que es
+    # de donde el proveedor lo lee.
+    #
+    # Escribirlo igualmente abría una ventana peligrosa: `verify_current()` corre
+    # EN CADA ARRANQUE con persistir=False, y entre el `set` y el `restore` el
+    # disco tiene un proveedor que nadie ha elegido. Si el proceso muere ahí —o
+    # si dos verificaciones se solapan— esa preferencia prestada se queda puesta.
+    # Adrián lo vivió al revés: elegía Gemini y nexus arrancaba con qwen3.
+    previo: dict = {}
+    if persistir:
+        previo = {"llm_provider": settings.get("llm_provider"),
+                  "llm_local": settings.get("llm_local")}
     if campo:
         previo[campo] = settings.get(campo)
 
-    settings.set("llm_provider", provider)
-    settings.set("llm_local", False)
+    if persistir:
+        settings.set("llm_provider", provider)
+        settings.set("llm_local", False)
     if campo and model:
         settings.set(campo, model)
     _invalidar_proveedor()
