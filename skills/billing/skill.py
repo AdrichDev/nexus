@@ -19,8 +19,8 @@ SKILL = {
         # «…la factura a completadas» no cuenta como facturar — «mueve la tarea
         # enviar la factura a completadas» acababa EMITIENDO UNA FACTURA (lo cazó
         # la prueba end-to-end del tablero).
-        "invoice": r"(?:h[aá]z(?:le|me)?|cr[eé]a(?:me)?|gen[eé]ra(?:me)?|em[ií]te(?:me)?|prep[aá]ra(?:me)?|extiende)\s+"
-                   r"(?:una?\s+|otra\s+|la\s+)?factura\s+(?:a|para)\s+"
+        "invoice": r"(?:h[aá]z(?:le|me)?|cr[eé]a(?:me)?|g[eé]n[eé]ra(?:me)?|em[ií]te(?:me)?|prep[aá]ra(?:me)?|extiende)\s+"
+                   r"(?:una?\s+|otra\s+|la\s+)?factura\s+(?:a[l]?|para)\s+"
                    r"(?:la\s+empresa\s+|el\s+cliente\s+)?"
                    r"(?P<client>(?!" + _NO_CLIENTE + r")[\wÁÉÍÓÚáéíóúñ]+)(?P<rest>.*)"
                    r"|(?<!la\s)(?<!una\s)(?<!otra\s)(?<!esta\s)(?<!esa\s)"
@@ -60,7 +60,13 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         client = (gd.get("client") or gd.get("client2") or "").strip().title()
         rest = gd.get("rest") or gd.get("rest2") or ""
         m_amount = re.search(r"(\d+(?:[.,]\d{1,2})?)\s*(euros?|€|eur)", rest, re.I)
-        amount = float(m_amount.group(1).replace(",", ".")) if m_amount else 100.0
+        # Un importe inventado en un documento con pinta de factura es un dato
+        # falso que además queda archivado: sin cifra no se emite nada, se pregunta.
+        if not m_amount:
+            return {"reply": f"No me has dicho el importe de la factura de {client or 'ese cliente'}, "
+                             "y no me lo invento. Dímelo así: «hazle una factura a "
+                             f"{client or '<cliente>'} por <concepto> de <importe> euros» y la emito."}
+        amount = float(m_amount.group(1).replace(",", "."))
         m_concept = re.search(r"por\s+(?P<c>.+?)(?:\s+de\s+\d|$)", rest, re.I)
         concept = (m_concept.group("c").strip() if m_concept else "Servicios profesionales")
 
@@ -80,9 +86,11 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         ctx["graph"].append_daily(f"Factura {number} → {client}: {concept} ({amount:.2f} €)",
                                   section="Facturación")
         notas = []
-        if not m_amount:
-            notas.append("No me has dicho importe, así que he puesto 100.00 € provisionales — "
-                         "repítemelo con «... de 350 euros» y la regenero con el bueno.")
+        if not m_concept:
+            notas.append("No me has dicho el concepto, así que va como «Servicios profesionales» — "
+                         "repítemelo con «... por <concepto> ...» si quieres otro.")
+        notas.append("Es un BORRADOR: no lleva NIF, ni dirección fiscal, ni IVA, ni retención. "
+                     "Esos datos los pones tú antes de enviarla.")
         if not pg.online:
             notas.append("Postgres está offline: numeración LOCAL y registro en la memoria diaria; "
                          "cuando la base vuelva, las nuevas facturas retoman la serie.")
@@ -109,7 +117,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                              "\nPostgres no responde ahora mismo, así que esto es el archivo local. "
                              "Di «hazle una factura a <cliente> por <concepto> de <importe> euros» para otra."}
         return {"reply": "Todavía no hay ninguna factura. Estrena la serie: «hazle una factura a "
-                         "Ubix por el servicio de diseño de 350 euros»."}
+                         "<cliente> por <concepto> de <importe> euros»."}
 
     return {"reply": "Orden de facturación no reconocida. Prueba «hazle una factura a <cliente> "
                      "por <concepto> de <importe> euros» o «ver facturas»."}

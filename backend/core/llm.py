@@ -792,11 +792,9 @@ lo que no se sostenga. Entrega solo la respuesta final, ya depurada por ese exam
 Si detectas que {operator} parte de un dato o premisa equivocada, corrígelo con
 argumentos. Prefiere la verdad útil al halago."""
 
-# NO HAY «DEVIL_LIGHT» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
-# Era una versión corta de DEVIL_INSTRUCTION pensada para el nivel «equilibrado».
-# Nunca se llegó a enganchar: el abogado del diablo va SIEMPRE con la instrucción
-# completa (así lo anuncia el propio HUD, ver frontend/js/command.js) y el nivel de
-# razonamiento solo controla cuánto se extiende la respuesta, no cuánto se cuestiona.
+# Hay una sola versión: el abogado del diablo se concatena SIEMPRE completo (así
+# lo anuncia el HUD, ver frontend/js/command.js). El nivel de razonamiento de ⚙
+# controla cuánto se extiende la respuesta, no cuánto se cuestiona.
 
 
 # ── LA MISMA REGLA, PARA QUIEN GENERA CONTENIDO ──────────────────────────────
@@ -850,11 +848,14 @@ def _build_messages(user_text: str, context: list[dict] | None = None,
              "tiene fecha de corte, así que para hechos recientes usa la INFORMACIÓN "
              "ACTUAL de la web que te llega en el contexto; si no te llega, dilo y sugiere "
              "«busca en internet <tema>».")
+    # ABOGADO DEL DIABLO: va en el prompt de sistema de TODA respuesta. Es una
+    # instrucción de razonamiento (no una segunda llamada al modelo), así que no
+    # añade latencia. El HUD y ⚙ lo anuncian como «SIEMPRE ACTIVO, no apagable»;
+    # esta línea es lo que hace que sea verdad. El informe crítico en cuatro
+    # partes sigue siendo aparte, bajo demanda (skill devils_advocate).
+    base += DEVIL_INSTRUCTION.format(operator=settings.get("operator_name"))
     # RAZONAMIENTO (⚙): SOLO controla cuánto se piensa/extiende (rápido | equilibrado |
-    # profundo). El ABOGADO DEL DIABLO **ya NO se mete en la conversación normal** (metía
-    # latencia): actúa únicamente cuando Adri lo PIDE con la skill devils_advocate
-    # («abogado del diablo: …»). Así el chat responde rápido, y el examen crítico está
-    # disponible bajo demanda cuando de verdad lo quieres.
+    # profundo).
     # ── LA REGLA QUE NO SE SALTA: NO INVENTARSE CIFRAS ───────────────────────
     # 31/07/2026. Le pidieron analizar una cuenta de Instagram abierta en el
     # navegador y devolvió un perfil ENTERO inventado: «1,2M seguidores, 15,4K

@@ -17,17 +17,24 @@ SKILL = {
     "name": "Manos MCP",
     "description": "Conectores MCP externos por stdio (filesystem, github, slack, postgres…): descubre sus herramientas y las invoca, como Cowork",
     "patterns": {
+        # «reload» va ANTES que «list»: si no, «recárgame los conectores mcp» lo
+        # atrapa el «conectores mcp» de list.
+        "reload": r"\brec[aá]rga(?:me)?\s+(?:los\s+|la\s+)?(?:conectores?|config(?:uraci[oó]n)?)(?:\s+(?:de\s+)?mcp)?"
+                  r"|\b(?:rec[aá]rga(?:me)?|recon[eé]ctate?\s+a?|reinicia)\s+(?:el\s+|los\s+)?mcp",
         "list": r"qu[eé]\s+manos\s+(?:tienes|tengo|hay)|conectores?\s+mcp|servidores?\s+mcp|"
                 r"qu[eé]\s+herramientas\s+externas|qu[eé]\s+mcp\s+(?:tienes|hay)|"
-                r"(?:lista(?:me)?|mu[eé]stra(?:me)?|ver)\s+(?:los\s+)?conectores?(?:\s+mcp)?",
-        "reload": r"recarga(?:me)?\s+(?:los\s+)?conectores?(?:\s+mcp)?|"
-                  r"(?:recarga|recon[eé]ctate?\s+a?|reinicia)\s+(?:el|los)\s+mcp",
-        # OJO: verbos SIN ancla robaban frases («llama a 612…» del teléfono,
-        # «ejecuta el flujo X» de n8n). Solo usa/invoca, o verbo + ancla explícita.
-        # El \b inicial importa: sin él, «pa-usa la música» casaba con «usa».
-        "call": r"\b(?:usa|invoca|(?:llama\s+a|ejecuta)\s+(?=(?:el\s+conector|al\s+conector|mcp|la\s+herramienta)))\s*"
-                r"(?:el\s+conector\s+|al\s+conector\s+|mcp\s+|la\s+herramienta\s+)?"
-                r"(?P<server>[\w\-]+)\s+(?P<tool>[\w\-\.]+)(?:\s+con\s+(?P<args>.+))?",
+                r"qu[eé]\s+conectores?\s+(?:tienes|tengo|hay)|"
+                r"(?:l[ií]sta(?:me)?|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|ver)\s+"
+                r"(?:los\s+|las\s+)?(?:conectores?|manos)(?:\s+mcp)?",
+        # Solo usa/invoca, o verbo + ancla explícita: verbos sin ancla robaban
+        # frases ajenas («llama a 612…» del teléfono, «ejecuta el flujo X» de n8n).
+        # El \b inicial evita casar dentro de otra palabra («pa-usa la música»).
+        # El $ final evita quedarse con «usa el navegador para abrir la web»:
+        # tras <servidor> <herramienta> solo cabe «con <args>» o el fin de la orden.
+        "call": r"\b(?:usa|invoca|(?:llama|ejecuta)\s+(?=a?l?\s*(?:el\s+)?(?:conector|mcp|la\s+herramienta|herramienta)))\s*"
+                r"(?:a?l?\s*(?:el\s+)?(?:conector|mcp|la\s+herramienta|herramienta)\s+)?"
+                r"(?P<server>[\w\-]+)\s+(?P<tool>[\w\-\.]+)"
+                r"(?:\s+con\s+(?P<args>.+))?\s*$",
     },
 }
 
@@ -117,10 +124,11 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "list":
         if not servers:
-            return {"reply": "No tengo manos MCP configuradas todavía. Edita "
-                             "config/mcp_servers.json (hay un ejemplo) con servidores como "
-                             "@modelcontextprotocol/server-filesystem y recarga con "
-                             "«recarga los conectores». Necesitas Node.js instalado."}
+            return {"reply": "No tengo manos MCP configuradas todavía. Copia "
+                             "config/mcp_servers.example.json a config/mcp_servers.json, pon "
+                             "dentro los servidores que quieras (p. ej. "
+                             "@modelcontextprotocol/server-filesystem) y di «recarga los "
+                             "conectores». Necesitas Node.js instalado para los servidores npx."}
         lines = [f"Tengo {len(servers)} conector(es) MCP:"]
         for name, cfg in servers.items():
             try:
@@ -142,8 +150,11 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         tool = match.group("tool")
         args_raw = (match.group("args") or "").strip()
         if server not in servers:
-            return {"reply": f"No tengo el conector «{server}». Configúralo en "
-                             "config/mcp_servers.json."}
+            disponibles = ", ".join(servers) or "ninguno todavía"
+            return {"reply": f"No tengo el conector «{server}» (tengo: {disponibles}). "
+                             "Añádelo en config/mcp_servers.json —copia la plantilla "
+                             "config/mcp_servers.example.json si aún no existe— y di "
+                             "«recarga los conectores»."}
         # argumentos: JSON si lo parece, si no lo mete como {"path"/"query": ...}
         try:
             arguments = json.loads(args_raw) if args_raw.startswith("{") else None

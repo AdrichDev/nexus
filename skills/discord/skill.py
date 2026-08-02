@@ -28,10 +28,10 @@ SKILL = {
         "dm": r"\b(?:inicia|abre|empieza|m[aá]ndale)\b[^.]{0,25}\b(?:conversaci[oó]n|chat|mensaje\s+privado|privado|dm)\b[^.]{0,25}\bdiscord\b"
               r"|\ben\s+discord\b[^.]{0,15}\b(?:habla|chatea|conversa)\b",
         # publicar en canal (el más amplio de los tres con mensaje)
-        "notify": r"\b(?:manda(?:le)?|env[ií]a(?:le)?|escribe|avisa|notifica|comunica|anuncia|publica|postea|comparte|suelta|pon|di)\b"
+        "notify": r"\b(?:m[aá]nda(?:le|me)?|env[ií]a(?:le)?|escr[ií]be(?:le)?|av[ií]sa(?:me)?|notifica(?:me)?|comunica|anuncia|publica|postea|comparte|suelta|pon|di)\b"
                   r"[^.]{0,30}\b(?:en|por|a|al)\s+(?:el\s+)?(?:canal\s+(?:de\s+)?)?discord\b\s*[:,]?\s*(?:que\s+|de\s+que\s+)?(?P<msg>.+)"
                   r"|\ben\s+(?:el\s+canal\s+de\s+)?discord\b[^.]{0,15}\b(?:escribe|pon|di|publica|manda|avisa|anuncia)\b\s*(?:que\s+)?(?P<msg2>.+)",
-        "open": r"\b(?:abre(?:me)?|arranca|lanza|inicia|ejecuta)\b\s+(?:el\s+)?discord\b",
+        "open": r"\b(?:[aá]bre(?:me)?|arranca(?:me)?|l[aá]nza(?:me)?|inicia|ejecuta)\b\s+(?:el\s+)?discord\b",
     },
 }
 

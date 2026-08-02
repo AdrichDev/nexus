@@ -16,9 +16,9 @@ SKILL = {
                     r"(?:que\s+diga\s+|que\s+|diciendo\s+)?(?P<body2>.+)"
                     r"|whats?app?\s+(?:a|para)\s+(?P<to3>[\wÁÉÍÓÚáéíóúñ]+)\s*[:,]\s*(?P<body3>.+)",
         # -- flujos (anclado a flujo/workflow o a n8n) --
-        "flow": r"(?:lanza|ejecuta|dispara|corre|arranca|inicia)\s+(?:el\s+|mi\s+)?(?:flujo|workflow|flow)\s+"
+        "flow": r"\b(?:l[aá]nza(?:me)?|ej[eé]cuta(?:me)?|dispara(?:me)?|corre|arranca(?:me)?|inicia)\s+(?:el\s+|mi\s+)?(?:flujo|workflow|flow)\s+"
                 r"(?:de\s+n8n\s+)?(?P<flow>[\w\- ]+)"
-                r"|en\s+n8n\s+(?:lanza|ejecuta|dispara|corre)\s+(?:el\s+flujo\s+)?(?P<flow2>[\w\- ]+)",
+                r"|\ben\s+n8n\s+(?:l[aá]nza(?:me)?|ej[eé]cuta(?:me)?|dispara(?:me)?|corre)\s+(?:el\s+flujo\s+)?(?P<flow2>[\w\- ]+)",
     },
 }
 

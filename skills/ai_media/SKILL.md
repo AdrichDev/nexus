@@ -30,6 +30,15 @@ Lite → DuckDuckGo HTML, sin API key). Es la PRIMERA skill del router
 - **Visión (describir contenido)**: solo metadatos (tamaño, dimensiones vía
   Pillow). Para descripción real: `ollama pull llava` y conectarlo en la skill.
 
+## Qué NO hace
+
+- **No genera imágenes de verdad**: la tarjeta SVG es un marcador de posición y
+  lo dice en la respuesta. No hay Stable Diffusion ni DALL·E conectados.
+- **No ve el contenido de una imagen**: sin modelo de visión solo da metadatos
+  (tamaño, dimensiones). No describe lo que sale en la foto.
+- No hace scraping de nadie: la búsqueda va por Google News RSS y DuckDuckGo.
+- No transcribe audio en streaming ni desde una URL: hace falta un archivo local.
+
 ## Notas de routing (no robar)
 
 - «haz una foto» (webcam) y «captura de pantalla» son de system_pc.

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 SKILL = {
     "name": "Engram (memoria de proyecto)",
-    "description": ("MEMORIA OPERATIVA de nexus (Engram): cómo quiere trabajar Adri — órdenes "
+    "description": ("MEMORIA OPERATIVA de nexus (Engram): cómo quiere trabajar el operador — órdenes "
                     "permanentes, preferencias, procedimientos, restricciones, correcciones, "
                     "errores que no repetir y reglas de delegación con Hermes — y también "
                     "decisiones técnicas del proyecto, compartida con tus otras "
@@ -33,7 +33,7 @@ SKILL = {
                  r"|memoria\s+operativa",
         "forget_rule": r"olvida\s+(?:la\s+|esa\s+|esta\s+)?(?:regla|norma|preferencia|"
                        r"restricci[oó]n|correcci[oó]n)\s*(?:de\s+|que\s+|:)?\s*(?P<q>.+)",
-        "save": r"(?:recuerda|apunta|anota|guarda)\s+"
+        "save": r"\b(?:recu[eé]rda(?:me)?|ap[uú]nta(?:me)?|an[oó]ta(?:me)?|gu[aá]rda(?:me)?)\s+"
                r"(?:un[a]?\s+(?P<tipo>bug(?:fix)?|decisi[oó]n(?:\s+de\s+arquitectura)?|arquitectura|feature|funcionalidad)\s+)?"
                r"(?:en\s+(?:el\s+)?|del?\s+)(?:proyecto|c[oó]digo|engram|nexus)(?:\s+(?:de\s+)?nexus)?"
                r"[\s,:]*(?:que\s+)?[\s,:]*(?P<hecho>.+)",
@@ -49,8 +49,8 @@ SKILL = {
 
 
 def _map_tipo(tipo_raw: str) -> str:
-    """Heurística tolerante a acentos/variantes: del texto capturado (tal
-    cual lo escribió Adri) al vocabulario fijo que usa Engram."""
+    """Pasa el texto capturado, tal cual lo dijo el operador, al vocabulario
+    fijo de Engram. Tolerante a tildes y variantes."""
     t = (tipo_raw or "").lower()
     if "bug" in t:
         return "bugfix"
@@ -116,14 +116,31 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": "\n".join(lines), "data": st}
 
     if intent == "forget_rule":
-        from backend.core import opmem
+        from backend.core import confirm, opmem
         gd = match.groupdict() if match else {}
         q = (gd.get("q") or "").strip().rstrip(".?¿")
         if not q:
             return {"reply": "¿Qué regla quieres que olvide? Dime un trozo de su texto."}
-        n = opmem.forget(q)
-        return {"reply": (f"🧠 Olvidadas {n} regla(s) que casaban con «{q}»." if n else
-                          f"No tengo ninguna regla que case con «{q}». Di «mis reglas» para verlas.")}
+        # Borrar es irreversible y una palabra vaga puede llevarse varias reglas:
+        # se enseña qué se va a perder y se pide un sí antes de tocar nada.
+        victimas = opmem.matching(q)
+        if not victimas:
+            return {"reply": f"No tengo ninguna regla que case con «{q}». Di «mis reglas» "
+                             "para ver las que hay y dime un trozo del texto de la que sobre."}
+        lista = "\n".join(f"   · [{v.get('kind', 'nota')}] {v.get('text', '')[:120]}"
+                          for v in victimas[:10])
+        resto = f"\n   … y {len(victimas) - 10} más" if len(victimas) > 10 else ""
+        pregunta = confirm.request(
+            channel=(ctx or {}).get("channel", "pc"),
+            kind="borrar_reglas",
+            summary=f"🧠 Voy a olvidar {len(victimas)} regla(s) que casan con «{q}»:\n"
+                    f"{lista}{resto}\nEsto no se puede deshacer. ¿Lo confirmo? «sí» o «no».",
+            request_text=text,
+            targets=[{"id": v.get("id", ""), "title": v.get("text", "")[:120],
+                      "state": v.get("kind", "")} for v in victimas],
+            action=lambda: opmem.forget(q),
+            cancel_reply="Vale, no olvido nada. Tus reglas siguen como estaban.")
+        return {"reply": pregunta, "data": {"confirm": True, "count": len(victimas)}}
 
     if intent == "context":
         texto = await eng.context(ctx)

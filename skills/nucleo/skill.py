@@ -1,18 +1,10 @@
 # -*- coding: utf-8 -*-
 """Minion Núcleo IA — qué cerebro tiene nexus puesto AHORA MISMO.
 
-Por qué existe esta skill (incidente del 31/07/2026):
-  Adri preguntó «¿qué núcleo de IA estás trabajando ahora?» y nexus se INVENTÓ
-  que Núcleo IA era «una plataforma central para acceder a herramientas de IA
-  orientadas a la productividad profesional». No existe tal cosa: Núcleo IA es
-  la sección del propio HUD donde se elige el modelo. Repreguntó «pero qué
-  modelo de IA» y entonces contestó «no encuentro la tarea crear el prototipo
-  de IA», porque la frase no casaba con NINGÚN patrón, caía al cerebro y el
-  planificador se inventaba una llamada al tablero.
-
-  Preguntar a nexus qué modelo usa es un dato de HECHO que está en su propia
-  configuración: no se razona, no se deduce y desde luego no se inventa. Se lee
-  y se contesta. Por eso es una skill determinista y no una respuesta del LLM.
+Qué modelo y qué proveedor usa nexus es un dato de HECHO que está en su propia
+configuración: se LEE de `settings` y se contesta. No pasa por el LLM, así que
+no se puede razonar mal ni inventar. «Núcleo IA» es la sección del HUD donde se
+elige el cerebro, no una plataforma externa.
 """
 from __future__ import annotations
 

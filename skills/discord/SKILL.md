@@ -25,6 +25,13 @@ Iniciar **llamadas** o abrir un **DM concreto a una persona** no está soportado
 por la API ni por deep links para cuentas de usuario. En esos casos nexus abre
 Discord y te lo deja a un clic, y ofrece el webhook para avisos a un canal.
 
+## Qué NO hace
+
+- No lee mensajes, ni canales, ni responde a nadie: el webhook es solo de salida.
+- No inicia llamadas ni abre un DM concreto (Discord no lo permite): abre la app.
+- No elige canal por voz: un webhook = un canal, el que guardaste en ⚙.
+- Sin webhook configurado no publica nada y te explica dónde crearlo.
+
 ## Notas técnicas
 
 - El mensaje se recorta a 1900 caracteres (límite de Discord: 2000).

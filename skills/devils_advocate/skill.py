@@ -5,27 +5,27 @@ SKILL = {
     "name": "Devil's Advocate",
     "description": "Contrapunto crítico bajo demanda: steelman, puntos débiles, riesgos ocultos y veredicto sobre tus ideas y planes",
     "patterns": {
-        # -- modo permanente ON (específico, va antes que critique) --
-        "on": r"activa(?:me)?\s+(?:el\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
-              r"|modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)\s+on"
-              r"|ponte\s+(?:en\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
-              r"|s[eé]\s+(?:m[aá]s\s+)?cr[ií]tic[oa]\s+conmigo",
-        # -- modo permanente OFF --
-        "off": r"desactiva(?:me)?\s+(?:el\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
+        # OJO AL \b: sin él «desactiva el modo…» casa dentro con «activa» y el
+        # apagado se vuelve inalcanzable. Por eso «off» va además ANTES que «on».
+        "off": r"\bdesact[ií]va(?:me)?\s+(?:el\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
                r"|modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)\s+off"
-               r"|quita(?:me)?\s+(?:el\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
-               r"|deja\s+de\s+ser\s+tan\s+cr[ií]tic[oa]",
+               r"|\bqu[ií]ta(?:me)?\s+(?:el\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
+               r"|\bdeja\s+de\s+ser\s+tan\s+cr[ií]tic[oa]",
+        "on": r"\bact[ií]va(?:me)?\s+(?:el\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
+              r"|modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)\s+on\b"
+              r"|\bponte\s+(?:en\s+)?modo\s+(?:abogado\s+del\s+diablo|cr[ií]tico)"
+              r"|\bs[eé]\s+(?:m[aá]s\s+)?cr[ií]tic[oa]\s+conmigo",
         # -- crítica puntual de una idea/plan (el más amplio, al final) --
-        "critique": r"(?:abogado\s+del\s+diablo\s*[:,]"
-                    r"|haz(?:me)?\s+de\s+abogado\s+del\s+diablo\s+(?:con|sobre)"
-                    r"|crit[ií]ca(?:me)?\s+(?:esta\s+|este\s+|mi\s+|el\s+|la\s+)?"
+        "critique": r"(?:\babogado\s+del\s+diablo\s*[:,]"
+                    r"|\bhaz(?:me)?\s+de\s+abogado\s+del\s+diablo\s+(?:con|sobre)"
+                    r"|\bcrit[ií]ca(?:me)?\s+(?:esta\s+|este\s+|mi\s+|el\s+|la\s+)?"
                     r"(?:idea|planes|plan|propuesta|estrategia|decisi[oó]n|enfoque|proyecto|razonamiento|esto)\s*(?:de\s+|sobre\s+|[:,]\s*)?"
-                    r"|cuestiona(?:me)?\s+(?:mi|este|esta|el|la)\s+"
+                    r"|\bcuesti[oó]na(?:me)?\s+(?:mi|este|esta|el|la)\s+"
                     r"(?:plan|idea|propuesta|estrategia|decisi[oó]n|enfoque|razonamiento)\s*(?:de\s+|sobre\s+|[:,]\s*)?"
-                    r"|b[uú]scale\s+(?:las\s+)?pegas\s+a"
-                    r"|qu[eé]\s+pegas\s+le\s+ves\s+a"
-                    r"|destroza(?:me)?\s+(?:esta\s+|este\s+|mi\s+)?(?:idea|plan|propuesta)\s*[:,]?"
-                    r"|pon\s+a\s+prueba\s+(?:mi|esta|este)\s+(?:idea|plan|razonamiento)\s*[:,]?"
+                    r"|\bb[uú]scale\s+(?:las\s+)?pegas\s+a"
+                    r"|\bqu[eé]\s+pegas\s+le\s+ves\s+a"
+                    r"|\bdestroza(?:me)?\s+(?:esta\s+|este\s+|mi\s+)?(?:idea|plan|propuesta)\s*[:,]?"
+                    r"|\bpon\s+a\s+prueba\s+(?:mi|esta|este)\s+(?:idea|plan|razonamiento)\s*[:,]?"
                     r")\s*(?P<idea>.+)",
     },
 }
@@ -50,19 +50,19 @@ async def critique(idea: str) -> str:
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
-    settings = ctx["settings"]
-
     if intent == "on":
-        settings.set("devil_mode", True)
-        return {"reply": "Modo abogado del diablo ACTIVADO ⚖. A partir de ahora cada respuesta "
-                         "lleva su contrapunto crítico: no esperes que te dé la razón por deporte. "
-                         "Di «desactiva el modo abogado del diablo» cuando quieras volver a la paz."}
+        return {"reply": "El modo abogado del diablo ya va puesto SIEMPRE ⚖: la instrucción está "
+                         "en mi prompt de sistema, así que antes de contestarte cuestiono mis "
+                         "propias suposiciones y te corrijo si partes de un dato equivocado. "
+                         "No hay nada que encender. Lo que sí puedo darte a demanda es el "
+                         "análisis completo en cuatro partes: «abogado del diablo: <tu idea>»."}
 
     if intent == "off":
-        settings.set("devil_mode", False)
-        return {"reply": "Modo abogado del diablo desactivado ✔. Sigo siendo honesto —si veo un "
-                         "error te lo digo—, pero sin contrapunto sistemático. Para retomarlo: "
-                         "«activa el modo abogado del diablo»."}
+        return {"reply": "Eso no se apaga ⚖: el contrapunto crítico es parte de cómo razono, no "
+                         "un extra opcional (⚙ Configuración lo dice: «SIEMPRE ACTIVO, no "
+                         "apagable»). Lo que no hago es soltarte un informe crítico sin venir a "
+                         "cuento: el análisis en cuatro partes solo sale si lo pides con "
+                         "«abogado del diablo: <tu idea>»."}
 
     if intent == "critique":
         idea = match.group("idea").strip()

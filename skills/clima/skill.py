@@ -26,7 +26,12 @@ SKILL = {
             r"|qu[eé]\s+tal\s+(est[aá]\s+)?el\s+(tiempo|clima)"
             r"|dime\s+(el\s+)?(tiempo|clima)\b"
             r"|^\s*(el\s+)?(tiempo|clima)\s*[?¿!.]*$"
-            r"|(el\s+|del\s+)?(clima|tiempo)\s+(en|de|para)\s+[a-zñáéíóú]"
+            # El \b y el lookbehind son los que separan meteorología de duración:
+            # «contratiempo en…», «pasatiempo para…», «cuánto tiempo en el horno»
+            # y «llegué a tiempo de verlo» NO son el tiempo atmosférico. Con «de»
+            # se exige artículo («el tiempo de Sevilla» sí, «tiempo de espera» no).
+            r"|(?<!cuanto\s)(?<!cuánto\s)\b(el\s+|del\s+)?(clima|tiempo)\s+(en|para)\s+[a-zñáéíóú]"
+            r"|\b(el|del)\s+(clima|tiempo)\s+de\s+[a-zñáéíóú]"
             r"|temperatura[s]?\s+(hace|va a hacer|habr[aá]|prevista|m[aá]xima|m[ií]nima)"
             r"|(qu[eé]\s+)?temperatura[s]?\s+(hay\s+)?(en|de|para)\s+"
             r"(?!la\s+cpu\b|el\s+cpu\b|la\s+gpu\b|el\s+gpu\b|la\s+tarjeta|la\s+gr[aá]fica"
@@ -50,6 +55,16 @@ SKILL = {
 _STOP = re.compile(
     r"\b(hoy|ma[ñn]ana|ahora|esta\s+tarde|esta\s+noche|este\s+fin|el\s+finde|"
     r"por\s+la\s+(mañana|tarde|noche))\b.*$", re.IGNORECASE)
+
+
+def _dia_pedido(text: str) -> int:
+    """0 = hoy, 1 = mañana, 2 = pasado mañana. wttr.in trae 3 días en 'weather'."""
+    t = text.lower()
+    if re.search(r"\bpasado\s+ma[ñn]ana\b", t):
+        return 2
+    if re.search(r"\bma[ñn]ana\b", t):
+        return 1
+    return 0
 
 
 def _extract_city(text: str) -> str:
@@ -86,6 +101,26 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         area = (d.get("nearest_area") or [{}])[0]
         place = city.title() if city else \
             (area.get("areaName", [{}])[0].get("value", "tu zona"))
+        dias = d.get("weather") or []
+        pedido = _dia_pedido(text)
+        if pedido:
+            # Previsión de otro día: se da la del día pedido, nunca la de hoy
+            # disfrazada de mañana.
+            nombre = "mañana" if pedido == 1 else "pasado mañana"
+            if len(dias) <= pedido:
+                return {"reply": f"⚠ wttr.in solo me da {len(dias)} día(s) de previsión para "
+                                 f"{place}, así que de {nombre} no tengo nada. Puedo darte el "
+                                 f"tiempo de ahora mismo: di «tiempo en {place or 'tu ciudad'}»."}
+            dia = dias[pedido]
+            horas = dia.get("hourly") or []
+            media = horas[len(horas) // 2] if horas else {}
+            desc_l = media.get("lang_es") or media.get("weatherDesc") or [{"value": ""}]
+            desc_d = (desc_l[0].get("value") or "").strip().lower()
+            lluvia = media.get("chanceofrain")
+            extra = f", {lluvia}% de probabilidad de lluvia" if lluvia else ""
+            return {"reply": f"🌤 En {place} {nombre} ({dia.get('date', '')}): "
+                             f"{desc_d or 'sin descripción'}, máxima {dia.get('maxtempC', '?')}°C "
+                             f"y mínima {dia.get('mintempC', '?')}°C{extra}."}
         desc_list = cur.get("lang_es") or cur.get("weatherDesc") or [{"value": ""}]
         desc = desc_list[0]["value"].strip().lower()
         temp = cur.get("temp_C", "?")

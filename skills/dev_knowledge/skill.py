@@ -16,13 +16,14 @@ SKILL = {
                 r"|skills?\s+de\s+(desarrollo|dev)\s+(tienes|hay|conoces)"
                 r"|biblioteca\s+de\s+skills?|skills?\s+importad"
                 r"|qu[eé]\s+metodolog[ií]as\s+(tienes|conoces|hay)",
-        "apply": r"(?:aplica|usa|sigue)\s+(?:la\s+)?(?:skill|metodolog[ií]a|gu[ií]a)\s+"
+        # El \b evita que «usa» o «crea» casen dentro de otra palabra («pausa…»).
+        "apply": r"\b(?:apl[ií]ca(?:me)?|usa|sigue)\s+(?:la\s+)?(?:skill|metodolog[ií]a|gu[ií]a)\s+"
                  r"(?P<name>[\w\-]+)\s+(?:a|para|en|sobre|con)\s+(?P<task>.+)",
-        "auto": r"(rev[ií]sa(?:me)?(?:lo)?\s+(?:esto\s+)?como\s+judgment(?:[- ]day)?"
-                r"|c[oó]mo\s+(?:hago|creo|abro|preparo)\s+un\s+(?:pr|pull\s+request)"
-                r"|spec[- ]driven"
-                r"|crea(?:me)?\s+una\s+spec(?:\s+sdd)?"
-                r"|onboarding\s+del\s+(?:proyecto|repo))\s*(?P<task2>.*)",
+        "auto": r"(\brev[ií]sa(?:me)?(?:lo)?\s+(?:esto\s+)?como\s+judgment(?:[- ]day)?"
+                r"|\bc[oó]mo\s+(?:hago|creo|abro|preparo)\s+un\s+(?:pr|pull\s+request)"
+                r"|\bspec[- ]driven"
+                r"|\bcr[eé]a(?:me)?\s+una\s+spec(?:\s+sdd)?"
+                r"|\bonboarding\s+del\s+(?:proyecto|repo))\s*(?P<task2>.*)",
     },
 }
 

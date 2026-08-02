@@ -28,15 +28,15 @@ SKILL = {
     "name": "Juegos / Steam",
     "description": "Juega, instala, descarga y valida juegos por nombre en Steam (sin API key) y abre launchers (Epic, GOG, Battle.net…)",
     "patterns": {
-        "launcher": r"\b(?:abre|abr(?:e)?me|arranca|l[aá]nza|inicia)\b\s+(?:el\s+)?"
+        "launcher": r"\b(?:[aá]bre(?:me)?|arranca(?:me)?|l[aá]nza(?:me)?|inicia(?:me)?)\b\s+(?:el\s+|la\s+)?"
                     r"(?P<l>steam|epic(?:\s+games)?|gog(?:\s+galaxy)?|battle\.?net|"
                     r"ea\s+app|origin|uplay|ubisoft\s+connect|xbox|game\s*pass)\b",
-        "install": r"\b(instala(?:me)?|instalar|descarga(?:me)?|desc[aá]rga(?:te|me)|b[aá]ja(?:te|me)|baja)\b\s+(el\s+juego\s+)?"
+        "install": r"\b(inst[aá]la(?:me)?|instalar|desc[aá]rga(?:te|me)?|b[aá]ja(?:te|me)?)\b\s+(el\s+juego\s+)?"
                    r"(?P<g>.+?)\s+(en|de|desde)\s+steam\b"
-                   r"|\ben\s+steam\s+(instala(?:me)?|descarga(?:me)?|b[aá]ja(?:me|te)?)\s+(?P<g2>.+)",
-        "update": r"\b(actualiza(?:me)?|actualizar|valida(?:me)?|validar|verifica(?:me)?|repara(?:me)?|comprueba)\s+(el\s+juego\s+)(?P<g>.+)"
-                  r"|\b(actualiza(?:me)?|valida(?:me)?|verifica(?:me)?|repara(?:me)?|comprueba)\s+(?P<g2>.+?)\s+en\s+steam\b",
-        "play": r"\b(juega(?:me)?\s+a[l]?|juguemos\s+a[l]?|abre\s+el\s+juego|l[aá]nza(?:me)?\s+el\s+juego|"
+                   r"|\ben\s+steam\s+(inst[aá]la(?:me)?|desc[aá]rga(?:me|te)?|b[aá]ja(?:me|te)?)\s+(?P<g2>.+)",
+        "update": r"\b(actual[ií]za(?:me)?|actualizar|val[ií]da(?:me)?|validar|ver[ií]fica(?:me)?|rep[aá]ra(?:me)?|comprueba(?:me)?)\s+(el\s+juego\s+)(?P<g>.+)"
+                  r"|\b(actual[ií]za(?:me)?|val[ií]da(?:me)?|ver[ií]fica(?:me)?|rep[aá]ra(?:me)?|comprueba(?:me)?)\s+(?P<g2>.+?)\s+en\s+steam\b",
+        "play": r"\b(juega(?:me)?\s+a[l]?|juguemos\s+a[l]?|[aá]bre(?:me)?\s+el\s+juego|l[aá]nza(?:me)?\s+el\s+juego|"
                 r"inicia\s+el\s+juego|arranca\s+el\s+juego|p[oó]n(?:me)?\s+(?:a\s+jugar\s+a|el\s+juego)|"
                 r"quiero\s+jugar\s+a[l]?|echamos?\s+una\s+partida\s+a|[eé]chate\s+una\s+partida\s+a)\s+(?P<g>.+)",
     },
@@ -113,8 +113,11 @@ async def _resolve_and_do(ctx, name: str, action: str, verbo: str) -> str:
     appid, real = await asyncio.to_thread(_steam_appid, name)
     if appid and _steam_do(action, appid):
         return f"{verbo} «{real or name}» en Steam (appid {appid}). Confirma en la ventana de Steam si te lo pide."
-    if appid:      # no-Windows: no puedo lanzar el esquema steam://
+    if appid and sys.platform != "win32":
         return f"Encontré «{real}» (appid {appid}) pero el control de Steam solo va en Windows."
+    if appid:      # en Windows: el esquema steam:// no ha arrancado
+        return (f"Encontré «{real}» (appid {appid}) pero no he podido abrir Steam. "
+                "Comprueba que Steam está instalado y con la sesión iniciada, y repítemelo.")
     webbrowser.open(f"https://store.steampowered.com/search/?term={urllib.parse.quote(name)}")
     return f"No encontré «{name}» en Steam; te abrí la búsqueda de la tienda para que lo elijas."
 

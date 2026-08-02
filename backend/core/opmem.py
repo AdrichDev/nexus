@@ -199,6 +199,15 @@ def remember(texto: str, kind: str = "", scope: str = "global",
     return rec
 
 
+def matching(query: str) -> list[dict]:
+    """Los recuerdos que borraría forget(query). Solo lectura: para enseñarle al
+    operador qué se va a perder ANTES de perderlo."""
+    q = _norm(query)
+    if not q:
+        return []
+    return [it for it in _load() if q in it.get("_key", "")]
+
+
 def forget(query: str) -> int:
     """Olvida recuerdos que casen (borrado real: es lo que pide «olvida que…»)."""
     items = _load()

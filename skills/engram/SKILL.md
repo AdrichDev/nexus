@@ -40,6 +40,11 @@ exactamente igual. Nada se rompe por no tenerlo.
   guardado recientemente.
 - «está engram conectado» / «diagnostica engram» → estado de la conexión
   (instalado, servidor arriba, cuántos recuerdos hay).
+- «mis reglas» / «qué reglas tienes» / «memoria operativa» → las maneras de
+  trabajar que le has fijado (esto sale de la memoria operativa LOCAL, no de
+  Engram, así que responde aunque el servidor esté parado).
+- «olvida la regla de …» → enseña qué reglas casan y **pide un «sí» antes de
+  borrarlas**; el borrado es irreversible.
 
 ## Cómo se gestiona el servidor
 
@@ -77,10 +82,12 @@ lo dice. Si tu antivirus marca el binario prebuilt como falso positivo, instala
 con `go install` (compila en local) o añade una exclusión. Puedes desactivar la
 instalación automática con `engram_autoinstall=false` en ⚙.
 
-## Límites
+## Qué NO hace
 
-- No hay borrado ni edición desde nexus (solo guardar/buscar/consultar) —
-  para gestión avanzada (conflictos, export, TUI) usa el propio `engram` en
-  una terminal.
-- El proyecto es siempre `nexus`: esta skill no gestiona memoria de otros
-  proyectos tuyos.
+- No borra ni edita lo guardado en el SERVIDOR de Engram: «olvida la regla…»
+  solo actúa sobre la memoria operativa local. Para gestión avanzada
+  (conflictos, export, TUI) usa el propio `engram` en una terminal.
+- No borra nada sin preguntar antes y enseñar la lista.
+- El proyecto es siempre `nexus`: no gestiona memoria de otros proyectos tuyos.
+- No es tu memoria PERSONAL (contactos, tareas, hábitos): eso es la skill
+  Memoria.

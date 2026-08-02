@@ -16,5 +16,17 @@ work-unit-commits, cognitive-doc-design, skill-registry.
 - "cómo hago un PR" / "revisa esto como judgment-day" → detecta la skill
   relevante por palabras clave y la aplica
 
-Las skills viven en la carpeta `knowledge/` del repo. Añade más metiendo
-carpetas con su SKILL.md ahí dentro.
+## Necesita configurado
+
+La carpeta `knowledge/` con una subcarpeta por skill, cada una con su
+`SKILL.md`. Si está vacía, la skill lo dice y no responde nada más. Y un
+proveedor en ⚙ Núcleo IA: la respuesta la redacta el LLM siguiendo la guía.
+
+## Qué NO hace
+
+- **No ejecuta las skills**: no crea ramas, ni PRs, ni ficheros de spec. Son
+  guías que se le inyectan al modelo para que conteste siguiéndolas.
+- No inventa metodologías: si el nombre que pides no está en `knowledge/`, te
+  lista las que sí hay.
+- Solo lee los primeros 6000 caracteres de cada guía.
+- No sale a internet a buscar skills nuevas: se añaden a mano en `knowledge/`.

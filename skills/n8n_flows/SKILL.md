@@ -34,11 +34,17 @@ además la dice en voz alta por el HUD.
 `config/n8n_flujo_ejemplo.json`: webhook que recibe el whatsapp de nexus y lo
 reenvía; cámbiale el último nodo por tu proveedor de WhatsApp real.
 
-## Límites
+## Qué NO hace
 
-- Sin URL de webhook configurada, nexus no dispara nada: te dirá dónde ponerla.
-- El destinatario del WhatsApp es un nombre/token que resuelve tu flujo
-  (agenda propia, mapping en n8n...); nexus no guarda números de teléfono.
+- Sin URL de webhook configurada no dispara ningún flujo: te dice dónde ponerla.
+- **No envía el WhatsApp él**: se lo entrega a tu flujo (que lo manda con
+  Evolution/Twilio/Cloud API) o lo deja escrito en tu móvil para que le des a
+  enviar. Que diga «entregado a tu flujo» no significa que haya llegado.
+- No lee respuestas de WhatsApp ni conversaciones.
+- No lista los flujos que tienes en n8n ni comprueba que existan: dispara el
+  webhook con el nombre que le des y es tu flujo quien decide qué hacer.
+- Por la vía n8n el destinatario es un nombre/token que resuelve tu flujo; por
+  la vía móvil el número lo pone la agenda de la skill `telefono`.
 
 ## WhatsApp sin n8n: por tu móvil (estilo Android Auto)
 

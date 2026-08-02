@@ -17,19 +17,31 @@ sincero (adelante / adelante con condiciones / repensar).
 - «activa el modo abogado del diablo» / «desactiva el modo abogado del diablo»
 - «sé más crítico conmigo» / «deja de ser tan crítico»
 
-## Modo permanente
+## Modo permanente: ya está puesto, y no se apaga
 
-«activa el modo abogado del diablo» guarda el flag `devil_mode` en settings:
-mientras esté activo, TODAS las respuestas conversacionales llevan un
-contrapunto crítico al final. Se quita con «desactiva el modo abogado del
-diablo» (o «modo crítico off»).
+`DEVIL_INSTRUCTION` (backend/core/llm.py) se concatena al prompt de sistema de
+TODA respuesta: el modelo cuestiona sus propias suposiciones y corrige al
+operador cuando parte de un dato equivocado. Es lo que ⚙ Configuración anuncia
+como «SIEMPRE ACTIVO, no apagable».
+
+Por eso «activa/desactiva el modo abogado del diablo» no conmuta nada: contestan
+explicando que ya va puesto y que lo opcional es el informe en 4 partes, que sale
+solo cuando lo pides.
+
+## Qué NO hace
+
+- No añade un contrapunto crítico visible al final de cada respuesta: la
+  instrucción actúa en el razonamiento del modelo, no como texto pegado.
+- No se puede desactivar por voz ni desde ⚙.
+- No analiza nada por su cuenta: el informe en 4 partes sale solo si lo pides.
+
+## Necesita configurado
+
+Un proveedor y modelo en ⚙ Núcleo IA. Sin eso no hay análisis y nexus te dice
+qué revisar (no se inventa la crítica).
 
 ## Notas técnicas
 
-- La crítica la genera el LLM del núcleo IA (⚙): sin proveedor y clave
-  configurados no hay análisis — nexus te dirá qué revisar.
 - La idea se recorta a 3000 caracteres antes de enviarla al modelo.
-- Además, el prompt del sistema de nexus le ordena corregir errores del
-  operador con respeto y argumentos aunque no se lo pidan — no complacencia.
 - Las specs internas del project manager (skill coach) pasan SIEMPRE por
   `critique()` antes de darse por buenas.

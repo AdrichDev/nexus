@@ -21,23 +21,23 @@ SKILL = {
     "patterns": {
         # Generar imagen: exige un sustantivo de imagen tras el verbo. El lookahead
         # evita robar «haz una foto con la webcam» (system_pc) o «...de la pantalla».
-        "gen_image": r"(?:genera|gen[eé]rame|crea|cr[eé]ame|dib[uú]ja(?:me)?|dise[ñn]a(?:me)?|haz(?:me)?)\s+"
+        "gen_image": r"(?:g[eé]n[eé]ra(?:me)?|cr[eé]a(?:me)?|dib[uú]ja(?:me)?|dis[eé][ñn]a(?:me)?|haz(?:me)?)\s+"
                      r"(?:una?\s+)?(?:imagen|ilustraci[oó]n|dibujo|logo(?:tipo)?|cartel|p[oó]ster|foto)\s+"
                      r"(?:de|con|sobre|para)\s+"
                      r"(?!(?:la\s+)?(?:webcam|c[aá]mara|pantalla)\b)(?P<prompt>.+)",
         # Analizar imagen: necesita la RUTA del archivo (named group path).
-        "analyze_image": r"(?:analiza(?:me)?|describe(?:me)?|examina|interpreta|qu[eé]\s+(?:hay|ves|sale))\s+"
+        "analyze_image": r"(?:anal[ií]za(?:me)?|descr[ií]be(?:me)?|exam[ií]na(?:me)?|interpreta(?:me)?|qu[eé]\s+(?:hay|ves|sale))\s+"
                          r"(?:en\s+)?(?:la\s+|esta\s+|el\s+)?(?:imagen|foto(?:graf[ií]a)?|captura)\s+(?P<path>\S+)",
         # Transcribir audio (Whisper local): ruta obligatoria, coletilla opcional.
-        "transcribe": r"(?:transcr[ií]be(?:me)?|pasa(?:me)?\s+a\s+texto)\s+"
+        "transcribe": r"(?:transcr[ií]be(?:me)?|p[aá]sa(?:me)?\s+a\s+texto)\s+"
                       r"(?:el\s+|la\s+|este\s+|esta\s+)?(?:audio|nota\s+de\s+voz|grabaci[oó]n|memo\s+de\s+voz)\s+"
                       r"(?P<path>.+?)(\s+y\s+(?P<extra>.+))?$",
         # Búsqueda web: SIEMPRE con ancla explícita («en internet/la web/google»,
         # «googlea», «qué dice internet de...»). google(?!\s*maps) deja los mapas
         # a la skill places; «investiga...» se queda en research (informes).
-        "web_search": r"(?:(?:busca|b[uú]scame|buscar|consulta|mira)\s+(?:r[aá]pido\s+)?"
+        "web_search": r"(?:\b(?:busca|b[uú]scame|buscar|consulta(?:me)?|mira(?:me)?)\s+(?:r[aá]pido\s+)?"
                       r"en\s+(?:internet|la\s+web|la\s+red|google(?!\s*maps)|el\s+buscador|duckduckgo)\s+"
-                      r"|googlea(?:me)?\s+"
+                      r"|\bgoogl[eé]a(?:me)?\s+"
                       r"|qu[eé]\s+dice\s+(?:internet|google|la\s+web)\s+(?:de|sobre)\s+)"
                       r"(?P<q>.+)",
     },
