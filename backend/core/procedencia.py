@@ -111,10 +111,12 @@ def umbrales(extra=None) -> dict:
     return _funde(base, extra) if extra else dict(base)
 
 
-def recarga_umbrales() -> None:
-    """Olvida lo leído. Para cuando se toca el archivo sin reiniciar."""
-    global _cache_umbrales
-    _cache_umbrales = None
+# NO HAY «recarga_umbrales()» AQUÍ, Y ES A PROPÓSITO (02/08/2026).
+# Se escribió una, copiando el patrón de skills/instagram/analisis.py:93. Un
+# analisis de codigo muerto la delato: no la llamaba nadie... y la de analisis.py
+# TAMPOCO. O sea que se copio un patron que ya estaba muerto, y asi es como una
+# funcion inutil se reproduce por el codigo. Si algun dia hace falta recargar sin
+# reiniciar, se escribe entonces y con quien la use delante.
 
 
 # ────────────────────────────────────────────────────────────── el sobre
@@ -134,10 +136,14 @@ def dato(valor, origen: str, periodo=None, delta=None, n=None, aviso: str = "") 
             "delta": delta, "n": n, "aviso": aviso}
 
 
-def etiqueta(origen: str, u: dict | None = None) -> str:
-    """Cómo se llama ese origen de cara al usuario (sale de umbrales.json)."""
-    u = u or umbrales()
-    return (u.get("etiquetas") or {}).get(origen, origen)
+# TAMPOCO HAY «etiqueta(origen)», Y TAMBIEN ES A PROPOSITO (02/08/2026).
+# Se escribio para traducir un origen a su nombre de cara al usuario leyendo
+# umbrales.json. No la llamaba nadie, y al mirar por que se vio que sobraba: las
+# etiquetas VIAJAN DENTRO DEL PAYLOAD (el diccionario `etiquetas`) y quien las
+# pinta es cosMarca() en el HUD. Traducirlas tambien aqui seria tener el mismo
+# texto en dos sitios, que es como empiezan las incoherencias que nadie entiende
+# seis meses despues. Si algun dia hace falta la etiqueta en el backend, se lee
+# de umbrales() en el momento y ya.
 
 
 # ──────────────────────────────────────────── el cinturón para el texto del LLM
