@@ -120,6 +120,40 @@ def _sale_del_equipo(proveedor: str, destino: str) -> bool:
 # ----------------------------------------------------------------------
 #  Capa 1 — Grafo de notas markdown
 # ----------------------------------------------------------------------
+# Carpetas que viven DENTRO de data/memory/ y que NO son conocimiento:
+#   papelera/ — lo ya retirado. Retirar es un cambio de estado, y el estado
+#               «retirado» significa que no se enseña ni se busca.
+#   daily/    — el diario de conversaciones. Es un log, no algo que nexus sepa.
+#
+# INCIDENTE (03/08/2026): `graph()` recorría data/memory/ con rglob() y SIN
+# excluir nada, así que pintaba las 93 notas del disco cuando solo 22 eran
+# conocimiento real — 59 eran papelera y 12 diario. Adrián lo dijo varias veces
+# («sigue estando el CV, sigue estando el bootcamp») y la purga parecía no hacer
+# nada: movía las notas a papelera/ y el grafo las seguía leyendo desde ahí.
+# `search()` sí excluía el diario, pero tampoco la papelera: una nota retirada
+# seguía contestando a «qué recuerdas de…».
+_CARPETAS_NO_CONOCIMIENTO = ("papelera", "daily")
+
+# Y el diario NO vive en daily/, aunque lo parezca: `profile.py` lo escribe en la
+# RAÍZ como `diario-AAAA-MM-DD.md`. Por eso excluir la carpeta nunca lo excluyó a
+# él, y cada día de conversación añadía un nodo más al grafo.
+# El `resumen AAAA-MM-DD` sí se queda: es la destilación de lo que pasó, o sea
+# algo que nexus sabe. La transcripción en crudo no lo es.
+_PREFIJOS_NO_CONOCIMIENTO = ("diario-",)
+
+
+def _excluido_por_nombre(nombre: str) -> bool:
+    """True si ese NOMBRE de nota no es conocimiento. Vale para ficheros y enlaces."""
+    return str(nombre).strip().lower().startswith(_PREFIJOS_NO_CONOCIMIENTO)
+
+
+def _fuera_del_conocimiento(path) -> bool:
+    """True si la nota no forma parte del conocimiento (papelera, diario o log)."""
+    if any(p in _CARPETAS_NO_CONOCIMIENTO for p in path.parts):
+        return True
+    return _excluido_por_nombre(path.stem)
+
+
 class NoteGraph:
     def __init__(self):
         DAILY_DIR.mkdir(parents=True, exist_ok=True)
@@ -156,7 +190,7 @@ class NoteGraph:
         words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 2] or [query.lower()]
         scored: list[tuple] = []
         for path in MEMORY_DIR.rglob("*.md"):
-            if path.parent.name == "daily":          # el diario es log, no conocimiento
+            if _fuera_del_conocimiento(path):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
@@ -189,6 +223,8 @@ class NoteGraph:
         sí y comparten grupo/color en el HUD."""
         nodes, edges = [], []
         for path in MEMORY_DIR.rglob("*.md"):
+            if _fuera_del_conocimiento(path):
+                continue
             name = path.stem
             nodes.append(name)
             try:
@@ -196,6 +232,12 @@ class NoteGraph:
                     edges.append([name, target.strip()])
             except Exception:
                 pass
+        # Un enlace a algo que no existe como nota crea un hub virtual. Eso está
+        # bien para agrupar («conocimiento», «documentos»), pero resucitaba lo
+        # excluido: cada `resumen AAAA-MM-DD` enlaza a su `[[diario-…]]`
+        # (profile.py), así que el diario volvía al grafo por la puerta de atrás
+        # aunque su fichero estuviera excluido. Los enlaces siguen la misma regla.
+        edges = [[a, b] for a, b in edges if not _excluido_por_nombre(b)]
         known = set(nodes)
         for _a, b in edges:              # hubs virtuales → nodos de pleno derecho
             if b not in known:
