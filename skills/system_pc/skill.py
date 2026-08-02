@@ -67,6 +67,15 @@ SKILL = {
         # al 40», «volumen al 75%» y similares con número.
         "volume": r"\bvolumen\s+(?:del?\s+(?:pc|equipo|sistema)\s+)?(?:al?\s*)?(?P<vol>\d{1,3})\s*%?"
                   r"|\b(sube|baja|pon)(?:me|le)?\b[^.\n]{0,25}\bvolumen\b",
+        # Brillo de la PANTALLA. El SKILL.md de `media` lleva tiempo mandando
+        # «pon el brillo al 80» aquí, y aquí no había nada: la frase caía al
+        # planificador. Exige «pantalla» o «monitor» cuando no lleva número,
+        # para no robarle a domotica el brillo de una bombilla.
+        "brightness": r"\bbrillo\s+(?:de\s+la\s+pantalla\s+|del?\s+monitor\s+)?"
+                      r"(?:al?\s*)?(?P<bri>\d{1,3})\s*%?"
+                      r"|\b(?:sube|baja|pon)(?:me|le)?\b[^.\n]{0,25}\bbrillo\b"
+                      r"[^.\n]{0,20}\b(?:pantalla|monitor|pc|equipo|ordenador)\b"
+                      r"|\b(?:sube|baja)(?:me|le)?\s+el\s+brillo\b\s*[.!?]*$",
         # Temperaturas de HARDWARE (cpu/gpu/gráfica…). OJO: exige un componente
         # detrás de "temperatura" para NO robar «¿qué temperatura hace en Madrid?»
         # (eso es clima y lo atiende la skill 'clima').
@@ -180,6 +189,40 @@ def _steam_appid_by_name(name: str):
     except Exception:
         return None
     return None
+
+
+def _brillo_actual():
+    """Brillo de la pantalla en 0-100, o None si el panel no lo expone.
+
+    Se pregunta por WMI (root/WMI, WmiMonitorBrightness). Los portátiles casi
+    siempre responden; los monitores de sobremesa casi nunca, porque llevan el
+    control en sus propios botones y Windows no lo alcanza.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness"
+             " -ErrorAction Stop).CurrentBrightness"],
+            capture_output=True, text=True, timeout=6)
+        linea = (out.stdout or "").strip().splitlines()
+        return int(linea[0]) if linea and linea[0].strip().isdigit() else None
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
+def _pon_brillo(pct: int) -> bool:
+    """Fija el brillo. Devuelve False si Windows no lo acepta."""
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods"
+             f" -ErrorAction Stop).WmiSetBrightness(1,{int(pct)})"],
+            capture_output=True, text=True, timeout=6)
+        return out.returncode == 0
+    except Exception:                                      # noqa: BLE001
+        return False
 
 
 def _cpu_temp():
@@ -401,6 +444,27 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": f"Volumen {target}… en teoría. Aún no tengo nircmd para tocarlo de "
                          "verdad: descárgalo de nirsoft.net y deja nircmd.exe en el PATH; "
                          "a partir de ahí el control es real."}
+
+    if intent == "brightness":
+        num = match.groupdict().get("bri")
+        baja = bool(re.search(r"\bbaja", text, re.IGNORECASE))
+        if sys.platform != "win32":
+            return {"reply": "El brillo de la pantalla solo lo sé tocar en Windows, "
+                             "y esto no es Windows."}
+        # WMI expone el brillo solo si el panel lo soporta: los portatiles casi
+        # siempre, los monitores de sobremesa casi nunca (ahi lo manda su propio
+        # menu por hardware). Si no responde, se dice; no se finge que ha ido.
+        actual = _brillo_actual()
+        if actual is None:
+            return {"reply": "Tu pantalla no deja que Windows le cambie el brillo: no expone "
+                             "el control por WMI. Suele pasar en monitores de sobremesa, que "
+                             "lo llevan en sus propios botones. En un portátil sí funcionaría."}
+        destino = int(num) if num else max(0, min(100, actual + (-10 if baja else 10)))
+        destino = max(0, min(100, destino))
+        if not _pon_brillo(destino):
+            return {"reply": f"He pedido el brillo al {destino}% y Windows no lo ha aceptado. "
+                             "Puede que haga falta ejecutar nexus como administrador."}
+        return {"reply": f"Brillo al {destino}%. ✔"}
 
     if intent == "hardware":
         from backend.core import permissions

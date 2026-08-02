@@ -72,6 +72,11 @@ ACTIVAN = {
              "cierra chrome", "ciérrame chrome", "cierra el chrome", "cierra spotify",
              "cierra discord", "termina spotify", "cierra el navegador",
              "cierra la calculadora"],
+    # Brillo de la PANTALLA. El SKILL.md de media lleva tiempo mandándolo aquí y
+    # aquí no había nada: la frase caía al planificador.
+    "brightness": ["pon el brillo al 80", "sube el brillo", "baja el brillo",
+                   "brillo al 50", "pon el brillo de la pantalla al 30",
+                   "sube el brillo de la pantalla"],
     "open_app": ["abre spotify", "ábreme spotify", "arranca la calculadora"],
     # Cualquier web, no una lista de sitios: con la palabra «web/página», con un
     # dominio a pelo, o con los verbos de navegar.
@@ -143,6 +148,13 @@ for f, duenyo in DE_OTROS.items():
     r = sl.route(f)
     check(bool(r) and r[0].folder == duenyo,
           f"«{f}» es de {duenyo} y va a " + (f"{r[0].folder}/{r[1]}" if r else "ningún sitio"))
+
+# El brillo de una BOMBILLA es de domotica, no de la pantalla del PC.
+for f in ("pon el brillo de la luz del salón al 40", "baja el brillo de la lámpara",
+          "sube el brillo de la bombilla"):
+    r = sl.route(f)
+    check(not r or r[0].folder != "system_pc",
+          f"«{f}» es de domotica y se lo queda system_pc")
 
 # el lookahead de open_app tiene que dejar pasar los dominios ajenos
 for f in ("abre el tablero", "abre los correos", "abre las pestañas"):

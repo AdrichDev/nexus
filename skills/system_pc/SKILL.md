@@ -18,6 +18,9 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
   las formas largas «cierra el proceso chrome» / «cierra el programa spotify» /
   «termina discord.exe». **Lo cierra en el acto**, sin preguntar, y contesta con
   una línea que varía («Chrome cerrado», «Listo, Chrome fuera», …)
+- «pon el brillo al 80» / «sube el brillo» / «baja el brillo» / «pon el brillo de
+  la pantalla al 30» → brillo del MONITOR por WMI. El brillo de una bombilla es
+  de `domotica`: «el brillo de la luz del salón» no llega aquí
 - «abre spotify» / «ábreme la calculadora» / «arranca el bloc de notas»
 - **Abrir cualquier web**, no hay lista de sitios: «abre la web de marca» /
   «ábreme la página de renfe» / «ponme la web del as» / «entra en la web de X» /
@@ -77,6 +80,9 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
   antes y después y distingue «arrancó», «arrancó otra cosa» y «no arrancó».
 - No abre juegos de Steam que no estén instalados; lo dice y ofrece instalarlos.
 - No borra archivos (eso es `files`) ni toca dispositivos de casa (eso es `domotica`).
+- No finge haber cambiado el brillo. Si la pantalla no expone el control por WMI
+  —los monitores de sobremesa suelen llevarlo en sus propios botones— lo dice y
+  explica por qué, en vez de contestar «brillo al 80%» sin haber tocado nada.
 
 ## Notas técnicas
 
