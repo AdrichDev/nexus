@@ -69,8 +69,18 @@ def lineas_import(txt: str) -> list[tuple[set[str], str]]:
 
 
 def sin_imports(txt: str) -> str:
-    """El cuerpo del fichero sin las lineas de import (para no contarlas como uso)."""
-    return re.sub(r"import\s*\{[^}]*\}\s*from\s*['\"][^'\"]+['\"]\s*;?", "", txt)
+    """El cuerpo real: sin imports, sin comentarios y sin cadenas.
+
+    Los comentarios importan: `ui/widgets.js` documenta «Lo cablea wireNs()» y
+    eso no es usar wireNs. Sin quitarlos, el comprobador exige un import que
+    nadie necesita.
+    """
+    txt = re.sub(r"import\s*\{[^}]*\}\s*from\s*['\"][^'\"]+['\"]\s*;?", "", txt)
+    txt = re.sub(r"/\*(?:.|\n)*?\*/", " ", txt)            # comentarios de bloque
+    txt = re.sub(r"^\s*//[^\n]*", " ", txt, flags=re.M)    # y de linea entera
+    # Las plantillas `...` NO se quitan: dentro de un ${...} hay llamadas de
+    # verdad —`${esc(x)}`, `${qc(...)}`— y ahi es donde vive casi todo el HTML.
+    return txt
 
 
 print("== 1) cada modulo declara lo que usa ==")

@@ -102,17 +102,33 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 "data": {"number": number, "file": str(out)}}
 
     if intent == "list":
+        aviso_pg = ""
         if pg.online:
-            rows = pg._rows("SELECT number, concept, amount, status FROM invoices "
-                            "ORDER BY id DESC LIMIT 8")
+            # La tabla `invoices` NO tiene columna `status` y nunca la ha tenido
+            # (backend/core/memory.py: id, client_id, number, concept, amount,
+            # created_at). Pedirla hacía que «ver facturas» reventara con un
+            # UndefinedColumn de Postgres en la cara del usuario. Se enseña la
+            # fecha, que sí existe, en vez de un estado que nadie guarda.
+            try:
+                rows = pg._rows("SELECT number, concept, amount, created_at FROM invoices "
+                                "ORDER BY id DESC LIMIT 8")
+            except Exception as exc:                       # noqa: BLE001
+                rows = None
+                aviso_pg = (f"No he podido leer las facturas de Postgres ({exc.__class__.__name__}), "
+                            "así que te enseño el archivo local.\n")
+            else:
+                aviso_pg = ""
             if rows:
-                lines = [f"• {r['number']} — {r['concept']} — {r['amount']} € ({r['status']})"
-                         for r in rows]
+                lines = []
+                for r in rows:
+                    fecha = r.get("created_at")
+                    fecha = fecha.strftime("%d/%m/%Y") if hasattr(fecha, "strftime") else "sin fecha"
+                    lines.append(f"• {r['number']} — {r['concept']} — {r['amount']} € · {fecha}")
                 return {"reply": "🧾 Últimas facturas (Postgres):\n" + "\n".join(lines) +
                                  "\n¿Otra? Di «hazle una factura a <cliente> por <concepto> de <importe> euros»."}
         files = sorted(INVOICE_DIR.glob("*.html"), reverse=True)[:8]
         if files:
-            return {"reply": "🧾 Facturas locales (data/invoices/):\n" +
+            return {"reply": aviso_pg + "🧾 Facturas locales (data/invoices/):\n" +
                              "\n".join(f"• {f.stem}" for f in files) +
                              "\nPostgres no responde ahora mismo, así que esto es el archivo local. "
                              "Di «hazle una factura a <cliente> por <concepto> de <importe> euros» para otra."}
