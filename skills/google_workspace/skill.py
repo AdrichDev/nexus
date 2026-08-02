@@ -97,7 +97,11 @@ SKILL = {
                          r"|(?:cr[eé]a(?:me)?|gen[eé]ra(?:me)?|s[aá]ca(?:me)?|convi[eé]rte(?:me)?|prepara(?:me)?)\b[^.\n]{0,30}\btareas?\b[^.\n]{0,25}\b(?:correos?|mails?|e-?mails?|emails?|bandeja)\b"
                          r"|(?:cr[eé]a(?:me)?|convi[eé]rte(?:me)?|p[aá]sa(?:me)?|transforma)\b[^.\n]{0,20}\b(?:correos?|mails?|bandeja)\b[^.\n]{0,20}\b(?:en\s+|a\s+)?tareas?\b"
                          r"|(?:de|con)\s+(?:los\s+|mis\s+)?correos?\b[^.\n]{0,25}\b(?:cr[eé]a(?:me)?|s[aá]ca(?:me)?)\b[^.\n]{0,15}\btareas?\b"
-                         r"|(?:anal[ií]za(?:me)?|procesa|gestiona(?:me)?|organiza(?:me)?|despacha(?:me)?|haz\s+triaje\s+de)\b[^.\n]{0,25}\b(?:los\s+|mis\s+)?(?:correos?|mails?|e-?mails?|emails?|bandeja)\b"
+                         # 02/08/2026: aquí ponía «gestiona|procesa|despacha|organiza» A SECAS.
+                         # En español el pronombre enclítico DESPLAZA LA TILDE: «gestióname
+                         # la bandeja», «procésalos», «despáchamelos». Con el verbo sin tilde
+                         # NINGUNA de esas frases casaba y caían al planificador del cerebro.
+                         r"|(?:anal[ií]za(?:me)?|proc[eé]sa(?:me)?|gesti[oó]na(?:me)?|organ[ií]za(?:me)?|desp[aá]cha(?:me)?|haz\s+triaje\s+de)\b[^.\n]{0,25}\b(?:los\s+|mis\s+)?(?:correos?|mails?|e-?mails?|emails?|bandeja)\b"
                          # «crea tareas de lo urgente/importante» (nexus lo sugiere así,
                          # sin decir «correos» — antes NO casaba y el LLM decía «hecho» sin hacer NADA)
                          r"|(?:cr[eé]a(?:me)?|gen[eé]ra(?:me)?|s[aá]ca(?:me)?|prepara(?:me)?|haz(?:me)?)\b[^.\n]{0,25}\btareas?\b[^.\n]{0,30}\b(?:lo\s+)?(?:urgentes?|importantes?|prioritari[oa]s?|que\s+corran?\s+prisa)\b",
@@ -110,16 +114,20 @@ SKILL = {
         # alfabético (hermes, instagram, media…). Encima el handler exige que haya
         # una lista de correos reciente; si no la hay, pregunta en vez de adivinar.
         "email_actions_pron": r"^\W*(?:no\s+(?:me\s+)?l[oa]s\s+leas[,;.\s]*)?"
-                              r"(?:anal[ií]za|procesa|gestiona|despacha|haz\s+triaje\s+de)"
+                              # Con enclítico la tilde se mueve: analiza→analízalos,
+                              # procesa→procésalos, gestiona→gestiónalos, despacha→despáchalos.
+                              r"(?:anal[ií]za|proc[eé]sa|gesti[oó]na|organ[ií]za|desp[aá]cha|haz\s+triaje\s+de)"
                               r"(?:me)?\s*l[oa]s\b"
                               r"(?:\s+(?:en\s+segundo\s+plano|por\s+detr[aá]s|de\s+fondo))?\W*$",
         "summarize_emails": r"(?:res[uú]me(?:me)?|haz(?:me)?\s+un\s+resumen)\b[^.\n]{0,40}\b(?:correos?|mails?|e-?mails?|bandeja|gmail)\b(?:[^.\n]{0,15}?(?P<n>\d+))?",
         # MARCAR COMO NO LEÍDO (deshacer). VA ANTES que mark_read: si no, «marca … como
         # NO leído» casaría «leído» de mark_read ignorando el «no».
-        "mark_unread": r"(?:m[aá]rca(?:los|lo|me|r)?|pon(?:los|lo|me)?|dej[aá](?:los|melos)?|devu[eé]lve(?:los|me)?)\b[^.\n]{0,25}\b(?:como\s+)?(?:no\s+le[ií]d[oa]s?|sin\s+leer)\b",
+        # OJO con «déjalos»: la tilde va en la E, no en la A («déjalos sin leer»).
+        # Con `dej[aá]` la frase NO casaba y se iba al planificador.
+        "mark_unread": r"(?:m[aá]rca(?:los|lo|me|r)?|pon(?:los|lo|me)?|d[eé]j[aá](?:los|melos)?|devu[eé]lve(?:los|me)?)\b[^.\n]{0,25}\b(?:como\s+)?(?:no\s+le[ií]d[oa]s?|sin\s+leer)\b",
         # MARCAR COMO LEÍDO (CRUD Gmail): «pon los correos como leídos», «marca todo
         # como leído». Va ANTES de 'emails' para NO caer en listar/leer en voz.
-        "mark_read": r"(?:pon(?:me|los|lo|los\s+correos)?|m[aá]rca(?:me|los|lo|r)?|dej[aá](?:los|melos)?|"
+        "mark_read": r"(?:pon(?:me|los|lo|los\s+correos)?|m[aá]rca(?:me|los|lo|r)?|d[eé]j[aá](?:los|melos)?|"
                      r"impone|deja)\b[^.\n]{0,30}\b(?:como\s+)?le[ií]d[oa]s?\b"
                      r"|\ble[ií]d[oa]s?\b[^.\n]{0,20}\b(?:los\s+|todos?\s+los\s+)?(?:correos?|mails?|e-?mails?)\b"
                      r"|marcar?\s+(?:todo|todos?)\b[^.\n]{0,20}\ble[ií]d[oa]s?\b",
@@ -156,9 +164,19 @@ SKILL = {
                   r"|\b(?:qu[eé]|cu[aá]les?)\s+(?:correos?|mails?|e-?mails?)\b"
                   r"|\bqu[eé]\s+tengo\s+en\s+(?:el\s+correo|la\s+bandeja|el\s+gmail|gmail)\b"
                   r"|\b(?:hay|tengo)\s+(?:\w+\s+){0,1}(?:correos?|mails?|e-?mails?)\b"
-                  r"|\b(?:correos?|mails?|e-?mails?)\b[^.\n]{0,18}(?:pendientes?|nuevos?|importantes?|recientes?)\b",
+                  r"|\b(?:correos?|mails?|e-?mails?)\b[^.\n]{0,18}(?:pendientes?|nuevos?|importantes?|recientes?)\b"
+                  # «bandeja» a secas = bandeja de CORREO. Va la última de este intent
+                  # (los de triaje, resumen y marcar van antes en el dict y ganan ellos).
+                  # 02/08/2026: «qué tengo en la bandeja» —ejemplo LITERAL del SKILL.md—
+                  # se lo comía skills/comms, que va antes por orden alfabético y tiene
+                  # datos de MENTIRA dentro. Ver el candado de skills/comms/skill.py.
+                  r"|\bbandeja(?:\s+de\s+entrada)?\b",
         "gcal": r"(?:qu[eé]\s+tengo|mira|ver|mu[eé]stra(?:me)?|dime|dame|revisa|acceso\s+a|abre|consulta|tienes|hay|c[oó]mo\s+est[aá]|ense[ñn]a(?:me)?)\b[^.\n]{0,25}\b(agenda|calendario|eventos?|citas?)\b"
-                r"|\b(mi|la|el)\s+(agenda|calendario)\b|\bagenda\s+de\s+google\b|\bpr[oó]ximos\s+eventos\b|\bqu[eé]\s+tengo\s+(hoy|ma[ñn]ana|esta\s+semana|el\s+\w+)\b",
+                r"|\b(mi|la|el)\s+(agenda|calendario)\b|\bagenda\s+de\s+google\b|\bpr[oó]ximos\s+eventos\b|\bqu[eé]\s+tengo\s+(hoy|ma[ñn]ana|esta\s+semana|el\s+\w+)\b"
+                # El sustantivo ENTRE el interrogativo y el verbo («qué citas tengo»)
+                # no lo cogía ninguna alternativa: la primera exige verbo→sustantivo.
+                r"|\bqu[eé]\s+(?:citas?|eventos?|reuniones?)\s+(?:tengo|hay)\b"
+                r"|\btengo\s+(?:alg[uú]n[a]?\s+)?(?:cita|evento|reuni[oó]n)\b",
         "gtasks": r"\btareas\s+de\s+google\b|\bgoogle\s+tasks?\b|\bto-?do\s+de\s+google\b"
                   r"|\bqu[eé]\s+(?:tengo|hay)\s+en\s+(?:el|mi)\s+to-?do\b",
 
@@ -188,7 +206,8 @@ SKILL = {
         "drive_folder_create": r"(?:cr[eé]a(?:me)?|cr[eé]ar|h[aá]z(?:me)?|gen[eé]ra(?:me)?|nueva)"
                                r"\b[^\n]{0,25}\b(?:carpeta|directorio|folder)\b[^\n]{0,80}"
                                r"\b(?:google\s+)?drive\b",
-        "drive_move": r"(?:mu[eé]ve(?:me|lo|la)?|mover|traslada|trasladar|ll[eé]va(?:me|lo|la)?"
+        # «llévate» es enclítico igual que «llévalo»: sin el «te» la frase moría.
+        "drive_move": r"(?:mu[eé]ve(?:me|lo|la)?|mover|traslada|trasladar|ll[eé]va(?:me|te|lo|la)?"
                       r"|pasa)\b[^\n]{0,100}\b(?:google\s+)?drive\b",
         "drive_rename": r"(?:ren[oó]mbra(?:me|lo|la)?|renombrar|cambia(?:le)?\s+el\s+nombre"
                         r"|c[aá]mbia(?:le)?\s+el\s+nombre)\b[^\n]{0,100}\b(?:google\s+)?drive\b",
@@ -202,8 +221,12 @@ SKILL = {
                           r"|exporta(?:me)?|tr[aá]e(?:me)?)\b[^\n]{0,100}\b(?:google\s+)?drive\b",
         "drive_search": r"(?:busca(?:me)?|b[uú]sca(?:me)?|buscar|encuentra|localiza)"
                         r"\b[^\n]{0,100}\b(?:google\s+)?drive\b",
+        # INCIDENTE: había dos alternativas para «guardar» y entre las dos se dejaban
+        # fuera «guárdame» (una pedía «guarda» sin tilde, la otra exigía «melo/mela»).
+        # «guárdame el informe en drive» acababa en drive_list, o sea LISTANDO en vez
+        # de SUBIR. Una sola alternativa con la tilde opcional y el enclítico anidado.
         "drive_upload": r"(?:s[uú]be(?:me|lo|la|los|las)?|sub[ií]r(?:lo|la)?|cuelga(?:me|lo|la)?"
-                        r"|guarda(?:me|lo|la)?|gu[aá]rda(?:melo|mela|lo|la)|copia|mete|pon)"
+                        r"|gu[aá]rda(?:me(?:lo|la)?|lo|la)?|copia|mete|pon)"
                         r"\b[^\n]{0,50}\b(?:google\s+)?drive\b",
         "drive_link": r"\b(?:enlace|link|url|direcci[oó]n)\b[^\n]{0,30}\b(?:google\s+)?drive\b"
                       r"|\bdrive\b[^\n]{0,20}\b(?:enlace|link|url)\b",
@@ -1645,7 +1668,12 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             except Exception:
                 rest = ""
             q = None
-            mfrom = re.search(r"\bde\s+([^\s,.;]+(?:\s+[^\s,.;]+){0,2})", rest or text, re.I)
+            # OJO CON EL PUNTO (02/08/2026): aquí ponía [^\s,.;], que EXCLUYE el punto,
+            # así que «borra los correos de facturacion@empresa.com» buscaba
+            # «from:facturacion@empresa» — el dominio cortado a la mitad. Es el mismo
+            # fallo que rompía los nombres de fichero en los patrones de Drive. Ahora
+            # el punto entra y la puntuación final se quita después.
+            mfrom = re.search(r"\bde\s+([^\s,;]+(?:\s+[^\s,;]+){0,2})", rest or text, re.I)
             mdays = re.search(r"m[aá]s\s+de\s+(\d+)\s+d[ií]as|(\d+)\s+d[ií]as|antiguos?", text, re.I)
             if re.search(r"antiguos?|viejos?", text, re.I) or mdays:
                 dias = 30
@@ -1653,7 +1681,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                     dias = int(mdays.group(1) or mdays.group(2))
                 q = f"older_than:{dias}d in:inbox"
             elif mfrom:
-                q = f"from:{mfrom.group(1).strip()}"
+                q = f"from:{mfrom.group(1).strip(' .,;:')}"
             if not q:
                 return {"reply": "Dime QUÉ correos borrar: «borra el correo 2», «borra los "
                                  "correos de Amazon» o «borra los correos de más de 30 días». "

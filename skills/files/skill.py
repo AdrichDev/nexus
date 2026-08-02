@@ -74,12 +74,25 @@ SKILL = {
 # «borra la carpeta Informes de drive» lo cogía el `trash` de aquí y borraba una
 # carpeta del disco. El candado es un lookahead que descarta el patrón cuando la
 # frase menciona «drive», y se aplica SOLO a los intents que pueden chocar (los
-# que hablan de archivo/carpeta genéricos). Los que exigen una ruta real
-# (analyze, search) no lo necesitan.
+# que hablan de archivo/carpeta genéricos).
+#
+# HUECO DEL CANDADO, encontrado el 02/08/2026 al auditar google_workspace: la
+# versión anterior decía que «los que exigen una ruta real (analyze, search) no
+# lo necesitan». Era FALSO para tres de ellos y se comprobó enrutando de verdad:
+#   * «busca contratos en la carpeta Clientes de drive» → caía en `search`, que
+#     ve las palabras «la carpeta» en su lookahead y se pone a recorrer el DISCO.
+#     Y esa frase es un ejemplo literal del SKILL.md de Google.
+#   * «qué versiones tienes de informe.md en drive» → caía en `versions`.
+#   * «restaura el archivo informe.md de drive» → caía en `restore_file`.
+# `analyze` se queda FUERA a propósito y con la razón escrita: exige una ruta con
+# extensión de código (.py/.js/…), es de SOLO LECTURA y no hay ningún intent de
+# Drive que analice código, así que meterlo en el candado dejaría la frase sin
+# ruta sin ganar nada a cambio.
 _SIN_DRIVE = r"(?!.*\b(?:google\s+)?drive\b)"
 _INTENTS_QUE_CHOCAN_CON_DRIVE = ("trash", "make_doc", "move", "copy", "rename",
                                  "mkdir", "mkfile", "explore", "update",
-                                 "summarize", "read")
+                                 "summarize", "read", "search", "versions",
+                                 "restore_file")
 for _i in _INTENTS_QUE_CHOCAN_CON_DRIVE:
     if _i in SKILL["patterns"]:
         SKILL["patterns"][_i] = _SIN_DRIVE + "(?:" + SKILL["patterns"][_i] + ")"

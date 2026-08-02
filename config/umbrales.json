@@ -292,11 +292,14 @@
    "reinicia nexus, y el informe diario pasa a caer en otra carpeta sin tocar",
    "Python ni volver a autorizar nada.",
    "",
-   "OJO: nexus pide el permiso 'drive.file', que solo le deja ver y tocar LOS",
-   "FICHEROS QUE CREA EL MISMO. Consecuencia practica: si pones aqui el nombre",
-   "de una carpeta que creaste TU a mano, nexus no la ve y creara otra con ese",
-   "mismo nombre. No es un fallo: es el precio de no darle acceso a todo tu",
-   "Drive personal por subir un .md al dia."
+   "OJO, ESTO CAMBIO EL 02/08/2026: nexus ya NO pide 'drive.file' sino",
+   "'auth/drive' COMPLETO, por decision expresa del dueno de la cuenta. Esta",
+   "nota decia lo contrario y era MENTIRA sobre los permisos que tiene: si",
+   "pones aqui una carpeta que creaste TU a mano, ahora SI la encuentra y",
+   "sube dentro, no crea una duplicada. El precio esta escrito en",
+   "skills/google_workspace/skill.py: puede leer, mover, renombrar y mandar a",
+   "la papelera CUALQUIER documento de la cuenta. Por eso lo destructivo va",
+   "a la papelera de Drive y el borrado definitivo pide confirmacion."
   ],
   "carpeta": "nexus"
  },
