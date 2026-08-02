@@ -178,3 +178,10 @@ desktop.ini
 
 # Tus palabras de purga: llevan nombres propios, no van al repo.
 config/purga_local.json
+
+# ── Estado de otras herramientas de agente ────────────────────────────────────
+# Mismo criterio que .claude/: lo genera la herramienta (gentle-ai) y se rehace
+# solo. AGENTS.md SI se queda: es un documento de instrucciones de la raiz, como
+# CLAUDE.md, y quien clone el repo lo quiere.
+.openclaw/
+.windsurf/
