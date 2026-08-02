@@ -1,109 +1,216 @@
 # Estado de la sesión — 01/08 y 02/08 de 2026
 
-Registro para retomar el trabajo. Se escribe aquí porque la memoria
-persistente (Engram) se desconectó a mitad de sesión y este documento sí
-sobrevive en el repositorio.
+Registro para retomar el trabajo. Se escribe aquí porque este documento sobrevive
+en el repositorio.
 
 ## Dónde estamos
 
 | Fase | Estado |
 | --- | --- |
 | 0 — ordenar la raíz | ✅ hecha (`ca865b0`) |
-| 1 — auditar las 32 skills | ✅ **hecha, 32 de 32** |
-| 2 — componentizar el frontend | ⏳ siguiente |
-| 3 — estratificar `backend/core/` | ⏳ pendiente |
+| 1 — auditar las 32 skills | ✅ hecha, 32 de 32 |
+| 2 — componentizar el frontend | 🟡 **hecha a medias, y a propósito** |
+| 3 — estratificar `backend/core/` | ✅ la regla, escrita y verificada |
 
 **Nada está pusheado.** Todo son commits locales en `main`.
 
-## Lo que hay que hacer nada más volver
+## Lo primero al volver
 
-1. **Reiniciar nexus con `run.bat`.** Se han modificado las 32 skills y
-   `skills_loader` solo lee las carpetas al arrancar: la instancia viva sigue
-   sirviendo el código anterior.
-2. Comprobar en el chat que la analítica de Instagram ya no suelta cifras
-   inventadas y que «cómo va el instagram» llega a la skill correcta.
+1. **Reiniciar nexus con `run.bat`.** Se han tocado skills y `skills_loader` solo
+   lee las carpetas al arrancar.
+2. Probar en el chat las órdenes nuevas: «cierra chrome», «dame ideas»,
+   «hazme un guion», «pon el brillo al 80».
 
-## Fase 1 — lo que apareció
+## Lo que se ha hecho hoy (02/08)
 
-Ocho tandas, 32 skills, ~2.500 comprobaciones nuevas repartidas en 18 suites.
-Agrupado por familia de fallo:
+### Cerrar programas vuelve a ser una orden
 
-| Patrón | Veces | Ejemplo |
-| --- | --- | --- |
-| Pronombre enclítico | las 8 tandas, ~100 frases | `apaga` funcionaba, `apágalo` no |
-| Regex sin `\b` | 4 | «pa-**usa** la música» la robaba `mcp_hands`; «contra**tiempo**» disparaba el parte meteorológico |
-| Robos entre skills por orden alfabético | ~15 | «ponme hermes en marcha» → `media/play` |
-| Instrucciones de arreglo imposibles | 4 | `memory_graph` mandaba ejecutar `nexus_up.bat`, que no existe |
-| Datos inventados con formato de reales | 9 skills | `system_pc`: «CPU 17% · RAM 52% · 44°C» sin poder medirlo |
-| Destructivo sin confirmación | 5 | matar procesos, archivar copias, borrar recuerdos, `--remove-orphans`, crear flujos n8n |
+En la Fase 1 se le había metido confirmación previa por considerarlo destructivo.
+Era una lectura equivocada: «nexus, cierra esto» está hecho para que lo cierre.
+**Retirada la confirmación.** Apagar y reiniciar sí la mantienen: ahí se pierde la
+sesión entera.
 
-### Los cinco más graves
+La salvaguarda pasa a ser la puntería, no la pregunta: primero el nombre exacto
+(con o sin `.exe`) y solo si no casa ninguno, la subcadena. Antes «cierra el
+proceso code» se llevaba también `codecs_host`.
 
-1. **`instagram` reventaba con `ImportError`** en cuatro intents: usaba
-   `from . import <hermano>` y el cargador la carga como `skills.instagram`,
-   así que el punto apuntaba un nivel por encima. Los tests no lo veían porque
-   importan con `importlib`: **la prueba pasaba y el usuario recibía un
-   traceback**.
-2. **`files.trash` fallaba con `AttributeError`** en tres de sus cuatro
-   formas. Borrar ficheros llevaba roto sin que nadie lo notara.
-3. **El modo abogado del diablo no existía.** La instrucción estaba definida
-   y nunca se concatenaba a ningún prompt; el interruptor no lo leía nadie.
-   Mientras tanto el HUD y la configuración prometían «SIEMPRE ACTIVO».
-4. **`system_pc` mataba procesos sin confirmar**, por coincidencia de
-   subcadena en el nombre.
-5. **`comms` servía una bandeja de mensajes inventada** con nombres del
-   entorno del usuario, y «captura de tareas» los **escribía en su memoria
-   real**.
+La respuesta no lleva PIDs y **varía entre seis frases**, porque es una orden que
+se repite muchas veces al día.
 
-### Reglas que quedan establecidas
+### Órdenes que no llegaban
 
-- Los comentarios en `skill.py` dicen **qué hace el código**. La historia va
-  en el mensaje del commit.
-- **Nada de datos personales** en código, configuración publicada ni tests: lo
-  instala cualquiera. `umbrales.json` lleva solo tipos genéricos; lo que
-  identifica va a `purga_local.json`, ignorado por git.
-- El `SKILL.md` es **lo que lee el agente para decidir**: al grano, completo, y
-  con un apartado de lo que la skill **no** hace.
+| Familia | Qué pasaba |
+| --- | --- |
+| **Cerrar programas** | «cierra chrome», «cierra spotify», «cierra el navegador», «cierra la calculadora» → **al planificador**. El patrón exigía decir «proceso» o «.exe» |
+| **Abrir webs** | «abre marca.com» intentaba lanzar un programa llamado así. «ponme la web del as» se lo llevaba la **música** |
+| **Aportar ideas** | **8 de 12** formas naturales al planificador: «dame ideas», «proponme ideas», «lluvia de ideas», «qué publico esta semana»… |
+| **Guiones** | «hazme un guion» no existía: el tema era obligatorio |
+| **Competencia** | Faltaba el singular «qué **hace** mi competencia» y la forma «compara **mi cuenta con** la competencia» |
+| **Brillo** | `media/SKILL.md` llevaba tiempo mandándolo a Sistema/PC, y **Sistema/PC no tenía brillo** |
+| **Facturas** | «ver facturas» **reventaba** con `UndefinedColumn`: pedía una columna `status` que no existe |
 
-## Otras cosas resueltas en la sesión
+Cada arreglo lleva su límite. «dame ideas» a secas es contenido, pero «dame ideas
+de cena» no: si hay complemento, tiene que ser del dominio. El brillo de una
+bombilla sigue siendo de `domotica`. Y `_NO_ES_PROGRAMA` protege lo que es de
+otras skills al cerrar.
 
-- Memoria con vectores por primera vez: pgvector llevaba meses instalado con
-  741 filas y **cero** vectores, porque el modelo configurado no estaba
-  descargado y el fallo era silencioso. Ahora `bge-m3` local, 715 filas
-  vectorizadas, búsqueda semántica funcionando.
-- Los 6 documentos de marca ingeridos (746 → 917 filas).
-- Purga estrenada: FP y papeleo personal fuera de la memoria, 338 duplicados
-  limpiados. **Nada borrado**: todo en `data/memory/papelera/`, reversible.
-- `nexus` se congelaba 4,3 s cada 45 (mDNS síncrono sobre el bucle de
-  asyncio). Arreglado.
-- Túnel superviviente: ya no obliga a reescanear el QR en cada reinicio.
-- Content OS deja de mentir, en el panel y en el chat.
-- OpenRouter: se pide expresamente que ningún proveedor entrene con los
-  prompts.
-- Google Drive construido, con control total y el borrado tras confirmación.
-- Flujo de n8n para el informe diario de las 08:00, con el nodo de competencia
-  listo para enchufar.
+### La e2e no se ejecutaba. Nunca.
+
+`run_e2e.py` imprime `▸` al anunciar cada flujo. La consola de Windows abre en
+cp1252, así que reventaba con `UnicodeEncodeError` **antes de la primera
+comprobación**. La línea está desde el **primer commit del repo** (`9be234f`,
+30/07): no se había ejecutado jamás.
+
+Por eso aquí figuraba «un fallo de la e2e en el indicador de Multitarea,
+preexistente». **Ese fallo no existe.** Resultado real: **9/9 flujos verdes**.
+
+Las fases 0 y 1 sí tenían red: `run_all.py`, que no incluye la e2e y siempre ha
+funcionado. Cubre backend y skills. La e2e cubre el HUD, que es lo que empieza en
+la Fase 2 — y por eso se arregló antes de tocar una línea.
+
+## Fase 2 — el frontend
+
+`command.js` pasa de **3.624 a 1.959 líneas**. Módulos ES nativos: sin
+empaquetador, sin framework y sin paso de compilación.
+
+```
+core/dom.js      41   $, $$, esc, linkify, api, flash, mdToHtml
+core/state.js    28   el estado compartido
+core/catalog.js  68   CATALOG (32 skills) y BOOT
+core/log.js      24   el registro del Monitor
+core/nav.js      18   cambiar de vista sin importar el router
+core/orders.js   19   dar una orden sin importar el arranque
+ui/widgets.js    52   ovCard, gauge, kpi, qc, nsBtn, orbHTML
+views/devices.js    504   CASA: dispositivos, Home Assistant, mando
+views/reels.js      500   Instagram y competencia
+views/knowledge.js  242   grafo de nodos y ventanitas flotantes
+views/contentos.js  242   plan, ideas, salud, aprendizajes
+modals/link.js      145   vincular el móvil: QR y túnel
+```
+
+**Los tres huecos con registro** (`nav`, `log`, `orders`) son la pieza que hizo
+esto posible. Un modal que necesita `render()` no puede importar el router,
+porque el router importa todas las vistas. En vez de eso, el router deja su
+función al arrancar y los demás la piden a ciegas. Cinco líneas cada uno, y
+convierten un ciclo en una dependencia de una sola dirección.
+
+### Lo que NO se ha extraído, y por qué
+
+**La voz se queda en `command.js`.** Es el único bloque grande que no sale
+limpio: exporta quince símbolos y uno de ellos (`_ttsAudio`) es una variable que
+el resto del fichero **reasigna**, cosa que un import no permite. Separarla exige
+rediseñar su interfaz, y eso ya no es componentizar: es reescribir lo que
+funciona, que es justo lo que el plan de esta fase prohíbe.
+
+Lo que queda dentro es el armazón: arranque, WebSocket, router, chat, voz, AI
+Core, hardware, memoria, agenda, tablero y el modal de configuración. **El modal
+de configuración sí saldría** (267 líneas) en cuanto la voz esté resuelta: es lo
+único que lo ata, por `startVoiceTest`/`endVoiceTest`.
+
+### Dos redes nuevas
+
+- `tests/test_frontend_modulos.py` — comprueba en **un segundo y sin navegador**
+  que todo símbolo usado está importado, que los imports apuntan a algo que
+  existe y lo exporta, y que no hay módulos huérfanos. Nació de un fallo real
+  (`reels.js` usaba `$$` sin importarlo) que solo cazaba la e2e, en dos minutos.
+- `tests/_frontend_js.py` — `js_hud()` concatena todo `frontend/js`. Catorce
+  comprobaciones leían `command.js` directamente y se pusieron rojas al mover
+  código sin que nada dejara de funcionar. Ahora son inmunes a los cortes que
+  quedan.
+
+## Fase 3 — las capas del backend
+
+`backend/core/` son 43 módulos y 15.000 líneas en una carpeta plana. Las capas
+están escritas en `backend/core/CAPAS.md` y las verifica
+`tests/test_capas_backend.py`:
+
+```
+aplicación → dominio → infraestructura → común
+```
+
+**El test corrigió mi primera clasificación**, que es para lo que sirve. Seis
+dependencias iban del revés y en cinco casos el error era mío:
+
+- `brain` y `voice_cycle` **no son dominio**: no tienen reglas de negocio,
+  deciden **qué se ejecuta**. Igual `wake` y `hotkey`, que son puntos de entrada.
+- `publicvoice` **no es infraestructura**: no habla con nadie, es una regla de
+  presentación, y la usa `events`, que está por debajo de todo.
+- `pm` **no es infraestructura**: convierte lo que hablas en tareas.
+
+Con la clasificación correcta: **235 comprobaciones, cero incumplimientos**.
+
+Los **cuatro ciclos** quedan a la vista con nombre y motivo en la lista de
+excepciones (`llm↔llm_runtime`, `llm↔selflearn`, `memory↔rag`,
+`brain↔telegram_bridge`). El test comprueba además que **la excepción sigue
+haciendo falta**, para que la lista no acabe siendo un cajón.
+
+### Lo que la Fase 3 NO hace, y es deliberado
+
+**No mueve los ficheros a subcarpetas.** 85 ficheros importan de `backend.core`,
+algunos por `importlib` con el nombre en una cadena. Reescribir todo eso de una
+tirada es exactamente el big-bang que el plan prohíbe. La regla ya se cumple y ya
+se verifica; el traslado va por grupos y puede esperar.
+
+## Cómo se ha probado la app
+
+- **`run_all.py`**: 21 suites, TODO VERDE. Tres nuevas: `test_frontend_modulos`,
+  `test_capas_backend`, `test_lo_prometido`.
+- **`run_e2e.py`**: 9/9 flujos con el HUD real en Chromium. Cero errores de
+  consola, cero peticiones fallidas.
+- **Barrido de lo prometido**: las **244 órdenes** que anuncian los 32 `SKILL.md`
+  llegan todas a una skill. Ahora es suite permanente (`test_lo_prometido.py`).
+- **Ejecución real de los handlers**: 148 responden bien, 93 se saltaron por
+  seguridad (borrar, apagar, enviar, abrir ventanas). El único fallo fue el de
+  las facturas, ya arreglado.
+- **Competencia e ideas, ejecutando**: ideas devuelve cinco ideas reales del
+  modelo; los guiones salen escritos; competencia, sin token, contesta «no puedo
+  consultar la Graph API, me falta el token, y no me lo voy a inventar» — que es
+  el comportamiento acordado.
 
 ## Bloqueantes que siguen abiertos
 
-1. **Credenciales de Instagram.** Sin ellas no hay datos ni propios ni de
-   competencia, y el ciclo cerrado no tiene materia prima. Es el primer
-   dominó de todo lo que queda de Content OS.
+1. **Credenciales de Instagram.** Sin ellas no hay datos propios ni de
+   competencia. Es el primer dominó de todo lo que queda de Content OS.
 2. **Reautorización de Google.** El scope de Drive cambió; la primera orden de
    Drive abrirá el navegador una vez.
-3. **RDD no es operable desde Claude Code**: las lentes de revisión necesitan
-   un contexto que inyecta el proveedor de OpenCode. Se desactivó a petición
-   del usuario. Para revisión con recibo real hay que trabajar desde OpenCode.
+3. **RDD no es operable desde Claude Code.** Desactivado a petición tuya.
 
-## Deuda anotada, no tocada
+## Dudas y pendientes anotados, no tocados
 
-- El prefijo de numeración de facturas no es agnóstico, pero cambiarlo rompe
-  la serie ya emitida.
-- La tabla de fabricantes por MAC de `domotica` es heurística con entradas
-  dudosas.
-- «recuérdame en el proyecto que…» va a `coach/remind`; la frase es
-  genuinamente ambigua.
+Lo que he visto y he preferido dejarte a ti, porque no era determinante:
+
+- **«sube el volumen» va a la tele** (`domotica/tv_volume`), no al PC, porque
+  `domotica` va antes por orden alfabético. Pero «pon el volumen al 50» sí va al
+  PC. Es incoherente, y decidir cuál gana es tuyo: cambiarlo puede romper el
+  control de la tele.
+- **«dame ideas para el regalo de mi madre»** acaba en `memory_graph/list_knowledge`.
+  Content OS lo rechaza bien; el que lo caza de más es `memory_graph`. Preexistente.
+- **«crea una tarea»** y **«busca información sobre python»** caen al
+  planificador. Parecen órdenes normales que deberían tener dueño.
+- **«dámelas»** a secas no llega a ningún sitio. El pronombre enclítico sin
+  antecedente es genuinamente ambiguo; haría falta memoria de turno.
+- **La voz del frontend** (ver arriba): el bloque que falta por extraer, y el
+  modal de configuración que depende de él.
+- **Trasladar `core/` a subcarpetas**: la regla está, el movimiento no.
+
+## Deuda anterior, sigue en pie
+
+- El prefijo de numeración de facturas no es agnóstico, pero cambiarlo rompe la
+  serie ya emitida.
+- La tabla de fabricantes por MAC de `domotica` es heurística con entradas dudosas.
+- «recuérdame en el proyecto que…» va a `coach/remind`; la frase es ambigua.
 - `_ROOM_WORDS`, `_GENERIC_NAMES` y `_PORT_HINTS` de `domotica` siguen en el
   código en vez de en `umbrales.json`.
 - `_probe_brain` de `hermes` gasta una llamada de pago en cada diagnóstico.
-- Un fallo de la e2e en el indicador de Multitarea, preexistente.
+
+## Reglas que quedan establecidas
+
+- Los comentarios en `skill.py` dicen **qué hace el código**. La historia va en el
+  mensaje del commit.
+- **Nada de datos personales** en código, configuración publicada ni tests.
+- El `SKILL.md` es **lo que lee el agente para decidir**, y lo que promete tiene
+  que activarse de verdad: `test_lo_prometido.py` lo comprueba.
+- **Probar el handler, no solo el enrutado.** El `AttributeError` de los guiones
+  solo apareció ejecutando.
+- Skill nueva que reclame «cierra \<sustantivo\>»: hay que añadir ese sustantivo a
+  `_NO_ES_PROGRAMA` de `system_pc`, o se lo queda él.
