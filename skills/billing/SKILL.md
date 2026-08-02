@@ -1,6 +1,6 @@
 # 🧾 Facturación (minion facturador)
 
-Del diseño de Rubén: «hazle una factura a Ubix por el servicio tal» → nexus
+«hazle una factura a Acme por el servicio tal» → nexus
 delega en este minion, que genera un HTML imprimible con numeración automática,
 lo guarda en `data/invoices/` y lo registra en la base (tabla `invoices`) y en
 la memoria diaria.

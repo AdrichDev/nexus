@@ -232,7 +232,7 @@ def test_renovadas_routing():
         ("qué mensajes tengo", "comms", "inbox"),
         ("captura de tareas", "comms", "capture"),
         ("saca tareas de mis mensajes", "comms", "capture"),
-        ("envía un mensaje a Ruben diciendo que llego tarde", "comms", "send"),
+        ("envía un mensaje a Ana diciendo que llego tarde", "comms", "send"),
         ("estado del bot", "comms", "bot"),
         ("quiero jugar a Rust", "games", "play"),
         ("échate una partida a Valorant", "games", "play"),
@@ -282,12 +282,12 @@ def test_telefono_agenda():
               "normalize: prefijo internacional se respeta")
         check(tel.normalize_number("0034612345678") == "+34612345678",
               "normalize: 00 → +")
-        agenda = {"Mamá": "+34612345678", "Rubén": "+34699112233"}
+        agenda = {"Inés": "+34612345678", "Ana": "+34699112233"}
         tel._save_contacts(agenda)
-        check(tel.resolve_contact("mama") == ("Mamá", "+34612345678"),
-              "resolve: 'mama' sin acento encuentra a Mamá")
-        check(tel.resolve_contact("ruben")[1] == "+34699112233",
-              "resolve: 'ruben' encuentra a Rubén")
+        check(tel.resolve_contact("ines") == ("Inés", "+34612345678"),
+              "resolve: 'ines' sin tilde encuentra a «Inés»")
+        check(tel.resolve_contact("ana")[1] == "+34699112233",
+              "resolve: 'ana' encuentra a Ana")
         check(tel.resolve_contact("desconocido") == ("", ""),
               "resolve: desconocido devuelve vacío")
     finally:
@@ -301,9 +301,9 @@ def test_telefono_routing():
     for t, intent in [("llama a mamá", "llamar"),
                       ("llama a 612 345 678", "llamar"),
                       ("marca el 611223344", "llamar"),
-                      ("telefonea a Rubén", "llamar"),
+                      ("telefonea a Ana", "llamar"),
                       ("apunta el teléfono de mamá 612 345 678", "save_contact"),
-                      ("guarda el número de Rubén: 699112233", "save_contact"),
+                      ("guarda el número de Ana: 699112233", "save_contact"),
                       ("el teléfono de la nave es 916001122", "save_contact"),
                       ("mis contactos", "list_contacts"),
                       ("qué teléfonos tienes", "list_contacts"),

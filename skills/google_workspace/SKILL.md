@@ -38,7 +38,7 @@ Gmail — actuar:
 
 Calendar:
 - «qué tengo en el calendario» / «qué tengo esta semana» → próximos eventos
-- «crea un evento reunión con Rubén el viernes a las 17:00» /
+- «crea un evento reunión con Ana el viernes a las 17:00» /
   «resérvame una cita con el dentista el martes» → evento REAL (entiende «mañana»,
   «el jueves», «25/07», «a las 9:30 de la mañana»; sin hora = todo el día)
 - «mueve la reunión al viernes a las 17» / «reprograma la cita del médico»

@@ -119,7 +119,7 @@ def test_routing_memory():
     p = patterns(load_skill("memory_graph"))
     for t, exp in [("qué sabes de mí", "list_knowledge"),
                    ("lista los archivos de conocimiento que tienes sobre mí", "list_knowledge"),
-                   ("qué recuerdas de Rubén", "recall"),
+                   ("qué recuerdas de Ana", "recall"),
                    ("recuerda que entrego el jueves", "remember"),
                    ("estado de la memoria", "status")]:
         check(route_local(p, t) == exp, f"memoria '{t}' -> {exp}, dio {route_local(p, t)}")
@@ -127,7 +127,7 @@ def test_routing_memory():
 
 def test_routing_telefono():
     p = patterns(load_skill("telefono"))
-    for t in ["llama a Rubén", "llama a 612345678", "marca a mamá", "telefonea al gestor"]:
+    for t in ["llama a Ana", "llama a 612345678", "marca a casa", "telefonea al gestor"]:
         check(route_local(p, t) == "llamar", f"telefono '{t}' -> llamar, dio {route_local(p, t)}")
 
 
@@ -152,7 +152,7 @@ def test_cross_skill_collisions():
     casos = [
         ("enciende la tele", ["domotica"]),
         ("pon música de Quevedo en spotify", ["media"]),
-        ("llama a Rubén", ["telefono"]),
+        ("llama a Ana", ["telefono"]),
         ("analiza los correos", ["google_workspace"]),
         ("qué sabe hacer hermes", ["hermes"]),
         ("qué sabes de mí", ["memory_graph"]),

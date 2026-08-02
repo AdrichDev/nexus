@@ -668,7 +668,7 @@ def test_memory_listing():
     check(route_local(p, "qué sabes de mí") == "list_knowledge", "memoria: qué sabes de mí -> list_knowledge")
     check(route_local(p, "lista los archivos de conocimiento que tienes sobre mí") == "list_knowledge",
           "memoria: lista conocimiento -> list_knowledge")
-    check(route_local(p, "qué recuerdas de Rubén") == "recall", "memoria: qué recuerdas de X -> recall (no list)")
+    check(route_local(p, "qué recuerdas de Ana") == "recall", "memoria: qué recuerdas de X -> recall (no list)")
 
 
 # ================== TEST 5: _LLMMatch REAL (brain.py) ==================

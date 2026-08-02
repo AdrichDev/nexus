@@ -9,14 +9,14 @@ enteras (texto/código, PDF y Word) troceándolos en fragmentos consultables.
 ## Órdenes de ejemplo (los patterns las cazan tal cual)
 
 - **Recordar un hecho**: «recuerda que entrego el jueves» ·
-  «acuérdate de que Rubén cobra los viernes» · «no olvides que la clave está en el NAS» ·
+  «acuérdate de que el cliente cobra los viernes» · «no olvides que la clave está en el NAS» ·
   «apúntame que el proveedor responde por Telegram» · «guarda en memoria que uso Python 3.12»
 - **Aprender conocimiento**: «aprende que los despliegues se hacen con run.bat»
 - **Aprender un documento**: «apréndete el documento C:\Users\usuario\apuntes.pdf» ·
   «indexa el archivo notas.md» · «estudia el pdf D:\facturas\contrato.pdf»
 - **Aprender una carpeta**: «apréndete la carpeta D:\apuntes» ·
   «ingiere el directorio C:\proyectos\docs» (máx. 40 archivos < 6 MB por tanda)
-- **Consultar**: «qué recuerdas de Rubén» · «qué sabes sobre el proyecto Helios» ·
+- **Consultar**: «qué recuerdas de Ana» · «qué sabes sobre el proyecto Helios» ·
   «qué te he contado de la nave» · «busca en la memoria facturas» · «busca en tus notas China»
 - **Todo sobre mí**: «qué sabes de mí» · «cuánto sabes de mí» ·
   «lista los archivos de conocimiento que tienes sobre mí» · «todo lo que has aprendido de mí»

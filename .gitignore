@@ -175,3 +175,6 @@ desktop.ini
 .vscode/
 *.swp
 *~
+
+# Tus palabras de purga: llevan nombres propios, no van al repo.
+config/purga_local.json

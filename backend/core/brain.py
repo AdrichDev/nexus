@@ -1,7 +1,7 @@
 """
 nexus — nexus Core, el cerebro orquestador.
 
-Arquitectura (según las sesiones de diseño con Rubén):
+Arquitectura:
   * nexus  = orquestador generalista. Recibe la petición (voz o texto),
     decide qué MINION (skill/subagente) la resuelve y coordina la respuesta.
   * MINIONS = subagentes especializados (cada carpeta de /skills).

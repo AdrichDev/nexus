@@ -9,7 +9,7 @@ vía soportada y segura) y abre la app cuando se la pides.
 - **Publicar en un canal**: «manda a discord: la build está lista»,
   «avisa por discord que llego tarde», «publica en el canal de discord que hay
   reunión a las 5», «en discord escribe que el server ya está arriba»
-- **Llamada** («llama a Rubén por discord») y **DM** («abre un chat en discord»):
+- **Llamada** («llama a Ana por discord») y **DM** («abre un chat en discord»):
   nexus abre Discord y te explica el límite (ver abajo).
 
 ## Configurar el webhook

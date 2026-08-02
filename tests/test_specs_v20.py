@@ -66,8 +66,8 @@ def test_context_note_y_resolve():
     check(cx.resolve("x" * 80 + " el segundo") is None, "frase larga → no toca")
     # contactos (viñetas → orden implícito)
     cx.note_reply("telefono", "list_contacts",
-                  "📇 Mi agenda (2):\n  • Mamá → +34612345678\n  • Rubén → +34699112233")
-    check(cx.resolve("llama al segundo") == "llama a Rubén", "telefono: llama al segundo")
+                  "📇 Mi agenda (2):\n  • Inés → +34612345678\n  • Ana → +34699112233")
+    check(cx.resolve("llama al segundo") == "llama a Ana", "telefono: llama al segundo")
     check(cx.resolve("borra el segundo") is None, "telefono: verbo no soportado → None")
     # informes
     cx.note_reply("research", "history",
@@ -175,7 +175,7 @@ def test_split_chain():
     ns = _brain_ns({"_CHAIN_RX", "_split_chain"})
     sc = ns["_split_chain"]
     steps = sc("investiga los precios del algodón y luego crea la tarea comprar muestras "
-               "y después envía un whatsapp a Rubén diciendo listo")
+               "y después envía un whatsapp a Ana diciendo listo")
     check(len(steps) == 3, f"cadena de 3 pasos (obtuve {len(steps)}: {steps})")
     check(steps[0].startswith("investiga") and steps[2].startswith("envía"),
           "cadena: pasos en orden")
@@ -448,7 +448,7 @@ def test_routing_v20():
     for t, skill, intent in [
         ("qué sabes de mí", "memory_graph", "list_knowledge"),
         ("qué me toca hoy", "coach", "briefing"),
-        ("qué recuerdas de Rubén", "memory_graph", "recall"),
+        ("qué recuerdas de Ana", "memory_graph", "recall"),
         ("resumen del día", "coach", "briefing"),
     ]:
         f, i = global_route(t)

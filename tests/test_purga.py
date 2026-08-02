@@ -636,13 +636,13 @@ def test_encabezado_de_origen_rescata_lo_que_el_vocabulario_no_juzga():
     # («T é c n i c o  S u p e r i o r»), así que solo deja CUATRO términos
     # utilizables y el criterio de vocabulario la descarta con razón. Su
     # encabezado, en cambio, es el nombre exacto de la nota.
-    fila_cv = ("# doc CV_ADRIAN_CHOZAS_VINUESA\n\nCarpeta: 20. FP DAM Euroformac\n"
+    fila_cv = ("# doc CV_NOMBRE_APELLIDO\n\nCarpeta: 20. Estudios Centro\n"
                "T é c n i c o  S u p e r i o r  e n  D e s a r r o l l o\n")
     with _CorpusTemporal():
         cfg = purga._cfg_contenido()
         pool = [_huerfana(910, fila_cv), _huerfana(911, _FILA_AJENA)]
         casadas = purga.emparejar_por_contenido(
-            "doc CV_ADRIAN_CHOZAS_VINUESA.md",
+            "doc CV_NOMBRE_APELLIDO.md",
             purga.terminos("curriculum vitae de prueba", cfg), pool, cfg)
         check([f["id"] for f in casadas] == [910],
               "emparejar_por_contenido(): el encabezado «# nombre-de-la-nota» "

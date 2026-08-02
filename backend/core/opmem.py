@@ -148,7 +148,7 @@ def clasifica(texto: str) -> str:
 def es_comportamiento(texto: str) -> bool:
     """¿Esto es una MANERA DE TRABAJAR (memoria operativa) o un HECHO (RAG)?
     «no me leas en voz alta lo que escribo» → operativa.
-    «la reunión con Rubén fue el martes» → hecho, va al RAG."""
+    «la reunión con el cliente fue el martes» → hecho, va al RAG."""
     return bool(_RULE_RX.search(texto or "") or _CORRECTION_RX.search(texto or ""))
 
 

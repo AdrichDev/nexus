@@ -65,10 +65,10 @@ def _ruta(frase):
 FRASES = {
     "open_email": ["abre el correo 2", "ábreme el mail 4",
                    "muéstrame el correo número 3", "léeme el correo 1"],
-    "send_email": ["envía un correo a ruben@ejemplo.com con asunto Hola diciendo que llego tarde",
+    "send_email": ["envía un correo a ana@ejemplo.com con asunto Hola diciendo que llego tarde",
                    "mándale un mail a ana@ejemplo.es diciendo que lo confirmo",
                    "escríbele un correo a pepe@ejemplo.com"],
-    "create_event": ["crea un evento reunión con Rubén el viernes a las 17:00",
+    "create_event": ["crea un evento reunión con Ana el viernes a las 17:00",
                      "resérvame una cita con el dentista el martes",
                      "agéndame una reunión el jueves a las 10",
                      "añade al calendario la revisión del coche mañana"],
@@ -209,7 +209,7 @@ def test_la_bandeja_de_correo_es_de_gmail_y_la_unificada_es_de_comms():
 
 def test_no_le_roba_las_ordenes_de_ficheros_locales_ni_las_del_tablero():
     """La dirección contraria: google_workspace tampoco puede secuestrar lo local.
-    `files` habla del disco de Adrian; equivocarse ahí borra cosas de verdad."""
+    `files` habla del disco del usuario; equivocarse ahí borra cosas de verdad."""
     ajenas = {
         "borra el archivo D:/tmp/x.txt": "files",
         "borra la carpeta pruebas": "files",
@@ -264,7 +264,7 @@ def _ctx(secretos=None):
 
 class _Aparte:
     """Aparta CREDS_FILE/TOKEN_FILE del módulo a un temporal. Ningún test puede
-    leer —ni de casualidad— las credenciales reales de Adrian."""
+    leer —ni de casualidad— las credenciales reales del usuario."""
 
     def __enter__(self):
         self.tmp = tempfile.mkdtemp(prefix="nexus_gw_test_")
@@ -393,7 +393,7 @@ def test_borrar_los_correos_de_un_remitente_no_corta_el_dominio():
 
 def test_el_borrado_definitivo_de_drive_sigue_detras_de_confirm_request():
     """La salvaguarda que impide que una frase mal casada se lleve documentos
-    reales. Con `auth/drive` completo esto apunta al Drive entero de Adrian."""
+    reales. Con `auth/drive` completo esto apunta al Drive entero del usuario."""
     tras_handle = HANDLE_SRC.split("async def handle(")[1]
     check(tras_handle.count("_drive_destruir(") == 1,
           "hay más de una llamada a _drive_destruir dentro de handle()")

@@ -133,7 +133,7 @@ def test_memoria_patrones():
     check(m and "prototipo" in (m.groupdict().get("fact") or ""), "memoria: remember extrae el hecho")
     # «qué sabes de mí» -> list_knowledge
     check(route_local(p, "qué sabes de mí") == "list_knowledge", "memoria: 'qué sabes de mí' -> list_knowledge")
-    check(route_local(p, "qué recuerdas de Rubén") == "recall", "memoria: 'qué recuerdas de X' -> recall")
+    check(route_local(p, "qué recuerdas de Ana") == "recall", "memoria: 'qué recuerdas de X' -> recall")
 
 
 def test_memoria_backend():

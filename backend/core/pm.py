@@ -5,7 +5,7 @@ Dos capacidades que hacen que nexus gestione tareas por su cuenta, no solo cuand
 se lo pides:
 
   1) AUTO-CAPTURA — detecta COMPROMISOS en lo que hablas ("tengo que llamar al
-     proveedor", "hay que preparar el pedido de Rubén", "debería enviar la factura")
+     proveedor", "hay que preparar el pedido", "debería enviar la factura")
      y crea la tarea SOLO en el tablero, avisándote con transparencia.
 
   2) SEGUIMIENTO — cuando el empujón diario te pregunta "¿cómo vas con «X»?", tu

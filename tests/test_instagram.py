@@ -90,9 +90,16 @@ def test_plantilla_vacia():
     check(llenos <= 3, f"y viene prácticamente vacío ({llenos} rellenos, solo preferencias)")
     crudo = json.dumps(ig.PERFIL_VACIO, ensure_ascii=False).lower()
     src = (ROOT / "skills" / "instagram" / "skill.py").read_text(encoding="utf-8").lower()
-    for dato in ("adri", "achoz", "hotmail", "adrian", "@nexus"):
-        check(dato not in crudo, f"la plantilla no menciona «{dato}»")
-        check(dato not in src, f"el código no menciona «{dato}»")
+    # La plantilla se instala tal cual en la maquina de cualquiera: no puede
+    # llevar datos de nadie. Se comprueba la PROPIEDAD (ningun correo, ninguna
+    # arroba) en vez de una lista de cadenas concretas, que ademas obligaria a
+    # escribir esos datos aqui.
+    import re as _re
+    correo = _re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", _re.I)
+    arroba = _re.compile(r"@[a-z0-9._]{3,}", _re.I)
+    for donde, texto in (("la plantilla", crudo), ("el código", src)):
+        check(not correo.search(texto), f"{donde} no lleva ninguna direccion de correo")
+    check(not arroba.search(crudo), "la plantilla no lleva ninguna cuenta con arroba")
     check(ig.perfil_como_texto(ig.PERFIL_VACIO) == "",
           "un perfil vacío no aporta contexto (no se inventa nada)")
 

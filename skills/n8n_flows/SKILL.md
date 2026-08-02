@@ -8,7 +8,7 @@ darle órdenes a nexus por HTTP.
 
 - «lanza el flujo backup diario» / «dispara el flujo informes» /
   «en n8n ejecuta el flujo scraping» → POST al webhook con `{action: "flow", flow, text}`
-- «envía un whatsapp a Rubén diciendo que llego en 10» →
+- «envía un whatsapp a Ana diciendo que llego en 10» →
   POST con `{action: "whatsapp", to, message}`
 - «dile a Marta por whatsapp que la reunión se mueve a las 5»
 - «whatsapp a Juan: nos vemos a las 8»

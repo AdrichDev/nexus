@@ -1,14 +1,14 @@
 """
 nexus — CONTENT OS: inteligencia de Instagram (para la marca Nexus).
 
-Reconstruye el panel de Rubén DENTRO de nexus: calendario de publicaciones,
+Panel de contenido DENTRO de nexus: calendario de publicaciones,
 lluvia de ideas, inspiraciones, guiones con IA, métricas de posts/reels, mejores
 y peores, seguidores/alcance, aprendizajes y evidencias acumuladas, y datos para
 gráficos (línea, barras/histograma, tarta, dispersión/correlación, desviación).
 
 Datos:
   * REALES vía Instagram Graph API si hay token (ig_access_token) e ig_user_id.
-    Requiere cuenta Instagram Business/Creator (la profesional de Rubén) vinculada
+    Requiere cuenta Instagram Business/Creator (la profesional) vinculada
     a una página de Facebook y una app de Meta con el token.
   * DEMO (mock realista) mientras no haya conexión, para que el panel funcione ya.
 

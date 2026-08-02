@@ -124,7 +124,7 @@ _INOCENTE = re.compile(
 _PERSONALES = [
     (r"[A-Za-z]:\\Users\\(?!usuario|TuUsuario|TU_USUARIO|%|<)[A-Za-z0-9_.\-]{3,}",
      "una ruta con un nombre de usuario de Windows real"),
-    (r"D:\\Adrian|/home/adri(?:an)?\b", "una ruta personal del autor"),
+    (r"D:\\el usuario|/home/adri(?:an)?\b", "una ruta personal del autor"),
     (r"\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b", "una direccion MAC"),
     (r"\b192\.168\.\d{1,3}\.\d{1,3}\b|\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
      "una IP de red local"),

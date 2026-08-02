@@ -12,7 +12,7 @@ Edita `config/mcp_servers.json` (hay un ejemplo). Cada servidor:
 {
   "filesystem": {
     "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:\\Adrian"],
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:\\ruta-que-quieras-exponer"],
     "enabled": true
   }
 }

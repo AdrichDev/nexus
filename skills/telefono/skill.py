@@ -1,6 +1,6 @@
 """Minion TELÉFONO — llamadas y agenda desde tu MÓVIL vinculado (estilo Android Auto).
 
-«llama a 612 345 678», «llama a Rubén», «marca a mamá» → nexus manda la orden
+«llama a 612 345 678», «llama a Ana», «marca a casa» → nexus manda la orden
 al móvil vinculado por WebSocket (evento 'call') y la app abre la llamada:
   · con número → marca directamente (tel: o puente nativo del APK);
   · con nombre → PRIMERO lo busca en la AGENDA de nexus (data/contacts.json);

@@ -126,7 +126,7 @@ def test_separacion_engram_rag():
           "una manera de trabajar es memoria operativa")
     check(om.es_comportamiento("a partir de ahora guarda los informes en docs") is True,
           "una orden permanente también")
-    check(om.es_comportamiento("la reunión con Rubén fue el martes") is False,
+    check(om.es_comportamiento("la reunión con Ana fue el martes") is False,
           "un hecho del mundo NO es memoria operativa (va al RAG)")
     check(om.es_comportamiento("el presupuesto de la obra son 12.000 euros") is False,
           "un dato tampoco")

@@ -7,7 +7,7 @@ WebSocket y quien marca es tu teléfono, con tu SIM.
 ## Órdenes
 
 - «llama a 612 345 678» / «marca el 611 22 33 44» → marca directo
-- «llama a mamá» / «telefonea a Rubén» → resuelve el número en la AGENDA de
+- «llama a casa» / «telefonea a Ana» → resuelve el número en la AGENDA de
   nexus; si no está, lo busca en los contactos del móvil (APK reciente)
 - «apunta el teléfono de mamá 612 345 678» → guarda el contacto en la agenda
   (data/contacts.json); también sirve para WhatsApp

@@ -28,7 +28,7 @@ SCOPES = [
 # CUENTA, TOMADA SABIENDO LO QUE CUESTA. No es un descuido ni un copy-paste.
 #
 # Hasta esa fecha aquí ponía «drive.file» (solo los ficheros que crea la propia
-# app) y había un test puesto expresamente para que nadie lo ampliara. Adrian lo
+# app) y había un test puesto expresamente para que nadie lo ampliara. El dueño de la cuenta lo
 # amplió a propósito y lo dijo con estas palabras: «tiene que tener la posibilidad
 # de tener acceso a todo el drive si se le pide o a carpetas específicas y ha de
 # poder hacer CRUD tanto de archivos como carpetas en ese drive. Ha de tener
@@ -1107,7 +1107,7 @@ _ultimo_subido: dict = {}                # id/enlace de lo último que subió ne
 
 def _umbrales_drive() -> dict:
     """Lee la sección «drive» de config/umbrales.json. El nombre de la carpeta NO
-    está a fuego en el código a propósito: si mañana Adrian quiere que los informes
+    está a fuego en el código a propósito: si mañana se quiere que los informes
     caigan en «Informes nexus» o en «CONTENIDO», se cambia una línea del JSON y ya,
     sin tocar Python ni volver a autorizar nada."""
     vals = {"carpeta": DRIVE_CARPETA_RESERVA}
@@ -1781,7 +1781,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 titulo = "Evento"
             if not when:
                 return {"reply": "¿Para cuándo lo pongo? Dime la fecha (y hora si quieres): "
-                                 "«crea un evento reunión con Rubén el viernes a las 17:00»."}
+                                 "«crea un evento reunión con Ana el viernes a las 17:00»."}
             start, end, all_day = when
             try:
                 _link = await asyncio.to_thread(_create_event, titulo, start, end, "", all_day)
@@ -1914,7 +1914,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             events = await asyncio.to_thread(_fetch_events, 6)
             if not events:
                 return {"reply": "Calendario despejado: nada en el horizonte. Si quieres "
-                                 "estrenarlo, di «crea un evento reunión con Rubén el "
+                                 "estrenarlo, di «crea un evento reunión con Ana el "
                                  "viernes a las 17» y te lo agendo."}
             lines = [f"• {e['when']} — {e['what']}" for e in events]
             return {"reply": "📅 Próximos eventos (Google Calendar):\n" + "\n".join(lines) +

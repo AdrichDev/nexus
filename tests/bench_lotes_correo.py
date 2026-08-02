@@ -41,7 +41,7 @@ TAMANOS = (6, 10, 15, 30)
 N_CORREOS = 30
 POS_ALERTA = 12
 
-_RELLENO = ("Hola Adrian, te escribimos para contarte las novedades de este mes. "
+_RELLENO = ("Hola, te escribimos para contarte las novedades de este mes. "
             "Hemos publicado nuevas plantillas, mejorado el rendimiento del panel y "
             "ajustado los precios de los planes. Puedes ver todos los detalles en "
             "nuestro blog. Si no quieres recibir mas correos como este, puedes darte "

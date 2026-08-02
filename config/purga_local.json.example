@@ -1,0 +1,39 @@
+{
+ "_lee_esto": [
+  "Tus palabras de purga. Copia este archivo a 'purga_local.json' (sin .example)",
+  "y pon las tuyas. Ese archivo NO va al repositorio.",
+  "",
+  "Por que existe: 'umbrales.json' se publica, asi que solo lleva TIPOS de",
+  "documento que valen para cualquiera ('curriculum', 'empadronamiento'). Los",
+  "nombres propios -tu apellido, tu centro de estudios, tus asignaturas- te",
+  "identifican y se quedan aqui, en tu maquina.",
+  "",
+  "Las palabras de los dos archivos se SUMAN por categoria. Puedes ampliar una",
+  "categoria que ya existe o crear una nueva entera.",
+  "",
+  "Como se usa: una nota entra en la categoria si contiene al menos",
+  "'minimo_aciertos' de sus palabras (por defecto 1). Se busca en el nombre y en",
+  "el contenido, sin distinguir mayusculas. Antes de retirar nada, nexus ensena",
+  "la previsualizacion con el motivo de cada elemento y pide confirmacion",
+  "categoria por categoria."
+ ],
+ "categorias": {
+  "papeleo-personal": {
+   "personal": true,
+   "_personal": "Con true, la accion por defecto NUNCA es el borrado duro: sale de la memoria conservando el fichero.",
+   "palabras": [
+    "apellido-que-solo-aparece-en-tus-papeles",
+    "nombre_del_tramite_concreto"
+   ]
+  },
+  "estudios": {
+   "personal": false,
+   "minimo_aciertos": 1,
+   "palabras": [
+    "nombre-de-tu-centro",
+    "codigo-de-tu-ciclo",
+    "nombres-de-tus-asignaturas"
+   ]
+  }
+ }
+}

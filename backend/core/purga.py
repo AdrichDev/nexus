@@ -47,14 +47,43 @@ _planes: dict[str, dict] = {}          # previsualizar() en vuelo, por plan_id
 
 
 def _umbrales_purga() -> dict:
+    """Reglas de clasificación: las que se publican, más las tuyas.
+
+    `umbrales.json` solo lleva TIPOS de documento genéricos («curriculum»,
+    «empadronamiento»). Los nombres propios —tu apellido, tu centro de estudios,
+    tus asignaturas— van a `purga_local.json`, que está fuera del repositorio.
+    Es lo mismo que se hace con `settings.json`: lo que sirve a cualquiera se
+    publica, lo que te identifica se queda en tu máquina.
+
+    Las palabras de las dos fuentes se suman por categoría."""
+    base: dict = {}
     try:
         f = CONFIG_DIR / "umbrales.json"
         if f.is_file():
-            crudo = json.loads(f.read_text(encoding="utf-8")) or {}
-            return crudo.get("purga") or {}
+            base = (json.loads(f.read_text(encoding="utf-8")) or {}).get("purga") or {}
     except Exception:
-        pass
-    return {}
+        return {}
+
+    try:
+        local = CONFIG_DIR / "purga_local.json"
+        if not local.is_file():
+            return base
+        extra = (json.loads(local.read_text(encoding="utf-8")) or {}).get("categorias") or {}
+    except Exception:
+        return base
+
+    cats = {k: dict(v) if isinstance(v, dict) else v
+            for k, v in (base.get("categorias") or {}).items()}
+    for cat_id, cfg in extra.items():
+        if not isinstance(cfg, dict):
+            continue
+        destino = cats.setdefault(cat_id, {})
+        palabras = list(destino.get("palabras") or []) + list(cfg.get("palabras") or [])
+        destino["palabras"] = sorted(set(palabras))
+        for clave in ("personal", "minimo_aciertos"):
+            if clave in cfg:
+                destino[clave] = cfg[clave]
+    return {**base, "categorias": cats}
 
 
 def _notas() -> list[Path]:
