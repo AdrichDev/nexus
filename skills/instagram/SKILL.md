@@ -31,15 +31,37 @@ tiene uno activo. Lo que no se rellena, no se usa.
 
 ## Órdenes que entiende
 
-- «perfil de instagram» / «qué sabes de mi cuenta de instagram» → lo que sabe.
-- «instagram nicho: cocina sin gluten» → rellena un campo suelto. También
-  `idiomas`, `tono`, `objetivo`, `publico`, `hijos`, `familia`, `productos`,
-  `triggers`.
-- «configura mi perfil de instagram» → te dice cómo rellenarlo.
-- «estado de instagram» → si hay token, ID y cuánto perfil llevas.
-- «mis reels» / «lista mis últimos 20 reels» → id, tipo, nº de comentarios y caption.
-- «analiza mis últimos 3 reels» → el análisis completo.
-- «saca los leads de mis reels» / «qué comenta la gente en mis reels».
+Sin token ni ID de cuenta solo funcionan los cuatro primeros bloques; el resto
+contesta qué credencial falta y dónde se pone, y no devuelve ningún dato.
+
+| Intent | Frases que lo disparan | Qué hace |
+|---|---|---|
+| `ig_estado` | «estado de instagram», «¿está conectado instagram?», «cómo va el instagram» | si hay token, ID y cuántos campos de perfil llevas |
+| `ig_perfil_ver` | «perfil de instagram», «mi ficha de instagram», «qué sabes de mi cuenta de instagram» | te lee el perfil de contexto |
+| `ig_perfil_set` | «configura mi perfil de instagram» (te dice cómo), «instagram nicho: cocina sin gluten» (rellena el campo). También `idiomas`, `tono`, `objetivo`, `publico`, `hijos`, `familia`, `productos`, `triggers` | edita el perfil por chat |
+| `ig_manual` | «apunta la cuenta @otra: 8000 seguidores, 300 me gusta» | guarda a mano las cifras de una cuenta que la API no puede ver, marcadas como aportadas por ti |
+| `ig_listar` | «mis reels», «lista mis últimos 20 reels» | id, tipo, nº de comentarios y caption |
+| `ig_analizar` | «analiza mis últimos 3 reels», «saca los leads de mis reels», «qué comenta la gente en mis reels» | el análisis completo (máximo 10 reels) |
+| `ig_competencia` | «analiza @unacuenta», «analiza la cuenta de instagram de unamarca», «compárame con @unacuenta y @otracuenta», «analiza la competencia» | compara cuentas ajenas por `business_discovery`. Sin arrobas usa las que tengas en `competencia` del perfil; si no hay ninguna, lo dice |
+| `ig_descubrir` | «busca mis competidores», «búscame cuentas parecidas», «cuál es mi nicho» | deduce tu nicho de tus publicaciones, busca candidatos por internet y los valida contra Meta |
+| `ig_conversion` | «apunta en el reel 17: 40 dm enviados, 12 clics y 2 ventas» | guarda el embudo, que Instagram no da |
+
+Los verbos admiten el pronombre pegado: «analízalo», «búscame», «sácame»,
+«apúntame», «compárame».
+
+## Lo que NO hace
+
+- **No hace scraping**, ni de reels ni de perfiles ni de audiencias. Todo sale
+  de la Graph API oficial o de lo que apuntes tú a mano.
+- **No publica ni responde nada**: solo lectura contra Instagram.
+- **De una cuenta ajena no puede ver** el texto de sus comentarios (y por tanto
+  tampoco su sentimiento), ni sus guardados, compartidos o alcance: la API no
+  los da. El informe lo dice donde toca; no lo estima.
+- **No inventa cifras.** Si falta el token, o la API no devuelve una métrica, o
+  no has apuntado el embudo, sale «no consta» — nunca un ejemplo ni una
+  estimación.
+- No cambia la configuración por su cuenta: el token y el ID los pones tú en
+  ⚙ → Instagram.
 
 ## Lo que hace falta (y no viene puesto)
 
@@ -88,7 +110,9 @@ Tres reglas que aquí son ley:
    atender, no un redondeo.
 3. **El sentimiento lleva su muestra.** Un «93 %» a secas sobre unas decenas de
    comentarios engaña. Cada porcentaje sale con su n y su banda de confianza
-   real (Wilson).
+   real (Wilson). La n es la de los comentarios que el modelo ha leído de
+   verdad —como mucho 120 por reel—, no la del total: extrapolar la banda al
+   total sería anunciar una precisión que no se ha medido.
 
 Y el informe va completo: **retención** de vídeo, **distribución** del alcance,
 **conversión** de negocio y **comparación** con tus reels anteriores. Cuando la
@@ -107,9 +131,10 @@ Sale un `.md` con el informe y un `.csv` con los leads listos para tu CRM, en
 ## El informe
 
 Por defecto el análisis se entrega **en un archivo `.md`** (norma de la casa: los
-informes se crean en Markdown salvo que pidas expresamente otra cosa — «en word»,
-«en pdf», «a csv»…). El criterio lo decide `files_io.formato_pedido()`, que es el
-mismo para todas las skills.
+informes se crean en Markdown). El formato lo lee `files_io.formato_pedido()`,
+que es el mismo para todas las skills, pero aquí solo se aceptan `.md` y `.txt`:
+si pides word o pdf sale igualmente un `.md`. Los leads van aparte, siempre en
+`.csv`.
 
 ## Cuidado
 

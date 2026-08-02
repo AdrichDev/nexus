@@ -48,71 +48,121 @@ SKILL = {
         "ig_estado": "decir si Instagram está configurado y qué falta",
     },
     "patterns": {
-        # Orden: primero lo específico (perfil, estado), luego lo amplio (analizar).
-        # El «(?!\s+de\s+\w)» es para que «el perfil de instagram DE WABIKS» no se
-        # confunda con «mi perfil de instagram»: uno es de otro, el otro es tuyo.
-        "ig_perfil_ver": r"(?:mi\s+)?perfil\s+(?:de\s+)?(?:instagram|ig)\b(?!\s+de\s+\w)"
-                         r"|qu[eé]\s+sabes\s+de\s+mi\s+(?:cuenta|perfil)\s+de\s+instagram"
-                         r"|contexto\s+(?:de\s+)?(?:mi\s+)?instagram",
-        "ig_perfil_set": r"(?:configura|rellena|edita|actualiza|pon|cambia)\s+"
-                         r"(?:mi\s+)?(?:perfil|contexto|ficha)\s+(?:de\s+)?(?:instagram|ig)\b"
+        # Orden: primero lo específico (editar perfil, ver perfil, estado), luego
+        # lo amplio (analizar). Gana la PRIMERA regex que case.
+        #
+        # Los verbos llevan el enclítico dentro («analiza» y «analízalo» son la
+        # misma orden) y la vocal tildada como alternativa: al pegarse el
+        # pronombre, el acento se escribe («busca» → «búscame»).
+        #
+        # ig_perfil_set va ANTES que ig_perfil_ver: «configura mi perfil de
+        # instagram» es editarlo, y ver_perfil casaba con el trozo «perfil de
+        # instagram» y se lo llevaba.
+        "ig_perfil_set": r"(?:config[uú]ra|rellena|edita|actualiza|pon|cambia)\w*\s+"
+                         r"(?:mi\s+|el\s+|la\s+)?(?:perfil|contexto|ficha)\s+"
+                         r"(?:de\s+)?(?:instagram|ig)\b"
                          r"|(?:en\s+)?instagram\s+(?:mi\s+)?(?P<campo>nicho|idiomas?|tono|"
                          r"objetivo|hijos?|familia|p[uú]blico|productos?|triggers?|"
                          r"palabras[\s-]cta)\s*(?:=|:|es|son)\s*(?P<valor>.+)",
+        # El «(?!\s+de\s+\w)» es para que «el perfil de instagram DE OTRA CUENTA»
+        # no se confunda con «mi perfil de instagram»: uno es de otro, el otro es tuyo.
+        "ig_perfil_ver": r"(?:mi\s+)?(?:perfil|ficha)\s+(?:de\s+)?(?:instagram|ig)\b(?!\s+de\s+\w)"
+                         r"|qu[eé]\s+sabes\s+de\s+mi\s+(?:cuenta|perfil)\s+de\s+instagram"
+                         r"|contexto\s+(?:de\s+)?(?:mi\s+)?instagram",
         "ig_estado": r"(?:estado|c[oó]mo\s+(?:est[aá]|va))\s+(?:de\s+|el\s+|la\s+)?"
                      r"(?:conexi[oó]n\s+(?:de|con)\s+)?instagram\b"
-                     r"|(?:est[aá]|tengo)\s+(?:configurad[oa])\s+(?:lo\s+de\s+)?instagram",
-        # Descubrimiento: sale a buscar competidores por internet. Va lo primero
-        # porque «busca competidores» no es «analiza la cuenta @x».
-        "ig_descubrir": r"(?:busca|encuentra|b[uú]scame|descubre|investiga)\s+"
-                        r"(?:me\s+)?(?:a\s+)?(?:mis?\s+|la\s+|los\s+)?"
+                     r"|(?:est[aá]|tengo|tienes)\s+(?:configurad[oa]|conectad[oa]|puesto)\s+"
+                     r"(?:lo\s+de\s+)?instagram",
+        # Descubrimiento: sale a buscar competidores por internet. Va antes que
+        # ig_competencia porque «busca competidores» no es «analiza la cuenta @x».
+        "ig_descubrir": r"(?:b[uú]sca|encu[eé]ntra|descubre|investiga|s[aá]ca)(?:me|le|los)?\s+"
+                        r"(?:me\s+)?(?:a\s+)?(?:mis?\s+|la\s+|los\s+|las\s+)?"
                         r"(?:competencia|competidor\w*|rival\w*|cuentas?\s+(?:como|"
                         r"parecidas?|similares?)|referentes?)"
-                        r"|(?:qui[eé]n(?:es)?\s+(?:es|son)\s+mi\s+competencia)"
-                        r"|(?:analiza|cual\s+es|deduce)\s+mi\s+nicho"
+                        r"|qui[eé]n(?:es)?\s+(?:es|son)\s+(?:mi|mis)\s+(?:competencia|competidor\w*)"
+                        r"|(?:anal[ií]za\w*|cu[aá]l\s+es|deduce|dime\s+cu[aá]l\s+es)\s+mi\s+nicho"
                         r"|(?:conecta|configura|arranca)\s+mi\s+cuenta\s+de\s+instagram",
         # Cuentas que la API no ve: los números los aporta él.
-        "ig_manual": r"(?:apunta|anota|registra|guarda)\s+(?:que\s+)?(?:de\s+)?"
+        "ig_manual": r"(?:ap[uú]nta|anota|registra|guarda)(?:me)?\s+(?:que\s+)?(?:de\s+)?"
                      r"(?:la\s+)?cuenta\s+(?P<cuenta>@?[\w.]+)\s*:?\s*(?P<cifras>.+)",
         # Competencia: cuentas que NO administras. Va antes que ig_listar y que
         # ig_analizar, porque «analiza la cuenta @x» no es «analiza mis reels».
-        # Competencia: cuentas que NO administras.
-        # Tres formas de nombrarlas, porque la gente no escribe siempre la arroba:
-        #   1) con @              → «analiza @wabiks», «compárame con @a y @b»
-        #   2) «cuenta/perfil de» → «analiza la cuenta de instagram de wabiks»
-        #   3) comparación        → «compara mi cuenta con wabiks»
-        # El fallo que tenía: solo aceptaba la 1. «analiza la cuenta de instagram
-        # de wabiks» no casaba con nada, se iba al cerebro y contestaba cualquier
-        # cosa. Los lookahead evitan comerse «analiza mis reels» y «mi nicho».
+        # Cuatro formas de nombrarlas, porque la gente no escribe siempre la arroba:
+        #   1) con @              → «analiza @unacuenta», «compárame con @a y @b»
+        #   2) «cuenta/perfil de» → «analiza la cuenta de instagram de unamarca»
+        #   3) comparación        → «compara mi cuenta con unamarca»
+        #   4) sin nombrar a nadie → «analiza la competencia», «mira a mis
+        #      competidores». Sin esto la frase no casaba con NADIE y acababa en
+        #      el planificador del cerebro. Los competidores salen entonces del
+        #      perfil del usuario, y si no hay ninguno se pide el nombre.
+        # Los lookahead evitan comerse «analiza mis reels» y «mi nicho».
         "ig_competencia":
-            r"(?:analiza|mira|revisa|estudia|compara|comp[aá]rame|comp[aá]ralo)\w*\s+"
+            r"(?:anal[ií]za|mira|revisa|estudia|comp[aá]ra)\w*\s+"
             r"[^@\n]{0,40}?(?P<cuentas>@[\w.]{2,30}(?:\s*(?:,|y|vs\.?|contra)\s*@?[\w.]{2,30})*)"
-            r"|(?:analiza|mira|revisa|estudia|examina)\w*\s+(?:la\s+|el\s+)?"
+            r"|(?:anal[ií]za|mira|revisa|estudia|examina)\w*\s+(?:la\s+|el\s+)?"
             r"(?:cuenta|perfil)\s+(?:de\s+)?(?:instagram\s+|ig\s+)?(?:de\s+)?"
             r"(?P<cuentas2>(?!mis?\b|nuestr|[uú]ltim)[\w.]{3,30})"
-            r"|(?:compara|comp[aá]rame|comp[aá]ralo)\w*\s+(?:me\s+)?(?:mi\s+cuenta\s+)?"
+            r"|(?:comp[aá]ra)\w*\s+(?:me\s+)?(?:mi\s+cuenta\s+)?"
             r"(?:con|contra|vs\.?)\s+(?:la\s+cuenta\s+(?:de\s+)?)?"
-            r"(?P<cuentas3>(?!mis?\b)@?[\w.]{3,30}(?:\s*(?:,|y)\s*@?[\w.]{3,30})*)",
+            r"(?P<cuentas3>(?!mis?\b|la\s|el\s)@?[\w.]{3,30}(?:\s*(?:,|y)\s*@?[\w.]{3,30})*)"
+            r"|(?:anal[ií]za|mira|revisa|estudia|examina|comp[aá]ra)\w*\s+"
+            r"(?:a\s+|con\s+|contra\s+|frente\s+a\s+)*(?:la\s+|mi\s+|mis\s+|nuestra\s+)?"
+            r"(?:competencia|competidor\w*|rival\w*)"
+            r"|(?:qu[eé]\s+(?:hacen|publican|suben|est[aá]n\s+haciendo)|c[oó]mo\s+(?:va|est[aá]))"
+            r"\s+(?:la\s+|mi\s+|mis\s+)?(?:competencia|competidor\w*|rival\w*)",
         # Analizar va ANTES que listar: «analiza mis reels» es analizarlos,
         # no enseñar la lista. Al revés, listar se lo comía.
-        "ig_analizar": r"analiza(?:me)?\s+(?:mis?\s+)?(?:[uú]ltimos?\s+)?(?P<n2>\d+)?\s*"
+        # Los dos «[uú]ltim[oa]s?» opcionales admiten las dos formas de decirlo:
+        # «mis últimos 3 reels» y «mis 3 últimos reels».
+        "ig_analizar": r"anal[ií]za(?:me|los|las)?\s+(?:mis?\s+|l[oa]s\s+)?(?:[uú]ltim[oa]s?\s+)?"
+                       r"(?P<n2>\d+)?\s*(?:[uú]ltim[oa]s?\s+)?"
                        r"(?:reels?|v[ií]deos?\s+de\s+instagram|publicaciones\s+de\s+instagram)"
                        r"|(?:qu[eé]\s+)?(?:comenta|dice|pregunta)\s+la\s+gente\s+"
                        r"(?:en|de)\s+mis\s+reels?"
-                       r"|(?:saca|dame|extrae)\s+(?:los\s+)?(?:leads?|ideas?\s+de\s+contenido|"
+                       r"|(?:s[aá]ca|dame|extrae|ens[eé][ñn]a)(?:me)?\s+(?:l[oa]s\s+)?"
+                       r"(?:leads?|ideas?\s+de\s+contenido|"
                        r"dudas?|preguntas?\s+frecuentes)\s+(?:de\s+)?(?:mis\s+)?reels?",
-        "ig_listar": r"(?:lista|list[aá]me|dame|ens[eé][ñn]ame|cu[aá]les\s+son)\s+"
-                     r"(?:mis\s+)?(?:[uú]ltimos?\s+)?(?P<n>\d+)?\s*(?:reels?|publicaciones)\b"
-                     r"|mis\s+(?:[uú]ltimos\s+)?reels?\b(?!\s*(?:qu[eé]|c[oó]mo))",
-        # Va antes que ig_analizar: «apunta … del reel» no es «analiza».
-        "ig_conversion": r"(?:apunta|registra|anota|guarda)\s+(?:que\s+)?"
+        "ig_listar": r"(?:lista|list[aá]me|dame|ens[eé][ñn]ame|mu[eé]strame|cu[aá]les\s+son)\s+"
+                     r"(?:mis\s+)?(?:[uú]ltim[oa]s?\s+)?(?P<n>\d+)?\s*(?:reels?|publicaciones)\b"
+                     r"|mis\s+(?:[uú]ltim[oa]s\s+)?reels?\b(?!\s*(?:qu[eé]|c[oó]mo))",
+        # Apuntar el embudo de un reel: números que Instagram no da y pone el
+        # usuario. No colisiona con ig_analizar porque exige un verbo de apuntar.
+        # Dos órdenes de palabras: «apunta en el reel 17: 3 ventas» y «anota
+        # 3 ventas del reel 17».
+        "ig_conversion": r"(?:ap[uú]nta|registra|anota|guarda)(?:me)?\s+(?:que\s+)?"
                          r"(?:en\s+|de\s+|del\s+)?(?:el\s+)?reel\s+(?P<rid>[\w.-]+)?\s*:?\s*"
-                         r"(?P<datos>.*(?:dm|mensajes?|clics?|clicks?|ventas?|abiert)\w*.*)",
+                         r"(?P<datos>.*(?:dm|mensajes?|clics?|clicks?|ventas?|abiert)\w*.*)"
+                         r"|(?:ap[uú]nta|registra|anota|guarda)(?:me)?\s+(?:que\s+)?"
+                         r"(?P<datos2>[^\n]*?(?:dm|mensajes?|clics?|clicks?|ventas?|abiert)\w*[^\n]*?)"
+                         r"\s+(?:en|de|del)\s+(?:el\s+)?reel\s+(?P<rid2>[\w.-]+)?",
     },
 }
 
 _AQUI = Path(__file__).resolve().parent
 _SCRIPT = _AQUI / "scripts" / "ig.py"
+
+
+def _hermano(nombre: str):
+    """Importa un módulo vecino de esta carpeta: analisis, descubrimiento,
+    inteligencia o visual.
+
+    `from . import analisis` NO sirve aquí. `skills_loader` carga este fichero
+    con el nombre «skills.instagram», así que el punto apunta a la carpeta
+    `skills/` —un nivel por encima de donde viven esos módulos— y la importación
+    revienta con ImportError en cuanto se pide un análisis.
+
+    Se cachea bajo el nombre completo «skills.instagram.<nombre>» para que sea
+    el MISMO objeto que devuelve `import skills.instagram.analisis`, y no dos
+    copias del mismo módulo."""
+    clave = f"skills.instagram.{nombre}"
+    mod = sys.modules.get(clave)
+    if mod is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(clave, _AQUI / f"{nombre}.py")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[clave] = mod
+        spec.loader.exec_module(mod)
+    return mod
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -419,20 +469,27 @@ def credenciales(ctx) -> tuple[str, str]:
 _COMO_CONSEGUIRLO = (
     "Para conectarlo hacen falta dos cosas, las dos de Meta:\n"
     "  1. Un TOKEN de la Graph API con permisos instagram_basic, "
-    "instagram_manage_comments, instagram_manage_insights y pages_read_engagement.\n"
+    "instagram_manage_comments, instagram_manage_insights y pages_read_engagement. "
+    "Se saca en developers.facebook.com/tools/explorer con una cuenta Business "
+    "vinculada a una página de Facebook.\n"
     "  2. El ID NUMÉRICO de tu cuenta Business/Creator (no el @usuario).\n"
-    "Los pones en ⚙ → Instagram, o dime «guarda el token de instagram <valor>». "
-    "Mientras tanto, puedes ir rellenando tu perfil: eso no necesita token."
+    "Los dos se ponen en ⚙ → Instagram: el token como secreto «ig_access_token» "
+    "y el ID como ajuste «ig_business_account_id».\n"
+    "Mientras tanto, puedes ir rellenando tu perfil y apuntar cuentas a mano: "
+    "eso no necesita token."
 )
 
 
 def _falta(token: str, bid: str) -> str:
+    """Qué credencial falta y cómo se consigue. Sin token no se inventa nada:
+    esta respuesta sustituye a la consulta, no la simula."""
     faltan = []
     if not token:
         faltan.append("el token de acceso")
     if not bid:
         faltan.append("el ID de la cuenta")
-    return (f"Todavía me falta {' y '.join(faltan)} para poder mirar tus reels.\n\n"
+    return (f"No puedo consultar la Graph API: me falta {' y '.join(faltan)}. "
+            "Así que no tengo ningún dato que darte, y no me lo voy a inventar.\n\n"
             + _COMO_CONSEGUIRLO)
 
 
@@ -602,7 +659,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     # ── UNA CUENTA QUE LA API NO VE: los números los pones tú ────────────────
     if intent == "ig_manual":
         from datetime import datetime
-        from . import descubrimiento as D
+        D = _hermano("descubrimiento")
 
         gd = match.groupdict() if match else {}
         crudo = (gd.get("cifras") or "").lower()
@@ -665,8 +722,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         import tempfile
         from datetime import datetime
         from backend.core import websearch
-        from . import analisis as A
-        from . import descubrimiento as D
+        A = _hermano("analisis")
+        D = _hermano("descubrimiento")
 
         # 1) MI CUENTA: qué publico yo
         salida_dir = Path(tempfile.mkdtemp(prefix="ig_desc_"))
@@ -777,7 +834,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         import tempfile
         from datetime import datetime
         from backend.core.files_io import formato_pedido
-        from . import analisis as A
+        A = _hermano("analisis")
 
         gd = match.groupdict() if match else {}
         crudo_cuentas = " ".join(str(gd.get(k) or "")
@@ -791,8 +848,10 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             usuarios = [str(x).lstrip("@") for x in (perfil.get("competencia") or [])]
         if not usuarios:
             return {"reply":
-                    "Dime a quién miro: «analiza la cuenta @sucuenta» (puedes darme "
-                    "varias: «@una y @otra»).\n\n"
+                    "No tengo ninguna cuenta de la competencia apuntada, así que no "
+                    "hay nada que comparar. Dime a quién miro: «analiza la cuenta "
+                    "@sucuenta» (puedes darme varias: «@una y @otra»), o dime «busca "
+                    "mis competidores» y las busco yo por internet.\n\n"
                     "Aviso de lo que se puede y lo que no: de una cuenta que no "
                     "administras la API oficial deja ver seguidores, reproducciones, "
                     "me gusta y CUÁNTOS comentarios. El TEXTO de sus comentarios no, "
@@ -903,7 +962,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     # ── APUNTAR EL EMBUDO (lo que Instagram no sabe) ────────────────────────
     if intent == "ig_conversion":
         gd = match.groupdict() if match else {}
-        crudo = (gd.get("datos") or text or "").lower()
+        crudo = (gd.get("datos") or gd.get("datos2") or text or "").lower()
         datos = {}
         for campo, rx in _CAMPOS_EMBUDO:
             m2 = re.search(rx, crudo)
@@ -912,7 +971,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if not datos:
             return {"reply": "No he pillado ninguna cifra. Dímelo así: «apunta en el "
                              "reel 17… 40 dm enviados, 31 abiertos, 12 clics y 2 ventas»."}
-        rid = (gd.get("rid") or "").strip()
+        rid = (gd.get("rid") or gd.get("rid2") or "").strip()
         if not rid:
             ult = _ultimo_reel_analizado(ctx)
             if not ult:
@@ -932,7 +991,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         import tempfile
         from datetime import datetime
         from backend.core.files_io import formato_pedido
-        from . import analisis as A                      # motor determinista
+        A = _hermano("analisis")                      # motor determinista
 
         gd = match.groupdict() if match else {}
         n = max(1, min(int(gd.get("n2") or 3), 10))
@@ -965,7 +1024,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 sust = clas["cestas"]["sustantivo"]
 
                 # LO ÚNICO que hace el modelo: interpretar. Contar, no.
-                sent, ideas = await _cualitativo(perfil, sust, A.dudas(sust, umbrales=umbrales), media)
+                sent, ideas, n_sent = await _cualitativo(
+                    perfil, sust, A.dudas(sust, umbrales=umbrales), media)
 
                 ins = bundle.get("insights") or {}
                 actual = {"reach": ins.get("reach"), "total_interactions": ins.get("total_interactions"),
@@ -978,7 +1038,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 obj = A.objeciones(sust)
                 ctx_inf = {
                     "media": media, "metricas": met, "clasificacion": clas, "leads": ld,
-                    "sentimiento": A.sentimiento(sent, len(sust), umbrales) if sent else None,
+                    "sentimiento": A.sentimiento(sent, n_sent, umbrales) if sent else None,
                     "odio": A.cuenta_odio(sust), "dudas": du, "objeciones": obj,
                     "cola": A.cola_editorial(du, obj, ld.get("calientes"), umbrales),
                     "conversion": A.conversion(
@@ -1051,13 +1111,13 @@ _CAMPOS_EMBUDO = [
 async def _busca_la_cuenta(nombre: str, maximo: int = 3) -> list[str]:
     """De un nombre suelto al nombre de cuenta real, buscando por internet.
 
-    Cuando dices «analiza la cuenta de lamarca», ese nombre casi nunca es el
-    usuario exacto: las marcas llevan sufijos («lamarcaco», «lamarca_oficial»).
+    Cuando dices «analiza la cuenta de unamarca», ese nombre casi nunca es el
+    usuario exacto: las marcas llevan sufijos («unamarcaco», «unamarca_oficial»).
     Así que se busca el nombre en la web, se sacan los enlaces a instagram.com
     que aparezcan y se devuelven ordenados por en cuántas páginas salen — que es
     la señal de cuál es la cuenta buena y cuál un reel donde la mencionan."""
     from backend.core import websearch
-    from . import descubrimiento as D
+    D = _hermano("descubrimiento")
     n = (nombre or "").strip().lstrip("@")
     if not n:
         return []
@@ -1081,12 +1141,12 @@ async def _busca_la_cuenta(nombre: str, maximo: int = 3) -> list[str]:
 async def _quisiste_decir(fallidas: list[dict]) -> dict:
     """Cuando un nombre de cuenta no existe, buscar el que sí.
 
-    Las marcas casi nunca tienen el nombre a secas: escribes «lamarca» y la
-    cuenta es «@lamarcaco». La API contesta «no se puede consultar» y parece que
+    Las marcas casi nunca tienen el nombre a secas: escribes «unamarca» y la
+    cuenta es «@unamarcaco». La API contesta «no se puede consultar» y parece que
     la herramienta está rota, cuando solo falta un sufijo. Se busca el nombre por
     internet y se ofrecen las cuentas parecidas que aparezcan."""
     from backend.core import websearch
-    from . import descubrimiento as D
+    D = _hermano("descubrimiento")
     sugerencias: dict[str, list[str]] = {}
     for f in fallidas[:3]:
         u = (f.get("usuario") or "").strip()
@@ -1109,7 +1169,7 @@ async def _visual_de(comp: dict, crudo: dict, settings) -> str:
     Va DESPUÉS de la radiografía porque tarda: cada portada es una inferencia
     local. Si no hay modelo de visión, cada cuenta se queda con el motivo escrito
     en vez de con un bloque vacío que nadie entiende."""
-    from . import visual as V
+    V = _hermano("visual")
     trozos = []
     for c in comp.get("cuentas", []):
         datos = next((x.get("datos") for x in (crudo.get("cuentas") or [])
@@ -1132,7 +1192,7 @@ def _radiografia_de(comp: dict, crudo: dict) -> str:
     Se hace aquí, sobre los medios que ya se han bajado, para no volver a
     llamar a la API: la radiografía sale del MISMO caption y las MISMAS cifras
     que ya están en la comparativa."""
-    from . import inteligencia as I
+    I = _hermano("inteligencia")
     trozos = []
     for c in comp.get("cuentas", []):
         datos = next((x.get("datos") for x in (crudo.get("cuentas") or [])
@@ -1246,7 +1306,7 @@ def _palabras_gancho(bundle: dict, ya: list, umbrales=None) -> list:
       3. El patrón explícito del pie: «comenta X y te lo mando».
     Si no hay racimo ni patrón, no se inventa ninguna: el reel no llevaba gancho.
     """
-    from . import analisis as A
+    A = _hermano("analisis")
     fuera = {str(w).upper() for w in ya}
     out = []
     for d in A.detecta_cta(bundle.get("flat") or [],
@@ -1263,11 +1323,17 @@ def _palabras_gancho(bundle: dict, ya: list, umbrales=None) -> list:
 async def _cualitativo(perfil: dict, sustantivos: list, dudas: list, media: dict):
     """Lo ÚNICO que decide el modelo: sentimiento e ideas. Los conteos ya están
     hechos; aquí solo se interpreta. Si no hay cerebro, se devuelve vacío y el
-    informe sale igual con toda su parte numérica."""
+    informe sale igual con toda su parte numérica.
+
+    Devuelve (conteos, ideas, n_muestra). El n_muestra es el número de
+    comentarios que el modelo ha visto de verdad, que es el que vale para el
+    intervalo de Wilson: el modelo lee como mucho 120, y presentar la banda
+    sobre el total sería anunciar una precisión que no se ha medido."""
     if not sustantivos:
-        return {}, ""
+        return {}, "", 0
     from backend.core.llm import ask_llm
     muestra = [f"- {(c.get('text') or '').strip()[:160]}" for c in sustantivos[:120]]
+    n = len(muestra)
     contexto = perfil_como_texto(perfil) or "(sin perfil configurado)"
     p1 = ("Clasifica CADA comentario como positivo, neutral o friccion. Devuelve SOLO "
           "una linea con tres numeros separados por comas: positivos,neutrales,friccion. "
@@ -1280,7 +1346,6 @@ async def _cualitativo(perfil: dict, sustantivos: list, dudas: list, media: dict
             if len(nums) == 3 and sum(nums) > 0:
                 # se reescala a la muestra real: el modelo puede descontar alguno
                 total = sum(nums)
-                n = len(sustantivos)
                 sent = {"positivo": round(nums[0] / total * n),
                         "neutral": round(nums[1] / total * n),
                         "friccion": n - round(nums[0] / total * n) - round(nums[1] / total * n)}
@@ -1300,4 +1365,4 @@ async def _cualitativo(perfil: dict, sustantivos: list, dudas: list, media: dict
         ideas = r2 if prov2 != "ninguno" else ""
     except Exception:
         ideas = ""
-    return sent, ideas
+    return sent, ideas, n
