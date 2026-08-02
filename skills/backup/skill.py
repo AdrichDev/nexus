@@ -1,14 +1,14 @@
-"""Minion BACKUP — copias de seguridad de la memoria y datos de nexus (v19).
+"""Minion BACKUP — copias de seguridad de la memoria y datos de nexus.
 
 Lo importante de nexus vive en data/ (memoria en grafo, tablero, contactos,
-agenda de vigilancias, facturas, informes…). Este minion:
-  * hace una COPIA DIARIA automática (el scheduler la dispara) en
-    data/backups/nexus-data-AAAAMMDD.zip, y rota: guarda las últimas 7;
-  * bajo orden, copia AHORA («haz una copia de seguridad»);
-  * lista las copias que hay y su tamaño («qué copias de seguridad hay»);
-  * ARCHIVA la morralla de backups manuales *.bak_vXX que siembra el proyecto
-    («archiva los bak») en un zip y borra los sueltos — SOLO tras verificar
-    que el zip los contiene íntegros.
+agenda de vigilancias, facturas, informes). Este minion:
+  * hace una COPIA DIARIA automática (la dispara el scheduler) en
+    data/backups/nexus-data-AAAAMMDD.zip, y rota: guarda las últimas KEEP;
+  * copia AHORA bajo orden («haz una copia de seguridad»);
+  * lista los zips que hay y su tamaño («qué copias de seguridad hay»);
+  * ARCHIVA los backups manuales *.bak_vXX sueltos del proyecto en un zip y
+    borra los originales — pidiendo confirmación y solo tras verificar el zip;
+  * explica cómo RESTAURAR, pero no restaura por su cuenta.
 """
 from __future__ import annotations
 
@@ -19,7 +19,12 @@ from pathlib import Path
 SKILL = {
     "name": "Backup",
     "description": "Copia diaria automática de data/ (memoria, tablero, contactos) con rotación de 7, backup bajo orden y archivado de los .bak sueltos",
+    # 'restore' va antes que 'make': «restaura la copia de seguridad» contiene
+    # «copia de seguridad» y si no, 'make' se lo llevaría.
     "patterns": {
+        "restore": r"(?:restaura(?:me)?|restablece(?:me)?|recupera(?:me)?|revierte|vuelve\s+a)\s+"
+                   r"(?:la\s+|el\s+|una\s+|un\s+)?(?:copia\s+de\s+seguridad|backups?|"
+                   r"copia\s+de\s+ayer)",
         "list": r"(?:qu[eé]|cu[aá]ntas)\s+copias\s+de\s+seguridad|(?:ver|lista(?:me)?|mu[eé]strame)\s+"
                 r"(?:las\s+|los\s+)?(?:copias\s+de\s+seguridad|backups?)\b|\bmis\s+backups?\b",
         "baks": r"(?:archiva|recoge|limpia|empaqueta)\s+(?:los\s+)?(?:\.?bak(?:s)?|backups?\s+manuales|"
@@ -84,37 +89,44 @@ def list_backups() -> list[dict]:
     return out
 
 
-def archive_baks(project_root: Path | None = None) -> tuple[int, Path | None]:
-    """Recoge los *.bak* sueltos del proyecto (backend/, frontend/, skills/,
-    tests/ y raíz) en data/backups/baks-<fecha>.zip y BORRA los originales —
-    solo si el zip se verifica íntegro. Devuelve (nº archivados, ruta_zip)."""
+def project_root(explicit: Path | None = None) -> Path:
     from backend.core.config import DATA_DIR
-    root = Path(project_root) if project_root else Path(DATA_DIR).parent
-    _r, dest = _dirs()
-    dest.mkdir(parents=True, exist_ok=True)
+    return Path(explicit) if explicit else Path(DATA_DIR).parent
+
+
+def find_baks(root: Path) -> list[Path]:
+    """Los *.bak* sueltos de backend/, frontend/, skills/, tests/ y la raíz.
+    Solo backups de verdad («x.py.bak», «x.py.bak_v75»), no «receta.baking.md»."""
+    import re as _re
     baks: list[Path] = []
     for sub in ("backend", "frontend", "skills", "tests", "."):
         base = root / sub
         if not base.exists():
             continue
-        import re as _re
         it = base.rglob("*.bak*") if sub != "." else base.glob("*.bak*")
         for f in it:
-            # SOLO backups de verdad: «x.py.bak», «x.py.bak_v75», «x.bak_voz»…
-            # (no toca un hipotético «receta.baking.md»)
             if (f.is_file() and _re.search(r"\.bak(?:_[A-Za-z0-9]+)?$", f.name)
                     and ".venv" not in f.parts and "backups" not in f.parts):
                 baks.append(f)
-    baks = sorted(set(baks))
+    return sorted(set(baks))
+
+
+def archive_baks(project_root_dir: Path | None = None) -> tuple[int, Path | None]:
+    """Recoge los *.bak* sueltos en data/backups/baks-<fecha>.zip y BORRA los
+    originales — solo si el zip se verifica íntegro. Devuelve (nº, ruta_zip).
+    Destructivo: desde el chat solo se llama detrás de confirm.request()."""
+    root = project_root(project_root_dir)
+    _r, dest = _dirs()
+    dest.mkdir(parents=True, exist_ok=True)
+    baks = find_baks(root)
     if not baks:
         return 0, None
     out = dest / f"baks-{dt.date.today():%Y%m%d}.zip"
     with zipfile.ZipFile(out, "a", zipfile.ZIP_DEFLATED) as z:
         existing = set(z.namelist())
         for f in baks:
-            # BUG v23 (Windows): `str(ruta_relativa)` usa «\» y zipfile guarda
-            # el nombre con «/», así que la verificación de abajo NUNCA casaba y
-            # archive_baks devolvía 0 sin archivar nada. as_posix() lo arregla.
+            # as_posix(): zipfile guarda los nombres con «/» y en Windows
+            # str(ruta_relativa) da «\», con lo que la verificación no casaría.
             arc = f.relative_to(root).as_posix()
             if arc not in existing:
                 z.write(f, arc)
@@ -167,19 +179,58 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if not items:
             return {"reply": "🛟 No hay copias todavía. Di «haz una copia de seguridad» "
                              "(además, cada día hago una sola)."}
-        lines = [f"  • {b['name']} — {b['mb']} MB ({b['date']})" for b in items[:10]]
-        return {"reply": f"🛟 Copias de seguridad ({len(items)}):\n" + "\n".join(lines) +
-                         "\nEstán en data/backups/. La diaria se hace sola y roto a 7."}
+        lines = [f"  • {b['name']} — {b['mb']} MB ({b['date']})"
+                 + (" [archivo de .bak, no rota]" if b["name"].startswith("baks-") else "")
+                 for b in items[:10]]
+        return {"reply": f"🛟 Zips en data/backups/ ({len(items)}):\n" + "\n".join(lines) +
+                         f"\nLa copia diaria (nexus-data-*) se hace sola y roto a {KEEP}. "
+                         "Di «restaura la copia de seguridad» y te explico cómo volver atrás."}
 
     if intent == "baks":
-        n, out = archive_baks()
-        if not n and out is None:
+        # Archivar BORRA los originales: no se hace sin un sí explícito.
+        from backend.core import confirm
+        root = project_root()
+        baks = find_baks(root)
+        if not baks:
             return {"reply": "🛟 No he encontrado archivos .bak sueltos: el proyecto está limpio."}
-        if not n:
-            return {"reply": f"⚠ He preparado {out.name} pero la verificación no cuadró: "
-                             "NO he borrado nada. Revisa data/backups/ y repite."}
-        return {"reply": f"🛟 {n} archivos .bak archivados en {out.name} y eliminados de las "
-                         "carpetas de trabajo. El proyecto queda limpio (y todo recuperable del zip)."}
+
+        def _ejecutar():
+            n, out = archive_baks()
+            if not n:
+                return (f"⚠ He preparado {out.name} pero la verificación no cuadró: "
+                        "NO he borrado nada. Revisa data/backups/ y repite.")
+            return (f"🛟 {n} archivos .bak archivados en {out.name} y eliminados de las "
+                    "carpetas de trabajo. Todo recuperable del zip.")
+
+        muestra = "\n".join(f"    • {f.relative_to(root).as_posix()}" for f in baks[:12])
+        resto = f"\n    … y {len(baks) - 12} más" if len(baks) > 12 else ""
+        pregunta = (f"🛟 Voy a meter {len(baks)} archivo(s) .bak en un zip y BORRAR los "
+                    f"originales:\n{muestra}{resto}\n"
+                    "Solo borro si el zip se verifica íntegro. ¿Lo confirmas? «sí» o «no».")
+        return {"reply": confirm.request(
+            channel=(ctx.get("channel") or "pc"), kind="archivar_baks", summary=pregunta,
+            action=_ejecutar, request_text=text,
+            targets=[{"path": f.relative_to(root).as_posix()} for f in baks],
+            cancel_reply="Vale, no toco ningún .bak."),
+            "data": {"confirm": True, "count": len(baks)}}
+
+    if intent == "restore":
+        # Restaurar sobrescribiría data/ en caliente (memoria, tablero, agenda)
+        # con nexus corriendo encima: se explica cómo hacerlo, no se hace.
+        items = list_backups()
+        if not items:
+            return {"reply": "🛟 No tengo ninguna copia que restaurar. Di «haz una copia de "
+                             "seguridad» y a partir de ahí habrá algo a lo que volver."}
+        lines = "\n".join(f"    • {b['name']} — {b['mb']} MB ({b['date']})" for b in items[:5])
+        return {"reply": "🛟 Restaurar NO lo hago yo: sobrescribiría tu memoria, tu tablero y "
+                         "tu agenda mientras nexus está en marcha, y eso no tiene vuelta "
+                         "atrás.\nHazlo tú en 3 pasos, con nexus cerrado:\n"
+                         "  1. Cierra nexus.\n"
+                         "  2. Renombra la carpeta `data/` a `data_viejo/` (no la borres).\n"
+                         "  3. Descomprime encima el zip que quieras de `data/backups/`.\n"
+                         f"Copias disponibles:\n{lines}\n"
+                         "Si algo no cuadra, `data_viejo/` sigue ahí intacta."}
 
     return {"reply": "Orden de backup no reconocida. Prueba «haz una copia de seguridad», "
-                     "«qué copias de seguridad hay» o «archiva los bak»."}
+                     "«qué copias de seguridad hay», «archiva los bak» (te pido "
+                     "confirmación) o «restaura la copia de seguridad»."}

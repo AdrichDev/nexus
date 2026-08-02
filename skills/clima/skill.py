@@ -25,6 +25,7 @@ SKILL = {
             r"|c[oó]mo\s+est[aá]\s+el\s+(tiempo|clima)"
             r"|qu[eé]\s+tal\s+(est[aá]\s+)?el\s+(tiempo|clima)"
             r"|dime\s+(el\s+)?(tiempo|clima)\b"
+            r"|^\s*(el\s+)?(tiempo|clima)\s*[?¿!.]*$"
             r"|(el\s+|del\s+)?(clima|tiempo)\s+(en|de|para)\s+[a-zñáéíóú]"
             r"|temperatura[s]?\s+(hace|va a hacer|habr[aá]|prevista|m[aá]xima|m[ií]nima)"
             r"|(qu[eé]\s+)?temperatura[s]?\s+(hay\s+)?(en|de|para)\s+"

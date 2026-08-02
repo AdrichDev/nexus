@@ -1,12 +1,10 @@
-"""Minion Herramientas — hora, alarmas, notas, clima, red y matemáticas SymPy."""
+"""Minion Herramientas — hora, temporizadores, alarmas, notas, red y mates."""
 from __future__ import annotations
 
 import datetime as dt
 import platform
 import re
 import subprocess
-
-import httpx
 
 SKILL = {
     "name": "Herramientas",
@@ -20,7 +18,7 @@ SKILL = {
         "alarm": r"(?:alarma|despi[eé]rtame|despertador)\s*(?:a\s+las?|para\s+las?)?\s*"
                  r"(?P<h>\d{1,2})(?:[:.h](?P<m>\d{2}))?",
         "note": r"\bap[uú]nta(?:me)?\s+(que\s+)?(?P<body>.+)",
-        "weather": r"(qu[eé] tiempo|clima).*(en\s+(?P<city>[\wáéíóúñ ]+))?$",
+        # El tiempo lo lleva la skill 'clima' (wttr.in), que va antes en el router.
         "ping": r"haz ping a\s+(?P<host>\S+)|estado de (la )?red"
                 r"|(hay|tenemos|funciona|va)\s+(el\s+)?internet\b|prueba\s+la\s+conexi[oó]n",
         "derive": r"(?:deriva(?:me|r)?|(?:cu[aá]l\s+es\s+)?la\s+derivada\s+de)\s+(?P<expr>.+)",
@@ -141,25 +139,6 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": f"✔ Apuntado en la nota diaria ({fname}). "
                          "Di «qué sabes de mí» si quieres repasar lo guardado."}
 
-    if intent == "weather":
-        city = (match.group("city") or "Madrid").strip().title()
-        try:
-            async with httpx.AsyncClient(timeout=6) as cli:
-                geo = await cli.get("https://geocoding-api.open-meteo.com/v1/search",
-                                    params={"name": city, "count": 1, "language": "es"})
-                loc = geo.json()["results"][0]
-                wx = await cli.get("https://api.open-meteo.com/v1/forecast",
-                                   params={"latitude": loc["latitude"],
-                                           "longitude": loc["longitude"],
-                                           "current": "temperature_2m,wind_speed_10m,"
-                                                      "relative_humidity_2m"})
-                cur = wx.json()["current"]
-            return {"reply": f"🌤 En {loc['name']}: {cur['temperature_2m']}°C, humedad "
-                             f"{cur['relative_humidity_2m']}%, viento {cur['wind_speed_10m']} km/h."}
-        except Exception:
-            return {"reply": f"⚠ No llego a Open-Meteo para consultar {city} (parece cosa "
-                             "de red). Di «estado de la red» para comprobarla y repítemelo."}
-
     if intent == "ping":
         host = match.group("host") or "8.8.8.8"
         flag = "-n" if platform.system() == "Windows" else "-c"
@@ -186,13 +165,10 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             import sympy as sp
             x = sp.symbols("x")
             expr_txt = _es2math(raw)
-            # ── PUERTA DE SEGURIDAD (auditoría 30/07/2026) ──────────────────
-            # `sympy.sympify()` hace `eval()` por dentro. Comprobado: escribir
-            # «calcula __import__('os').system('...')» EJECUTABA el comando en el
-            # PC, y nexus contestaba una frase inocente como si nada. Aquí se
-            # exige que lo que llega sea de verdad una expresión matemática; si
-            # no lo es, no se toca sympy y contesta el modelo, igual que antes
-            # con «cuánto es el IVA en España».
+            # `sympy.sympify()` hace `eval()` por dentro: sin esta puerta,
+            # «calcula __import__('os').system('...')» ejecutaría el comando.
+            # Lo que no es una expresión matemática no llega a sympy: contesta
+            # el modelo, como con «cuánto es el IVA en España».
             if not _expr_matematica(expr_txt):
                 raise ValueError("no es una expresión matemática")
             if intent == "solve" and "=" in expr_txt:

@@ -122,6 +122,10 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "info":
         return {"reply": _INFO}
 
+    if match is None and intent in ("save_contact", "del_contact"):
+        return {"reply": "📇 No he pillado el nombre. Dímelo entero: «apunta el teléfono "
+                         "de <nombre> <número>» o «borra el contacto de <nombre>»."}
+
     if intent == "save_contact":
         gd = match.groupdict()
         name = (gd.get("name") or gd.get("name2") or "").strip(" .")
@@ -154,7 +158,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          "\nDi «llama a <nombre>» o «envía un whatsapp a <nombre> diciendo …»."}
 
     # ---- llamar ----
-    who = (match.group("who") or "").strip().rstrip("?!.")
+    # El planificador del cerebro puede invocar un intent sin haber casado
+    # ningún regex: sin match no hay a quién llamar, y no se marca a ciegas.
+    who = ((match.groupdict().get("who") if match else None) or "").strip().rstrip("?!.")
     if not who:
         return {"reply": "📞 ¿A quién llamo? Di «llama a <nombre o número>» y lo marco "
                          "en tu móvil vinculado."}

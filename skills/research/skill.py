@@ -11,14 +11,15 @@ REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
 
 SKILL = {
     "name": "Investigación",
-    "description": "Investiga en la web (DuckDuckGo, sin API key), redacta informes con fuentes citadas y analiza tus gastos/facturas",
+    "description": "Investiga en la web (sin API key), redacta informes con fuentes citadas, guarda el histórico y analiza tus gastos/facturas",
     "patterns": {
         "research": r"(?:investiga(?:me)?|indaga|documenta(?:me)?)\s+(?:sobre\s+)?(?P<topic>.+?)"
                     r"(?:\s+y\s+(?:hazme|haz|escr[ií]beme|red[aá]ctame|prep[aá]rame)\s+(?:un\s+)?informe)?$"
                     r"|(?:hazme|red[aá]ctame|escr[ií]beme|prep[aá]rame)\s+(?:un\s+)?informe\s+(?:sobre|de)\s+(?P<topic2>.+)",
         "trends": r"tendencias\s+(?:de|en|del|sobre)\s+(?P<topic>.+)|qu[eé]\s+se\s+lleva\s+(?:ahora\s+)?en\s+(?P<topic2>.+)",
         "economy": r"informe\s+econ[oó]mico|d[oó]nde\s+(?:puedo|podr[ií]a)\s+(?:apurar|recortar|ahorrar|optimizar)"
-                   r"|optimiza(?:me)?\s+(?:mis\s+)?gastos|an[aá]lisis\s+(?:de\s+)?(?:mis\s+)?(?:gastos|finanzas)|"
+                   r"|optimiza(?:me)?\s+(?:mis\s+|los\s+|el\s+)?(?:gastos|gasto|presupuesto)"
+                   r"|an[aá]lisis\s+(?:de\s+)?(?:mis\s+|los\s+)?(?:gastos|finanzas)|"
                    r"c[oó]mo\s+(?:van|est[aá]n)\s+mis\s+(?:gastos|finanzas|cuentas)",
         # Histórico de informes generados (v19). «abre el informe de X» reabre uno.
         "open_report": r"(?:abre(?:me)?|re[aá]bre(?:me)?|ens[eé][ñn]ame|mu[eé]strame)\s+"
@@ -29,10 +30,9 @@ SKILL = {
     },
 }
 
-# v19: la búsqueda y la lectura de páginas usan el MOTOR CENTRAL de nexus
-# (backend/core/websearch.py): multi-fuente (Google News RSS + DDG Lite + DDG
-# HTML), caché con TTL y extracción de contenido real. Se acabó el scraping
-# duplicado y frágil que teníamos aquí.
+# La búsqueda y la lectura de páginas pasan por el motor central de nexus
+# (backend/core/websearch.py): Google News RSS + DDG Lite + DDG HTML, caché con
+# TTL y extracción del contenido. Aquí no hay scraping propio.
 
 async def _ddg_search(query: str, n: int = 6) -> list[dict]:
     from backend.core import websearch
@@ -101,7 +101,13 @@ async def _full_report(topic: str, angle: str) -> dict:
         reply, _ = await ask_llm(
             f"{angle} sobre «{topic}». No hay fuentes web disponibles ahora mismo: "
             "usa tu conocimiento general y dilo claramente al principio.")
-        return {"reply": reply[:1200], "sources": []}
+        # Sin fuentes no hay informe: se dice antes del texto y no se guarda
+        # nada en data/reports/ para que el histórico solo tenga informes reales.
+        return {"reply": "⚠ No he podido leer NINGUNA fuente web sobre "
+                         f"«{topic}» (¿sin red o las fuentes bloquean?). Esto de abajo "
+                         "sale del conocimiento general del modelo, NO está contrastado "
+                         "y no lo guardo como informe:\n\n" + reply[:1200],
+                "sources": []}
     report, _ = await ask_llm(
         f"{angle} sobre «{topic}» usando SOLO estas fuentes. Estructura: "
         "**Resumen ejecutivo** (3 frases), **Hallazgos clave** (4-6 puntos con datos), "
@@ -138,22 +144,32 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         from backend.core.llm import ask_llm
         pg = ctx["pg"]
         facts = []
+        db_falla = False
         if pg.online:
-            rows = pg._rows("SELECT number, concept, amount, status FROM invoices "
-                            "ORDER BY id DESC LIMIT 20")
-            facts += [f"Factura {r['number']}: {r['concept']} — {r['amount']}€ ({r['status']})"
-                      for r in rows]
+            try:
+                rows = pg._rows("SELECT number, concept, amount, status FROM invoices "
+                                "ORDER BY id DESC LIMIT 20")
+                facts += [f"Factura {r['number']}: {r['concept']} — {r['amount']}€ ({r['status']})"
+                          for r in rows]
+            except Exception:
+                db_falla = True      # tabla ausente o DB caída: se dice, no se calla
         notes = ctx["graph"].search("gasto", 6) + ctx["graph"].search("pago", 6)
         facts += [n["line"] for n in notes]
         if not facts:
-            return {"reply": "No tengo datos económicos aún. Aliméntame: crea facturas, "
-                             "apunta gastos («apunta que he pagado 200€ de luz») o "
+            aviso = ("⚠ No he podido leer la tabla de facturas de la DB. " if db_falla
+                     else "")
+            return {"reply": aviso + "No tengo datos económicos aún. Aliméntame: crea "
+                             "facturas, apunta gastos («apunta que he pagado 200€ de luz») o "
                              "conéctame a tu base de datos con la skill de datos."}
         analysis, _ = await ask_llm(
             "Como asesor financiero de una pyme, analiza estos datos y di: dónde se "
             "puede APURAR (recortar), dónde NO conviene recortar, y 2 acciones "
-            "concretas esta semana. Sé directo:\n" + "\n".join(facts[:30]))
-        return {"reply": analysis}
+            "concretas esta semana. Usa SOLO las cifras de abajo, no añadas otras. "
+            "Sé directo:\n" + "\n".join(facts[:30]))
+        cabecera = (f"📊 Análisis sobre {len(facts)} apunte(s) reales de tu memoria"
+                    + (" (⚠ la tabla de facturas de la DB no ha respondido, "
+                       "van solo los apuntes del grafo)" if db_falla else "") + ":\n\n")
+        return {"reply": cabecera + analysis}
 
     if intent == "history":
         files = sorted(REPORTS_DIR.glob("*.md"), key=lambda f: f.stat().st_mtime,

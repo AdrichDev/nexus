@@ -17,9 +17,11 @@ enteras (texto/código, PDF y Word) troceándolos en fragmentos consultables.
 - **Aprender una carpeta**: «apréndete la carpeta D:\apuntes» ·
   «ingiere el directorio C:\proyectos\docs» (máx. 40 archivos < 6 MB por tanda)
 - **Consultar**: «qué recuerdas de Ana» · «qué sabes sobre el proyecto Helios» ·
-  «qué te he contado de la nave» · «busca en la memoria facturas» · «busca en tus notas China»
+  «qué te he contado de la nave» · «busca en la memoria facturas» ·
+  «búscame en mis notas las facturas» · «encuentra en la memoria China»
 - **Todo sobre mí**: «qué sabes de mí» · «cuánto sabes de mí» ·
   «lista los archivos de conocimiento que tienes sobre mí» · «todo lo que has aprendido de mí»
+- **Perfil**: «mi perfil» · «quién soy» · «háblame de mí» · «perfil del operador»
 - **Grafo**: «muéstrame el grafo» · «enséñame el grafo» · «grafo de notas» · «mapa de memoria»
 - **Estado**: «estado de la memoria» · «cómo va tu memoria»
 
@@ -27,11 +29,20 @@ enteras (texto/código, PDF y Word) troceándolos en fragmentos consultables.
 
 - PDF y Word necesitan `pypdf` y `python-docx` (se instalan con `run.bat`);
   sin ellos, esos archivos se saltan y nexus te lo dice.
-- La capa semántica exige la DB del contenedor (arranca con `nexus_up.bat`);
-  offline, todo sigue funcionando solo con el grafo markdown.
+- La capa semántica exige la DB del contenedor (se arranca diciendo
+  «levanta docker»); offline, todo sigue funcionando solo con el grafo markdown
+  y la skill lo avisa en cada respuesta.
 - Las rutas de documentos/carpetas pasan por `backend.core.permissions`:
   si una ruta está fuera de lo permitido, nexus responde cómo autorizarla.
 - «qué sabes de mí» junta perfil destilado, hechos en Postgres, conocimiento RAG,
   títulos del grafo y lo que sepa Hermes.
 - Documentos: nota completa en el grafo (primeros 20.000 caracteres) + fragmentos
   de ~900 caracteres en la DB para el recall.
+
+## Qué NO hace
+
+- No guarda nada que no le hayas dicho: solo escribe el texto literal del hecho
+  o el contenido real del archivo. No resume con el LLM ni rellena huecos.
+- No borra recuerdos: para eso está la purga (`backend/core/purga.py`).
+- «recuérdame X el viernes» NO es esta skill: es un recordatorio del coach.
+  Aquí el disparador es «recuerda QUE …».

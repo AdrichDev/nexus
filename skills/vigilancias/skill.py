@@ -1,16 +1,14 @@
-"""Minion VIGILANCIAS — nexus trabaja mientras tú no miras (v19).
+"""Minion VIGILANCIAS — comprueba webs, precios y noticias en segundo plano.
 
-«vigila la web https://…», «avísame si baja el precio de https://…», «avísame
-cuando haya noticias de X» → nexus lo apunta (data/watchers.json, con NÚMERO
-como los encargos) y el scheduler lo comprueba cada pocos minutos:
-  * web    → detecta CAMBIOS de contenido (hash del texto extraído + resumen
-             de las líneas nuevas).
-  * precio → extrae el precio de la página y avisa si BAJA (o si sube, lo dice).
-  * noticias → busca titulares nuevos del tema (Google News vía websearch).
-Cuando algo salta: aviso por HUD (notificación + log) y por Telegram.
+Cada vigilancia se guarda numerada en data/watchers.json y el scheduler la
+revisa cada _CHECK_MIN minutos:
+  * web      → avisa si CAMBIA el contenido (huella del texto + líneas nuevas).
+  * precio   → extrae el precio de la página y avisa si BAJA (si sube, lo dice).
+  * noticias → titulares nuevos del tema (Google News vía websearch).
+Cuando algo salta, aviso por HUD (notificación + log + chat) y por Telegram.
 
-Todo usa el motor central de búsqueda/lectura (backend/core/websearch.py), con
-su caché y sus 3 fuentes.
+La lectura de páginas y la búsqueda pasan por el motor central
+(backend/core/websearch.py): una sola caché y un solo juego de fuentes.
 """
 from __future__ import annotations
 
@@ -27,8 +25,12 @@ SKILL = {
                 r"(?:las\s+|mis\s+)?vigilancias|\bmis\s+vigilancias\b|qu[eé]\s+est[aá]s\s+vigilando",
         "remove": r"(?:deja|para)\s+de\s+vigilar\s+(?P<which>.+)"
                   r"|(?:borra|elimina|quita)\s+la\s+vigilancia\s+#?(?P<num>\d+)",
-        "price": r"av[ií]sa(?:me)?\s+(?:si|cuando)\s+(?:baja|baje|cambia|cambie)\s+"
+        # «baja/baje» ya implica precio; «cambia/cambie» exige la palabra
+        # «precio» o sería una vigilancia de contenido (intent web).
+        "price": r"av[ií]sa(?:me)?\s+(?:si|cuando)\s+(?:baja|baje)\s+"
                  r"(?:de\s+precio\s+|el\s+precio\s+(?:de\s+)?)?(?P<url>https?://\S+)"
+                 r"|av[ií]sa(?:me)?\s+(?:si|cuando)\s+(?:cambia|cambie)\s+"
+                 r"(?:de\s+precio\s+|el\s+precio\s+(?:de\s+)?)(?P<url3>https?://\S+)"
                  r"|vigila\s+el\s+precio\s+de\s+(?P<url2>https?://\S+)",
         "news": r"av[ií]sa(?:me)?\s+cuando\s+(?:haya|salgan?)\s+(?:noticias?|novedades)\s+"
                 r"(?:de|sobre)\s+(?P<topic>.+)"
@@ -170,8 +172,7 @@ async def _check_one(w: dict) -> str | None:
         vistos = est.get("vistos", [])
         seen = set(vistos)
         nuevos = [t for t in titles if t not in seen]
-        # lista con ORDEN estable (cronológico): el recorte tira lo más viejo,
-        # no un subconjunto aleatorio de un set (revisión v19)
+        # Lista, no set: el recorte a 60 tira siempre los titulares más viejos.
         est["vistos"] = (vistos + nuevos)[-60:]
         if seen and nuevos:          # la primera pasada solo siembra, no avisa
             return (f"Noticias nuevas de «{w['objetivo']}» (vigilancia #{w['num']}): "
@@ -223,7 +224,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          "Telegram si algo se mueve. «mis vigilancias» para verlas."}
 
     if intent == "price":
-        url = (gd.get("url") or gd.get("url2") or "").strip().rstrip(".,)")
+        url = (gd.get("url") or gd.get("url2") or gd.get("url3") or "").strip().rstrip(".,)")
         w = _add("precio", url)
         return {"reply": f"👁 Vigilancia #{w['num']} activada: precio de {url}. "
                          "Te aviso en cuanto BAJE (y si sube, también te lo digo). "
@@ -244,9 +245,19 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         lines = []
         for w in items:
             ic = _TIPO_ICON.get(w["tipo"], "•")
-            extra = ""
-            if w["tipo"] == "precio" and w.get("estado", {}).get("precio") is not None:
-                extra = f" (último: {w['estado']['precio']:.2f})"
+            est = w.get("estado") or {}
+            if not w.get("ultima"):
+                extra = " (aún sin comprobar)"
+            elif w["tipo"] == "precio":
+                # Si la página no lleva un precio legible NUNCA saltará el aviso:
+                # se dice aquí en vez de dejar al operador esperando.
+                extra = (f" (último: {est['precio']:.2f})" if est.get("precio") is not None
+                         else " (⚠ no encuentro un precio en esa página: no podré avisarte)")
+            elif w["tipo"] == "noticias":
+                extra = f" ({len(est.get('vistos') or [])} titulares vistos)"
+            else:
+                extra = " (contenido registrado)" if est.get("digest") else \
+                        " (⚠ no consigo leer esa página)"
             lines.append(f"  {ic} #{w['num']} {w['tipo']}: {w['objetivo'][:70]}{extra}")
         return {"reply": f"👁 Vigilando {len(items)} cosa(s):\n" + "\n".join(lines) +
                          "\nDi «borra la vigilancia N» para quitar una."}

@@ -32,9 +32,13 @@ SKILL = {
                  r"|grafo de (notas|memoria|conocimiento)|mapa (de (la )?)?memoria",
         "status": r"estado de (la |tu )?memoria|c[oó]mo (va|est[aá]|anda) (la |tu )?memoria"
                   r"|diagn[oó]stico de (la )?memoria",
+        # El enclítico («búscame», «encuéntrame») y los artículos («en MIS notas»)
+        # son tan habituales como el verbo desnudo.
         "recall": r"qu[eé]\s+(?:recuerdas|sabes|te\s+he\s+contado|te\s+cont[eé]|apuntaste|guardaste)\s+"
                   r"(?:de|sobre|acerca\s+de)\s+(?P<topic>.+)"
-                  r"|busca\s+en\s+(?:la\s+|tu\s+|tus\s+)?(?:memoria|notas|apuntes|recuerdos)\s+(?P<topic2>.+)",
+                  r"|(?:busca|b[uú]scame|encuentra|encu[eé]ntrame|mira|rebusca)\s+en\s+"
+                  r"(?:la\s+|el\s+|mi\s+|mis\s+|tu\s+|tus\s+)?(?:memoria|notas|apuntes|recuerdos|grafo)\s+"
+                  r"(?:sobre\s+|de\s+)?(?P<topic2>.+)",
     },
 }
 
@@ -89,7 +93,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"✔ Grabado en memoria a largo plazo (DB + grafo): «{fact}». "
                              "Recupéralo cuando quieras con «qué recuerdas de …»."}
         return {"reply": f"✔ Grabado en el grafo de notas: «{fact}». "
-                         "⚠ La DB está offline: levanta el Docker (nexus_up.bat) y tendrás "
+                         "⚠ La DB está offline: di «levanta docker» y tendrás "
                          "también búsqueda semántica."}
 
     if intent == "learn":
@@ -260,7 +264,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "status":
         from backend.core.memory import memory_status
         st = memory_status()
-        db_txt = "ONLINE ✔" if st["db_online"] else "OFFLINE ✖ (ejecuta nexus_up.bat en nexus)"
+        db_txt = "ONLINE ✔" if st["db_online"] else "OFFLINE ✖ (di «levanta docker»)"
         return {"reply": f"Memoria: backend {st['backend']} — {st['graph_notes']} notas "
                          f"en el grafo — DB {db_txt}"}
 

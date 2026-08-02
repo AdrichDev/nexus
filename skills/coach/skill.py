@@ -1,8 +1,10 @@
-"""Minion Coach/Secretario — briefing diario, objetivos desglosados,
-checklists vivos, recordatorios escalonados y reorganización.
+"""Minion Coach/Secretario — briefing diario, objetivos desglosados en pasos,
+checklists, recordatorios escalonados, replanificación y specs de proyecto.
 
-Implementa las ideas de las transcripciones: «no es que te lo diga,
-sino que también te enseño cómo hacerlo» y «un sistema vivo, no fijo»."""
+Objetivos y recordatorios se persisten en Postgres cuando está online; sin él,
+objetivos van al grafo y recordatorios a los temporizadores en memoria. Los
+checklists son SIEMPRE en memoria (se pierden al reiniciar) y las respuestas
+lo dicen."""
 from __future__ import annotations
 
 import datetime as dt
@@ -24,11 +26,18 @@ SKILL = {
         "briefing": r"qu[eé] (?:me toca|tengo que hacer|toca) hoy|briefing"
                     r"|plan (?:del d[ií]a|de hoy|para hoy)|resumen del d[ií]a"
                     r"|c[oó]mo viene (?:el d[ií]a|hoy)|arrancamos el d[ií]a",
-        "new_goal": r"(?:nuevo objetivo|objetivo nuevo|mi objetivo es|me propongo"
+        # El lookahead cede a la skill de instagram los objetivos que hablan de
+        # ella («en instagram mi objetivo es vender mi curso»). Solo se excluye
+        # lo que otra skill sabe atender: tiktok o youtube seguirían aquí.
+        "new_goal": r"^(?![\s\S]*\b(?:instagram|insta|reels?)\b)"
+                    r"[\s\S]*?(?:nuevo objetivo|objetivo nuevo|mi objetivo es|me propongo"
                     r"|quiero (?:conseguir|lograr|alcanzar))[:\s]+(?P<goal>.+)",
         "goals": r"(?:mis|ver|lista de?|cu[aá]les son (?:mis|los)|mu[eé]strame (?:mis|los)"
                  r"|ens[eé][ñn]ame (?:mis|los)|c[oó]mo van (?:mis|los)"
                  r"|estado de (?:mis|los)) objetivos|objetivos activos",
+        "checklists": r"(?:mis|ver|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|lista(?:me)?|dame|"
+                      r"qu[eé]|cu[aá]ntos|cu[aá]les\s+son\s+mis)\s+(?:son\s+)?(?:mis\s+|los\s+)?"
+                      r"checklists?\b|checklists?\s+(?:activos|pendientes)",
         "new_checklist": r"(?:crea(?:me)?|cr[eé]ame|hazme|prep[aá]rame|arma) (?:un |una )?"
                          r"(?:checklist|lista de (?:control|comprobaci[oó]n)) ?"
                          r"(?P<rec>semanal|mensual|diari[oa])?\s*(?:de |para )?(?P<name>.+)",
@@ -170,8 +179,11 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         _local_checklists[name] = []
         _last_checklist = name
         graph.append_daily(f"Checklist creado: **{name}** ({rec})", section="Checklists")
-        return {"reply": f"Checklist «{name}» ({rec}) creado. Es un sistema vivo: "
-                         "añade items cuando quieras con «añade al checklist ...»."}
+        return {"reply": f"Checklist «{name}» ({rec}) creado. Añade items con «añade al "
+                         "checklist ...» y míralo con «mis checklists». ⚠ Los items viven "
+                         "en memoria y se pierden al reiniciar nexus; en la nota diaria "
+                         "queda constancia de que lo creaste. Si quieres algo que no se "
+                         "borre, dime «crea la tarea ...» y va al tablero."}
 
     if intent == "add_item":
         item = match.group("item").strip()
@@ -182,6 +194,21 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         _local_checklists[name].append({"label": item, "done": False})
         return {"reply": f"Añadido a «{name}»: {item} "
                          f"({len(_local_checklists[name])} items)."}
+
+    if intent == "checklists":
+        if not _local_checklists:
+            return {"reply": "No tengo ningún checklist abierto. Crea uno con «hazme un "
+                             "checklist de la mudanza». (Los checklists viven en memoria "
+                             "hasta que reinicies nexus; para algo permanente, «crea la "
+                             "tarea ...» y va al tablero.)"}
+        bloques = []
+        for nombre, items in _local_checklists.items():
+            pend = [i for i in items if not i["done"]]
+            cuerpo = "\n".join(f"    {'☑' if i['done'] else '☐'} {i['label']}"
+                               for i in items) or "    (vacío)"
+            bloques.append(f"  ☑ «{nombre}» — {len(pend)}/{len(items)} pendientes\n{cuerpo}")
+        return {"reply": f"Checklists abiertos ({len(_local_checklists)}):\n"
+                         + "\n".join(bloques)}
 
     if intent == "remind":
         what = match.group("what").strip()
@@ -262,5 +289,5 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             "No estás desorganizado: solo te falta un sistema — y para eso estoy yo.")}
 
     return {"reply": "Esa orden de coach no la tengo. Prueba: «qué me toca hoy», "
-                     "«nuevo objetivo: ...», «recuérdame X el viernes» o «estoy agobiado» "
-                     "— para eso estoy."}
+                     "«nuevo objetivo: ...», «mis checklists», «recuérdame X el viernes» "
+                     "o «estoy agobiado» — para eso estoy."}
