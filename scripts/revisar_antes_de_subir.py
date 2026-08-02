@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 nexus — REVISIÓN ANTES DE SUBIR A GITHUB.
 
 Un secreto commiteado no se arregla borrando el archivo: queda en el historial
@@ -16,8 +16,8 @@ Mira SOLO lo que git tiene preparado para subir (el índice), así que respeta e
                para que le eches un ojo.
 
 Uso:
-    python revisar_antes_de_subir.py          (desde la carpeta nexus)
-    python revisar_antes_de_subir.py --json   (salida para otro programa)
+    .venv\Scripts\python.exe scripts\revisar_antes_de_subir.py          (desde la carpeta nexus)
+    .venv\Scripts\python.exe scripts\revisar_antes_de_subir.py --json   (salida para otro programa)
 
 Lo llama SUBIR_A_GITHUB.bat automáticamente.
 """
@@ -34,7 +34,12 @@ try:
 except Exception:
     pass
 
-ROOT = Path(__file__).resolve().parent
+# Este archivo vive en scripts/, pero TODO lo que mira es relativo a la raíz del
+# repositorio: `git ls-files` desde una subcarpeta solo listaría esa subcarpeta,
+# y las rutas que devuelve git son relativas a la raíz. Si ROOT apuntara a
+# scripts/, `ruta.is_file()` fallaría para todos los archivos y la revisión diría
+# «LIMPIO» sin haber leído ni un byte: el peor fallo posible aquí.
+ROOT = Path(__file__).resolve().parent.parent
 LIMITE_BYTES = 2_000_000          # no se lee el contenido de archivos enormes
 AVISO_TAMANO = 5_000_000          # se avisa de cualquier archivo de más de 5 MB
 

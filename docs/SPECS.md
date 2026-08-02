@@ -6,8 +6,9 @@ _2026-07-19 · Cada spec incluye su criterio de aceptación y el RESULTADO de la
 **Qué:** instalación como cualquier programa: bienvenida → elegir carpeta → barra de
 progreso → acceso directo en escritorio y menú inicio → desinstalador en «Agregar o
 quitar programas».
-**Cómo:** `nexus_installer.nsi` (NSIS/MUI2, en español) + `build_installer.bat`.
-Flujo en el PC: `build_exe.bat` (crea dist\) → `build_installer.bat` (crea
+**Cómo:** `installer/nexus_installer.nsi` (NSIS/MUI2, en español) +
+`installer/build_installer.bat`.
+Flujo en el PC: `installer\build_exe.bat` (crea dist\) → `installer\build_installer.bat` (crea
 `nexus-Setup.exe`; si falta NSIS, abre su página de descarga).
 **✔ VALIDADO:** compilado con makensis 3.09 sobre una dist de prueba → instalador
 generado; contiene nexus.exe + knowledge + config y **excluye `data/`** (0 coincidencias).
@@ -91,4 +92,4 @@ los nodos de conocimiento predefinidos (knowledge/).
 ### Pendiente de probar EN VIVO en tu PC/móvil (no reproducible en sandbox)
 1. El túnel cloudflared real (primera vez descarga ~60 MB a config/).
 2. La cámara del APK en tu móvil (el decoder está validado; la cámara física no).
-3. `build_exe.bat` + `build_installer.bat` en tu Windows.
+3. `installer\build_exe.bat` + `installer\build_installer.bat` en tu Windows.

@@ -4,10 +4,17 @@
 ;  progreso, accesos directos y desinstalador en Panel de Control.
 ;
 ;  Cómo generar el instalador (en el PC, una vez):
-;    1. build_exe.bat            → crea dist\ (nexus.exe + knowledge + config)
-;    2. build_installer.bat      → crea nexus-Setup.exe con este script
+;    1. installer\build_exe.bat        → crea dist\ (nexus.exe + knowledge + config)
+;    2. installer\build_installer.bat  → crea nexus-Setup.exe con este script
 ; ============================================================
 !include "MUI2.nsh"
+
+; Este script vive en installer\, pero dist\ y el nexus-Setup.exe resultante
+; viven en la RAIZ. makensis resuelve las rutas relativas contra su directorio
+; de trabajo, que depende de quien lo lance; con este !cd deja de depender de
+; eso y "dist\*.*" y OutFile apuntan siempre a la raiz. El arte (.ico/.bmp) si
+; vive aqui al lado, y se referencia con ${__FILEDIR__} para no jugarsela.
+!cd "${__FILEDIR__}\.."
 
 Name "nexus"
 BrandingText "nexus — Wide-Band Intelligent Knowledge System"
@@ -20,15 +27,15 @@ InstallDir "$LOCALAPPDATA\nexus"
 InstallDirRegKey HKCU "Software\nexus" "InstallDir"
 
 ; ---------------- Aspecto (paleta CIAN de nexus: #22d3ee sobre #070e18) ----------------
-!define MUI_ICON "nexus.ico"
-!define MUI_UNICON "nexus.ico"
+!define MUI_ICON "${__FILEDIR__}\nexus.ico"
+!define MUI_UNICON "${__FILEDIR__}\nexus.ico"
 !define MUI_ABORTWARNING
 !define MUI_BGCOLOR 070e18
 !define MUI_TEXTCOLOR cfe4f5
-!define MUI_WELCOMEFINISHPAGE_BITMAP "nexus_side.bmp"
-!define MUI_UNWELCOMEFINISHPAGE_BITMAP "nexus_side.bmp"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\nexus_side.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${__FILEDIR__}\nexus_side.bmp"
 !define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "nexus_header.bmp"
+!define MUI_HEADERIMAGE_BITMAP "${__FILEDIR__}\nexus_header.bmp"
 ; ventana de progreso de instalación: texto cian claro sobre azul nexus
 InstallColors 7FE9F7 070E18
 

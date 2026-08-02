@@ -2,24 +2,29 @@
 """
 nexus — spec de PyInstaller.
 Empaqueta backend + frontend + skills en un único nexus.exe.
-Build:  build_exe.bat   (o: pyinstaller nexus.spec)
+Build:  installer\build_exe.bat   (o: pyinstaller installer\nexus.spec)
 """
 
 import sys
 from pathlib import Path
 
-ROOT = Path(SPECPATH)
+# Este .spec vive en installer/, pero TODO lo que empaqueta (backend, frontend,
+# skills, config) cuelga de la raíz del repositorio. Por eso las rutas se
+# construyen ABSOLUTAS desde ROOT: si fueran relativas dependerían del directorio
+# desde el que se lance pyinstaller y el .exe saldría sin frontend ni skills.
+AQUI = Path(SPECPATH)          # ...\nexus\installer  (aquí están el .ico y los .bmp)
+ROOT = AQUI.parent             # ...\nexus            (la raíz del proyecto)
 
 a = Analysis(
-    ['backend/desktop.py'],
+    [str(ROOT / 'backend' / 'desktop.py')],
     pathex=[str(ROOT)],
     binaries=[],
     datas=[
-        ('frontend', 'frontend'),
-        ('skills', 'skills'),
-        ('config/settings.example.json', 'config'),
-        ('config/n8n_flujo_ejemplo.json', 'config'),
-        ('.env.example', '.'),
+        (str(ROOT / 'frontend'), 'frontend'),
+        (str(ROOT / 'skills'), 'skills'),
+        (str(ROOT / 'config' / 'settings.example.json'), 'config'),
+        (str(ROOT / 'config' / 'n8n_flujo_ejemplo.json'), 'config'),
+        (str(ROOT / '.env.example'), '.'),
     ],
     hiddenimports=[
         'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto',
@@ -48,5 +53,5 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,            # sin consola: solo la ventana HUD
-    icon=str(ROOT / 'nexus.ico') if (ROOT / 'nexus.ico').exists() else None,
+    icon=str(AQUI / 'nexus.ico') if (AQUI / 'nexus.ico').exists() else None,
 )

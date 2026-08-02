@@ -53,7 +53,7 @@ túnel seguro (Tailscale / Cloudflare Tunnel) y entra por esa dirección con
 
 ## Windows — el .exe
 
-En el PC: doble clic a **`build_exe.bat`** (usa la .venv de run.bat). Genera
+En el PC: doble clic a **`installer\build_exe.bat`** (usa la .venv de run.bat). Genera
 `dist\nexus.exe` con su icono, y copia al lado `knowledge\`, `config\` y `.env`
 (el exe los lee de su propia carpeta). Para llevarlo a otro PC, copia la carpeta
 `dist\` entera. *(PyInstaller no cross-compila: el .exe se genera en Windows.)*

@@ -8,7 +8,7 @@ Antes NO era así. El middleware `remote_auth` solo pedía el token CUANDO la
 petición traía la cabecera `cf-connecting-ip` (la que añade el túnel de
 Cloudflare). Cualquier otra cosa entraba sin credencial: otro móvil de la WiFi,
 el portátil de un invitado, o internet entero si se reenviaba el puerto 8177
-como sugería MOBILE.md. Y detrás de `POST /api/command` está el asistente
+como sugería docs/MOBILE.md. Y detrás de `POST /api/command` está el asistente
 entero, que abre programas y ejecuta cosas en el equipo.
 
 Aquí se arranca nexus DE VERDAD y se llama por HTTP como lo harían:

@@ -4,8 +4,8 @@ nexus — Wake word INTEGRADA («di nexus» con la app abierta).
 Bucle asíncrono dentro del propio backend: cuando wake_enabled está activo
 (⚙) y hay STT real, escucha ventanas cortas de audio con whisper-tiny.
 Si oye la palabra de activación → lanza el ciclo de voz completo, igual
-que pulsar TALK. No necesita el script externo nexus_wake (ese sigue
-sirviendo para ABRIR el programa cuando está cerrado).
+que pulsar TALK. No necesita el script externo scripts/nexus_wake.py (ese
+sigue sirviendo para ABRIR el programa cuando está cerrado).
 
 Se desactiva solo mientras el micro abierto (∞) está activo — ahí ya se
 escucha todo — y mientras hay un ciclo de voz en marcha.

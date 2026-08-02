@@ -1,12 +1,15 @@
 @echo off
 REM ============================================================
 REM  nexus - genera el INSTALADOR (nexus-Setup.exe)
-REM  Requisitos: 1) haber ejecutado build_exe.bat (crea dist\)
+REM  Requisitos: 1) haber ejecutado installer\build_exe.bat (crea dist\)
 REM              2) NSIS instalado (https://nsis.sourceforge.io/Download)
+REM
+REM  Este .bat vive en installer\ pero trabaja desde la RAIZ: dist\ y el
+REM  nexus-Setup.exe resultante viven ahi, no dentro de installer\.
 REM ============================================================
-cd /d "%~dp0"
+cd /d "%~dp0.."
 if not exist dist\nexus.exe (
-  echo [nexus] Falta dist\nexus.exe - ejecuta build_exe.bat primero.
+  echo [nexus] Falta dist\nexus.exe - ejecuta installer\build_exe.bat primero.
   pause & exit /b 1
 )
 set NSIS=
@@ -19,7 +22,7 @@ if "%NSIS%"=="" (
   start https://nsis.sourceforge.io/Download
   pause & exit /b 1
 )
-"%NSIS%" nexus_installer.nsi
+"%NSIS%" installer\nexus_installer.nsi
 if errorlevel 1 ( echo [nexus] ERROR generando el instalador & pause & exit /b 1 )
 echo.
 echo [nexus] Instalador creado: nexus-Setup.exe

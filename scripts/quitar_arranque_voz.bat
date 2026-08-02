@@ -1,7 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 title nexus - Quitar arranque por palmadas
-cd /d "%~dp0"
+REM  Vive en scripts\; el data\wake.pid que tiene que borrar esta en la RAIZ.
+cd /d "%~dp0.."
 echo.
 echo   Quitando el arranque por palmadas y PARANDO el escuchador...
 
@@ -15,13 +16,13 @@ if errorlevel 1 (
 
 REM --- 2) Parar el escuchador que este corriendo AHORA (por PID, lo mas fiable^) ---
 set "STOPPED="
-if exist "%~dp0data\wake.pid" (
-  set /p WPID=<"%~dp0data\wake.pid"
+if exist "%~dp0..\data\wake.pid" (
+  set /p WPID=<"%~dp0..\data\wake.pid"
   if defined WPID (
     taskkill /F /PID !WPID! >nul 2>&1
     if not errorlevel 1 set "STOPPED=1"
   )
-  del "%~dp0data\wake.pid" >nul 2>&1
+  del "%~dp0..\data\wake.pid" >nul 2>&1
 )
 
 REM --- 3) Respaldo: matar cualquier python/pythonw que este ejecutando nexus_wake ---

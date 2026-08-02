@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================================
-rem  ABRIR_PUERTO_MOVIL.bat - deja que el movil llegue a nexus por la WiFi.
+rem  scripts\ABRIR_PUERTO_MOVIL.bat - deja que el movil llegue a nexus por WiFi.
 rem
 rem  POR QUE EXISTE (31/07/2026). El QR ofrecia PC_ADRI.local:8177 y el movil se
 rem  comia un "conexion rechazada". Dos causas encadenadas:
@@ -20,14 +20,18 @@ net session >nul 2>&1
 if errorlevel 1 (
   echo.
   echo  [X] Esto necesita permisos de administrador.
-  echo      Cierra esta ventana, clic derecho sobre ABRIR_PUERTO_MOVIL.bat
+  echo      Cierra esta ventana, clic derecho sobre scripts\ABRIR_PUERTO_MOVIL.bat
   echo      y elige "Ejecutar como administrador".
   echo.
   pause
   exit /b 1
 )
 
-set "PY=%~dp0.venv\Scripts\python.exe"
+rem  Este .bat vive en scripts\, pero el .venv esta un nivel mas arriba. Se
+rem  resuelve con %%~fI a ruta ABSOLUTA porque acaba dentro de una regla del
+rem  cortafuegos: netsh compara el program= contra la ruta real del proceso, y
+rem  un "...\scripts\..\.venv\..." sin resolver no casaria con nada.
+for %%I in ("%~dp0..\.venv\Scripts\python.exe") do set "PY=%%~fI"
 if not exist "%PY%" (
   echo  [X] No encuentro %PY%
   echo      Lanza run.bat una vez: el mismo repara el entorno.

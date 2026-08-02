@@ -18,9 +18,9 @@ entre golpes, no dispara. Hacen falta DOS de esos golpes seguidos.
 
 Deja rastro en data/wake.log (qué oye, picos, palmadas) y captura el arranque del
 programa en data/wake_launch.log para diagnosticar si algo fallara. Escribe su PID en
-data/wake.pid para que quitar_arranque_voz.bat pueda pararlo de forma fiable.
+data/wake.pid para que scripts/quitar_arranque_voz.bat pueda pararlo de forma fiable.
 
-Arranque automático al encender Windows: usa instalar_arranque_voz.bat.
+Arranque automático al encender Windows: usa scripts/instalar_arranque_voz.bat.
 """
 from __future__ import annotations
 
@@ -33,7 +33,11 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+# Este archivo vive en scripts/, pero ROOT tiene que ser la RAÍZ del proyecto:
+# de ahí cuelgan .venv/, data/ (log y PID) y el paquete backend que se lanza con
+# `-m backend.desktop`. Apuntando a scripts/ no encontraría ni el intérprete ni
+# el módulo, y las palmadas dejarían de abrir nada.
+ROOT = Path(__file__).resolve().parent.parent
 HOST, PORT = "127.0.0.1", 8177
 
 # ---- parámetros de detección de palmadas (ajustables) ----

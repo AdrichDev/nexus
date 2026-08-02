@@ -6,7 +6,7 @@ PyWebview SIN MARCO (arrastrable desde la cabecera, minimizable desde
 el propio HUD). Si PyWebview no está disponible, abre el navegador.
 
 Ejecución en desarrollo:   python -m backend.desktop
-Ejecución empaquetada:     nexus.exe (PyInstaller, ver nexus.spec)
+Ejecución empaquetada:     nexus.exe (PyInstaller, ver installer/nexus.spec)
 """
 from __future__ import annotations
 

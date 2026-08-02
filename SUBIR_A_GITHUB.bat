@@ -148,18 +148,18 @@ echo.
 echo ============ Revision de seguridad ============
 rem  Primero el detector se prueba A SI MISMO, en silencio: un "LIMPIO" de un
 rem  detector roto es peor que no revisar nada. Solo se ve si algo falla.
-"!PY!" revisar_antes_de_subir.py --autotest >nul 2>&1
+"!PY!" scripts\revisar_antes_de_subir.py --autotest >nul 2>&1
 if errorlevel 1 (
   echo [X] El PROPIO detector no pasa su autocomprobacion. No me fio de su
   echo     veredicto, asi que no subo nada. Detalle:
   echo.
-  "!PY!" revisar_antes_de_subir.py --autotest
+  "!PY!" scripts\revisar_antes_de_subir.py --autotest
   call :deshacer
   goto :fin
 )
 echo  [OK] el detector pasa su autocomprobacion ^(15 casos^)
 echo.
-"!PY!" revisar_antes_de_subir.py
+"!PY!" scripts\revisar_antes_de_subir.py
 if errorlevel 1 (
   echo.
   echo ============================================================

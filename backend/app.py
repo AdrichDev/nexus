@@ -144,7 +144,7 @@ async def remote_auth(request, call_next):
     Antes esto solo pedía el token CUANDO la petición traía la cabecera
     `cf-connecting-ip` (la que añade el túnel). Todo lo demás —cualquier
     dispositivo de la WiFi, o de internet si se reenviaba el puerto 8177 como
-    sugería MOBILE.md— entraba SIN NINGUNA CREDENCIAL a /api/command, o sea, a
+    sugería docs/MOBILE.md— entraba SIN NINGUNA CREDENCIAL a /api/command, o sea, a
     dar órdenes al PC. Lo único que protegía era que uvicorn escucha en
     127.0.0.1 (auditoría 30/07/2026).
 

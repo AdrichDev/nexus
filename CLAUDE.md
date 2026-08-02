@@ -69,8 +69,27 @@ Playwright, si hace falta para la e2e (una sola vez, ~130 MB):
 SUBIR_A_GITHUB.bat
 ```
 
-Llama a `revisar_antes_de_subir.py`, que audita el índice de git en busca de
-secretos y **aborta** si encuentra uno. No hagas `git push` saltándotelo.
+Llama a `scripts/revisar_antes_de_subir.py`, que audita el índice de git en busca
+de secretos y **aborta** si encuentra uno. No hagas `git push` saltándotelo.
+
+## Dónde vive cada cosa en la raíz
+
+En la raíz solo se queda lo que exige el sistema (`.gitignore`), la convención
+(`README.md`, `requirements*.txt`), la herramienta (`CLAUDE.md`) o el doble clic
+del usuario (`run.bat`, `INSTALAR_nexus.bat`, `SUBIR_A_GITHUB.bat`). El resto:
+
+- `installer/` — empaquetado y arte del instalador: `build_exe.bat`,
+  `build_installer.bat`, `nexus.spec`, `nexus_installer.nsi`, `.ico` y `.bmp`.
+  Los dos `.bat` hacen `cd /d "%~dp0.."`: **trabajan desde la raíz**, porque de
+  ahí cuelgan `.venv`, `frontend`, `skills` y ahí tiene que salir `dist\`.
+- `scripts/` — utilidades que no se tocan a diario: arranque por palmadas
+  (`nexus_wake.*`, `instalar_arranque_voz.bat`, `quitar_arranque_voz.bat`),
+  `ABRIR_PUERTO_MOVIL.bat` y `revisar_antes_de_subir.py`. Mismo criterio: su
+  raíz de trabajo es la del proyecto, un nivel por encima.
+- `assets/` — imágenes del producto (`logo.png`). **No confundir con
+  `frontend/logo.png`**, que es otro archivo distinto y es el que sirve el HUD
+  en `/static/logo.png`.
+- `docs/` — documentación (`SPECS*.md`, `MOBILE.md`, `PETICIONES_ANALISIS.md`).
 
 ## Cómo se enrutan las órdenes
 

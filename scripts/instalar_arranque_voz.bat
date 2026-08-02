@@ -1,12 +1,15 @@
 @echo off
 setlocal
 title nexus - Arranque por palmadas
-cd /d "%~dp0"
+REM  Este .bat vive en scripts\, pero el proyecto (.venv, data\) esta un nivel
+REM  mas arriba. APPDIR se resuelve con %%~fI para que quede una ruta ABSOLUTA y
+REM  limpia: acaba metida en el registro de Windows, y ahi un "...\scripts\.."
+REM  a medio resolver es una bomba de relojeria.
+cd /d "%~dp0.."
 
-set "APPDIR=%~dp0"
-if "%APPDIR:~-1%"=="\" set "APPDIR=%APPDIR:~0,-1%"
+for %%I in ("%~dp0..") do set "APPDIR=%%~fI"
 set "PYW=%APPDIR%\.venv\Scripts\pythonw.exe"
-set "WAKE=%APPDIR%\nexus_wake.py"
+set "WAKE=%APPDIR%\scripts\nexus_wake.py"
 
 echo.
 echo   ================================================================
@@ -47,7 +50,7 @@ echo   [OK] Escuchador arrancado ya, en segundo plano (sin ventana).
 echo.
 echo   Ahora da DOS PALMADAS seguidas  ->  y el programa se abre solo.
 echo.
-echo   Para quitarlo mas adelante: ejecuta  quitar_arranque_voz.bat
+echo   Para quitarlo mas adelante: ejecuta  scripts\quitar_arranque_voz.bat
 echo.
 pause
 endlocal

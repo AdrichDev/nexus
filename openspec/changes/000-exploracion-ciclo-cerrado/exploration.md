@@ -140,7 +140,8 @@ conclusión cuyos números de respaldo no estén en la entrada calculada.
 
 ## Solape con un roadmap ya acordado
 
-`PETICIONES_ANALISIS.md` (raíz del repositorio, 30/07/2026) es una orden de
+`docs/PETICIONES_ANALISIS.md` (30/07/2026; estaba en la raíz hasta que la fase 0
+de `003-arquitectura-limpia` lo movió a `docs/`) es una orden de
 trabajo que el usuario ya aceptó para `skills/instagram`. La fase 1 está hecha;
 quedan las fases 2 a 6: onboarding y búsqueda de competidores, inteligencia de
 competencia, histórico mensual y anual, **plan mensual con las ideas ya

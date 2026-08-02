@@ -80,7 +80,7 @@ run.bat            :: abre la ventana HUD (o: python -m backend.desktop)
 ## Build a .exe
 
 ```bat
-build_exe.bat      :: → dist\nexus.exe (único ejecutable, sin consola)
+installer\build_exe.bat      :: → dist\nexus.exe (único ejecutable, sin consola)
 ```
 
 ## Conectar tu cuenta de Google (Gmail + Calendar + Tasks)
@@ -205,8 +205,11 @@ nexus/
 ├── skills/           # 8 minions (carpeta + SKILL.md + skill.py)
 ├── config/           # settings.json (editable desde el HUD)
 ├── data/             # memoria grafo, capturas, facturas (runtime)
-├── requirements.txt · .env.example · setup.bat/sh · run.bat
-└── nexus.spec · build_exe.bat   # empaquetado .exe
+├── docs/             # SPECS*.md, MOBILE.md, PETICIONES_ANALISIS.md
+├── assets/           # logo.png del producto (≠ frontend/logo.png, que sirve el HUD)
+├── scripts/          # utilidades: arranque por palmadas, abrir el puerto, revision de secretos
+├── installer/        # nexus.spec · build_exe.bat · nexus_installer.nsi · .ico/.bmp
+└── requirements.txt · .env.example · run.bat · INSTALAR_nexus.bat · SUBIR_A_GITHUB.bat
 ```
 
 ## Qué es real y qué es simulado
