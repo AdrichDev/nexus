@@ -105,11 +105,17 @@ SKILL = {
             r"|(?:comp[aá]ra)\w*\s+(?:me\s+)?(?:mi\s+cuenta\s+)?"
             r"(?:con|contra|vs\.?)\s+(?:la\s+cuenta\s+(?:de\s+)?)?"
             r"(?P<cuentas3>(?!mis?\b|la\s|el\s)@?[\w.]{3,30}(?:\s*(?:,|y)\s*@?[\w.]{3,30})*)"
+            # Sin nombrar a nadie. El `.{0,30}?` deja pasar lo que se interpone
+            # al comparar («compárame MI CUENTA CON la competencia»), que antes
+            # rompia la frase y la mandaba al planificador.
             r"|(?:anal[ií]za|mira|revisa|estudia|examina|comp[aá]ra)\w*\s+"
-            r"(?:a\s+|con\s+|contra\s+|frente\s+a\s+)*(?:la\s+|mi\s+|mis\s+|nuestra\s+)?"
+            r"(?:[^@\n]{0,30}?\s+)?(?:a\s+|con\s+|contra\s+|frente\s+a\s+)*"
+            r"(?:la\s+|mi\s+|mis\s+|nuestra\s+)?"
             r"(?:competencia|competidor\w*|rival\w*)"
-            r"|(?:qu[eé]\s+(?:hacen|publican|suben|est[aá]n\s+haciendo)|c[oó]mo\s+(?:va|est[aá]))"
-            r"\s+(?:la\s+|mi\s+|mis\s+)?(?:competencia|competidor\w*|rival\w*)",
+            # «qué HACE mi competencia» en singular: una competencia, no varias.
+            r"|(?:qu[eé]\s+(?:hacen?|publican?|suben?|est[aá]n?\s+haciendo)"
+            r"|c[oó]mo\s+(?:va|est[aá]|le\s+va))"
+            r"\s+(?:a\s+)?(?:la\s+|mi\s+|mis\s+)?(?:competencia|competidor\w*|rival\w*)",
         # Analizar va ANTES que listar: «analiza mis reels» es analizarlos,
         # no enseñar la lista. Al revés, listar se lo comía.
         # Los dos «[uú]ltim[oa]s?» opcionales admiten las dos formas de decirlo:

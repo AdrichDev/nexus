@@ -63,6 +63,7 @@ ig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ig)
 from backend.core.config import settings                         # noqa: E402
 from backend.core.skills_loader import load_skills, route        # noqa: E402
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 CTX = {"settings": settings, "bus": None}
 load_skills()
@@ -456,7 +457,7 @@ def test_skill_md_no_promete_lo_que_no_hay():
     for intent in ig.SKILL["patterns"]:
         check(intent in doc, f"el SKILL.md documenta {intent}")
     # y la promesa de dónde se configuran las credenciales tiene que ser cierta
-    ui = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    ui = js_hud()
     for clave in ("ig_access_token", "ig_business_account_id"):
         check(clave in ui, f"⚙ → Instagram tiene de verdad el campo {clave}")
 

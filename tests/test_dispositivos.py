@@ -22,6 +22,7 @@ import importlib.util
 import re
 import sys
 from pathlib import Path
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 ROOT = Path(__file__).resolve().parents[1]
 _fail = []
@@ -194,7 +195,7 @@ def test_home_assistant_tambien_devuelve_estado():
 # ══════════════ 3. El HUD pinta lo que dice el backend ══════════════
 
 def test_el_hud_usa_el_estado_del_backend():
-    js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     check("res.state === 'on'" in js, "el HUD hace caso al estado que devuelve nexus")
     check("(state.devices || []).forEach" in js,
           "y lo sincroniza con la rejilla (antes se perdía en otra copia del objeto)")
@@ -314,7 +315,7 @@ def test_el_selector_distingue_disponible_de_en_disco():
     el runtime v24 los decide el BACKEND (una sola clasificación para todos) y
     el navegador solo los pinta. La comprobación de comportamiento real —con un
     Ollama simulado— está en tests/test_llm_runtime.py::test_catalogo."""
-    js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     rt = (ROOT / "backend" / "core" / "llm_runtime.py").read_text(encoding="utf-8")
     check("Ollama no lo está sirviendo" in rt,
           "se marcan los modelos que están solo en el disco")

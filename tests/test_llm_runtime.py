@@ -74,6 +74,7 @@ os.environ["NEXUS_CONFIG_DIR"] = str(_SANDBOX / "config")
 
 from backend.core import llm as _llm                      # noqa: E402
 from backend.core import llm_runtime as rt                # noqa: E402
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 from backend.core import publicvoice as pv                # noqa: E402
 from backend.core.config import settings                  # noqa: E402
 
@@ -197,7 +198,7 @@ def test_clasificacion():
         check(rt.classify_model(m) == "chat", f"«{m}» se reconoce como modelo de conversación")
         check(rt.sirve_de_cerebro(m), f"«{m}» sí se puede usar de cerebro")
     # el HUD ya NO clasifica por su cuenta: lo hace esta función y punto
-    js = (Path(ROOT) / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     check("nomic-embed" not in js,
           "la interfaz ya no tiene su propio regex de embeddings (lo dice el backend)")
 
@@ -422,7 +423,7 @@ def test_sin_fallback_simulado():
 # ══════════════════════════════════════════════════════════════════════════════
 def test_codigo_entregado():
     print("· la interfaz y el servidor están conectados al runtime")
-    js = (Path(ROOT) / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     app = (Path(ROOT) / "backend" / "app.py").read_text(encoding="utf-8")
     llmsrc = (Path(ROOT) / "backend" / "core" / "llm.py").read_text(encoding="utf-8")
 

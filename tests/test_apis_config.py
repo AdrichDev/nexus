@@ -2,6 +2,7 @@
 """APARTADO «APIS» — todas las claves en un solo sitio de la configuración."""
 import re, sys
 from pathlib import Path
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 ROOT = Path(__file__).resolve().parents[1]
 _fail = []; _pass = 0
 try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -12,7 +13,7 @@ def check(c, m):
     else: _fail.append(m); print("  FALLO:", m)
 
 def main():
-    js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     css = (ROOT / "frontend" / "css" / "command.css").read_text(encoding="utf-8")
     cfg = (ROOT / "backend" / "core" / "config.py").read_text(encoding="utf-8")
 

@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 ROOT = Path(__file__).resolve().parents[1]
 _fail = []
@@ -210,7 +211,7 @@ def main() -> int:
         check(st["estable"] is (st["via"] in ("tailscale", "nombre")),
               f"y solo llama «estable» a lo que no cambia al reiniciar "
               f"(via={st['via']}, estable={st['estable']})")
-        js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+        js = js_hud()
         check("dirección FIJA" in js, "el HUD distingue la dirección fija")
         check("CAMBIA cada vez que" in js,
               "y avisa de que la del túnel obliga a revincular tras reiniciar")

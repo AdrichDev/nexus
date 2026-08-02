@@ -28,6 +28,7 @@ def check(cond, msg):
 
 # ---------- utilidades: cargar código REAL del disco ----------
 import types
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 
 def _stub(name):
@@ -379,7 +380,7 @@ def test_white_label_nombre():
     check("assistant_slug()" in app and "{slug}_memoria_postgres" in app and "{slug}_core" in app,
           "white-label: Docker/BD derivan del slug del nombre")
     # frontend + setup
-    js = open(os.path.join(ROOT, "frontend", "js", "command.js"), encoding="utf-8").read()
+    js = js_hud()
     check("function applyBranding" in js and "assistant_name" in js and "assistant_logo" in js,
           "white-label: la interfaz aplica nombre y logo del sistema")
     # el nombre del sistema alimenta el núcleo, el placeholder del chat y la wake word,
@@ -475,7 +476,7 @@ def test_genero_voz():
 
 # ====== TEST 3r: asistente guiado de Home Assistant + validación de token ======
 def test_home_assistant_wizard():
-    js = open(os.path.join(ROOT, "frontend", "js", "command.js"), encoding="utf-8").read()
+    js = js_hud()
     check("ha-wiz" in js and "ha-step" in js and "ha-num" in js, "HA: asistente por pasos numerados")
     # los 3 pasos: añadir integración, crear token (perfil/seguridad), pegar token
     check("/config/integrations/dashboard" in js, "HA: paso 1 abre «Añadir integración» directo")
@@ -527,7 +528,7 @@ def test_domotica_por_nombre():
 
 # ====== TEST 3p: Núcleo IA v2 — 3 tarjetas + configurar cerebro de Hermes ======
 def test_nucleo_ia_ui():
-    js = open(os.path.join(ROOT, "frontend", "js", "command.js"), encoding="utf-8").read()
+    js = js_hud()
     check("ac-cards" in js and "ac-card" in js, "núcleo IA: contenedor de 3 tarjetas")
     check("CLOUD_PROVS" in js and "HERMES_PROVS" in js, "núcleo IA: mapas de proveedores cloud y Hermes")
     check("ac-cloudprov" in js and "ac-cloudmodel" in js and "ac-cloudkey" in js,
@@ -585,7 +586,7 @@ def test_hermes_upstream_auth():
 
 # ====== TEST 3n: kanban con drag & drop entre columnas ======
 def test_kanban_drag_drop():
-    js = open(os.path.join(ROOT, "frontend", "js", "command.js"), encoding="utf-8").read()
+    js = js_hud()
     check('draggable="true"' in js, "kanban: las tarjetas son arrastrables")
     check("dragstart" in js and "'drop'" in js and "dragover" in js,
           "kanban: handlers de arrastrar y soltar")
@@ -598,7 +599,7 @@ def test_kanban_drag_drop():
 
 # ============ TEST 3k: UI Dispositivos — sin doble-disparo y estado honesto ============
 def test_devices_ui_no_doblefuego():
-    js = open(os.path.join(ROOT, "frontend", "js", "command.js"), encoding="utf-8").read()
+    js = js_hud()
     # 1) NADA de listener por-botón en cada render (era la causa del doble-disparo)
     check("querySelectorAll('[data-a]').forEach" not in js,
           "dispositivos: ya no engancha un listener por botón en cada render")

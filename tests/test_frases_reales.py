@@ -22,6 +22,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -181,7 +182,7 @@ def test_el_id_de_cuenta_vale_lo_pongas_donde_lo_pongas():
         settings.set("ig_user_id", antes[0])
         settings.set("ig_business_account_id", antes[1])
     # y en la pantalla ya no hay dos campos para lo mismo
-    js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     check("k: 'ig_user_id'" not in js,
           "en Configuración → APIS ya no hay un segundo campo para el mismo número")
     check("ig_business_account_id" in js, "queda el que vale para todo")
@@ -455,9 +456,63 @@ def test_cerrar_y_abrir_son_ordenes_de_pc(load_skills=None):
               f"«{frase}» es de {dueno} y va a " + (f"{r[0].folder}" if r else "el planificador"))
 
 
+def test_pedir_ideas_y_mirar_la_competencia(load_skills=None):
+    """02/08/2026. «Aportar ideas» es la mitad del producto y casi ninguna de
+    sus frases llegaba: las resolvía el planificador.
+
+    De doce formas naturales de pedir ideas, ocho caían al planificador —«dame
+    ideas», «proponme ideas», «lluvia de ideas», «qué publico esta semana»—
+    porque el patrón exigía decir «ideas DE CONTENIDO» o «PARA INSTAGRAM». Lo
+    mismo con los guiones: el tema era obligatorio, así que «hazme un guion»
+    no existía.
+
+    Y en competencia faltaban dos formas: «qué HACE mi competencia» (el patrón
+    solo aceptaba el plural «hacen») y «compara MI CUENTA CON la competencia»
+    (lo interpuesto rompía la frase).
+
+    El límite: pedir ideas a secas es pedir ideas DE CONTENIDO, pero «dame
+    ideas de cena» no lo es. Por eso el complemento, si lo hay, tiene que ser
+    del dominio.
+    """
+    from backend.core import skills_loader as sl
+    sl.load_skills()
+
+    def ruta(f):
+        r = sl.route(f)
+        return f"{r[0].folder}/{r[1]}" if r else None
+
+    for frase in ("dame ideas", "dame más ideas", "proponme ideas", "propón ideas",
+                  "sugiéreme ideas", "quiero ideas", "necesito ideas",
+                  "lluvia de ideas", "ideas para reels", "ideas de contenido",
+                  "dame ideas de contenido", "dame ideas para instagram",
+                  "sugiéreme contenido", "qué publico", "qué publico esta semana",
+                  "qué subo hoy", "qué cuelgo mañana", "qué puedo publicar"):
+        check(ruta(frase) == "content_os/ideas", f"«{frase}» va a {ruta(frase)}")
+
+    for frase in ("dame guiones", "hazme un guion", "escríbeme un guion",
+                  "necesito guiones", "quiero un guion", "crea un guion de reel",
+                  "genérame un guion sobre gatos"):
+        check(ruta(frase) == "content_os/script", f"«{frase}» va a {ruta(frase)}")
+
+    # Pedir ideas de algo que NO es contenido no es cosa de Content OS.
+    for frase in ("dame ideas de cena", "ideas de cena", "ideas para el regalo"):
+        check(ruta(frase) != "content_os/ideas",
+              f"«{frase}» no es contenido y se lo queda Content OS")
+
+    for frase in ("analiza la competencia", "mira la competencia",
+                  "compara mi cuenta con la competencia", "compárame con la competencia",
+                  "qué hace mi competencia", "qué hacen mis competidores",
+                  "cómo le va a la competencia", "analiza a mi competencia"):
+        check(ruta(frase) == "instagram/ig_competencia", f"«{frase}» va a {ruta(frase)}")
+
+    for frase in ("descubre competencia", "búscame competencia", "busca competidores"):
+        check(ruta(frase) == "instagram/ig_descubrir", f"«{frase}» va a {ruta(frase)}")
+
+
 def main() -> int:
     for f in (test_analizar_una_cuenta_sin_arroba, test_lo_mio_sigue_siendo_mio,
               test_cerrar_y_abrir_son_ordenes_de_pc,
+              test_pedir_ideas_y_mirar_la_competencia,
               test_marcar_una_tarea_como_hecha, test_el_tablero_no_revienta_sin_grupos,
               test_marcar_de_punta_a_punta,
               test_el_id_de_cuenta_vale_lo_pongas_donde_lo_pongas,

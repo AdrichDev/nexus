@@ -22,6 +22,7 @@ import tempfile
 import time
 import types
 from pathlib import Path
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _fail = []
@@ -423,10 +424,10 @@ def test_today_payload_y_hud():
     # redistribuye (tiempo al header, tareas a Tareas, trabajos a Multitarea).
     # El payload /api/today sigue vivo porque lo usan el móvil y el briefing.
     check('data-view="today"' not in idx, "HUD v23: la entrada «Hoy» ya no está en el nav")
-    js_ = open(os.path.join(ROOT, "frontend", "js", "command.js"), encoding="utf-8").read()
+    js_ = js_hud()
     check("if (view === 'today') view = 'command';" in js_,
           "HUD v23: la ruta antigua de «Hoy» redirige, no rompe")
-    js = open(os.path.join(ROOT, "frontend", "js", "command.js"), encoding="utf-8").read()
+    js = js_hud()
     check("views.today" in js and "loadToday" in js and "/api/today" in js,
           "HUD: vista Hoy con carga desde /api/today")
 

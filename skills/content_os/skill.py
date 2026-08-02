@@ -52,12 +52,42 @@ SKILL = {
         "patterns": r"anal[ií]za(?:me)? (?:los )?patrones(?: de inspiraci[oó]n)?"
                     r"|qu[eé] patrones? (?:hay|ves|se repiten)|patrones ganadores"
                     r"|qu[eé] (?:ganchos?|estructuras?) (?:funcionan|se repiten)",
-        "script": r"(?:g[eé]nera(?:me)?|escr[ií]be(?:me)?|cr[eé]a(?:me)?|h[aá]z(?:me)?|"
-                  r"prep[aá]ra(?:me)?|red[aá]cta(?:me)?)\s+(?:un\s+)?"
-                  r"gui[oó]n(?:\s+de\s+reel)?\s+(?:sobre|de|para)\s+(?P<topic>.+)",
-        "ideas": r"dame ideas de contenido|(?:dame|quiero|necesito) ideas (?:de|para) "
-                 r"(?:reels|contenido|instagram)|ideas para (?:reels|instagram)"
-                 r"|qu[eé] (?:subo|publico|puedo subir|puedo publicar) (?:en|a) instagram",
+        # El tema es OPCIONAL: «hazme un guion» a secas es una peticion legitima
+        # y antes acababa en el planificador. Sin tema, el handler lo saca del
+        # plan de contenido.
+        # «genérame» lleva la tilde en la SEGUNDA e (g-e-n-é-r-a-m-e), no en la
+        # primera: el patrón viejo solo aceptaba «génera» y se perdía la forma
+        # que se escribe de verdad.
+        "script": r"(?:g[eé]n[eé]ra(?:me)?|escr[ií]be(?:me)?|cr[eé]a(?:me)?|h[aá]z(?:me)?|"
+                  r"prep[aá]ra(?:me)?|red[aá]cta(?:me)?|dame|quiero|necesito)\s+"
+                  r"(?:un\s+|unos\s+|el\s+|los\s+)?"
+                  r"gui[oó]n(?:es)?(?:\s+de\s+reels?)?"
+                  r"(?:\s+(?:sobre|de|para)\s+(?P<topic>.+))?$",
+        # IDEAS. Antes exigia ancla de dominio («ideas DE CONTENIDO», «ideas PARA
+        # INSTAGRAM»), y las formas que se dicen de verdad —«dame ideas»,
+        # «proponme ideas», «lluvia de ideas», «que publico esta semana»— no
+        # casaban con nada y las resolvia el planificador, que es donde se
+        # inventa cosas. nexus es el asistente de contenido de su dueño: pedirle
+        # ideas a secas es pedirle ideas de contenido.
+        "ideas": r"(?:dame|proponme|prop[oó]n(?:me)?|sugi[eé]re(?:me)?|quiero|necesito|"
+                 r"escupe(?:me)?|s[aá]came|tira(?:me)?)\s+"
+                 r"(?:m[aá]s\s+|otras\s+|unas\s+|algunas\s+)?ideas\b"
+                 # O termina ahi —«dame ideas» a secas, que es lo que se dice— o
+                 # lleva complemento DE CONTENIDO. Sin esta segunda condicion,
+                 # «dame ideas de cena» acabaria en el plan de publicaciones.
+                 r"(?:\s*[?¿!.]*$"
+                 r"|\s+(?:de|para|sobre)\s+(?:reels?|contenido|instagram|ig|publicar|"
+                 r"la\s+semana|el\s+canal|el\s+perfil|v[ií]deos?|posts?|publicaciones|"
+                 r"tiktok|youtube|guiones?|redes(?:\s+sociales)?))"
+                 r"|\blluvia de ideas\b|\bbrainstorm\w*\b"
+                 # Sin verbo delante: «ideas para reels» es una orden completa.
+                 r"|^\s*ideas\s+(?:de|para|sobre)\s+(?:reels?|contenido|instagram|ig|"
+                 r"publicar|la\s+semana|el\s+canal|el\s+perfil|v[ií]deos?|posts?|"
+                 r"publicaciones|tiktok|youtube|guiones?|redes(?:\s+sociales)?)"
+                 r"|(?:sugi[eé]re(?:me)?|dame|proponme|prop[oó]n(?:me)?)\s+(?:m[aá]s\s+)?contenido\b"
+                 r"|qu[eé] (?:subo|publico|puedo subir|puedo publicar|cuelgo|saco)"
+                 r"(?:\s+(?:en|a)\s+instagram)?"
+                 r"(?:\s+(?:esta\s+semana|hoy|ma[ñn]ana|ahora))?\s*[?¿!.]*$",
     },
 }
 
@@ -123,6 +153,27 @@ def _load_inspirations() -> list[dict]:
         except Exception:
             pass
     return items
+
+
+def _proximo_del_plan() -> str:
+    """Titulo de lo primero que queda por publicar, para «hazme un guion» sin tema.
+
+    Se mira el calendario de contenido y, si no queda nada pendiente ahi, la
+    lista de ideas. Devuelve cadena vacia si no hay de donde sacarlo: entonces
+    se pregunta, que es mejor que elegir un tema al azar.
+    """
+    try:
+        from backend.core import contentos
+        datos = contentos._load()
+    except Exception:                                      # noqa: BLE001
+        return ""
+    for item in (datos.get("calendar") or []):
+        if str(item.get("status", "")).lower() != "publicado" and item.get("title"):
+            return str(item["title"]).strip()
+    for idea in (datos.get("ideas") or []):
+        if str(idea).strip():
+            return str(idea).strip()
+    return ""
 
 
 # ---------------------------------------------------------------- handler
@@ -250,7 +301,18 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          "\n\nDi «genera un guion sobre <tema>» y aplico estos patrones a tu contenido."}
 
     if intent == "script":
-        topic = match.group("topic").strip().rstrip(".")
+        # El tema es opcional: «hazme un guion» a secas es una peticion legitima.
+        # Sin tema se coge la primera idea del plan de contenido; si tampoco hay
+        # plan, se pide el tema en vez de inventarse uno.
+        topic = (match.groupdict().get("topic") or "").strip().rstrip(".")
+        aviso_tema = ""
+        if not topic:
+            topic = _proximo_del_plan()
+            if not topic:
+                return {"reply": "¿Sobre qué? Dime el tema —«hazme un guion sobre X»— o "
+                                 "pídeme antes «dame ideas» y escribo el guion de la que elijas."}
+            aviso_tema = ("No me has dicho el tema, así que he cogido lo primero que "
+                          f"tienes en el plan: «{topic}».\n\n")
         from backend.core.llm import ask_llm
         insp = _load_inspirations()
         pat_note = graph.search("patrones", 3)
@@ -271,8 +333,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         safe = re.sub(r"[^\w ]", "", topic)[:30].strip()
         out = SCRIPTS_DIR / f"guion-{safe}-{dt.datetime.now():%H%M%S}.md"
         out.write_text(f"# Guion: {topic}\n\n{script}\n", encoding="utf-8")
-        return {"reply": aviso + f"Guion sobre «{topic}» listo "
-                                 f"(data/scripts/{out.name}):\n\n{script[:1000]}"}
+        return {"reply": aviso_tema + aviso + f"Guion sobre «{topic}» listo "
+                                              f"(data/scripts/{out.name}):\n\n{script[:1000]}"}
 
     if intent == "ideas":
         from backend.core.llm import ask_llm

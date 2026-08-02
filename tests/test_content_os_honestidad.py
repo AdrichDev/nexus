@@ -84,6 +84,7 @@ _spec.loader.exec_module(co)
 
 from backend.core.config import settings                           # noqa: E402
 from backend.core.skills_loader import load_skills, route          # noqa: E402
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 CTX = {"settings": settings, "graph": None, "pg": None, "bus": None}
 SKILL_PY = (ROOT / "skills" / "content_os" / "skill.py").read_text(encoding="utf-8")
@@ -546,7 +547,7 @@ def test_evidencia_y_aprendizajes():
 
 def test_hud_contrato():
     print("· el HUD se niega a pintar lo que no trae sobre")
-    js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     html = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
     css = (ROOT / "frontend" / "css" / "command.css").read_text(encoding="utf-8")
 
@@ -562,8 +563,17 @@ def test_hud_contrato():
           "el HUD sigue leyendo los deltas sueltos que ya no existen")
     check(js.count("cosMarca(") >= 4,
           "el modo demostración no está marcado en CADA bloque, solo en la cabecera")
-    check(html.count("?v=29") >= 2 and "?v=28" not in html,
-          "falta subir el cache-busting a ?v=29 en frontend/index.html (líneas 9 y 126)")
+    # El ?v=NN a mano se retiró en la Fase 2 y NO debe volver. Dos motivos:
+    # backend/app.py ya sirve /static con Cache-Control: no-store, así que no
+    # cacheaba nada; y command.js es un módulo ES, cuyos import no heredan la
+    # query — subir el número habría refrescado la hoja y dejado los módulos
+    # viejos, que es peor que no hacer nada porque parece que sí funciona.
+    # Se mira solo src= y href=: en los comentarios sí se puede nombrar.
+    import re as _re
+    con_query = _re.findall(r'(?:src|href)="[^"]*\?v=[^"]*"', html)
+    check(not con_query,
+          "ha vuelto el cache-busting manual (?v=NN) a frontend/index.html; /static ya "
+          "va con Cache-Control: no-store y la query no se propaga a los import")
     check(".cos-marca" in css, "faltan los estilos de la marca de origen")
 
 

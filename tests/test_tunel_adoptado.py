@@ -34,6 +34,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -453,7 +454,7 @@ def _prueba_umbral_cache():
     # El HUD pregunta cada 45 s (setInterval(refreshDevices, 45000)). Si la caché
     # dura MENOS, siempre está fría y se paga la resolución mDNS entera en cada
     # refresco: es exactamente el bug que congelaba nexus 4,3 s cada 45.
-    js = (ROOT / "frontend" / "js" / "command.js").read_text(encoding="utf-8")
+    js = js_hud()
     import re as _re
     m = _re.search(r"setInterval\(\s*refreshDevices\s*,\s*(\d+)\s*\)", js)
     intervalo = int(m.group(1)) / 1000.0 if m else 45.0
