@@ -111,31 +111,48 @@ check("mouseenter" in JS and "knCentraEn" in JS,
       "el árbol no está conectado al grafo: pasar el ratón debería resaltar y "
       "pulsar debería centrar")
 
-print("== 5) MEMORIA: es el grafo que se mira de verdad ==")
+print("== 5) UNA sola pantalla de nodos, y sin skills ==")
 
-# El primer intento se hizo sobre «Nodos de conocimiento», que es otra pantalla.
-# El grafo que Adrián usa está en MEMORIA (#mem-graph), y es el que tenía el
-# fallo de apilarse contra los bordes.
-check("mem-split" in SPA and "mem-tree" in SPA,
-      "Memoria no tiene el árbol de carpetas a la izquierda")
-check("mem-zoom" in SPA and "mem-zlabel" in SPA, "Memoria no tiene control de zoom")
-check("pintaArbolMemoria" in SPA, "el árbol de Memoria no se rellena")
-check("if (!ev.ctrlKey) return;" in SPA,
-      "el zoom de Memoria no exige Ctrl, o directamente no existe")
-check(re.search(r"const MW = \d+, MH = \d+", SPA) is not None,
-      "el grafo de Memoria no tiene MUNDO propio: sin él, arrastrar contra un "
-      "borde vuelve a apilar los nodos")
-check("Math.min(MW - 24, n.x + dx)" in SPA,
-      "el arrastre de Memoria sigue recortando contra la VENTANA en vez de "
-      "contra el mundo, que es justo lo que apilaba")
-check("(ev.clientX - r.left) / z + ox" in SPA,
-      "Memoria no convierte de pantalla a mundo: con zoom, el nodo salta")
-check(re.search(r"#mem-graph-wrap\{[^}]*overflow:hidden", CSS) is not None,
-      "el grafo de Memoria no recorta y puede estirar el panel")
-check("g.carpetas" in SPA and "g.raiz" in SPA,
-      "Memoria no usa las carpetas del backend, así que no agrupa por carpeta madre")
+# Había DOS grafos: «Nodos de conocimiento» (nexus + las 32 skills + notas) y
+# «Memoria» (solo notas), cada uno con su motor. Adrián: las skills no aportan
+# nada ahí porque ya tienen su sección «Habilidades». Se queda una pantalla.
+HTML = (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
+check('data-view="knowledge"' not in HTML,
+      "sigue habiendo dos entradas de nodos en el menú")
+check("views.knowledge" not in SPA, "la vista duplicada sigue definida")
+check("Nodos de conocimiento</span></a>" in HTML,
+      "la entrada del menú no se llama «Nodos de conocimiento»")
+check("CATALOG[k].label" not in JS,
+      "el grafo sigue pintando las 32 skills: eso es la sección Habilidades")
+check("mem-graph" not in SPA,
+      "queda el canvas viejo de Memoria; el motor tiene que ser uno solo")
+check("await mountKnowledge()" in SPA,
+      "la pantalla no usa el motor de nodos (arrastrables, con ventanitas)")
 
-print("== 6) el grafo real trae carpetas y enlaces de hermanas ==")
+print("== 6) el sistema en el centro y todo colgando de él ==")
+
+check("label: sysName()" in JS,
+      "el nodo central no lleva el nombre del sistema")
+check("function sysName" in JS and "assistant_name" in JS,
+      "el nombre está escrito a fuego: quien instale esto puede llamarlo de otra manera")
+check("edges.push([core, n])" in JS,
+      "las carpetas no cuelgan del núcleo")
+check("porCarpeta['']" in JS or 'porCarpeta[""]' in JS,
+      "las notas sueltas no se enganchan a nada y quedan flotando")
+
+print("== 7) el árbol se pliega y se despliega ==")
+
+check("knPlegadas" in JS, "no hay estado de plegado")
+check("kn-tw" in JS and "data-fold" in JS,
+      "no hay triángulo de plegar, o no es zona propia (pulsarlo abriría la nota)")
+check("e.stopPropagation()" in JS,
+      "el clic del triángulo se propaga y abre la nota además de plegar")
+check(re.search(r"\.kn-folder\.plegada[^{]*\{[^}]*display:none", CSS) is not None,
+      "plegar una carpeta no oculta sus archivos")
+check("kn-raiz" in JS and ".kn-raiz" in CSS,
+      "no hay nodo raíz en el árbol: tiene que salir el sistema y de él las carpetas")
+
+print("== 8) el grafo real trae carpetas y enlaces de hermanas ==")
 
 from backend.core import memory as M                       # noqa: E402
 

@@ -436,7 +436,7 @@ body::after{
    la derecha. El grafo es una VENTANA (overflow:hidden) sobre un mundo mayor:
    así arrastrar un nodo contra un borde ya no puede estirar el contenedor ni
    recolocar el resto (era lo que comprimía y apilaba el grafo). */
-#kn-split{display:flex;gap:14px;height:calc(100vh - 260px);min-height:440px}
+#kn-split{display:flex;gap:14px;height:560px;min-height:420px}
 #kn-tree{flex:0 0 250px;overflow:auto;padding:10px;border:1px solid var(--line);
   border-radius:12px;background:rgba(6,14,24,.45)}
 #kn-stage{position:relative;flex:1;min-width:0;overflow:hidden;
@@ -445,11 +445,23 @@ body::after{
 #kn-world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
 #kn-links{position:absolute;top:0;left:0}
 
-/* árbol de carpetas */
-.kn-folder{margin-bottom:12px;border-left:2px solid var(--c);padding-left:8px}
-.kn-fname{font-size:12px;font-weight:700;color:var(--c);cursor:pointer;
-  padding:2px 0;letter-spacing:.4px;text-shadow:0 0 8px var(--c)}
+/* árbol de carpetas — como el de cualquier proyecto: raíz (el sistema), sus
+   carpetas y los archivos de cada una, todo plegable */
+.kn-raiz{font-size:12.5px}
+.kn-rname{display:flex;align-items:center;gap:4px;font-weight:700;color:var(--cy);
+  letter-spacing:.6px;padding:2px 0;text-shadow:0 0 10px var(--cy)}
+.kn-rname b{color:var(--txt-dim);font-weight:400;font-size:10px}
+.kn-raiz > .kn-hijos{padding-left:10px;margin-left:5px;border-left:1px solid var(--line)}
+.kn-folder{margin:6px 0;border-left:2px solid var(--c);padding-left:8px}
+.kn-fname{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:700;
+  color:var(--c);cursor:pointer;padding:2px 0;letter-spacing:.4px;text-shadow:0 0 8px var(--c)}
 .kn-fname b{color:var(--txt-dim);font-weight:400;font-size:10px}
+.kn-fl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* el triángulo es zona propia: pulsarlo pliega, no abre la nota */
+.kn-tw{cursor:pointer;width:14px;flex:0 0 14px;text-align:center;color:var(--txt-dim);
+  user-select:none;font-size:10px}
+.kn-tw:hover{color:var(--cy)}
+.kn-folder.plegada > .kn-hijos, .kn-raiz.plegada > .kn-hijos{display:none}
 .kn-file{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--txt-dim);
   padding:3px 0 3px 6px;cursor:pointer;border-radius:6px}
 .kn-file i{width:7px;height:7px;border-radius:50%;background:var(--c);

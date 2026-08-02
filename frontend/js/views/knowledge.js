@@ -104,20 +104,16 @@ function knLimitaVista() {
 function knAjustar() {
   const stage = $('#kn-stage');
   if (!stage || !knNodes.length) return;
-  // Se encuadra EL CONOCIMIENTO, no las 32 skills. Esta pantalla es la de tus
-  // notas: si el ajuste tiene que meter también el anillo entero de módulos, el
-  // racimo de documentos acaba diminuto y en una esquina. Las skills siguen ahí,
-  // alrededor; para verlas basta con alejar.
-  const foco = knNodes.filter((n) => n.note || n.carpeta);
-  const usar = foco.length > 1 ? foco : knNodes;
-  const xs = usar.map((n) => n.x), ys = usar.map((n) => n.y);
-  const x0 = Math.min(...xs) - 90, x1 = Math.max(...xs) + 90;
-  const y0 = Math.min(...ys) - 90, y1 = Math.max(...ys) + 90;
-  // SUELO del ajuste automático. Meter 36 nodos en la ventana daba un 39%: se
-  // veía todo y no se leía nada. Por debajo de este suelo se prefiere dejar algo
-  // fuera —para eso está arrastrar el fondo— antes que un grafo ilegible. El
-  // zoom MANUAL sí puede bajar hasta ZOOM_MIN: ahí lo pides tú.
-  const AJUSTE_MIN = 0.6;
+  // Se encuadra TODO, núcleo incluido. Antes se excluía el núcleo para que las
+  // 32 skills no comieran la vista; sin skills eso ya no hace falta, y dejarlo
+  // fuera descolocaba el centro del grafo.
+  const xs = knNodes.map((n) => n.x), ys = knNodes.map((n) => n.y);
+  const x0 = Math.min(...xs) - 80, x1 = Math.max(...xs) + 80;
+  const y0 = Math.min(...ys) - 80, y1 = Math.max(...ys) + 80;
+  // SUELO del ajuste automático: por debajo de aquí no se lee nada, y se
+  // prefiere dejar algo fuera —para eso está arrastrar el fondo—. El zoom
+  // MANUAL sí puede bajar hasta ZOOM_MIN: ahí lo pides tú.
+  const AJUSTE_MIN = 0.5;
   const z = Math.min(ZOOM_MAX, Math.max(AJUSTE_MIN,
     Math.min(stage.clientWidth / (x1 - x0), stage.clientHeight / (y1 - y0))));
   knView.z = z;
@@ -168,29 +164,30 @@ export function mountKnowledge() {
     });
     return n;
   };
-  const core = place({ core: 1, key: 'nexus', label: 'nexus', color: '#22d3ee', x0: cx, y0: cy });
+  // EL SISTEMA EN EL CENTRO, y todo lo demás colgando de él. El nombre no está
+  // escrito a fuego: quien instale esto puede llamarlo como quiera, y aquí se
+  // lee de la configuración.
+  const core = place({ core: 1, key: 'nexus', label: sysName(), color: '#22d3ee',
+    x0: cx, y0: cy });
   core.fixed = true;
-  // Las 32 skills van FUERA y tu conocimiento DENTRO. Estaba al revés: los
-  // módulos ocupaban el anillo cercano y los documentos quedaban en la periferia,
-  // así que la pantalla de «nodos de conocimiento» se abría enseñando sobre todo
-  // fontanería. Lo que importa aquí son tus notas.
-  const keys = Object.keys(CATALOG), R = Math.min(W, H) * 0.42;
-  keys.forEach((k, i) => {
-    const a = i / keys.length * Math.PI * 2 - Math.PI / 2;
-    place({ folder: k, key: 'skill:' + k, label: CATALOG[k].label, color: CATALOG[k].color,
-      x0: cx + Math.cos(a) * R * 1.35, y0: cy + Math.sin(a) * R });
-  });
+  // Aquí NO van las skills. Tenían su propia órbita de 32 nodos y no aportaban
+  // nada: para eso está la sección «Habilidades», que las lista con su
+  // descripción y sus acciones. Esta pantalla es la del CONOCIMIENTO.
   api('/api/graph').then((g) => {
     const gn = (g?.nodes || []), ge = (g?.edges || []);
     const carpetas = g?.carpetas || {}, raices = g?.raiz || [];
     const groupOf = computeMemGroups(gn, ge);   // enlazadas o de la misma carpeta = mismo color
     // Las carpetas se colocan en su propia órbita, y sus archivos EN RACIMO
     // alrededor de la suya: así se ve de un vistazo qué depende de qué.
-    const R3 = Math.min(W, H) * 0.15;      // carpetas: anillo INTERIOR
+    // El panel es APAISADO (mas ancho que alto), asi que los anillos son elipses:
+    // repartir en circulo dejaba la mitad de los nodos fuera de la ventana por
+    // arriba y por abajo mientras sobraba sitio a los lados.
+    const R3 = Math.min(W, H) * 0.17;      // carpetas: primer anillo tras el núcleo
+    const AY = 0.62;                        // achatamiento vertical
     const centroCarpeta = {};
     raices.forEach((c, i) => {
-      const a = i / Math.max(1, raices.length) * Math.PI * 2 + 0.9;
-      const x0 = cx + Math.cos(a) * R3 * 1.25, y0 = cy + Math.sin(a) * R3;
+      const a = i / Math.max(1, raices.length) * Math.PI * 2 - Math.PI / 2;
+      const x0 = cx + Math.cos(a) * R3 * 1.6, y0 = cy + Math.sin(a) * R3 * AY * 1.6;
       centroCarpeta[c] = { x0, y0 };
       place({ carpeta: 1, key: 'note:' + c, raw: c, group: groupOf[c],
         label: c.length > 16 ? c.slice(0, 15) + '…' : c,
@@ -201,30 +198,35 @@ export function mountKnowledge() {
     sueltas.forEach((n) => { (porCarpeta[carpetas[n] || ''] = porCarpeta[carpetas[n] || ''] || []).push(n); });
     Object.entries(porCarpeta).forEach(([c, miembros]) => {
       const base = centroCarpeta[c] || { x0: cx, y0: cy };
-      const rad = c ? 150 : Math.min(W, H) * 0.24;   // sueltas: entre carpetas y skills
+      // Las de una carpeta, en racimo alrededor de ella. Las sueltas, en un
+      // anillo más lejos: cuelgan del núcleo, no de ninguna carpeta.
+      const rad = c ? 165 : Math.min(W, H) * 0.30;
       miembros.forEach((nm, i) => {
         const a = i / Math.max(1, miembros.length) * Math.PI * 2 + (c ? 0.2 : 0.4);
         place({ note: 1, key: 'note:' + nm, raw: nm, group: groupOf[nm],
           label: nm.length > 15 ? nm.slice(0, 14) + '…' : nm,
           color: memGroupColor[nm] || knNoteColor(nm),
-          x0: (c ? base.x0 : cx) + Math.cos(a) * rad * (c ? 1 : 1.3),
-          y0: (c ? base.y0 : cy) + Math.sin(a) * rad });
+          x0: (c ? base.x0 : cx) + Math.cos(a) * rad * (c ? 1 : 1.6),
+          y0: (c ? base.y0 : cy) + Math.sin(a) * rad * (c ? 1 : AY * 1.6) });
       });
     });
     edges = ge.map(([f, t]) => [byKey['note:' + f], byKey['note:' + t]])
       .filter(([a, b]) => a && b && a !== b);
+    // TODO CUELGA DEL NÚCLEO. Las carpetas se enganchan a él directamente; las
+    // notas sueltas —las que no son de ninguna carpeta— también, porque si no
+    // quedarían flotando sin explicar de dónde salen.
+    raices.forEach((c) => { const n = byKey['note:' + c]; if (n) edges.push([core, n]); });
+    (porCarpeta[''] || []).forEach((nm) => {
+      const n = byKey['note:' + nm]; if (n) edges.push([core, n]);
+    });
     knPintaArbol(raices, porCarpeta, carpetas);
     knAjustar();
   });
   // Nodos QUIETOS: se quedan donde están; solo se mueven si los arrastras.
   function frame() {
     ctx.clearRect(0, 0, W, H);
+    // El núcleo se queda quieto en el centro: es el ancla de todo lo demás.
     const coreN = nodes.find((n) => n.core); if (coreN) { coreN.x = cx; coreN.y = cy; }
-    for (const n of nodes) {
-      if (n.core || n.note) continue;                    // radios solo a skills y carpetas
-      ctx.strokeStyle = n.color + '38'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(n.x, n.y); ctx.stroke();
-    }
     ctx.lineWidth = 1.2;
     for (const [a, b] of edges) {
       ctx.strokeStyle = (a.color || '#7cf6c0') + (a.hl || b.hl ? 'cc' : '55');
@@ -259,30 +261,63 @@ export function mountKnowledge() {
   });
 }
 
-/** El árbol de la izquierda: carpetas, sus archivos, y lo que anda suelto. */
+/** Nombre del sistema. No se escribe a fuego: quien instale esto lo llama como quiera. */
+function sysName() {
+  const c = state.config || {};
+  return ((c.assistant_name || 'nexus').trim()) || 'nexus';
+}
+
+/** Qué carpetas están plegadas. Se recuerda entre recargas de la vista. */
+const knPlegadas = new Set();
+
+/**
+ * El árbol de la izquierda, como el de cualquier proyecto: la RAÍZ es el
+ * sistema, de ella cuelgan las carpetas, y de cada carpeta sus archivos.
+ * Las carpetas se pliegan y despliegan con un clic en su triángulo.
+ */
 function knPintaArbol(raices, porCarpeta, carpetas) {
   const tree = $('#kn-tree');
   if (!tree) return;
   const item = (nm, color) =>
     `<div class="kn-file" data-note="${esc(nm)}" style="--c:${color}">
        <i></i><span>${esc(nm)}</span></div>`;
-  let html = '';
-  raices.forEach((c) => {
-    const col = memGroupColor[c] || '#7cf6c0';
-    const hijos = porCarpeta[c] || [];
-    html += `<div class="kn-folder" style="--c:${col}">
-        <div class="kn-fname" data-note="${esc(c)}">▾ ${esc(c)} <b>${hijos.length}</b></div>
-        ${hijos.map((n) => item(n, memGroupColor[n] || knNoteColor(n))).join('')}
+  const rama = (nombre, color, hijos, conNodo) => {
+    const abierta = !knPlegadas.has(nombre);
+    return `<div class="kn-folder${abierta ? '' : ' plegada'}" style="--c:${color}">
+        <div class="kn-fname"${conNodo ? ` data-note="${esc(nombre)}"` : ''}>
+          <span class="kn-tw" data-fold="${esc(nombre)}">${abierta ? '▾' : '▸'}</span>
+          <span class="kn-fl">${esc(nombre)}</span> <b>${hijos.length}</b>
+        </div>
+        <div class="kn-hijos">${hijos.map((n) => item(n, memGroupColor[n] || knNoteColor(n))).join('')}</div>
       </div>`;
-  });
+  };
   const sueltas = porCarpeta[''] || [];
-  if (sueltas.length) {
-    html += `<div class="kn-folder" style="--c:#8aa0b3">
-        <div class="kn-fname">▾ sin carpeta <b>${sueltas.length}</b></div>
-        ${sueltas.map((n) => item(n, memGroupColor[n] || knNoteColor(n))).join('')}
-      </div>`;
-  }
-  tree.innerHTML = html || '<div class="empty">Todavía no hay nada en la memoria.</div>';
+  const total = raices.reduce((n, c) => n + (porCarpeta[c] || []).length, 0) + sueltas.length;
+  let dentro = raices.map((c) => rama(c, memGroupColor[c] || '#7cf6c0', porCarpeta[c] || [], true)).join('');
+  if (sueltas.length) dentro += rama('sin carpeta', '#8aa0b3', sueltas, false);
+
+  // La raíz: el propio sistema. Todo el conocimiento cuelga de él, igual que en
+  // el grafo de la derecha.
+  const raizAbierta = !knPlegadas.has('__raiz__');
+  tree.innerHTML = total || raices.length
+    ? `<div class="kn-raiz${raizAbierta ? '' : ' plegada'}">
+         <div class="kn-rname">
+           <span class="kn-tw" data-fold="__raiz__">${raizAbierta ? '▾' : '▸'}</span>
+           <span class="kn-fl">${esc(sysName())}</span> <b>${total}</b>
+         </div>
+         <div class="kn-hijos">${dentro}</div>
+       </div>`
+    : '<div class="empty">Todavía no hay nada en la memoria.</div>';
+
+  // Plegar y desplegar. El triángulo es SUYO: pulsarlo no abre la nota.
+  tree.querySelectorAll('[data-fold]').forEach((tw) => {
+    tw.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const k = tw.dataset.fold;
+      if (knPlegadas.has(k)) knPlegadas.delete(k); else knPlegadas.add(k);
+      knPintaArbol(raices, porCarpeta, carpetas);
+    });
+  });
   // Pasar el ratón resalta el nodo en el grafo; pulsar lo abre y lo centra.
   tree.querySelectorAll('[data-note]').forEach((el) => {
     const nombre = el.dataset.note;

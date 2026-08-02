@@ -155,7 +155,7 @@ window.orbHTML = orbHTML;
     // NO re-renderizar el Command Center en cada refresco (destruía el núcleo
     // y causaba el "parón" cada 30 s). Actualizamos solo los datos en su sitio.
     if (current === 'command') { updateOverviewCounts(); renderLLM(); }
-    else if (current && current !== 'chat' && current !== 'memory' && current !== 'knowledge') render(current);
+    else if (current && current !== 'chat' && current !== 'memory') render(current);
   }
   function updateOverviewCounts() {
     const ns = $('#nav-skills'); if (ns) ns.textContent = state.skills.length;
@@ -894,24 +894,6 @@ window.orbHTML = orbHTML;
       </div>`; }).join('')}
     </div>`;
 
-  /* Distribución tipo Obsidian: a la izquierda el árbol de carpetas con sus
-     archivos, a la derecha el grafo. El árbol NO es decoración: pasar el ratón
-     resalta el nodo, y pulsar lo abre y lo centra. */
-  views.knowledge = () => `<div class="section-title">Nodos de conocimiento</div>
-    <div class="section-sub">A la izquierda tus carpetas y archivos; a la derecha el grafo. <b>Ctrl + rueda</b> para acercar y alejar, arrastra el fondo para moverte, y arrastra un nodo para colocarlo.</div>
-    <div id="kn-split">
-      <aside id="kn-tree"><div class="empty"><span class="dots">leyendo</span></div></aside>
-      <div id="kn-stage">
-        <div id="kn-world"><canvas id="kn-links"></canvas></div>
-        <div id="kn-zoom">
-          <button class="kn-zbtn" data-z="out" title="Alejar">−</button>
-          <button class="kn-zbtn" data-z="fit" title="Ajustar a la pantalla">⤢</button>
-          <button class="kn-zbtn" data-z="in" title="Acercar">+</button>
-          <span id="kn-zlabel">100%</span>
-        </div>
-      </div>
-    </div>`;
-
   views.tasks = () => {
     const b = state.board || {}, S = [['pendiente', 'TO DO'], ['progreso', 'IN PROGRESS'], ['revision', 'REVIEW'], ['completada', 'DONE']];
     const today = new Date().toISOString().slice(0, 10);
@@ -1017,7 +999,7 @@ window.orbHTML = orbHTML;
 
   views.memory = () => {
     const m = state.status?.memory || {};
-    return `<div class="section-title">Memoria</div><div class="section-sub">Grafo de notas (interactivo, estilo Graphify) + Postgres/pgvector con RAG semántico.</div>
+    return `<div class="section-title">Nodos de conocimiento</div><div class="section-sub">Todo lo que ${esc(_sysName())} sabe: en el centro él, y colgando de él tus carpetas y tus notas. Postgres/pgvector con RAG semántico.</div>
       <div class="grid" style="grid-template-columns:200px 200px 1fr;gap:14px">
         <div class="panel"><h2>Vector store</h2>
           <div style="font-size:24px;color:${m.db_online ? 'var(--ok)' : 'var(--txt-dim)'};font-weight:600">${m.db_online ? 'ONLINE' : 'OFFLINE'}</div>
@@ -1035,20 +1017,20 @@ window.orbHTML = orbHTML;
         </div>
       </div>
       <div class="panel" style="margin-top:14px"><h2>Grafo de conocimiento <span class="link" id="mem-reload">recargar</span></h2>
-        <div id="mem-split">
-          <aside id="mem-tree"><div class="empty"><span class="dots">leyendo</span></div></aside>
-          <div id="mem-graph-wrap">
-            <canvas id="mem-graph"></canvas>
+        <div id="kn-split">
+          <aside id="kn-tree"><div class="empty"><span class="dots">leyendo</span></div></aside>
+          <div id="kn-stage">
+            <div id="kn-world"><canvas id="kn-links"></canvas></div>
             <div id="mem-tip"></div>
-            <div id="mem-zoom">
+            <div id="kn-zoom">
               <button class="kn-zbtn" data-z="out" title="Alejar">−</button>
               <button class="kn-zbtn" data-z="fit" title="Ajustar a la pantalla">⤢</button>
               <button class="kn-zbtn" data-z="in" title="Acercar">+</button>
-              <span id="mem-zlabel">100%</span>
+              <span id="kn-zlabel">100%</span>
             </div>
           </div>
         </div>
-        <div class="mem-ayuda"><b>Ctrl + rueda</b> para acercar y alejar · arrastra el fondo para moverte · arrastra un nodo para colocarlo</div>
+        <div class="mem-ayuda"><b>Ctrl + rueda</b> para acercar y alejar · arrastra el fondo para moverte · arrastra un nodo para colocarlo · pulsa uno y se abre su ventanita</div>
       </div>`;
   };
 
@@ -1086,213 +1068,13 @@ window.orbHTML = orbHTML;
     $('#mem-learn-go').addEventListener('click', learn);
     $('#mem-learn').addEventListener('keydown', (e) => { if (e.key === 'Enter') learn(); });
     $('#mem-reload').addEventListener('click', mountMemory);
-    // Grafo interactivo con GRUPOS: cada grupo de notas enlazadas comparte
-    // COLOR y se mueve EN BLOQUE al arrastrar cualquiera de sus nodos.
-    const g = await api('/api/graph') || { nodes: [], edges: [] };
-    const canvas = $('#mem-graph'); if (!canvas) return;
-    if (!g.nodes.length) { $('#mem-tip').textContent = 'Memoria vacía — enséñale algo: «recuerda que…» o «aprende el documento…».'; return; }
-    cancelAnimationFrame(memGraphRaf);
-
-    /* EL MUNDO. Antes el grafo vivía en las coordenadas del lienzo y el arrastre
-       recortaba contra sus bordes (`Math.min(W - 12, …)`): al llevar un nodo
-       contra un lado, él y todo su grupo se quedaban pegados ahí, unos encima de
-       otros. Eso es lo que se veía como «el grafo se comprime y se apila».
-       Ahora hay un mundo mucho mayor que la ventana, la cámara (zoom + arrastre
-       del fondo) se mueve por encima, y el recorte pasa a ser del mundo, no de
-       lo que se ve. */
-    const MW = 2200, MH = 1500;
-    const VW = canvas.offsetWidth, VH = 520;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = VW * dpr; canvas.height = VH * dpr;
-    canvas.style.width = VW + 'px'; canvas.style.height = VH + 'px';
-    const ctx = canvas.getContext('2d');
-    let z = 1, ox = (MW - VW) / 2, oy = (MH - VH) / 2;   // cámara
-    const Z_MIN = 0.25, Z_MAX = 3;
-    const pintaZoom = () => { const l = $('#mem-zlabel'); if (l) l.textContent = Math.round(z * 100) + '%'; };
-    const limita = () => {
-      ox = Math.min(Math.max(0, MW - VW / z), Math.max(0, ox));
-      oy = Math.min(Math.max(0, MH - VH / z), Math.max(0, oy));
-    };
-
-    const carpetas = g.carpetas || {}, raices = g.raiz || [];
-    const groupOf = computeMemGroups(g.nodes, g.edges);
-    // Cada carpeta arranca en su propio sitio y sus archivos alrededor: así se ve
-    // de un vistazo qué depende de qué, sin esperar a que la física lo ordene.
-    const centro = {};
-    raices.forEach((c, i) => {
-      const a = i / Math.max(1, raices.length) * Math.PI * 2;
-      centro[c] = [MW / 2 + Math.cos(a) * 380, MH / 2 + Math.sin(a) * 300];
-    });
-    const nodes = g.nodes.map((n, i) => {
-      const esCarpeta = raices.includes(n);
-      const base = centro[carpetas[n]] || [MW / 2, MH / 2];
-      const a = i * 2.399;                                 // ángulo áureo: reparte
-      const r = esCarpeta ? 0 : (carpetas[n] ? 150 : 420);
-      return { id: n, group: groupOf[n], carpeta: esCarpeta,
-        color: memGroupColor[n] || '#22d3ee',
-        x: (esCarpeta ? centro[n][0] : base[0] + Math.cos(a) * r),
-        y: (esCarpeta ? centro[n][1] : base[1] + Math.sin(a) * r), vx: 0, vy: 0 };
-    });
-    const idx = Object.fromEntries(nodes.map((n, i) => [n.id, i]));
-    const edges = (g.edges || []).filter((e) => idx[e[0]] != null && idx[e[1]] != null)
-      .map((e) => [idx[e[0]], idx[e[1]]]);
-
-    let hover = -1, dragI = -1, dragMoved = false, lx = 0, ly = 0, iter = 0, pan = null;
-    // De pantalla a MUNDO: sin deshacer el zoom, el nodo salta a otra parte.
-    const mundo = (ev) => {
-      const r = canvas.getBoundingClientRect();
-      return [(ev.clientX - r.left) / z + ox, (ev.clientY - r.top) / z + oy];
-    };
-    const cerca = (mx, my) => nodes.findIndex((n) => Math.hypot(n.x - mx, n.y - my) < 18 / z + 8);
-
-    canvas.onmousedown = (ev) => {
-      const [mx, my] = mundo(ev);
-      dragI = cerca(mx, my); dragMoved = false; lx = mx; ly = my;
-      if (dragI >= 0) { ev.preventDefault(); canvas.style.cursor = 'grabbing'; }
-      else { pan = { x: ev.clientX, y: ev.clientY, ox, oy }; canvas.style.cursor = 'grabbing'; }
-    };
-    canvas.onmousemove = (ev) => {
-      if (pan) {
-        ox = pan.ox - (ev.clientX - pan.x) / z;
-        oy = pan.oy - (ev.clientY - pan.y) / z;
-        limita(); return;
-      }
-      const [mx, my] = mundo(ev);
-      if (dragI >= 0) {                        // arrastre: TODO su grupo le sigue
-        const dx = mx - lx, dy = my - ly; lx = mx; ly = my;
-        if (dx || dy) dragMoved = true;
-        const grp = nodes[dragI].group;
-        for (const n of nodes) {
-          if (n.group !== grp) continue;
-          // el recorte es del MUNDO, no de la ventana: por eso ya no se apilan
-          n.x = Math.max(24, Math.min(MW - 24, n.x + dx));
-          n.y = Math.max(24, Math.min(MH - 24, n.y + dy));
-          n.vx = n.vy = 0;
-        }
-        return;
-      }
-      hover = cerca(mx, my);
-      $('#mem-tip').textContent = hover >= 0
-        ? `«${nodes[hover].id}» — clic: su ventana · arrastra: mueve todo su grupo` : '';
-      canvas.style.cursor = hover >= 0 ? 'grab' : 'default';
-    };
-    canvas.onmouseup = () => { dragI = -1; pan = null; canvas.style.cursor = 'default'; };
-    canvas.onmouseleave = () => { dragI = -1; pan = null; hover = -1; };
-    canvas.onclick = () => { if (hover >= 0 && !dragMoved) openNote(nodes[hover].id); dragMoved = false; };
-    // ZOOM con Ctrl + rueda, manteniendo quieto el punto bajo el cursor.
-    canvas.addEventListener('wheel', (ev) => {
-      if (!ev.ctrlKey) return;                 // sin Ctrl, la rueda es de la página
-      ev.preventDefault();
-      const r = canvas.getBoundingClientRect();
-      const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
-      const antes = z;
-      z = Math.min(Z_MAX, Math.max(Z_MIN, z * (ev.deltaY < 0 ? 1.12 : 1 / 1.12)));
-      if (z === antes) return;
-      ox += sx / antes - sx / z; oy += sy / antes - sy / z;
-      limita(); pintaZoom();
-    }, { passive: false });
-    const ajustar = () => {
-      const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y);
-      const x0 = Math.min(...xs) - 70, x1 = Math.max(...xs) + 70;
-      const y0 = Math.min(...ys) - 70, y1 = Math.max(...ys) + 70;
-      z = Math.min(Z_MAX, Math.max(0.45, Math.min(VW / (x1 - x0), VH / (y1 - y0))));
-      ox = (x0 + x1) / 2 - VW / (2 * z); oy = (y0 + y1) / 2 - VH / (2 * z);
-      limita(); pintaZoom();
-    };
-    $('#mem-zoom')?.addEventListener('click', (ev) => {
-      const b = ev.target.closest('.kn-zbtn'); if (!b) return;
-      if (b.dataset.z === 'fit') return ajustar();
-      const antes = z;
-      z = Math.min(Z_MAX, Math.max(Z_MIN, z * (b.dataset.z === 'in' ? 1.25 : 1 / 1.25)));
-      ox += VW / (2 * antes) - VW / (2 * z); oy += VH / (2 * antes) - VH / (2 * z);
-      limita(); pintaZoom();
-    });
-
-    pintaArbolMemoria(raices, carpetas, g.nodes, (nombre) => {
-      const n = nodes.find((x) => x.id === nombre); if (!n) return;
-      ox = n.x - VW / (2 * z); oy = n.y - VH / (2 * z); limita();
-    });
-
-    function step() {
-      // física SOLO mientras se asienta (y nunca durante un arrastre)
-      if (iter < 400 && dragI < 0) {
-        iter++;
-        for (let i = 0; i < nodes.length; i++) {
-          let fx = 0, fy = 0;
-          for (let j = 0; j < nodes.length; j++) { if (i === j) continue;
-            const dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y, d = Math.hypot(dx, dy) || 1;
-            const rep = 9000 / (d * d); fx += dx / d * rep; fy += dy / d * rep; }
-          fx += (MW / 2 - nodes[i].x) * 0.004; fy += (MH / 2 - nodes[i].y) * 0.004;
-          nodes[i].vx = (nodes[i].vx + fx) * 0.82; nodes[i].vy = (nodes[i].vy + fy) * 0.82;
-        }
-        for (const [a, b] of edges) {
-          const dx = nodes[b].x - nodes[a].x, dy = nodes[b].y - nodes[a].y;
-          nodes[a].vx += dx * 0.006; nodes[a].vy += dy * 0.006;
-          nodes[b].vx -= dx * 0.006; nodes[b].vy -= dy * 0.006;
-        }
-        for (const n of nodes) {
-          n.x = Math.max(24, Math.min(MW - 24, n.x + n.vx));
-          n.y = Math.max(24, Math.min(MH - 24, n.y + n.vy));
-        }
-        if (iter === 400) ajustar();          // cuando se asienta, se encuadra
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, VW, VH);
-      ctx.setTransform(dpr * z, 0, 0, dpr * z, -ox * z * dpr, -oy * z * dpr);
-      ctx.lineWidth = 1.2 / z;
-      for (const [a, b] of edges) {           // arista del color de su grupo
-        ctx.strokeStyle = nodes[a].color + '66';
-        ctx.beginPath(); ctx.moveTo(nodes[a].x, nodes[a].y); ctx.lineTo(nodes[b].x, nodes[b].y); ctx.stroke();
-      }
-      nodes.forEach((n, i) => {
-        const rr = (n.carpeta ? 11 : 6) + (i === hover ? 3 : 0);
-        ctx.beginPath(); ctx.arc(n.x, n.y, rr, 0, Math.PI * 2);
-        ctx.fillStyle = n.color; ctx.shadowColor = n.color; ctx.shadowBlur = i === hover ? 14 : 8;
-        ctx.fill(); ctx.shadowBlur = 0;
-        if (n.carpeta) {                       // la carpeta madre, con anillo
-          ctx.strokeStyle = n.color; ctx.lineWidth = 2 / z;
-          ctx.beginPath(); ctx.arc(n.x, n.y, rr + 5, 0, Math.PI * 2); ctx.stroke();
-        }
-        if (i === hover) { ctx.strokeStyle = '#eafcff'; ctx.lineWidth = 1.4 / z; ctx.stroke(); }
-        ctx.fillStyle = 'rgba(207,228,245,.85)';
-        ctx.font = `${(n.carpeta ? 12 : 10)}px monospace`; ctx.textAlign = 'center';
-        ctx.fillText(n.id.length > 18 ? n.id.slice(0, 17) + '…' : n.id, n.x, n.y - rr - 5);
-      });
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      memGraphRaf = requestAnimationFrame(step);   // bucle continuo (arrastre fluido)
-    }
-    step();
+    // EL GRAFO. El motor vive en views/knowledge.js: nodos arrastrables, zoom con
+    // Ctrl+rueda y ventanitas al pulsar. Antes esta pantalla tenia su propio
+    // grafo de canvas, distinto, y habia DOS pantallas dibujando lo mismo de dos
+    // maneras. Se queda una: esta.
+    await mountKnowledge();
   }
 
-  /** Árbol de carpetas de la izquierda, al modo de Obsidian. */
-  function pintaArbolMemoria(raices, carpetas, todos, centrarEn) {
-    const tree = $('#mem-tree'); if (!tree) return;
-    const porCarpeta = {};
-    todos.filter((n) => !raices.includes(n))
-      .forEach((n) => { (porCarpeta[carpetas[n] || ''] = porCarpeta[carpetas[n] || ''] || []).push(n); });
-    const file = (nm) => `<div class="kn-file" data-note="${esc(nm)}" `
-      + `style="--c:${memGroupColor[nm] || '#9d7dff'}"><i></i><span>${esc(nm)}</span></div>`;
-    let html = '';
-    raices.forEach((c) => {
-      const hijos = porCarpeta[c] || [];
-      html += `<div class="kn-folder" style="--c:${memGroupColor[c] || '#7cf6c0'}">
-          <div class="kn-fname" data-note="${esc(c)}">▾ ${esc(c)} <b>${hijos.length}</b></div>
-          ${hijos.map(file).join('')}</div>`;
-    });
-    const sueltas = porCarpeta[''] || [];
-    if (sueltas.length) {
-      html += `<div class="kn-folder" style="--c:#8aa0b3">
-          <div class="kn-fname">▾ sin carpeta <b>${sueltas.length}</b></div>
-          ${sueltas.map(file).join('')}</div>`;
-    }
-    tree.innerHTML = html || '<div class="empty">Todavía no hay nada en la memoria.</div>';
-    tree.querySelectorAll('[data-note]').forEach((el) => {
-      el.addEventListener('click', () => {
-        centrarEn(el.dataset.note);
-        if (!raices.includes(el.dataset.note)) openNote(el.dataset.note);
-      });
-    });
-  }
 
   views.chat = () => `<div class="chat-wrap">
       <div class="mode-chips">
@@ -1470,7 +1252,6 @@ window.orbHTML = orbHTML;
       $$('.agent').forEach((el) => el.addEventListener('click', () => openNode(el.dataset.skill)));
       api('/api/knowledge').then((k) => { const c = $('#kn-count'); if (c) c.textContent = (k?.count || 0).toLocaleString('es'); });
     }
-    if (view === 'knowledge') mountKnowledge();
     if (view === 'tasks') {
       $$('.kcard .mv button').forEach((b) => b.addEventListener('click', (ev) => {
         ev.stopPropagation(); moveTask(b.dataset.id, b.dataset.to);
