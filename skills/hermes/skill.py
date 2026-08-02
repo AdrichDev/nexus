@@ -32,17 +32,22 @@ SKILL = {
                     "hermes») y recupera resultados («¿y la respuesta de hermes?»)."),
     "patterns": {
         # ORDEN: lo específico primero; el genérico «hermes: …» al final.
-        "hermes_estado": r"(?:est[aá]|anda|sigue)\s+hermes\s+(?:conectado|encendido|apagado|vivo|activo|en\s+marcha|operativo|funcionando|corriendo)"
-                         r"|hermes\s+(?:est[aá]|anda)\s+(?:conectado|encendido|apagado|vivo|activo|funcionando|corriendo|ca[ií]do)"
-                         r"|(?:estado|diagn[oó]stico)\s+de(?:l)?\s+hermes|diagn[oó]stica\s+(?:a\s+)?hermes"
-                         r"|(?:revisa|comprueba|chequea|verifica)\s+(?:la\s+conexi[oó]n\s+(?:con|de)\s+)?hermes\b"
+        # Los verbos admiten PRONOMBRE ENCLÍTICO («diagnostícame hermes») y su tilde.
+        "hermes_estado": r"(?:est[aá]|anda|sigue|va)\s+hermes\s+(?:conectado|encendido|apagado|vivo|activo|bien|mal|en\s+marcha|operativo|funcionando|corriendo)"
+                         r"|hermes\s+(?:est[aá]|anda|va)\s+(?:conectado|encendido|apagado|vivo|activo|bien|mal|funcionando|corriendo|ca[ií]do)"
+                         r"|(?:estado|diagn[oó]stico)\s+de(?:l)?\s+hermes"
+                         r"|diagn[oó]st[ií]ca(?:me|le|lo|nos)?\s+(?:a\s+|el\s+|la\s+conexi[oó]n\s+(?:con|de)\s+)?hermes\b"
+                         r"|(?:rev[ií]sa|compru[eé]ba|chequea|ver[ií]fica|mira)(?:me|nos)?\s+(?:si\s+|c[oó]mo\s+)?(?:est[aá]\s+|la\s+conexi[oó]n\s+(?:con|de)\s+)?hermes\b"
                          r"|qu[eé]\s+tal\s+(?:va|anda|est[aá])\s+hermes"
                          r"|(?:funciona|responde)\s+hermes\b|hermes\s+(?:funciona|responde)\b"
+                         r"|(?:va|anda|funciona)\s+(?:bien|mal)\s+hermes\b"
                          r"|c[oó]mo\s+(?:va|est[aá])\s+hermes",
         "hermes_resultado": r"(?:la\s+)?(?:respuesta|resultado|informe|salida)\s+(?:de|que\s+te\s+ha\s+dado)\s+hermes"
-                            r"|qu[eé]\s+te\s+ha\s+(?:dicho|dado|contestado|respondido)\s+hermes"
+                            r"|qu[eé]\s+(?:te|me|nos)\s+ha\s+(?:dicho|dado|contestado|respondido)\s+hermes"
                             r"|(?:ha|habr[aá])\s+(?:terminado|acabado|contestado|respondido)\s+(?:ya\s+)?hermes"
                             r"|hermes\s+(?:ya\s+)?(?:ha\s+)?(?:terminado|acabado|contestado|respondido)"
+                            r"|(?:ya\s+)?(?:termin[oó]|acab[oó]|contest[oó]|respondi[oó])\s+(?:ya\s+)?hermes\b"
+                            r"|hermes\s+(?:ya\s+)?(?:termin[oó]|acab[oó]|contest[oó]|respondi[oó])\b"
                             r"|c[oó]mo\s+va(?:n)?\s+(?:el\s+encargo|la\s+tarea|el\s+trabajo|los\s+encargos|las\s+tareas|los\s+trabajos)\s+de\s+hermes"
                             r"|qu[eé]\s+ha\s+(?:dicho|encontrado|averiguado|sacado|contestado|respondido)\s+hermes"
                             r"|(?:novedades|algo\s+nuevo)\s+de\s+hermes\b"
@@ -50,27 +55,30 @@ SKILL = {
                             r"|(?:resultado|respuesta|estado)\s+del?\s+encargo\s+#?\d+"
                             r"|c[oó]mo\s+va\s+el\s+encargo\s+#?\d+"
                             r"|\bencargo\s+#?\d+\b",
-        "hermes_arranca": r"(?:arranca|levanta|inicia|reinicia|relanza|enciende|activa|despierta|resucita|lanza|abre|conecta|reconecta)\s+(?:a\s+|el\s+)?hermes\b"
+        "hermes_arranca": r"(?:arr[aá]nca|lev[aá]nta|in[ií]cia|rein[ií]cia|rel[aá]nza|enci[eé]nde|act[ií]va"
+                          r"|despi[eé]rta|resuc[ií]ta|l[aá]nza|[aá]bre|con[eé]cta|recon[eé]cta|p[oó]n)"
+                          r"(?:me|lo|le|nos)?\s+(?:a\s+|al\s+|el\s+)?(?:gateway\s+de\s+|servidor\s+de\s+)?hermes\b"
                           r"|vuelve\s+a\s+(?:arrancar|lanzar|levantar|encender)\s+(?:a\s+|el\s+)?hermes\b"
-                          r"|pon\s+(?:en\s+marcha\s+)?(?:a\s+)?hermes\b|pon\s+hermes\s+en\s+marcha"
+                          r"|pon\s+(?:en\s+marcha\s+)?(?:a\s+)?hermes\b|pon(?:me)?\s+hermes\s+en\s+marcha"
                           r"|hermes\s+arriba\b",
         "hermes_tarea": r"(?:m[aá]ndale|env[ií]ale|dale|p[aá]sale|encom[ié]ndale|as[ií]gnale|d[eé]jale)\s+(?:una?\s+|otra\s+|alg[uú]n\s+)?(?:tarea|encargo|trabajo|curro|misi[oó]n|recado)\s+a\s+hermes(?:\s*[:,.]?\s*(?P<orden4>.+))?"
                         r"|(?:manda|env[ií]a|pasa|asigna)\s+(?:una?\s+|otra\s+)?(?:tarea|encargo|trabajo)\s+a\s+hermes(?:\s*[:,.]?\s*(?P<orden5>.+))?",
         "hermes_info": r"(?:qu[eé]\s+(?:sabe[sn]?|puede[sn]?)\s+hacer|capacidades\s+de)\s+hermes\b"
                        r"|para\s+qu[eé]\s+(?:sirve|vale)\s+hermes\b|qu[eé]\s+es\s+hermes\b"
                        r"|qu[eé]\s+(?:skills|herramientas|capacidades)\s+tiene\s+hermes\b"
+                       r"|de\s+qu[eé]\s+es\s+capaz\s+hermes\b"
                        r"|\bhermes\b[^.\n]{0,20}qu[eé]\s+sabe[sn]?\s+hacer",
         "hermes": r"^\s*hermes[:,]\s*(?P<orden>.+)$"
-                  r"|(?:dile|p[ií]dele|m[aá]ndale|ord[eé]nale|enc[aá]rga(?:le)?|delega(?:\s+en)?)\s+a?\s*hermes\s+(?:que\s+)?(?P<orden2>.+)"
+                  r"|(?:dile|p[ií]dele|m[aá]ndale|ord[eé]nale|enc[aá]rga(?:le)?|delega(?:\s+en)?)\s+a?\s*hermes(?:\s*[:,]\s*|\s+)(?:que\s+)?(?P<orden2>.+)"
                   r"|que\s+hermes\s+(?P<orden3>.+)",
     },
 }
 
 
 # ¿Este encargo es de los que SOLO Hermes hace bien? (navegación real, investigación
-# multipaso, automatización, informe de mercado). nexus delega SOLO — sin que Adri
-# diga «hermes» — cuando ninguna skill local casó Y esto pinta agéntico. Conservador:
-# si Hermes está apagado, esto ni se consulta y cae a la conversación normal.
+# multipaso, automatización, informe de mercado). nexus delega SOLO — sin que el
+# operador diga «hermes» — cuando ninguna skill local casó Y esto pinta agéntico.
+# Conservador: si Hermes está apagado, esto ni se consulta y va a conversación normal.
 _AGENTIC_RX = re.compile(
     r"\b(autom[aá]tiza|automatizaci[oó]n)\b"
     r"|\bmonitoriza\b|\bvigila\b[^.\n]{0,25}\b(precio|web|p[aá]gina|stock)\b"
@@ -151,8 +159,8 @@ def _reg_save(items: list) -> None:
 
 
 def _reg_add(orden: str, channel: str) -> tuple:
-    """Apunta el encargo con un NÚMERO correlativo visible (#1, #2…): es lo que
-    Adri ve al lanzarlo en paralelo y lo que se canta al terminar."""
+    """Apunta el encargo con un NÚMERO correlativo visible (#1, #2…): es el
+    identificador que se le enseña al operador y con el que puede pedir su resultado."""
     import uuid
     jid = uuid.uuid4().hex[:8]
     items = _reg_load()
@@ -556,7 +564,7 @@ def configure_brain(ctx, provider: str, model: str, api_key: str) -> dict:
 
 
 # ============= ENGANCHAR HERMES A ENGRAM (memoria de proyecto por MCP) =============
-# Adri quiere que TANTO nexus COMO Hermes usen la MISMA memoria de proyecto (Engram).
+# nexus y Hermes comparten la MISMA memoria de proyecto (Engram).
 # nexus la usa por HTTP (backend/core/engram_bridge.py); a Hermes lo enganchamos por
 # su vía nativa: un servidor MCP 'engram' en ~/.hermes/config.yaml que arranca
 # «engram mcp --project nexus» por stdio. Así Hermes obtiene las tools mem_save/
@@ -902,9 +910,9 @@ def _is_upstream_auth_error(status: int, body: str) -> bool:
     return True                # cualquier otro 401/403 = el cerebro de Hermes sin creds
 
 
-# v23.1 — Adri vio encargos marcados «✔ terminado» cuyo contenido era un error del
-# proveedor («HTTP 400: Your organization must be verified…»). Hermes responde 200 y
-# mete el error EN EL TEXTO, así que hay que reconocerlo aquí o mentimos.
+# Hermes puede responder 200 con un error del proveedor DENTRO del texto («HTTP 400:
+# Your organization must be verified…»). Sin este reconocimiento, un encargo fallido
+# se cantaría como terminado.
 _RESPUESTA_ES_ERROR = re.compile(
     r"^\s*HTTP\s+[45]\d\d\b"
     r"|\bmust\s+be\s+verified\b"
@@ -937,7 +945,7 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
     _intentos = [0]
     try:
         # ARRANQUE BAJO DEMANDA: si el gateway está apagado, nexus lo levanta él
-        # solo (Adri solo abre nexus) y espera a que esté listo antes de encargar.
+        # solo y espera a que esté listo antes de entregar el encargo.
         if not await ensure_up({"settings": _SETTINGS[0]}):
             raise RuntimeError(_LAST["err"] or
                                "no pude arrancar/alcanzar el gateway de Hermes en " + url)
@@ -1007,19 +1015,19 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
         await _a.to_thread(pg.remember, f"[Encargo a Hermes] {orden} => {out[:600]}", "hermes")
     except Exception:
         pass
-    # v23.1: la notificación la publica el GESTOR DE TRABAJOS (notify=True en el
-    # submit), no esta función. Antes se emitía aquí y, si algo fallaba por el
-    # camino, Adri se quedaba sin enterarse de que su encargo había terminado y
-    # tenía que preguntar. Ahora el aviso es único y está garantizado.
+    # La notificación de fin la publica el GESTOR DE TRABAJOS (notify=True en el
+    # submit), no esta función: así el aviso es único y está garantizado.
     if error:
         raise RuntimeError(out[:300])          # que el trabajo conste como FALLIDO
     return {"reply": reply}
 
 
 # ---------------- respuestas de estado (SIN bucles de frase fija) ----------------
-_BASE_CAPS = ("En general: navegar y automatizar el navegador (con visión), investigar "
-              "en profundidad, ejecutar código aislado (local/Docker/SSH), generar "
-              "imágenes, memoria propia, subagentes y skills que se auto-genera.")
+# Resumen de respaldo para cuando su API no contesta: se anuncia como lo que es
+# (la documentación del producto), no como una consulta en vivo.
+_BASE_CAPS = ("Según su documentación: navegar y automatizar el navegador (con visión), "
+              "investigar en profundidad, ejecutar código aislado (local/Docker/SSH), "
+              "generar imágenes, memoria propia, subagentes y skills que se auto-genera.")
 
 
 def _down_reason(d: dict) -> str:
@@ -1186,8 +1194,8 @@ async def _resultado(ctx, text: str = "") -> dict:
                          "hazme un informe» — cuando termine te lo canto y queda guardado aquí."}
     m = re.search(r"(?:encargo|tarea|trabajo|n[uú]mero)\s*#?\s*(\d+)|#(\d+)", text or "")
     want = int(m.group(1) or m.group(2)) if m else None
-    # v23.1: sin número concreto, SOLO el último con detalle. Antes escupía los
-    # cuatro últimos enteros cada vez que Adri preguntaba — el mismo tocho repetido.
+    # Sin número concreto, SOLO el último encargo con detalle; los anteriores van
+    # resumidos en una línea al final.
     pick = [j for j in items if int(j.get("num") or 0) == want] if want else items[-1:]
     if want is not None and not pick:
         return {"reply": f"🪽 No tengo ningún encargo #{want} apuntado. Di «¿y la respuesta "
@@ -1267,7 +1275,7 @@ async def _handle_publico(intent: str, text: str, match, ctx) -> dict:
                                        "local: instálalo desde hermes-agent.nousresearch.com "
                                        "o pon su ruta en ⚙ hermes_exe"})
         return {"reply": "No puedo ponerme con eso ahora mismo: me falta una pieza para "
-                         "hacerlo. Dime «diagnostica el sistema» y te digo exactamente qué."}
+                         "hacerlo. Dime «diagnostica hermes» y te digo exactamente qué."}
     if not orden:
         return {"reply": "Dime qué quieres que investigue y me pongo con ello."}
     return await delegate(orden, ctx, ctx.get("channel", "pc"))
