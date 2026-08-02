@@ -38,19 +38,23 @@ SKILL = {
                     r"|diagn[oó]stico (?:r[aá]pido )?(?:del?|de mi) (pc|equipo|sistema|ordenador|hardware)"
                     r"|uso de (?:la\s+)?(cpu|ram|memoria|gpu|disco)"
                     r"|cu[aá]nta (ram|memoria) (?:libre\s+)?(hay|queda|tengo|me queda)",
-        "processes": r"(?:lista|ver|mu[eé]strame|ens[eé][ñn]ame|dime|dame|saca)(?:me)?\b[^.\n]{0,20}\bprocesos\b"
+        "processes": r"(?:l[ií]sta|ver|mu[eé]strame|ens[eé][ñn]ame|dime|dame|saca)(?:me)?\b[^.\n]{0,20}\bprocesos\b"
                      r"|procesos (?:activos|abiertos|en marcha|en ejecuci[oó]n)"
                      r"|qu[eé] procesos (?:hay|corren|est[aá]n|tengo)|top de procesos"
-                     r"|qu[eé] [^.\n]{0,25}(?:consume|come|gasta|chupa)[^.\n]{0,15}\b(?:ram|memoria|cpu)\b",
+                     r"|qu[eé] [^.\n]{0,25}(?:consume|consumiendo|come|comiendo|gasta|gastando|"
+                     r"chupa|chupando)[^.\n]{0,15}\b(?:ram|memoria|cpu)\b",
         # Matar procesos: SIEMPRE con ancla de dominio («proceso», «.exe», la app/
         # el programa, o el verbo «mata», que es inequívocamente de PC). Un «cierra X»
         # o «termina X» a secas NO cae aquí (sería robarle a tareas, correo, etc.).
-        "kill": r"\b(?:cierra|mata|termina|finaliza)(?:me)?\s+(?:el\s+)?procesos?\s+(?:de\s+)?(?P<proc>[\w.\-]+)"
-                r"|\b(?:cierra|mata|termina|finaliza)(?:me)?\s+(?:la\s+(?:app|aplicaci[oó]n)|el\s+programa)\s+(?:de\s+)?(?P<proc2>[\w.\-]+)"
-                r"|\b(?:cierra|mata|termina|finaliza)(?:me)?\s+(?P<proc3>[\w.\-]+\.exe)\b"
-                r"|\bm[aá]ta(?:me)?\s+(?:a\s+|al\s+|el\s+)?(?!la\b|los\b|las\b|una?\b|unos\b|unas\b)(?P<proc4>[\w.\-]{2,})",
+        # La última alternativa excluye los sustantivos de ancla para que
+        # «mátame el proceso spotify» capture «spotify» y no «proceso».
+        "kill": r"\b(?:ci[eé]rra|m[aá]ta|termina|finaliza)(?:me|le)?\s+(?:el\s+)?procesos?\s+(?:de\s+)?(?P<proc>[\w.\-]+)"
+                r"|\b(?:ci[eé]rra|m[aá]ta|termina|finaliza)(?:me|le)?\s+(?:la\s+(?:app|aplicaci[oó]n)|el\s+programa)\s+(?:de\s+)?(?P<proc2>[\w.\-]+)"
+                r"|\b(?:ci[eé]rra|m[aá]ta|termina|finaliza)(?:me|le)?\s+(?P<proc3>[\w.\-]+\.exe)\b"
+                r"|\bm[aá]ta(?:me)?\s+(?:a\s+|al\s+|el\s+)?"
+                r"(?!la\b|los\b|las\b|una?\b|unos\b|unas\b|procesos?\b|aplicaci[oó]n\b|app\b|programa\b)"
+                r"(?P<proc4>[\w.\-]{2,})",
         "youtube": r"\b[aá]bre(?:me)?\b.*youtube(\s+y\s+(busca|pon)\s+(?P<yt>.+))?|\bpon(?:me)?\b.*en youtube\s+(?P<yt2>.+)",
-        "steam_install": r"instala(r)?\s+(el juego\s+)?(?P<game>.+?)\s+en steam|en steam\s+instala\s+(?P<game2>.+)",
         # «abre la web/página (de) X»: captura TODO el nombre del sitio, no solo la
         # primera palabra. ANTES capturaba \S+ y con «abre la web de youtube» la URL
         # era literalmente "de" → abría https://de (el famoso «de/»). El «de» ahora
@@ -71,10 +75,13 @@ SKILL = {
                     r"(?!.*\ben\s+chrome\b)(?P<app>.+)",
         "screenshot": r"captura de (?:la\s+)?pantalla|haz(?:me)? una captura|s[aá]ca(?:me)? (?:una\s+)?captura|pantallazo|captura la pantalla|screenshot",
         "webcam": r"foto (?:con|desde) la (webcam|c[aá]mara)|haz(?:me)? una foto|s[aá]ca(?:me)? una foto|[eé]cha(?:me)? una foto",
-        # SEGURIDAD: el apagado SIEMPRE es en dos pasos. La frase de confirmación
-        # es EXACTA («confirmo apagado») y no se toca.
+        # SEGURIDAD: apagar y reiniciar SIEMPRE son dos pasos, armados en
+        # backend.core.confirm. Los *_confirm solo llegan aquí cuando NO hay nada
+        # armado (si lo hay, el brain resuelve el sí/no antes que el router).
         "shutdown_confirm": r"confirmo apagado",
         "shutdown": r"\bap[aá]ga(?:me)?\s+(?:el\s+|la\s+|mi\s+)?(pc|ordenador|equipo|sistema|torre|m[aá]quina)\b",
+        "restart_confirm": r"confirmo reinicio",
+        "restart": r"\brein[ií]cia(?:me)?\s+(?:el\s+|la\s+|mi\s+)?(pc|ordenador|equipo|sistema|torre|m[aá]quina)\b",
         "wake": r"enciende (el )?(pc|ordenador|equipo)|arranca (el )?(pc|ordenador)|despierta (el )?(pc|ordenador|equipo)|wake on lan",
         "set_mac": r"(guarda|configura|apunta) la mac\s+(?P<mac>[0-9a-fA-F:.\-]{12,17})",
     },
@@ -96,18 +103,6 @@ def _send_magic_packet(mac: str, broadcast: str = "255.255.255.255") -> bool:
         return True
     except Exception:
         return False
-
-# Juegos populares → AppID de Steam (para «instala X en steam»);
-# si no está en la lista se abre la búsqueda de la tienda.
-STEAM_APPS = {
-    "counter strike": 730, "cs2": 730, "dota": 570, "gta v": 271590, "gta 5": 271590,
-    "rust": 252490, "terraria": 105600, "stardew valley": 413150, "hades": 1145360,
-    "elden ring": 1245620, "baldurs gate 3": 1086940, "baldur's gate 3": 1086940,
-    "rocket league": 252950, "apex": 1172470, "pubg": 578080, "valheim": 892970,
-}
-
-_pending_shutdown = {"armed": False, "at": None}
-
 
 def _steam_appid_by_name(name: str):
     """AppID de Steam por nombre (búsqueda en la tienda, sin API key). None si no
@@ -212,8 +207,8 @@ def _temps_report() -> str:
 
 def _hw_report() -> str:
     if psutil is None:
-        return ("CPU 17% · RAM 52% · GPU 31% · 44°C — cifras de ejemplo: aún no tengo "
-                "psutil para leer las reales (pip install psutil y reinicia)")
+        return ("no puedo leer CPU/RAM/disco: falta psutil (pip install psutil y reinicia). "
+                "No te doy cifras que no he medido")
     vm = psutil.virtual_memory()
     cpu = psutil.cpu_percent(interval=0.3)
     cpu_txt = f"CPU {cpu:.0f}% ({psutil.cpu_count()} núcleos)"
@@ -367,9 +362,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "processes":
         if psutil is None:
-            return {"reply": "Aún no tengo psutil para leer procesos reales (pip install psutil "
-                             "y reinicia). Mientras, así se vería: chrome.exe 1.2 GB · "
-                             "ollama.exe 890 MB · code.exe 640 MB"}
+            return {"reply": "No puedo leer los procesos: falta psutil (pip install psutil y "
+                             "reinicia). No me invento una lista."}
         procs = sorted(psutil.process_iter(["name", "memory_info"]),
                        key=lambda p: p.info["memory_info"].rss if p.info["memory_info"] else 0,
                        reverse=True)[:8]
@@ -383,18 +377,45 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         name = next((gd.get(k) for k in ("proc", "proc2", "proc3", "proc4") if gd.get(k)), "")
         if psutil is None:
             return {"reply": f"Sin psutil no puedo tocar procesos de verdad (pip install psutil "
-                             f"y reinicia). Habría terminado «{name}»."}
-        killed = 0
-        for p in psutil.process_iter(["name"]):
-            if p.info["name"] and name.lower() in p.info["name"].lower():
+                             f"y reinicia). No he terminado «{name}»."}
+        low = name.lower()
+        victimas = []
+        for p in psutil.process_iter(["name", "pid"]):
+            n = (p.info.get("name") or "")
+            if n and low in n.lower():
+                victimas.append((p, n, p.info.get("pid")))
+        if not victimas:
+            return {"reply": f"No encuentro ningún proceso llamado «{name}». "
+                             "Di «lista los procesos» y te enseño los que hay en marcha."}
+        from backend.core import confirm
+        canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
+        muestra = " · ".join(f"{n} (pid {pid})" for _p, n, pid in victimas[:8])
+        if len(victimas) > 8:
+            muestra += f" · …y {len(victimas) - 8} más"
+
+        def _terminar(_v=tuple(victimas)):
+            ok, fallidos = 0, 0
+            for p, _n, _pid in _v:
                 try:
                     p.terminate()
-                    killed += 1
-                except Exception:
-                    pass
-        return {"reply": f"He terminado {killed} proceso(s) que casaban con «{name}». ✔"
-                if killed else f"No encuentro ningún proceso llamado «{name}». "
-                               "Di «lista los procesos» y te enseño los que hay en marcha."}
+                    ok += 1
+                except Exception:                          # noqa: BLE001
+                    fallidos += 1
+            if not ok:
+                return (f"No he podido terminar ninguno de los {len(_v)} proceso(s): "
+                        "seguramente hagan falta permisos de administrador.")
+            extra = f" ({fallidos} se han resistido, probablemente por permisos)" if fallidos else ""
+            return f"Terminados {ok} proceso(s){extra}. Lo que no hubieras guardado, se ha perdido."
+
+        pregunta = (f"⚠ «{name}» casa con {len(victimas)} proceso(s) en marcha:\n"
+                    f"   {muestra}\n"
+                    "Cerrarlos pierde lo que no esté guardado. ¿Los termino? «sí» o «no».")
+        return {"reply": confirm.request(
+            channel=canal, kind="matar_procesos", summary=pregunta,
+            action=_terminar, request_text=text,
+            targets=[{"name": n, "pid": pid} for _p, n, pid in victimas],
+            cancel_reply=f"Vale, dejo «{name}» en paz."),
+            "data": {"confirm": True, "count": len(victimas)}}
 
     if intent == "youtube":
         q = (match.groupdict().get("yt") or match.groupdict().get("yt2") or "").strip()
@@ -402,23 +423,6 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             else "https://www.youtube.com"
         webbrowser.open(url)
         return {"reply": f"Abriendo YouTube{f' y buscando «{q}»' if q else ''}."}
-
-    if intent == "steam_install":
-        game = (match.groupdict().get("game") or match.groupdict().get("game2") or "").strip().lower()
-        appid = STEAM_APPS.get(game)
-        if not appid:  # búsqueda parcial
-            appid = next((v for k, v in STEAM_APPS.items() if game in k or k in game), None)
-        try:
-            if appid:
-                if sys.platform == "win32":
-                    os.system(f'start "" steam://install/{appid}')
-                return {"reply": f"Lanzando la instalación de «{game}» en Steam "
-                                 f"(appid {appid}). Confirma en la ventana de Steam."}
-            webbrowser.open(f"https://store.steampowered.com/search/?term={game.replace(' ', '+')}")
-            return {"reply": f"No tengo el AppID de «{game}» en memoria; te he abierto la "
-                             "búsqueda en la tienda de Steam para que lo instales desde ahí."}
-        except Exception as exc:
-            return {"reply": f"No he podido hablar con Steam: {exc}"}
 
     if intent == "open_web":
         raw = (match.group("url") or "").strip().rstrip(".?!,;:")
@@ -632,26 +636,41 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          "(pip install opencv-python) y comprueba que ninguna otra app "
                          "la esté usando. La foto iría a data/captures/."}
 
-    if intent == "shutdown":
-        _pending_shutdown["armed"] = True
-        _pending_shutdown["at"] = dt.datetime.now()
-        await bus.emit("alert", {"level": "warn",
-                                 "msg": "APAGADO SOLICITADO — di «confirmo apagado» en 60 s"})
-        return {"reply": "Protocolo de apagado armado. Di «confirmo apagado» para ejecutarlo, "
-                         "o ignórame y lo cancelo en 60 segundos."}
+    if intent in ("shutdown", "restart"):
+        apagar = intent == "shutdown"
+        verbo = "apagar" if apagar else "reiniciar"
+        yo = "apago" if apagar else "reinicio"
+        from backend.core import confirm
+        canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
+        abiertos = len(_proc_names()) if psutil is not None else 0
+        cuantos = (f" Ahora mismo hay {abiertos} programa(s) distintos en marcha y "
+                   "se cerrarán todos." if abiertos else "")
 
-    if intent == "shutdown_confirm":
-        armed = _pending_shutdown["armed"] and _pending_shutdown["at"] and \
-            (dt.datetime.now() - _pending_shutdown["at"]).seconds < 60
-        _pending_shutdown["armed"] = False
-        if not armed:
-            return {"reply": "No hay ningún apagado pendiente de confirmar."}
-        if sys.platform == "win32":
-            os.system("shutdown /s /t 15")
-            return {"reply": "Apagando en 15 segundos. Ha sido un placer, operador. "
-                             "(cancela con: shutdown /a)"}
-        return {"reply": "Apagado confirmado (simulado en este SO)."}
+        def _ejecutar(_apagar=apagar):
+            if sys.platform != "win32":
+                return f"No sé {verbo} este sistema operativo, así que no he hecho nada."
+            os.system("shutdown /s /t 15" if _apagar else "shutdown /r /t 15")
+            return (f"{'Apagando' if _apagar else 'Reiniciando'} en 15 segundos. "
+                    "Si te has arrepentido, aún puedes cancelarlo con: shutdown /a")
+
+        await bus.emit("alert", {"level": "warn",
+                                 "msg": f"{verbo.upper()} SOLICITADO — esperando confirmación"})
+        pregunta = (f"⚠ Voy a {verbo} este equipo en 15 segundos desde que me digas que sí."
+                    f"{cuantos} Lo que no esté guardado se pierde.\n"
+                    f"¿Lo {yo}? Responde «sí» o «no» "
+                    f"(o la frase exacta «confirmo {'apagado' if apagar else 'reinicio'}»).")
+        return {"reply": confirm.request(
+            channel=canal, kind=f"{verbo}_equipo", summary=pregunta,
+            action=_ejecutar, request_text=text, targets=[{"host": platform.node()}],
+            cancel_reply=f"Cancelado, no {yo} nada."),
+            "data": {"confirm": True}}
+
+    if intent in ("shutdown_confirm", "restart_confirm"):
+        # si hubiera algo armado, el brain lo habría resuelto antes del router
+        que = "apagado" if intent == "shutdown_confirm" else "reinicio"
+        return {"reply": f"No hay ningún {que} pendiente de confirmar, así que no he hecho "
+                         f"nada. Si lo quieres de verdad, dime «{'apaga' if que == 'apagado' else 'reinicia'} el pc»."}
 
     return {"reply": "Esa orden de sistema no la tengo mapeada. Puedo darte el estado del "
-                     "equipo, temperaturas, procesos, abrir apps y webs, capturas, webcam "
-                     "y el apagado (siempre con confirmación)."}
+                     "equipo, temperaturas, procesos, abrir apps y webs, capturas, webcam, "
+                     "y apagar o reiniciar (siempre con confirmación)."}

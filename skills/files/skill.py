@@ -32,7 +32,7 @@ SKILL = {
                     r"[^.]{0,45}\b(archivo|documento|word|doc|\.?docx|\.?txt|\.?md|texto|csv|json|markdown)\b[^.]{0,70}\bescritorio\b",
         "move": r"\b(mueve|mu[eé]ve(?:me)?|traslada|trasladar|mover|lleva|ll[eé]va(?:me|te)?|pasa)\b\s+(?:el |la |los |las )?"
                 r"(?:archivo|fichero|documento|carpeta|directorio)\s+(?P<src>.+?)\s+(?:a|al|hacia|hasta|dentro de)\s+(?P<dst>.+)",
-        "copy": r"\b(copia(?:me)?|copiar|duplica(?:me)?|duplicar|clona)\b\s+(?:el |la |los |las )?"
+        "copy": r"\b(c[oó]pia(?:me)?|copiar|duplica(?:me)?|dupl[ií]ca(?:me)?|duplicar|clona|cl[oó]na(?:me)?)\b\s+(?:el |la |los |las )?"
                 r"(?:archivo|fichero|documento|carpeta|directorio)\s+(?P<src>.+?)\s+(?:a|al|en|hacia|dentro de)\s+(?P<dst>.+)",
         "rename": r"\b(renombra(?:me)?|renombrar|ren[oó]mbra(?:me)?|cambia(?:le)? el nombre (?:de|del)?)\s+"
                   r"(?:el |la )?(?:archivo |fichero |documento |carpeta |directorio )?(?P<src>.+?)\s+(?:a|por|como)\s+(?P<dst>.+)",
@@ -53,9 +53,9 @@ SKILL = {
         "mkfile": r"\b(?:cr[eé]a(?:me|r|te)?|h[aá]z(?:me)?|gen[eé]ra(?:me)?|nuevo)\b"
                   r"[^.]{0,18}\b(?:archivo|fichero)\b\s+(?P<rest>.+)",
         "search": r"\b(?:busca|b[uú]scame|encuentra|localiza)\s+(?:archivos?\s+|ficheros?\s+|documentos?\s+)?(?P<pat>\S+)\s+en\s+(?=(?:la\s+carpeta\b|el\s+(?:disco|directorio)\b|mis?\s+(?:documentos|descargas|escritorio|archivos)\b|(?:los\s+)?documentos\b|descargas\b|escritorio\b|[A-Za-z]:[\\/]|[/~.]))(?P<path>.+)",
-        "explore": r"\b(?:explora(?:me)?|[aá]bre(?:me)?|ens[eé][ñn]a(?:me)?|mu[eé]stra(?:me)?|lista|l[ií]stame|qu[eé]\s+hay\s+(?:en|dentro\s+de))\b"
+        "explore": r"\b(?:expl[oó]ra(?:me)?|[aá]bre(?:me)?|ens[eé][ñn]a(?:me)?|mu[eé]stra(?:me)?|lista|l[ií]sta(?:me)?|qu[eé]\s+hay\s+(?:en|dentro\s+de))\b"
                    r"[^.\n]{0,15}?\b(?:la\s+carpeta|el\s+directorio)\s+(?P<path>[^?\n]+)"
-                   r"|\b(?:explora(?:me)?|qu[eé]\s+hay\s+(?:en|dentro\s+de))\s+(?:el\s+|la\s+|mis?\s+)?"
+                   r"|\b(?:expl[oó]ra(?:me)?|qu[eé]\s+hay\s+(?:en|dentro\s+de))\s+(?:el\s+|la\s+|mis?\s+)?"
                    r"(?P<path2>(?:escritorio|descargas|documentos|im[aá]genes)\b[^?\n]*|[A-Za-z]:[\\/][^?\n]*|[/~.][^?\n]*)",
         "analyze": r"\b(?:anal[ií]za(?:me)?|revisa|audita)\s+(?:el\s+c[oó]digo\s+(?:de(?:l)?\s+)?|el\s+script\s+|el\s+archivo\s+)?"
                    r"(?P<path>\S+\.(?:py|js|ts|jsx|tsx|java|go|rs|c|cpp|h|hpp|cs|php|rb|swift|kt|html|css|sql|sh|ps1|bat))\b",
@@ -96,9 +96,6 @@ _INTENTS_QUE_CHOCAN_CON_DRIVE = ("trash", "make_doc", "move", "copy", "rename",
 for _i in _INTENTS_QUE_CHOCAN_CON_DRIVE:
     if _i in SKILL["patterns"]:
         SKILL["patterns"][_i] = _SIN_DRIVE + "(?:" + SKILL["patterns"][_i] + ")"
-
-_pending_trash: dict = {"path": None}
-
 
 def _resolve(raw: str) -> Path:
     return Path(raw.strip().strip('"').strip("'")).expanduser()
@@ -143,6 +140,18 @@ def _desktop() -> Path:
     return _known_dir("escritorio")
 
 
+def _carpeta(raw: str) -> Path:
+    """Ruta de una carpeta a partir de lo que dijo el usuario. «el escritorio»,
+    «mis documentos» o «descargas» son carpetas conocidas del perfil; cualquier
+    cosa con separador o unidad se toma como ruta literal."""
+    txt = (raw or "").strip().strip('"\'').rstrip(".?!").strip()
+    if not any(c in txt for c in "/\\:"):
+        conocida = _known_dir(txt)
+        if conocida:
+            return conocida
+    return _resolve(txt)
+
+
 def _parse_loc_name(rest: str, default_base: Path):
     """De «llamada Proyectos dentro de Documentos» → (base_path, "Proyectos").
     Entiende la ubicación (en/dentro de + escritorio/documentos/descargas/ruta/subcarpeta)
@@ -181,6 +190,22 @@ async def _ai_summary(text: str, prompt: str) -> str:
 def _perm():
     from backend.core import permissions
     return permissions
+
+
+def _ficha_papelera(path: Path) -> str:
+    """Describe QUÉ se lleva la papelera: tipo, ruta completa y tamaño/contenido."""
+    if path.is_dir():
+        try:
+            dentro = sum(1 for _ in path.rglob("*"))
+        except OSError:
+            dentro = 0
+        return (f"la CARPETA «{path.name}» ({path}) con {dentro} elemento(s) dentro "
+                "(subcarpetas incluidas)")
+    try:
+        kb = path.stat().st_size / 1024
+        return f"el archivo «{path.name}» ({path}, {kb:.1f} KB)"
+    except OSError:
+        return f"«{path.name}» ({path})"
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
@@ -229,9 +254,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 except Exception:
                     content = ""
         name = _re.sub(r'[<>:"/\\|?*\n\r]', "", name).strip() or "documento nexus"
-        # EXTENSIÓN: la que pidas; si no pides ninguna, .md (norma de Adri,
-        # 30/07/2026). El criterio vive en backend/core/files_io.formato_pedido
-        # para que no vuelva a haber una skill escribiendo .txt y otra .md.
+        # EXTENSIÓN: la que se pida; si no se pide ninguna, .md. El criterio vive
+        # en backend/core/files_io.formato_pedido para que lo compartan todas las
+        # skills que escriben ficheros.
         KNOWN = ("docx", "txt", "md", "csv", "json", "html", "py", "log", "xml", "ini", "yaml", "yml")
         from backend.core.files_io import formato_pedido
         ext = formato_pedido(low)
@@ -436,22 +461,28 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 "files": [{"path": res["ruta"], "action": "creado"}]}
 
     if intent == "explore":
-        path = _resolve(match.group("path"))
+        # «qué hay en el escritorio» llena path2, no path
+        path = _carpeta(_g(match, "path", "path2"))
         if not P.path_allowed(path):
             return {"reply": P.deny_msg(path)}
         if not path.is_dir():
-            return {"reply": f"No encuentro la carpeta {path}."}
+            return {"reply": f"No encuentro la carpeta {path}. Dime la ruta completa "
+                             "o una carpeta conocida (escritorio, documentos, descargas)."}
         items = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))[:25]
         listing = " · ".join(("📁" if p.is_dir() else "📄") + p.name for p in items)
         return {"reply": f"Contenido de {path.name}/ ({len(items)} mostrados): {listing}"}
 
     if intent == "search":
-        base = _resolve(match.group("path"))
+        import re as _re
+        # el patrón deja pasar el determinante: «en la carpeta Descargas», «en mis documentos»
+        base = _carpeta(_re.sub(r"^(?:la\s+carpeta|el\s+(?:disco|directorio)|mis?)\s+", "",
+                                match.group("path").strip(), flags=_re.I))
         if not P.path_allowed(base):
             return {"reply": P.deny_msg(base)}
         pat = match.group("pat")
         if not base.is_dir():
-            return {"reply": f"No encuentro la carpeta {base}."}
+            return {"reply": f"No encuentro la carpeta {base}. Dime la ruta completa "
+                             "o una carpeta conocida (escritorio, documentos, descargas)."}
         hits = [str(p.relative_to(base)) for p in base.rglob(f"*{pat}*")][:15]
         return {"reply": f"{len(hits)} coincidencias con «{pat}»: " + " · ".join(hits)
                 if hits else f"Sin coincidencias con «{pat}» en {base.name}."}
@@ -487,27 +518,45 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": f"{path.name}: {len(lines)} líneas ({loc} con código). {summary}"}
 
     if intent == "trash":
-        path = _resolve(match.group("path"))
+        # el patrón reparte la ruta entre path/path2/path3/path4 según la forma
+        # de la frase; con match.group("path") a secas las tres cuartas partes
+        # de las órdenes llegaban con None
+        path = _resolve(_g(match, "path", "path2", "path3", "path4"))
         if not P.path_allowed(path):
             return {"reply": P.deny_msg(path)}
         if not path.exists():
-            return {"reply": f"No existe {path}."}
-        _pending_trash["path"] = path
-        return {"reply": f"¿Seguro que mando «{path.name}» a la papelera? "
-                         "Di «confirmo papelera» para ejecutarlo."}
+            return {"reply": f"No existe {path}. No he borrado nada."}
+        from backend.core import confirm
+        canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
+
+        def _a_la_papelera(_p=path):
+            try:
+                from send2trash import send2trash
+            except ImportError:
+                return ("Falta send2trash (ejecuta run.bat o «pip install send2trash»). "
+                        f"«{_p.name}» sigue donde estaba: no he borrado nada.")
+            try:
+                send2trash(str(_p))
+            except Exception as exc:                       # noqa: BLE001
+                return f"No he podido moverlo: {exc}. «{_p.name}» sigue donde estaba."
+            return (f"«{_p.name}» está en la papelera del sistema. "
+                    "Se recupera desde ahí con «Restaurar».")
+
+        pregunta = (f"🗑 Voy a mandar a la papelera {_ficha_papelera(path)}.\n"
+                    "Es recuperable desde la papelera del sistema, pero no lo toco sin tu "
+                    "visto bueno. ¿Lo mando? Responde «sí» o «no».")
+        return {"reply": confirm.request(
+            channel=canal, kind="papelera_archivo", summary=pregunta,
+            action=_a_la_papelera, request_text=text,
+            targets=[{"path": str(path)}],
+            cancel_reply=f"Vale, dejo «{path.name}» donde está."),
+            "data": {"confirm": True}}
 
     if intent == "trash_confirm":
-        path = _pending_trash.get("path")
-        _pending_trash["path"] = None
-        if not path:
-            return {"reply": "No hay nada pendiente de mandar a la papelera."}
-        try:
-            from send2trash import send2trash
-            send2trash(str(path))
-            return {"reply": f"«{path.name}» está en la papelera (recuperable)."}
-        except ImportError:
-            return {"reply": "Falta send2trash (pip install send2trash). No he borrado nada."}
-        except Exception as exc:
-            return {"reply": f"No he podido: {exc}"}
+        # el «sí»/«no» lo resuelve backend.core.confirm ANTES del router: si la
+        # frase llega hasta aquí es que ya no hay nada armado
+        return {"reply": "No hay nada pendiente de mandar a la papelera. "
+                         "Dime «borra el archivo <ruta>» y te enseño qué se lleva antes "
+                         "de tocar nada."}
 
     return {"reply": "Orden de archivos no reconocida."}

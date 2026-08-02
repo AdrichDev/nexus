@@ -73,7 +73,12 @@ SKILL = {
                     r"|matriz de eisenhower",
         # v23: RESTAURAR y PAPELERA van ANTES que cualquier borrado, para que
         # «recupera las tareas que has eliminado» no se lea como una orden de borrar.
-        "restore": r"(?:recup[eé]ra|restaura|restit[uú]ye|devu[eé]lve|rescata)"
+        # La primera alternativa captura el TÍTULO para restaurar solo esa tarea;
+        # sin ella «restaura la tarea X» devolvía el lote borrado entero.
+        "restore": r"(?:recup[eé]ra|restaura|restit[uú]ye|rescata)(?:me)?\s+"
+                   r"(?:la\s+|el\s+|mi\s+)?tareas?\s+"
+                   r"(?!borradas?\b|eliminadas?\b|de\s+la\s+papelera\b)(?P<task>.+)"
+                   r"|(?:recup[eé]ra|restaura|restit[uú]ye|devu[eé]lve|rescata)"
                    r"(?:me|las|los|la|lo|melas)?\b[^.\n]{0,30}"
                    r"\b(?:tareas?|papelera|borrad[ao]s?|eliminad[ao]s?)\b"
                    r"|(?:recup[eé]ra|restaura|rescata)(?:melas|las|los)\b"
@@ -81,18 +86,18 @@ SKILL = {
                    r"|\bdeshacer\s+(?:el\s+)?(?:[uú]ltimo\s+)?borrado\b"
                    r"|\bvuelve\s+a\s+poner\s+las\s+tareas\b",
         # PAPELERA: ver lo borrado (y vaciarla del todo, con confirmación extra).
-        "trash": r"\b(?:papelera|papelera\s+de\s+tareas)\b"
+        "trash": r"\bpapelera\b"
                  r"|\btareas\s+(?:eliminadas|borradas)\b"
                  r"|qu[eé]\s+(?:tareas\s+)?(?:has|hemos)\s+(?:borrado|eliminado)",
         # BORRAR todo / completadas → ANTES que el borrado por título (más específico).
         # v23: «realizadas / finalizadas / listas» también son COMPLETADAS. Ese
         # hueco fue LA causa del incidente: no casaban y caía en el borrado total.
-        "clear": r"\b(borra|elimina|quita|vac[ií]a|limpia)\b[^.\n]{0,25}\b(todas?\s+las\s+tareas|"
+        "clear": r"\b(b[oó]rra(?:me)?|elim[ií]na(?:me)?|elimina|qu[ií]ta(?:me)?|vac[ií]a(?:me)?|limpia(?:me)?)\b[^.\n]{0,25}\b(todas?\s+las\s+tareas|"
                  r"el\s+tablero|las\s+(?:tareas\s+)?(?:ya\s+)?(?:completadas?|hechas?|terminadas?|"
                  r"acabadas?|realizadas?|finalizadas?|listas|pendientes))\b",
         # BORRAR una tarea: acepta borra/elimina/quita/tacha/descarta pero EXIGE la palabra
         # «tarea» (si no, «borra el archivo X» caería aquí por error). El título va después.
-        "delete": r"\b(?:borra|elimina|qu[ií]ta(?:me)?|tacha|descarta)\b[^.\n]{0,12}\btareas?\b"
+        "delete": r"\b(?:b[oó]rra(?:me)?|elim[ií]na(?:me)?|elimina|qu[ií]ta(?:me)?|t[aá]cha(?:me)?|descarta)\b[^.\n]{0,12}\btareas?\b"
                   r"\s*(?:[:,\-]\s*|llamada\s+|titulada\s+|que\s+dice\s+|de\s+)?(?P<task>.+)",
         # VER el tablero: cualquier forma natural de pedir las tareas, no solo
         # «ver tablero» (peticion de Adri: «siempre que le diga algo de tareas
@@ -214,8 +219,6 @@ def _maybe_gcal_event(title: str, due: str, hora: str) -> str:
     except Exception:
         return ""
 
-
-_pending_delete = {"id": None}
 
 # ══════════ v23: ÁMBITO DE UN BORRADO MASIVO (TAREA 2) ══════════
 # «ya realizadas», «hechas», «finalizadas», «listas» = COMPLETADAS. Se comprueba

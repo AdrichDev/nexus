@@ -25,13 +25,15 @@ tareas por voz/texto, avisa de retrasos y prioriza con la matriz de Eisenhower.
   🟡 a punto de vencer.
 - "organiza mis tareas por urgencia" / "prioriza el tablero" → matriz
   Eisenhower (hacer ya / planificar / delegar / revisar).
-- "borra la tarea diseñar logo" → PREVISUALIZA las coincidencias (duplicados
-  incluidos) y PIDE CONFIRMACIÓN antes de tocar nada.
-- "borra las tareas completadas" / "limpia las ya realizadas" / "vacía el
-  tablero" → limpieza masiva, siempre con confirmación previa y con el
-  recuento de qué se va y qué se queda.
-- "recupera las tareas borradas" / "deshaz el borrado" / "restaura la tarea X"
-  → devuelve lo borrado desde la papelera, cada tarea a su columna anterior.
+- "borra la tarea diseñar logo" / "bórrame la tarea X" / "elimíname la tarea X"
+  → PREVISUALIZA las coincidencias (duplicados incluidos) y PIDE CONFIRMACIÓN
+  antes de tocar nada.
+- "borra las tareas completadas" / "bórrame las ya realizadas" / "limpia las ya
+  realizadas" / "vacía el tablero" → limpieza masiva, siempre con confirmación
+  previa y con el recuento de qué se va y qué se queda.
+- "recupera las tareas borradas" / "deshaz el borrado" → devuelve el ÚLTIMO lote
+  borrado, cada tarea a su columna anterior. "restaura la tarea X" devuelve solo
+  la que casa con ese título.
 - "ver la papelera" / "qué tareas has borrado" → contenido de la papelera.
   "vacía la papelera" → borrado FÍSICO, con una confirmación extra.
 
