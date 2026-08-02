@@ -149,6 +149,24 @@ diagnostico.txt
 *.db-shm
 *.db-wal
 
+# ── Repositorios de Adrian que viven DENTRO de esta carpeta ───────────────────
+# 02/08/2026. Los clono el aqui y traen su propio .git, asi que son repositorios
+# anidados. Eso importa por dos motivos:
+#
+#   1. Un «git add» de una carpeta con su propio .git NO guarda los ficheros:
+#      guarda un puntero (gitlink) sin submodulo declarado. Quien clone este
+#      repo se encuentra dos carpetas VACIAS y ningun error que lo explique.
+#   2. La revision previa al commit (gentle-ai review start) se niega a congelar
+#      un candidato que los contenga, con este mensaje: «untracked directory
+#      holds another Git repository that is not a linked worktree». O sea que
+#      bloqueaba la unica puerta de calidad que hay antes de main.
+#
+# Ignorarlos es la salida limpia: siguen en el disco y con su historia intacta,
+# simplemente este repositorio deja de intentar adoptarlos.
+Gentleman-Skills/
+gentleman-guardian-angel/
+.gga
+
 # ── Sistema operativo y editores ──────────────────────────────────────────────
 Thumbs.db
 desktop.ini

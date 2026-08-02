@@ -1,0 +1,301 @@
+{
+  "name": "nexus - informe diario de contenido (08:00)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# QUE HACE ESTE FLUJO\n\nCada dia a las 08:00 le pide a nexus el informe de contenido, lo sube a Drive y te lo manda por correo.\n\n## LA IDEA: n8n manda, nexus hace\n\nn8n NO lleva credenciales. Ni las de Google, ni el token de Instagram, ni claves de modelos. Solo dispara y ordena.\n\nTodo el trabajo lo hace nexus a traves de `/api/n8n`, que acepta LENGUAJE NATURAL y lo pasa por su cerebro: las mismas frases que le dirias tu por el chat. Asi no hay dos sitios donde guardar secretos, ni dos versiones de la misma logica que se separan con el tiempo.\n\n## LA DIRECCION IMPORTA\n\n`http://host.docker.internal:8177`\n\nNO uses `localhost` ni `127.0.0.1`: n8n corre DENTRO de Docker y ahi esas dos apuntan al propio contenedor, no a tu PC. Comprobado el 02/08/2026: `host.docker.internal` responde, las otras dos no.\n\n(El flujo de ejemplo `n8n_flujo_ejemplo.json` tiene ese fallo: usa 127.0.0.1 y por eso nunca pudo funcionar.)\n\nnexus deja pasar sin token lo que viene de local y de la LAN, asi que no hace falta autenticar.",
+        "height": 560,
+        "width": 420
+      },
+      "id": "nota-cabecera",
+      "name": "Como funciona",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-380, 40]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cada-dia-8",
+      "name": "Cada dia a las 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://host.docker.internal:8177/api/status",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "nexus-vivo",
+      "name": "Esta nexus encendido?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [320, 300],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "content": "## SI NEXUS ESTA APAGADO\n\nLa rama de error de este nodo NO manda un correo, y es a proposito: el correo lo envia nexus, asi que si nexus no esta, tampoco hay quien avise.\n\nLo que queda es el registro de ejecuciones de n8n, que marcara el dia en rojo. Si un dia no te llega el informe, mira ahi.\n\nSi quieres aviso por otra via, hay que darle a n8n credenciales SMTP propias. Se decidio NO hacerlo: seria el unico sitio del montaje con secretos duplicados.",
+        "height": 300,
+        "width": 340
+      },
+      "id": "nota-apagado",
+      "name": "Si nexus esta apagado",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [300, 540]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8177/api/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "estado de instagram"
+            },
+            {
+              "name": "speak",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "hay-datos",
+      "name": "Hay datos de Instagram?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.reply }}",
+              "rightValue": "ig_access_token",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              }
+            }
+          ]
+        }
+      },
+      "id": "si-hay-datos",
+      "name": "Cuenta conectada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "content": "## EL NODO DE COMPETENCIA VA AQUI\n\nRama LISTA PARA ENCHUFAR. Hoy no se usa: falta el token de Instagram.\n\nCuando lo tengas:\n1. En nexus: engranaje > APIS > `ig_access_token` y el id de la cuenta business.\n2. El nodo «Cuenta conectada?» ya lo detecta solo y toma la rama de arriba.\n3. Añade un httpRequest a `http://host.docker.internal:8177/api/n8n` entre «Cuenta conectada?» y «Pedir el informe a nexus».\n\n## LA ORDEN — OJO, HACEN FALTA LOS NOMBRES\n\nComprobado el 02/08/2026 contra el enrutador real:\n\n    analiza @cuenta1 @cuenta2        -> instagram/ig_competencia  OK\n    analiza la competencia            -> NO ENRUTA\n    analiza mis competidores          -> NO ENRUTA\n    compara con la competencia        -> NO ENRUTA\n\n`ig_competencia` EXIGE arrobas explicitas. Las formas genericas caen al planificador del cerebro, que es donde nexus se inventa cosas: no las uses en un cron.\n\nAsi que en ese nodo hay que escribir las cuentas a mano, o esperar a la fase 2 del roadmap (PETICIONES_ANALISIS.md), que guarda la lista de competidores y es la que permitiria decir «analiza la competencia» sin nombrarlos.\n\n## POR QUE NO ESTA YA ENCHUFADO\n\nSin token ese nodo devolveria «no hay datos» y el informe se construiria encima. Un plan de contenido levantado sobre nada es justo lo que se paso una sesion entera quitando de este proyecto.",
+        "height": 620,
+        "width": 380
+      },
+      "id": "nota-competencia",
+      "name": "Nodo de competencia",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1020, -180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8177/api/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "analiza mis reels"
+            },
+            {
+              "name": "speak",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "pedir-informe",
+      "name": "Pedir el informe a nexus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1060, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8177/api/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "dame ideas de contenido"
+            },
+            {
+              "name": "speak",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "pedir-ideas",
+      "name": "Pedir ideas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1280, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8177/api/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=sube a drive el ultimo informe de instagram"
+            },
+            {
+              "name": "speak",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "subir-drive",
+      "name": "Subir a Drive",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1500, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8177/api/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=envia un correo a mi cuenta con asunto \"nexus - informe de contenido\" y cuerpo: {{ $('Pedir ideas').item.json.reply }}"
+            },
+            {
+              "name": "speak",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "enviar-correo",
+      "name": "Enviar por correo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1720, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8177/api/n8n",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "apunta que hoy el informe diario no se genero porque la cuenta de Instagram no esta conectada: falta el token de la Graph API"
+            },
+            {
+              "name": "speak",
+              "value": "false"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "sin-datos",
+      "name": "Anotar que faltan datos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1060, 440]
+    },
+    {
+      "parameters": {
+        "content": "## LA RAMA HONESTA\n\nSin cuenta conectada NO se genera plan ni guiones: se deja una nota en la memoria de nexus diciendo que ese dia no hubo informe y por que.\n\nParece poca cosa y es lo mas importante del flujo. La alternativa era mandarte igualmente un correo con un plan de contenido inventado por un modelo sin datos delante. Eso es lo que hacia Content OS antes del 01/08/2026, y por eso se reescribio entero.\n\nUn cron que te miente todos los dias a las 8 es peor que no tener cron.",
+        "height": 320,
+        "width": 360
+      },
+      "id": "nota-honesta",
+      "name": "La rama honesta",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1020, 620]
+    }
+  ],
+  "connections": {
+    "Cada dia a las 08:00": {
+      "main": [[{ "node": "Esta nexus encendido?", "type": "main", "index": 0 }]]
+    },
+    "Esta nexus encendido?": {
+      "main": [
+        [{ "node": "Hay datos de Instagram?", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Hay datos de Instagram?": {
+      "main": [[{ "node": "Cuenta conectada?", "type": "main", "index": 0 }]]
+    },
+    "Cuenta conectada?": {
+      "main": [
+        [{ "node": "Pedir el informe a nexus", "type": "main", "index": 0 }],
+        [{ "node": "Anotar que faltan datos", "type": "main", "index": 0 }]
+      ]
+    },
+    "Pedir el informe a nexus": {
+      "main": [[{ "node": "Pedir ideas", "type": "main", "index": 0 }]]
+    },
+    "Pedir ideas": {
+      "main": [[{ "node": "Subir a Drive", "type": "main", "index": 0 }]]
+    },
+    "Subir a Drive": {
+      "main": [[{ "node": "Enviar por correo", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}
