@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/css/command.css?v=29">
+<link rel="stylesheet" href="/static/css/command.css">
 </head>
 <body>
 
@@ -120,9 +120,14 @@
   <div id="np-body"></div>
 </div>
 
+<!-- Los tres primeros son clasicos y dejan su API en window (qrcode,
+     WABIKS_REACTOR, WABIKS_CHARTS). Se ejecutan antes que el modulo, que
+     va diferido por definicion, asi que command.js ya los encuentra. -->
 <script src="/static/js/qrcode.min.js"></script>
 <script src="/static/js/reactor.js"></script>
 <script src="/static/js/charts.js"></script>
-<script src="/static/js/command.js?v=29"></script>
+<!-- Sin ?v=NN: /static va con Cache-Control: no-store desde el middleware
+     no_cache_estaticos de backend/app.py, y el modulo arrastra sus imports. -->
+<script type="module" src="/static/js/command.js"></script>
 </body>
 </html>

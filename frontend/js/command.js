@@ -1,83 +1,23 @@
 /* ==========================================================
    nexus — Command Center SPA
    Router + vistas interactivas cableadas al backend real.
-   ========================================================== */
-(function () {
-  const $ = (s, r = document) => r.querySelector(s);
-  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  // Texto de la IA → HTML con URLs CLICABLES (se abren en el navegador real del PC)
-  const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<>"«»)]+)/g,
-    (u) => `<a href="${u}" class="ext" title="Abrir en el navegador">${u}</a>`);
-  const api = (p, o) => fetch(p, o).then((r) => r.json()).catch(() => null);
 
-  const state = { status: null, skills: [], config: {}, board: null, logs: [], chat: [], graph: null, metrics: {},
-    llm: {}, llmCatalog: null };   // v24: estado REAL del cerebro + catálogo ya clasificado
+   Se carga como modulo ES (<script type="module">): sin empaquetador,
+   sin framework y sin paso de compilacion, que es la restriccion dura
+   de este frontend. Los estaticos van con Cache-Control: no-store
+   (backend/app.py), asi que ningun import se queda cacheado viejo.
+   ========================================================== */
+import { $, $$, esc, linkify, api, flash, mdToHtml } from './core/dom.js';
+import { state } from './core/state.js';
+import { CATALOG, BOOT } from './core/catalog.js';
+import { ovCard, gauge, kpi, qc, nsBtn, orbHTML } from './ui/widgets.js';
+
+// orbHTML lo usa tambien mobile.html, que no es un modulo.
+window.orbHTML = orbHTML;
+
+(function () {
   let ws, coreReactor = null, miniReactor = null, interactions = 0;
 
-  /* ---------- catálogo de nodos/skills (para vista Skills y Nodos) ---------- */
-  const CATALOG = {
-    autoprovision: { label: 'AUTO-PROV', color: '#7cf6c0', ic: '🛠', desc: 'nexus levanta y conecta su propia infraestructura: Docker, n8n, Telegram y modelos Ollama.',
-      actions: [['Revisar infraestructura', 'revisa tu infraestructura'], ['Levantar Docker', 'levanta docker'], ['Configurar n8n', 'configura n8n'], ['Preparar modelo…', 'prepara el modelo llama3.1', 1], ['Arreglar Ollama (modelos)', 'arregla ollama']] },
-    media: { label: 'MÚSICA', color: '#1db954', ic: '🎵', desc: 'Reproduce canciones (YouTube/Spotify/Apple) y controla la música por voz.',
-      actions: [['Poner una canción…', 'pon CANCION', 1], ['Pausa / Reanuda', 'pausa'], ['Siguiente canción', 'siguiente canción'], ['Canción anterior', 'canción anterior'], ['Parar música', 'para la música']] },
-    games: { label: 'JUEGOS', color: '#66c0f4', ic: '🎮', desc: 'Steam: abrir, instalar, descargar y actualizar juegos, y abrir launchers.',
-      actions: [['Jugar a…', 'juega a JUEGO', 1], ['Instalar en Steam…', 'instala JUEGO en steam', 1], ['Actualizar juego…', 'actualiza el juego JUEGO', 1], ['Abrir Steam', 'abre steam']] },
-    places: { label: 'MAPAS/VIAJES', color: '#34a853', ic: '🗺', desc: 'Google Maps, rutas y búsquedas de vuelos, hoteles y vídeos.',
-      actions: [['Cómo llego a…', 'cómo llego a DESTINO', 1], ['Ruta A → B…', 'ruta de ORIGEN a DESTINO', 1], ['Buscar vuelos…', 'busca vuelos a DESTINO', 1], ['Buscar hoteles…', 'busca hoteles en LUGAR por menos de 100 euros', 1], ['Abrir Maps', 'abre google maps']] },
-    discord: { label: 'DISCORD', color: '#5865f2', ic: '💬', desc: 'Abrir Discord y publicar mensajes en un canal por webhook.',
-      actions: [['Abrir Discord', 'abre discord'], ['Avisar en Discord…', 'manda a discord: MENSAJE', 1]] },
-    domotica: { label: 'CASA', color: '#ffd23a', ic: '🏠', desc: 'Descubre y controla los dispositivos de tu red: TV (encender/apagar/volumen/canal/apps), Wake-on-LAN y toda tu domótica vía Home Assistant.',
-      actions: [['Escanear la red', 'escanea la red'], ['Apagar la tele', 'apaga la tele'], ['Encender la tele', 'enciende la tele'], ['Subir volumen TV', 'sube el volumen'], ['Poner Netflix', 'pon netflix en la tele'], ['Encender el PC (WoL)', 'enciende el pc'], ['Luz del salón', 'enciende la luz del salón']] },
-    coach: { label: 'COACH', color: '#22d3ee', ic: '◈', desc: 'Secretario/coach/PM: briefing, objetivos, checklists, recordatorios.',
-      actions: [['Briefing del día', 'qué me toca hoy'], ['Mis objetivos', 'mis objetivos'], ['Planificar proyecto…', 'planifica el proyecto PROYECTO', 1], ['Estoy agobiado…', 'estoy agobiado']] },
-    content_os: { label: 'CONTENT OS', color: '#ff7ac0', ic: '▶', desc: 'Instagram: analítica, inspiración, patrones y guiones.',
-      actions: [['Analítica Instagram', 'analítica de instagram'], ['Inspiración de reel…', 'inspiración de @creador URL', 1], ['Analizar patrones', 'analiza los patrones'], ['Generar guion…', 'genera un guion sobre TEMA', 1], ['Ideas de contenido', 'dame ideas de contenido']] },
-    google_workspace: { label: 'GOOGLE', color: '#ff5e5e', ic: '✉', desc: 'Gmail, Calendar y Tasks reales (OAuth).',
-      actions: [['Leer mis correos', 'lee mis correos'], ['Calendario Google', 'qué tengo en el calendario de google'], ['Tareas de Google', 'mis tareas de google']] },
-    system_pc: { label: 'SISTEMA', color: '#59ff9c', ic: '🖥', desc: 'Control total del PC: apps instaladas, procesos, capturas, WoL.',
-      actions: [['Abrir aplicación…', 'abre APP', 1], ['Estado del sistema', 'estado del sistema'], ['Top procesos', 'lista los procesos'], ['Encender el PC (WoL)', 'enciende el ordenador']] },
-    tasks_board: { label: 'TABLERO', color: '#ffb14d', ic: '▦', desc: 'Kanban con toques de atención y matriz de urgencia.',
-      actions: [['Ver tablero', 'ver tablero'], ['Crear tarea…', 'crea la tarea TITULO para el viernes', 1], ['¿Voy retrasado?', 'qué tareas van retrasadas'], ['Organizar por urgencia', 'organiza mis tareas por urgencia']] },
-    devils_advocate: { label: 'DEVIL', color: '#ff3355', ic: '😈', desc: 'Abogado del diablo: SIEMPRE activo. Cuestiona, señala riesgos y depura el razonamiento antes de responder.',
-      actions: [['Criticar una idea…', 'abogado del diablo: IDEA', 1]] },
-    research: { label: 'RESEARCH', color: '#4dffd8', ic: '🔎', desc: 'Investigación web con fuentes, tendencias y economía.',
-      actions: [['Investigar…', 'investiga TEMA y hazme un informe', 1], ['Tendencias…', 'tendencias de NICHO', 1], ['Informe económico', 'informe económico']] },
-    datos: { label: 'DATOS', color: '#7d9dff', ic: '📊', desc: 'BDs externas y dashboards estilo Power BI.',
-      actions: [['Conectar BD…', 'conéctate a la base de datos postgresql://user:pass@host:5432/db', 1], ['¿Qué tablas hay?', 'qué tablas hay'], ['Dashboard de tabla…', 'dashboard de la tabla TABLA', 1]] },
-    memory_graph: { label: 'MEMORIA', color: '#4dd8ff', ic: '▣', desc: 'Grafo de notas + Postgres/pgvector con RAG semántico.',
-      actions: [['Estado de la memoria', 'estado de la memoria'], ['Aprender documento…', 'aprende el documento RUTA', 1], ['Aprender carpeta…', 'aprende la carpeta RUTA', 1]] },
-    files: { label: 'ARCHIVOS', color: '#b07dff', ic: '🗂', desc: 'Explorar, buscar, leer, resumir, crear carpetas/archivos.',
-      actions: [['Explorar carpeta…', 'explora la carpeta RUTA', 1], ['Crear carpeta…', 'crea la carpeta RUTA', 1], ['Resumir documento…', 'resume el documento RUTA', 1]] },
-    billing: { label: 'FACTURAS', color: '#ffe74d', ic: '🧾', desc: 'Facturación por voz con datos en memoria.',
-      actions: [['Ver facturas', 'ver facturas'], ['Nueva factura…', 'hazle una factura a CLIENTE por CONCEPTO de 100 euros', 1]] },
-    ai_media: { label: 'IA MEDIA', color: '#d84dff', ic: '✦', desc: 'Imágenes, transcripción de audios y búsqueda web.',
-      actions: [['Transcribir audio…', 'transcribe el audio RUTA', 1], ['Buscar en internet…', 'busca en internet TEMA', 1], ['Generar imagen…', 'genera una imagen de TEMA', 1]] },
-    tools: { label: 'TOOLS', color: '#7fe9f7', ic: '⚗', desc: 'Clima, alarmas, matemáticas SymPy, ping.',
-      actions: [['Tiempo en Madrid', 'qué tiempo hace en Madrid'], ['Estado de la red', 'estado de la red'], ['¿Qué hora es?', 'qué hora es']] },
-    comms: { label: 'COMMS', color: '#ffd23e', ic: '💬', desc: 'Mensajes, agenda y captura de tareas.',
-      actions: [['Ver mensajes', 'ver mensajes'], ['Capturar tareas', 'captura de tareas']] },
-    n8n_flows: { label: 'N8N', color: '#ff8c42', ic: '⚡', desc: 'Flujos n8n y WhatsApp a través de ellos.',
-      actions: [['Enviar WhatsApp…', 'envía un whatsapp a NOMBRE diciendo MENSAJE', 1], ['Lanzar flujo…', 'lanza el flujo NOMBRE', 1]] },
-    dev_knowledge: { label: 'DEV LIB', color: '#00e0b8', ic: '📚', desc: 'Biblioteca de skills de openClaw/Gru (SDD, PR, judgment-day...).',
-      actions: [['Ver biblioteca', 'qué skills de desarrollo tienes'], ['Aplicar skill…', 'aplica la skill sdd-spec a TAREA', 1]] },
-    mcp_hands: { label: 'MANOS MCP', color: '#a0ffcc', ic: '🖐', desc: 'Conectores MCP externos (filesystem, github...) como Cowork.',
-      actions: [['Qué manos tengo', 'qué manos tienes'], ['Recargar conectores', 'recarga los conectores'], ['Usar conector…', 'usa filesystem read_file con RUTA', 1]] },
-  };
-
-  /* ---------------- boot ---------------- */
-  const BOOT = [
-    'nexus BIOS v1.0 — Wide-Band Intelligent Knowledge System',
-    '> Arranque de reactor ............ [ONLINE]',
-    '> Núcleo orquestador ............. [OK]',
-    '> Minions (skills) cargados ...... [OK]',
-    '> Memoria pgvector + grafo ....... [OK]',
-    '> Índice de aplicaciones ......... [OK]',
-    '> Pipeline de voz STT/LLM/TTS .... [OK]',
-    '> Enlaces cifrados ............... [SECURE]',
-    '> Command Center ................. [EN LÍNEA]',
-    '', '  TODOS LOS SISTEMAS NOMINALES. A SUS ÓRDENES, OPERADOR.',
-  ];
   function bootSound() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
@@ -540,20 +480,6 @@
       Promise.resolve(a.play()).catch(() => { /* autoplay bloqueado → habla el respaldo del navegador */ });
     } catch (e) { _ttsAudio = null; _glowAnalyser = null; stopTTSGlow(); endVoiceTest(); }
   }
-  function orbHTML(big) {
-    // 12 puntos en anillo + núcleo; cada punto con su posición y desfase → onda.
-    const N = 12, R = big ? 24 : 10;
-    let dots = '';
-    for (let i = 0; i < N; i++) {
-      const a = (i / N) * 2 * Math.PI;
-      const tx = (Math.cos(a) * R).toFixed(1) + 'px';
-      const ty = (Math.sin(a) * R).toFixed(1) + 'px';
-      const d = (-(i / N) * 1.1).toFixed(2) + 's';
-      dots += `<i style="--tx:${tx};--ty:${ty};animation-delay:${d}"></i>`;
-    }
-    return `<span class="orb-load${big ? ' big' : ''}"><b></b>${dots}</span>`;
-  }
-  window.orbHTML = orbHTML;
 
   function setThinking(on) {
     ['#cc-chat', '#chat-log'].forEach((sel) => {
@@ -2031,11 +1957,6 @@
   }
 
   /* ---------- helpers de render ---------- */
-  const ovCard = (ic, name, sub, on) => `<div class="ov-card"><div class="ov-ic">${ic}</div><div><b>${name}</b><small>${esc(sub)}</small></div><span class="st ${on ? 'on' : 'off'}">${on ? 'ON' : 'OFF'}</span></div>`;
-  const GCOL = { cpu: '#22e6ff', ram: '#4d9bff', disk: '#ffd23a', gpu: '#4dff9e' };
-  const gauge = (k, label) => `<div class="gauge"><div class="ring" id="g-${k}" style="--gc:${GCOL[k] || '#22d3ee'}"><b id="gv-${k}" style="color:${GCOL[k] || '#eaf6ff'}">0%</b></div><div class="glabel">${label}</div></div>`;
-  const kpi = (lbl, val, delta, cy) => `<div class="kpi"><div class="lbl">${lbl}</div><div class="val ${cy ? 'cy' : ''}">${val}</div><div class="delta">${delta}</div></div>`;
-  const qc = (i, label, cmd, isPrompt, view) => `<div class="qc" data-cmd="${cmd ? esc(cmd) : ''}" data-prompt="${isPrompt ? 1 : ''}" data-view="${view || ''}"><i>${i}</i> ${label}</div>`;
 
   function renderLogsInto() {
     const box = $('#logbox');
@@ -2669,7 +2590,6 @@
     });
     $$('[data-view]').forEach((el) => { if (el._wv || el.dataset.cmd) return; el._wv = 1; if (el.tagName === 'A') return; el.addEventListener('click', () => render(el.dataset.view)); });
   }
-  function flash(el) { el.style.background = 'rgba(34,211,238,.2)'; setTimeout(() => { el.style.background = ''; }, 400); }
 
   /* ---------------- chat ---------------- */
   function renderChatLog() {
@@ -3080,7 +3000,6 @@
       <div class="ns-sec"><h4>MÓDULO · SKILL.md</h4><div class="ns-doc">${docHtml}</div></div>`;
     wireNs(body);
   }
-  function nsBtn(label, cmd, isP, view) { return `<button class="ns-act" data-cmd="${cmd ? esc(cmd) : ''}" data-p="${isP ? 1 : ''}" data-v="${view || ''}">▸ ${esc(label)}</button>`; }
   function wireNs(scope) {
     (scope || document).querySelectorAll('.ns-act').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.v) return render(b.dataset.v);
@@ -3088,17 +3007,6 @@
       if (b.dataset.p) { render('chat'); setTimeout(() => { $('#chat-in').value = cmd; $('#chat-in').focus(); }, 50); }
       else { send(cmd); flash(b); }
     }));
-  }
-  function mdToHtml(md) {
-    return esc(md)
-      .replace(/^#### (.+)$/gm, '<h5>$1</h5>')
-      .replace(/^### (.+)$/gm, '<h5>$1</h5>')
-      .replace(/^## (.+)$/gm, '<h4>$1</h4>')
-      .replace(/^# (.+)$/gm, '<h3>$1</h3>')
-      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-      .replace(/`(.+?)`/g, '<code>$1</code>')
-      .replace(/^- (.+)$/gm, '• $1')
-      .replace(/\n/g, '<br>');
   }
   $('#np-close').addEventListener('click', () => $('#node-panel').classList.add('hidden'));
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#node-panel')?.classList.add('hidden'); });
