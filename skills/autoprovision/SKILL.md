@@ -1,47 +1,53 @@
 # Auto-provisión (autoprovision)
 
-nexus levanta y conecta **su propia infraestructura** bajo tu orden, en vez de
-que tengas que hacerlo a mano. Todo se ejecuta en tu máquina (mismo proceso que
-el backend), con acceso real a Docker, Ollama y n8n locales. Las acciones son
-**aditivas y seguras**: no borra nada.
+nexus levanta y conecta **su propia infraestructura local** bajo tu orden: Docker,
+Ollama, n8n y el bot de Telegram. Todo se ejecuta en tu máquina, en el mismo
+proceso que el backend.
 
-## Qué sabe hacer
+## Qué hace y con qué frases
 
-- **Diagnóstico completo** — «revisa tu infraestructura», «cómo están tus servicios»,
-  «ponte en marcha». Comprueba Docker, la base de datos pgvector, Ollama (y si el
-  modelo activo está listo), n8n y el bot de Telegram, y te da un informe claro.
+- **Diagnóstico** — «revisa tu infraestructura», «revísame la infraestructura»,
+  «comprueba tus servicios», «cómo están tus conexiones», «ponte en marcha».
+  Informe de Docker, la memoria pgvector, Ollama (con el modelo activo), n8n y
+  Telegram. Solo lectura.
 
-- **Docker** — «levanta docker», «arranca los contenedores», «enciende la base de datos».
-  Ejecuta `docker compose -f docker-compose.nexus.yml up -d` (busca el compose en
-  `nexus/` y en la raíz) y te muestra el estado.
+- **Docker** — «levanta docker», «levántame los contenedores», «arranca la bd»,
+  «enciéndeme la base de datos», «pon en marcha el docker». Ejecuta
+  `docker compose up -d` sobre el primer compose que encuentre por este orden:
+  `config/docker-compose.yml` (el que genera nexus), `docker-compose.nexus.yml`
+  en la raíz, y los dos de la carpeta hermana `nexus_stack/`.
 
-- **n8n** — «configura n8n», «crea el flujo», «importa el workflow». Si n8n está vivo
-  y hay una **API key de n8n** guardada en ⚙, crea y ACTIVA el workflow router por
-  API y deja el webhook (`/webhook/nexus`) configurado. Sin API key, te explica en
-  un paso cómo generarla (Settings → n8n API → Create API key).
+- **n8n** — «configura n8n», «configúrame n8n», «crea el flujo», «importa el
+  workflow». Si n8n responde y hay una API key guardada en ⚙, **te pregunta antes**
+  y solo entonces crea y activa el workflow router y guarda el webhook
+  `/webhook/nexus`. Sin API key te explica cómo generarla
+  (Settings → n8n API → Create API key).
 
-- **Telegram** — «configura telegram <token>». Valida el token con `getMe`, lo guarda
-  en `secrets.json` y te dice el @usuario del bot. (Telegram no permite crear el bot
-  por API: eso se hace una vez en @BotFather; a partir del token, lo hace nexus.)
+- **Telegram** — «configura telegram <token>», «actívame el bot». Valida el token
+  con `getMe`, lo guarda en `secrets.json` y te dice el @usuario del bot.
 
-- **Modelos Ollama** — «prepara el modelo llama3.1», «descarga el modelo qwen3». Si ya
-  está en Ollama lo deja como activo; si no, lo descarga del registro y lo activa.
+- **Modelos Ollama** — «prepara el modelo llama3.1», «descárgame el modelo qwen3»,
+  «bájate el modelo gemma2». Si ya está en Ollama lo deja como modelo activo; si
+  no, lo descarga del registro público y lo activa.
 
-- **Arreglar Ollama** — «arregla ollama», «mis modelos locales no aparecen». Detecta si
-  `OLLAMA_MODELS` no apunta a tu carpeta de modelos (p.ej. `D:\LLMs`), la
-  fija con `setx` y te pide reiniciar Ollama una vez para que los lea. Esto resuelve el
-  típico «el modelo X no está en Ollama» cuando el modelo existe en tu carpeta pero
-  Ollama no lo ve.
+- **Arreglar Ollama** — «arregla ollama», «arréglame ollama», «mis modelos locales
+  no aparecen». Compara `OLLAMA_MODELS` con las carpetas de modelos de ⚙. Si la
+  variable está vacía la fija con `setx`; si ya apuntaba a otra ruta, **pregunta
+  antes de sobrescribirla**. Después hay que reiniciar Ollama una vez.
 
-## Requisitos y notas
+## Necesita configurado
 
 - **Docker Desktop** abierto para las órdenes de contenedores.
-- **API key de n8n** en ⚙ para que nexus cree flujos por sí mismo (campo `n8n_api_key`).
-- **Ollama** arrancado para preparar/activar modelos.
-- Tras «arregla ollama» hay que **reiniciar Ollama** una vez (es la única forma de que
-  relea `OLLAMA_MODELS`).
+- **`n8n_api_key`** en ⚙ para crear flujos.
+- **Ollama** arrancado para preparar o activar modelos.
+- **`model_scan_paths`** en ⚙ → AI Core para que «arregla ollama» sepa a qué
+  carpeta apuntar.
 
-## Roadmap
+## Qué NO hace
 
-Registrar un bot de Telegram de cero (sin @BotFather) y orquestar despliegues remotos
-quedan fuera del alcance actual por diseño de esas plataformas; el resto lo hace nexus.
+- No borra contenedores, imágenes, volúmenes ni ficheros. `docker compose up`
+  se lanza **sin** `--remove-orphans`.
+- No crea el bot de Telegram: eso se hace una vez en @BotFather y aquí se parte
+  del token.
+- No genera el `docker-compose.yml`: lo escribe `backend/app.py`.
+- No despliega nada en máquinas remotas.

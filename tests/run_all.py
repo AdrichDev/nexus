@@ -61,7 +61,10 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_openrouter_privacidad.py", "test_content_os_honestidad.py", "test_drive.py",
               "test_skill_google_workspace.py", "test_skill_domotica.py",
               "test_skill_hermes.py", "test_skill_files.py",
-              "test_skill_system_pc.py", "test_skill_tasks_board.py"):
+              "test_skill_system_pc.py", "test_skill_tasks_board.py",
+              "test_skill_autoprovision.py", "test_skill_media.py",
+              "test_skill_chrome.py", "test_skill_content_os.py",
+              "test_skill_datos.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.

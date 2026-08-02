@@ -24,7 +24,8 @@ SKILL = {
                   r"(?:recarga|recon[eé]ctate?\s+a?|reinicia)\s+(?:el|los)\s+mcp",
         # OJO: verbos SIN ancla robaban frases («llama a 612…» del teléfono,
         # «ejecuta el flujo X» de n8n). Solo usa/invoca, o verbo + ancla explícita.
-        "call": r"(?:usa|invoca|(?:llama\s+a|ejecuta)\s+(?=(?:el\s+conector|al\s+conector|mcp|la\s+herramienta)))\s*"
+        # El \b inicial importa: sin él, «pa-usa la música» casaba con «usa».
+        "call": r"\b(?:usa|invoca|(?:llama\s+a|ejecuta)\s+(?=(?:el\s+conector|al\s+conector|mcp|la\s+herramienta)))\s*"
                 r"(?:el\s+conector\s+|al\s+conector\s+|mcp\s+|la\s+herramienta\s+)?"
                 r"(?P<server>[\w\-]+)\s+(?P<tool>[\w\-\.]+)(?:\s+con\s+(?P<args>.+))?",
     },

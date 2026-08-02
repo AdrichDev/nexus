@@ -16,13 +16,24 @@ y el puerto 9222 abierto:
 
 ## Órdenes
 
-- «qué pestañas tengo abiertas» → lista numerada
-- «resume la pestaña 2» / «lee la pestaña de youtube» / «qué estoy viendo en
-  chrome» → extrae el TEXTO REAL de la página y lo analiza el LLM (resumir,
-  explicar, traducir, responder preguntas sobre ella…)
-- «cambia a la pestaña de gmail» → la trae al frente
-- «abre una pestaña con el tiempo en madrid» / «abre marca.com en chrome»
-- «cierra la pestaña de twitter»
+- «qué pestañas tengo abiertas» · «lístame las pestañas» · «mis pestañas» → lista numerada
+- «resume la pestaña 2» · «resúmeme la pestaña 2» · «léeme la pestaña de youtube» ·
+  «analiza lo que ves en la página de chrome» · «qué estoy viendo en chrome»
+  → extrae el TEXTO REAL de la página y lo analiza el LLM (resumir, explicar,
+  traducir, responder preguntas sobre ella…)
+- «cambia a la pestaña de gmail» · «cámbiame a la pestaña de gmail» → la trae al frente
+- «abre una pestaña con el tiempo en madrid» · «ábreme marca.com en chrome»
+- «cierra la pestaña de twitter» · «ciérrame la pestaña 2»
+
+Para cerrar y para cambiar, si lo que dices no encaja con ninguna pestaña
+abierta, nexus **no toca nada**: te lista las que hay y te pide el número.
+
+## Qué NO hace
+
+- No ve las ventanas normales de Chrome, solo la del perfil `data/chrome_nexus`.
+- No rellena formularios, no pulsa botones ni navega por ti dentro de la página.
+- No guarda el contenido de las páginas: se lee, se pasa al LLM y se descarta.
+- No entra en páginas que exijan lo que no tengas iniciado en ese perfil.
 
 ## Notas técnicas
 

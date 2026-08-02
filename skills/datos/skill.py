@@ -13,11 +13,12 @@ SKILL = {
     "name": "Datos / Analítica",
     "description": "Conecta BDs externas (Postgres/MySQL/SQLite/Mongo), consulta en solo lectura y genera dashboards oscuros estilo Power BI (Chart.js)",
     "patterns": {
-        "connect": r"con[eé]cta(?:te|me)\s+a\s+la\s+(?:base\s+de\s+datos|bd)\s+(?P<url>\S+)",
+        "connect": r"con[eé]cta(?:te|me)?\s+a\s+la\s+(?:base\s+de\s+datos|bd)\s+(?P<url>\S+)",
         "disconnect": r"descon[eé]cta(?:te|me)?\s+(?:de\s+)?la\s+(?:base\s+de\s+datos|bd)",
         "which": r"qu[eé]\s+(?:base\s+de\s+datos|bd)\s+(?:est[aá]\s+conectada|tienes|hay\s+conectada)|"
                  r"a\s+qu[eé]\s+(?:base\s+de\s+datos|bd)\s+est[aá]s\s+conectad[oa]",
-        "tables": r"qu[eé]\s+tablas\s+(?:hay|tiene|tengo)|(?:lista|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?)\s+(?:las\s+)?tablas|"
+        "tables": r"qu[eé]\s+tablas\s+(?:hay|tiene|tengo)|"
+                  r"(?:l[ií]sta(?:me)?|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|d[aá]me)\s+(?:las\s+)?tablas|"
                   r"qu[eé]\s+colecciones\s+hay",
         "query": r"(?:consulta|query|ejecuta)[:,]\s*(?P<sql>.+)",
         "profile": r"informe\s+anal[ií]tico\s+de\s+(?:la\s+tabla\s+)?(?P<table>[\w.]+)",
@@ -154,13 +155,23 @@ def _build_dashboard(title: str, kpis: list[tuple[str, str]],
     return out
 
 
+MUESTRA = 200          # filas que se leen para perfilar columnas
+
+
 def _profile_table(table: str) -> tuple[list[tuple[str, str]], list[tuple], str]:
-    """KPIs + tarjetas de gráficos para una tabla SQL (perfil estilo GA4)."""
+    """KPIs + tarjetas de gráficos para una tabla SQL (perfil estilo GA4).
+
+    Solo el recuento de filas es de la tabla entera; los repartos por columna
+    salen de las primeras `MUESTRA` filas. Cuando la tabla es mayor, cada
+    etiqueta lo dice: un «Top país» calculado sobre 200 de 4 millones de filas
+    presentado como si fuera el total es un dato falso."""
     if not re.fullmatch(r"[\w.]+", table):
         raise RuntimeError("Nombre de tabla no válido")
     _c, rows = _sql(f"SELECT COUNT(*) FROM {table}")
     total = rows[0][0]
-    cols, sample = _sql(f"SELECT * FROM {table} LIMIT 200")
+    cols, sample = _sql(f"SELECT * FROM {table} LIMIT {MUESTRA}", MUESTRA)
+    parcial = total > len(sample)
+    marca = f" (muestra de {len(sample):,})" if parcial else ""
     kpis = [("Filas totales", f"{total:,}"), ("Columnas", str(len(cols)))]
     cards = []
     # columnas categóricas → top valores (barras/donut); fechas → evolución (línea)
@@ -175,20 +186,25 @@ def _profile_table(table: str) -> tuple[list[tuple[str, str]], list[tuple], str]
                 key = v.strftime("%Y-%m")
                 counts[key] = counts.get(key, 0) + 1
             items = sorted(counts.items())
-            cards.append(("line", f"Evolución por {col}",
+            cards.append(("line", f"Evolución por {col}{marca}",
                           [k for k, _ in items], [c for _, c in items]))
         elif isinstance(first, (int, float)) and len(set(values)) > 10:
-            kpis.append((f"Σ {col}", f"{sum(values):,.0f}"))
+            etiqueta = f"Σ {col}" + (f" en {len(values):,} filas" if parcial else "")
+            kpis.append((etiqueta, f"{sum(values):,.0f}"))
         else:
             counts = {}
             for v in values:
                 counts[str(v)[:24]] = counts.get(str(v)[:24], 0) + 1
             items = sorted(counts.items(), key=lambda x: -x[1])[:8]
             kind = "doughnut" if len(items) <= 5 else "bar"
-            cards.append((kind, f"Top {col}", [k for k, _ in items], [c for _, c in items]))
+            cards.append((kind, f"Top {col}{marca}",
+                          [k for k, _ in items], [c for _, c in items]))
         if len(cards) >= 5:
             break
-    return kpis, cards, f"{total:,} filas, {len(cols)} columnas"
+    resumen = f"{total:,} filas, {len(cols)} columnas"
+    if parcial:
+        resumen += f"; los gráficos salen de una muestra de {len(sample):,} filas"
+    return kpis, cards, resumen
 
 
 # ----------------------------------------------------------------------
@@ -261,8 +277,11 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             out = _build_dashboard(table, kpis, cards)
             from backend.core.llm import ask_llm
             insight, _ = await ask_llm(
-                f"Datos de la tabla «{table}»: {summary}. KPIs: {kpis}. "
-                "Da 2 insights accionables estilo analista, en 2 frases.")
+                f"Datos de la tabla «{table}»: {summary}. KPIs medidos: {kpis}. "
+                "Da 2 observaciones en 2 frases usando SOLO esas cifras. "
+                "No inventes métricas, porcentajes, tendencias ni comparaciones "
+                "que no estén ahí; si esos datos no dan para una observación "
+                "útil, dilo y propón qué consulta haría falta.")
             return {"reply": f"Dashboard de «{table}» abierto en el navegador "
                              f"({summary}). {insight}\nArchivo: data/reports/{out.name}"}
 

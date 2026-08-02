@@ -71,12 +71,12 @@ SKILL = {
                  r"|\b(pon(?:le)?|dale)\s+(la\s+)?pausa\b"
                  r"|\b(pausa|reanuda|contin[uú]a|sigue)\s+(?:con\s+)?(la\s+)?(m[uú]sica|canci[oó]n|reproducci[oó]n|el\s+v[ií]deo|spotify)\b",
         "next": r"\bsiguiente\s+(canci[oó]n|tema|pista)\b|\b(pon\s+)?otra\s+canci[oó]n\b"
-                r"|\b(pasa|salta|cambia)\s+(de\s+|a\s+la\s+siguiente\s+)?(canci[oó]n|tema|pista)\b"
-                r"|\bs[aá]lta(?:te)?\s+est[ae]\b|\bp[oó]n\s+la\s+siguiente\b",
+                r"|\b(pasa|s[aá]lta(?:me|te)?|cambia|c[aá]mbia(?:me)?)\s+(de\s+|la\s+|esta\s+|este\s+|a\s+la\s+siguiente\s+)?(canci[oó]n|tema|pista)\b"
+                r"|\bs[aá]lta(?:te|me)?\s+est[ae]\b|\bp[oó]n(?:me)?\s+la\s+siguiente\b",
         "prev": r"\b(canci[oó]n|tema|pista)\s+anterior\b|\banterior\s+(canci[oó]n|tema)\b"
                 r"|\bvuelve\s+a\s+la\s+anterior\b|\bpon\s+(la\s+|el\s+)?(canci[oó]n\s+|tema\s+|pista\s+)?anterior\b"
                 r"|\bcanci[oó]n\s+de\s+antes\b|\brep[ií]te(?:me)?\s+la\s+canci[oó]n\b|\bponla\s+otra\s+vez\b",
-        "stop_music": r"\b(para|quita|apaga|corta|det[eé]n|silencia)\s+(la\s+|esa\s+)?(m[uú]sica|canci[oó]n|reproducci[oó]n)\b"
+        "stop_music": r"\b(p[aá]ra|qu[ií]ta|ap[aá]ga|c[oó]rta|det[eé]n|sil[eé]ncia)(?:me|nos)?\s+(la\s+|esa\s+)?(m[uú]sica|canci[oó]n|reproducci[oó]n)\b"
                       r"|\bfuera\s+(la\s+)?m[uú]sica\b",
         # ALEATORIO: «pon algo», «pon música», «pon una canción», «sorpréndeme»,
         # «pon algo de rock al azar», «reproduce cualquier cosa en spotify»…
@@ -101,9 +101,13 @@ SKILL = {
                   r"|\bme\s+apetece\s+(?:escuchar\s+)?(?:algo\s+de\s+|un\s+poco\s+de\s+)?"
                   r"(?:m[uú]sica|una\s+canci[oó]n|un\s+tema)(?:\s+(?:de\s+)?(?P<rq3>.+?))?" + _SVC_RX + r"\s*$",
         # Reproducir CON NOMBRE: verbo de música + consulta (+ servicio opcional).
-        # El lookahead evita robar «pon el volumen…» (eso es del minion Sistema).
+        # El lookahead deja fuera lo que «pon …» significa en otras skills:
+        # ajustes del PC, avisos, tareas, casa. Sin él, «ponme una alarma a las 8»
+        # acababa buscando una canción llamada «una alarma a las 8».
         "play": r"(?:\b(pon|ponme|p[oó]n|reproduce|reprod[uú]ce(?:me)?|suena|pincha|dale\s+a|pon\s+la\s+canci[oó]n)\b"
-                r"\s+(?!.*\b(volumen|brillo)\b)(?P<q>.+?)"
+                r"\s+(?!.*\b(volumen|brillo|alarma|despertador|temporizador|cron[oó]metro|"
+                r"recordatorio|aviso|tarea|nota|copia\s+de\s+seguridad|"
+                r"modo\s+\w+|tema\s+(?:oscuro|claro)|fondo\s+de\s+pantalla|wallpaper)\b)(?P<q>.+?)"
                 r"(?:\s+en\s+(?P<svc>spotify|youtube|yt|apple\s*music|itunes|m[uú]sica\s+de\s+youtube))?\s*$)"
                 r"|(?:\b(abre|escucha(?:r)?|quiero\s+(?:escuchar|o[ií]r)|reproduce)\s+(?:una\s+|la\s+|el\s+)?(?:canci[oó]n|tema|m[uú]sica)\s+"
                 r"(?:de\s+|llamada\s+|titulada\s+)?(?P<q3>.+?)(?:\s+en\s+(?P<svc3>spotify|youtube|yt|apple\s*music|itunes))?\s*$)",

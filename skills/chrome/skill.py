@@ -57,40 +57,38 @@ SKILL = {
                 "contar qué hay en una página, pestaña o pantalla del navegador",
         "tabs": "listar qué pestañas hay abiertas",
     },
+    # Los verbos van con enclítico («ábreme», «ciérrame», «vincúlame») porque es
+    # como se piden de viva voz.
     "patterns": {
         # Conectar / estado. «modo nexus» del navegador.
-        # «conéctate» con tilde no casaba: solo «conectate». Media España escribe
-        # con tilde y se quedaba sin conectar el navegador.
-        "connect": r"(?:con[eé]cta(?:te)?\s+(?:con|a)\s+chrome|vincula\s+chrome|"
-                   r"(?:reinicia|arranca|lanza|inicia)\s+chrome(?:\s+en\s+modo\s+(?:nexus|depuraci[oó]n|debug))?|"
+        "connect": r"(?:con[eé]cta(?:te|me)?\s+(?:con|a)\s+chrome|vinc[uú]la(?:me)?\s+chrome|"
+                   r"(?:rein[ií]cia|arr[aá]nca|l[aá]nza|in[ií]cia)(?:me)?\s+chrome(?:\s+en\s+modo\s+(?:nexus|depuraci[oó]n|debug))?|"
                    r"chrome\s+en\s+modo\s+nexus|estado\s+de\s+chrome)",
         # Cerrar una pestaña — ANTES que read/switch por si acaso, y muy específica.
-        "close": r"cierra\s+(?:la\s+)?pesta[ñn]a\s*(?P<which>.*)",
+        "close": r"ci[eé]rra(?:me)?\s+(?:la\s+)?pesta[ñn]a\s*(?P<which>.*)",
         # Traer una pestaña al frente.
-        "switch": r"(?:cambia|vete|ve|salta|mu[eé]vete)\s+a\s+(?:la\s+)?pesta[ñn]a\s+(?P<which>.+)"
-                  r"|activa\s+la\s+pesta[ñn]a\s+(?P<which2>.+)",
+        "switch": r"(?:c[aá]mbia(?:me)?|vete|ve|salta|mu[eé]vete)\s+a\s+(?:la\s+)?pesta[ñn]a\s+(?P<which>.+)"
+                  r"|act[ií]va(?:me)?\s+la\s+pesta[ñn]a\s+(?P<which2>.+)",
         # Abrir pestaña nueva (URL o búsqueda).
-        "open": r"abre\s+una\s+(?:nueva\s+)?pesta[ñn]a(?:\s+(?:con|de|para|y\s+busca))?\s*(?P<what>.*)"
-                r"|abre\s+(?P<what2>\S.{0,120}?)\s+en\s+(?:chrome|el\s+navegador)",
-        # Leer/resumir el contenido REAL de una pestaña.
-        # OJO con lo estrecho que era esto: «analiza lo que ves en la pagina de
-        # chrome» no casaba, se iba al cerebro y el cerebro se INVENTABA lo que
-        # ponía en la página (31/07). Si alguien pide analizar algo del navegador,
-        # tiene que llegar a quien lee el navegador de verdad.
-        "read": r"(?:lee|l[eé]e(?:me)?|resume|res[uú]me(?:me)?|analiza|analiza|expl[ií]ca(?:me)?|traduce|de\s+qu[eé]\s+va)"
+        "open": r"[aá]bre(?:me)?\s+una\s+(?:nueva\s+)?pesta[ñn]a(?:\s+(?:con|de|para|y\s+busca))?\s*(?P<what>.*)"
+                r"|[aá]bre(?:me)?\s+(?P<what2>\S.{0,120}?)\s+en\s+(?:chrome|el\s+navegador)",
+        # Leer/resumir el contenido REAL de una pestaña. Tiene que ser ancha:
+        # cualquier petición de analizar algo del navegador debe llegar a quien
+        # lee el navegador de verdad, no al planificador.
+        "read": r"(?:lee|l[eé]e(?:me)?|resume|res[uú]me(?:me)?|anal[ií]za(?:me)?|expl[ií]ca(?:me)?|traduce|trad[uú]ce(?:me)?|de\s+qu[eé]\s+va)"
                 r"[^.\n]{0,40}\bpesta[ñn]a\b(?P<sel>[^.\n]{0,60})?"
-                r"|(?:lee|resume|analiza|mira|dime)[^.\n]{0,40}\b(?:p[aá]gina|web|pantalla)\b"
+                r"|(?:lee|l[eé]e(?:me)?|resume|res[uú]me(?:me)?|anal[ií]za(?:me)?|mira|d[ií]me)[^.\n]{0,40}\b(?:p[aá]gina|web|pantalla)\b"
                 r"[^.\n]{0,30}\b(?:abierta|actual|activa|de\s+chrome|del\s+navegador|"
                 r"que\s+(?:tengo|estoy)\s+(?:abierta|viendo|mirando|leyendo))"
-                r"|(?:lee|resume|analiza|mira)\s+(?:lo\s+que\s+(?:ves|hay|pone)\s+)?"
+                r"|(?:lee|l[eé]e(?:me)?|resume|res[uú]me(?:me)?|anal[ií]za(?:me)?|mira)\s+(?:lo\s+que\s+(?:ves|hay|pone)\s+)?"
                 r"(?:en\s+)?(?:la\s+|el\s+)?(?:p[aá]gina|pesta[ñn]a|pantalla)?\s*(?:de\s+)?"
                 r"(?:chrome|el\s+navegador)\b"
                 r"|qu[eé]\s+(?:estoy\s+(?:viendo|mirando|leyendo)|ves|hay|pone)\s+"
                 r"en\s+(?:chrome|el\s+navegador|la\s+pantalla)",
         # Listado de pestañas — la más amplia, al final del dict.
         "tabs": r"(?:qu[eé]|cu[aá]les|cu[aá]ntas)\s+pesta[ñn]as|"
-                r"(?:ver|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|lista(?:me)?|dime|dame)\s+(?:las\s+|mis\s+)?pesta[ñn]as|"
-                r"pesta[ñn]as\s+abiertas|"
+                r"(?:ver|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|l[ií]sta(?:me)?|d[ií]me|d[aá]me)\s+(?:las\s+|mis\s+)?pesta[ñn]as|"
+                r"pesta[ñn]as\s+abiertas|\bmis\s+pesta[ñn]as\b|"
                 r"qu[eé]\s+tengo\s+abierto\s+en\s+(?:chrome|el\s+navegador)",
     },
 }
@@ -142,18 +140,33 @@ async def _page_text(tab: dict) -> dict | None:
         return None
 
 
+_GENERICO = ("", "actual", "activa", "abierta", "esta", "esa", "ésta", "de chrome",
+             "del navegador", "que tengo abierta", "que estoy viendo")
+
+
 def _pick(tabs: list[dict], sel: str) -> dict:
     """Elige pestaña por número («la 2»), por término («de youtube») o la 1ª."""
+    t = _pick_strict(tabs, sel)
+    return t if t is not None else tabs[0]
+
+
+def _pick_strict(tabs: list[dict], sel: str) -> dict | None:
+    """Como `_pick`, pero devuelve None si el selector no señala ninguna pestaña.
+
+    Lo usan cerrar y cambiar: caer en la pestaña 1 cuando «de twitter» no existe
+    significa cerrar una pestaña que nadie pidió cerrar."""
     sel = (sel or "").strip().lower()
     m = re.search(r"\b(\d{1,2})\b", sel)
-    if m and 1 <= int(m.group(1)) <= len(tabs):
-        return tabs[int(m.group(1)) - 1]
+    if m:
+        n = int(m.group(1))
+        return tabs[n - 1] if 1 <= n <= len(tabs) else None
     term = re.sub(r"^(?:de|del|la|el|n[uú]mero|actual|activa|abierta)\s+", "", sel).strip(" ¿?.")
-    if term and term not in ("actual", "activa", "abierta", ""):
+    if term and term not in _GENERICO:
         for t in tabs:
             if term in (t.get("title", "") + " " + t.get("url", "")).lower():
                 return t
-    return tabs[0]
+        return None
+    return tabs[0] if not sel or sel in _GENERICO or term in _GENERICO else None
 
 
 def _chrome_exe() -> str | None:
@@ -163,6 +176,15 @@ def _chrome_exe() -> str | None:
         if Path(p).exists():
             return p
     return None
+
+
+def _no_encaja(sel: str, tabs: list[dict]) -> str:
+    """Mensaje cuando el selector no señala ninguna pestaña abierta."""
+    lista = "\n".join(f"  {i}. {(t.get('title') or t.get('url') or '')[:60]}"
+                      for i, t in enumerate(tabs, 1))
+    return (f"No tengo ninguna pestaña que encaje con «{sel.strip()}». "
+            f"Estas son las {len(tabs)} abiertas:\n{lista}\n"
+            "Dime el número o un trozo del título.")
 
 
 NO_LINK = ("Chrome no está en modo nexus (puerto de depuración cerrado). "
@@ -253,7 +275,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 sel = match.group(g) or sel
             except Exception:
                 pass
-        tab = _pick(tabs, sel)
+        tab = _pick_strict(tabs, sel)
+        if tab is None:
+            return {"reply": _no_encaja(sel, tabs)}
         ok = await _cdp_action(f"/json/activate/{tab['id']}")
         return {"reply": f"Al frente: «{tab.get('title')}». ✔" if ok
                 else "No he podido activar esa pestaña."}
@@ -284,7 +308,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             pass
         if not sel:
             return {"reply": "Dime cuál: «cierra la pestaña 2» o «cierra la pestaña de twitter»."}
-        tab = _pick(tabs, sel)
+        tab = _pick_strict(tabs, sel)
+        if tab is None:
+            return {"reply": _no_encaja(sel, tabs) + "\nNo he cerrado ninguna."}
         ok = await _cdp_action(f"/json/close/{tab['id']}")
         return {"reply": f"Pestaña «{tab.get('title')}» cerrada. ✔" if ok
                 else "No he podido cerrar esa pestaña."}

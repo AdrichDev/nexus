@@ -50,6 +50,18 @@ usa las teclas de medios del sistema, no una API concreta.
 
 - El control multimedia usa teclas de Windows; en otros sistemas nexus lo avisa
   y ofrece lanzar la música por YouTube directamente.
-- No colisiona con «pon el volumen al 50» (eso sigue siendo del minion Sistema).
 - «pon otra canción» = siguiente (control), no reproducir otra cosa.
 - Tolera transcripciones de Whisper: «espotifai», «yutub», «aitunes»…
+
+## Qué NO hace (y quién lo hace)
+
+`pon …` significa muchas cosas; esta skill solo se queda las de música:
+
+- «pon el volumen al 50», «pon el brillo al 80» → **Sistema/PC**
+- «pon la tele», «pon la luz del salón», «pon el aire» → **Domótica**
+- «ponme una alarma a las 8» → **Herramientas**
+- «pon una tarea nueva» → **Tablero**
+- «pon una reunión mañana a las 10» → **Google Workspace**
+- Abrir Spotify/iTunes/YouTube como aplicación → **Sistema/PC**
+
+Tampoco descarga audio ni vídeo, ni sube nada a ningún servicio.

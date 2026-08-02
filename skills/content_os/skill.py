@@ -27,9 +27,10 @@ SKILL = {
     "patterns": {
         # Anclas de dominio: instagram/ig, reel, guion, contenido. Los intents
         # con URL/tema (inspire, script) van antes que los genéricos de listado.
-        "connect": r"conecta(?:r)? (?:mi |el )?instagram|vincula (?:mi )?instagram"
-                   r"|con[eé]ctame (?:el |a )?instagram|conecta(?:r)? (?:el )?content os"
-                   r"|configura (?:mi )?instagram",
+        "connect": r"conecta(?:r)? (?:mi |el )?instagram|vinc[uú]la(?:me)? (?:mi )?instagram"
+                   r"|con[eé]ctame (?:el |a )?instagram"
+                   r"|con[eé]cta(?:r|me)? (?:el |al )?content os"
+                   r"|config[uú]ra(?:me)? (?:mi )?instagram",
         # COLISIÓN AUDITADA (01/08/2026). `skills_loader` recorre las carpetas
         # por orden ALFABÉTICO y gana la primera regex que case (rx.search, sin
         # anclar): «content_os» va antes que «instagram» y se tragaba
@@ -39,8 +40,8 @@ SKILL = {
         # lo contesta esto. Por eso aquí se queda «mi» y se suelta «el».
         # Se suelta SOLO esa: quitar más mandaría frases al planificador del
         # cerebro, que es donde se inventa cosas.
-        "analytics": r"anal[ií]tica de (?:mi )?instagram|c[oó]mo va mi instagram"
-                     r"|c[oó]mo va mi cuenta de instagram|m[ií]s m[eé]tricas de (?:ig|instagram)"
+        "analytics": r"anal[ií]tica de (?:mi )?instagram|(?:c[oó]mo|qu[eé] tal) va mi instagram"
+                     r"|(?:c[oó]mo|qu[eé] tal) va mi cuenta de instagram|m[ií]s m[eé]tricas de (?:ig|instagram)"
                      r"|(?:m[eé]tricas|estad[ií]sticas|insights|alcance) de (?:mi )?(?:instagram|ig)\b",
         "best": r"m[ií]s mejores (?:reels|v[ií]deos de instagram|posts? de instagram)"
                 r"|reels ganadores|qu[eé] reels (?:me )?funcionan mejor"
@@ -48,10 +49,11 @@ SKILL = {
         "inspire": r"(?:inspiraci[oó]n de|aprende (?:del|de este|de ese) reel"
                    r"|analiza (?:el|este|ese) reel|f[ií]jate en (?:el|este) reel"
                    r"|estudia (?:el|este) reel)\s+(?P<rest>.+)",
-        "patterns": r"analiza (?:los )?patrones(?: de inspiraci[oó]n)?"
+        "patterns": r"anal[ií]za(?:me)? (?:los )?patrones(?: de inspiraci[oó]n)?"
                     r"|qu[eé] patrones? (?:hay|ves|se repiten)|patrones ganadores"
                     r"|qu[eé] (?:ganchos?|estructuras?) (?:funcionan|se repiten)",
-        "script": r"(?:genera|escribe|crea|hazme|prep[aá]rame|red[aá]ctame)\s+(?:un\s+)?"
+        "script": r"(?:g[eé]nera(?:me)?|escr[ií]be(?:me)?|cr[eé]a(?:me)?|h[aá]z(?:me)?|"
+                  r"prep[aá]ra(?:me)?|red[aá]cta(?:me)?)\s+(?:un\s+)?"
                   r"gui[oó]n(?:\s+de\s+reel)?\s+(?:sobre|de|para)\s+(?P<topic>.+)",
         "ideas": r"dame ideas de contenido|(?:dame|quiero|necesito) ideas (?:de|para) "
                  r"(?:reels|contenido|instagram)|ideas para (?:reels|instagram)"

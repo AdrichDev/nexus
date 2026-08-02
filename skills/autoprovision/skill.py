@@ -9,8 +9,10 @@ Bajo la orden de Adri (voz o texto), nexus puede:
     el problema de OLLAMA_MODELS para que Ollama vea tus modelos de la carpeta.
   * Diagnóstico completo: "revisa tu infraestructura" → informe de todo.
 
-Corre en el mismo proceso que el backend (máquina de Adri), con acceso real a
-docker/ollama/n8n locales. Acciones aditivas y seguras: NO borra nada.
+Corre en el mismo proceso que el backend, con acceso real a docker/ollama/n8n
+locales. No borra contenedores ni ficheros. Lo que sobrescribe algo que ya
+existe (crear el workflow de n8n, cambiar OLLAMA_MODELS) pasa antes por
+`backend.core.confirm`.
 """
 from __future__ import annotations
 
@@ -29,18 +31,23 @@ GRU = ROOT.parent / "nexus_stack"                # stack docker (carpeta hermana
 SKILL = {
     "name": "Auto-provisión",
     "description": "nexus levanta y conecta su infraestructura: Docker, n8n, Telegram y modelos Ollama",
+    # Los verbos llevan el enclítico («levántame», «arréglame») y la tilde que
+    # aparece al añadirlo. `docker_up` va ANTES que `diagnose` para que «pon en
+    # marcha el docker» levante el stack en vez de dar el informe general.
     "patterns": {
-        "diagnose": r"(revisa|comprueba|diagnostica|audita)\b.{0,20}(infraestructura|servicios|sistemas|conexiones|instalaci[oó]n)"
+        "docker_up": r"(?:lev[aá]nta|arr[aá]nca|enci[eé]nde|s[uú]be|in[ií]cia|pon\s+en\s+marcha)(?:me|nos)?\b.{0,25}"
+                     r"(docker|contenedor|postgres|base\s+de\s+datos|stack|pgvector|\bdb\b|\bbd\b)",
+        "diagnose": r"(?:rev[ií]sa|compru[eé]ba|diagnost[ií]ca|aud[ií]ta)(?:me|nos)?\b.{0,25}"
+                    r"(infraestructura|servicios|sistemas|conexiones|instalaci[oó]n)"
+                    r"|diagn[oó]stico\s+(?:completo\s+)?(?:de\s+)?(?:la\s+|tu\s+)?(infraestructura|servicios|sistemas|conexiones)"
                     r"|aut[oó]\s*-?\s*(provisi[oó]n|inst[aá]late|instalaci[oó]n)"
                     r"|pon(te)?\s+en\s+marcha(\s+todo)?"
-                    r"|c[oó]mo\s+est[aá]n?\s+tus\s+(servicios|conexiones|sistemas)",
-        "docker_up": r"(levanta|arranca|enciende|pon\s+en\s+marcha|sube|inicia)\b.{0,25}"
-                     r"(docker|contenedor|postgres|base\s+de\s+datos|stack|pgvector|\bdb\b)",
-        "n8n_setup": r"(configura|conecta|crea|importa|prepara|instala)\b.{0,25}(n8n|flujo|workflow)",
-        "telegram_setup": r"(configura|conecta|activa|registra|valida)\b.{0,25}(telegram|bot)\b",
-        "model_ensure": r"(instala|descarga|prepara|registra|baja|b[aá]jate|aseg[uú]rate\s+(de|del)?)\s+(el\s+)?"
-                        r"(modelo|model)\s+(?P<model>[\w.\-:/]+)",
-        "ollama_fix": r"(arregla|repara|conecta|configura)\b.{0,20}(ollama|modelos\s+locales)"
+                    r"|(?:c[oó]mo|qu[eé]\s+tal)\s+(?:est[aá]n?|van|anda\w*)\s+tus\s+(servicios|conexiones|sistemas)",
+        "n8n_setup": r"(?:config[uú]ra|con[eé]cta|cr[eé]a|imp[oó]rta|prep[aá]ra|inst[aá]la)(?:me|nos)?\b.{0,25}(n8n|flujo|workflow)",
+        "telegram_setup": r"(?:config[uú]ra|con[eé]cta|act[ií]va|reg[ií]stra|val[ií]da)(?:me|nos)?\b.{0,25}(telegram|bot)\b",
+        "model_ensure": r"(?:inst[aá]la|desc[aá]rga|prep[aá]ra|reg[ií]stra|b[aá]ja(?:te)?|aseg[uú]rate\s+(?:de|del)?)(?:me|nos)?\s+(?:el\s+)?"
+                        r"(?:modelo|model)\s+(?P<model>[\w.\-:/]+)",
+        "ollama_fix": r"(?:arr[eé]gla|rep[aá]ra|con[eé]cta|config[uú]ra)(?:me|nos)?\b.{0,20}(ollama|modelos\s+locales)"
                       r"|(no\s+(aparecen|salen|se\s+detectan?|detecta)\b.{0,20}modelos)"
                       r"|mis\s+modelos(\s+locales)?\s+no",
     },
@@ -80,13 +87,9 @@ async def _post(url: str, body=None, headers: dict | None = None, timeout: int =
 def _compose_file() -> Path | None:
     """El compose que hay que levantar, por orden de preferencia.
 
-    El PRIMERO es config/docker-compose.yml: es el que escribe el propio nexus
-    (backend/app.py) con su usuario, su contraseña generada al azar y su puerto
-    127.0.0.1:5433. Antes esta lista empezaba por la carpeta hermana
-    «nexus_stack», que en la práctica está vacía: «levanta docker» contestaba
-    «no encuentro docker-compose.nexus.yml» teniendo el compose bueno delante.
-    Las rutas de nexus_stack se quedan de respaldo por si alguien tiene ahí un
-    stack propio, pero ya no mandan."""
+    El primero es config/docker-compose.yml, que escribe el propio nexus
+    (backend/app.py) apuntando a 127.0.0.1:5433. Las rutas de la carpeta
+    hermana nexus_stack son el respaldo para un stack propio del usuario."""
     for c in (ROOT / "config" / "docker-compose.yml",
               ROOT / "docker-compose.nexus.yml",
               GRU / "docker-compose.nexus.yml",
@@ -112,7 +115,9 @@ async def _docker_up() -> str:
         return ("No encuentro ningún docker-compose (lo he buscado en config/, en la raíz "
                 "de nexus y en la carpeta hermana nexus_stack). Di «prepara la base de "
                 "datos» y lo genero, o dime dónde está el tuyo.")
-    ok, out = _run(["docker", "compose", "-f", str(cf), "up", "-d", "--remove-orphans"], timeout=300)
+    # Sin --remove-orphans: esa opción BORRA contenedores que no estén en el
+    # compose, y aquí no se destruye nada sin que el usuario lo pida.
+    ok, out = _run(["docker", "compose", "-f", str(cf), "up", "-d"], timeout=300)
     if not ok:
         return f"No pude levantar los contenedores:\n{out[-500:]}"
     okp, ps = _run(["docker", "compose", "-f", str(cf), "ps"], timeout=30)
@@ -187,6 +192,18 @@ async def _model_ensure(ctx, name: str) -> str:
     return msg
 
 
+def _setx_models(target: str) -> str:
+    """Fija la variable de usuario OLLAMA_MODELS a `target`."""
+    ok, out = _run(["setx", "OLLAMA_MODELS", target], timeout=20)
+    if not ok:
+        return (f'No pude fijarla ({out[-120:]}). Hazlo tú: setx OLLAMA_MODELS "{target}" '
+                "y reinicia Ollama.")
+    return (f"✔ He fijado OLLAMA_MODELS = «{target}» (variable de usuario).\n"
+            "⚠ Reinicia Ollama para que la lea: cierra Ollama desde el icono de la "
+            "bandeja y ábrelo otra vez (o `ollama serve`). Después dime "
+            "«revisa tu infraestructura» y verás tus modelos listos.")
+
+
 async def _ollama_fix(ctx) -> str:
     live = await _ollama_live(ctx)
     paths = _scan_paths(ctx)
@@ -203,15 +220,18 @@ async def _ollama_fix(ctx) -> str:
     if target:
         norm = lambda p: os.path.normcase(os.path.normpath(p)) if p else ""   # noqa: E731
         if norm(target) != norm(env_models):
-            ok, out = _run(["setx", "OLLAMA_MODELS", target], timeout=20)
-            if ok:
-                L.append(f"✔ He fijado OLLAMA_MODELS = «{target}» (variable de usuario).")
-                L.append("⚠ Reinicia Ollama para que la lea: cierra Ollama desde el icono de la "
-                         "bandeja y ábrelo otra vez (o `ollama serve`). Después dime "
-                         "«revisa tu infraestructura» y verás tus modelos listos.")
-            else:
-                L.append(f'No pude fijarla ({out[-120:]}). Hazlo tú: setx OLLAMA_MODELS "{target}" '
-                         "y reinicia Ollama.")
+            if env_models:
+                # Ya había una ruta distinta puesta: sobrescribirla es destructivo.
+                from backend.core import confirm
+                return "\n".join(L) + "\n\n" + confirm.request(
+                    channel=ctx.get("channel", "pc"), kind="ollama_models",
+                    summary=(f"OLLAMA_MODELS apunta ahora a «{env_models}» y para que Ollama "
+                             f"vea tus modelos habría que cambiarla a «{target}». "
+                             "¿La sobrescribo?"),
+                    targets=[{"variable": "OLLAMA_MODELS", "antes": env_models, "despues": target}],
+                    action=lambda: _setx_models(target),
+                    cancel_reply="Vale, dejo OLLAMA_MODELS como estaba.")
+            L.append(_setx_models(target))
         else:
             L.append("OLLAMA_MODELS ya apunta a tu carpeta de modelos. Si aún no aparecen, "
                      "reinicia Ollama una vez.")
@@ -258,6 +278,23 @@ async def _n8n_setup(ctx) -> str:
         payload = {"name": wf.get("name", "nexus · Router de comandos"),
                    "nodes": wf["nodes"], "connections": wf["connections"],
                    "settings": wf.get("settings", {"executionOrder": "v1"})}
+    except Exception as exc:                                    # noqa: BLE001
+        return f"No pude leer {wf_file.name}: {type(exc).__name__}: {exc}"
+    # Crear y ACTIVAR un workflow toca tu n8n de verdad: se pregunta antes.
+    from backend.core import confirm
+    return confirm.request(
+        channel=ctx.get("channel", "pc"), kind="n8n_workflow",
+        summary=(f"Voy a crear y ACTIVAR el workflow «{payload['name']}» en tu n8n "
+                 f"({base}), con {len(payload['nodes'])} nodos, y a dejar el webhook "
+                 f"{base}/webhook/nexus configurado. ¿Lo hago?"),
+        targets=[{"n8n": base, "workflow": payload["name"]}],
+        action=lambda: _n8n_create(ctx, base, key, payload),
+        cancel_reply="Vale, no toco tu n8n.")
+
+
+async def _n8n_create(ctx, base: str, key: str, payload: dict) -> str:
+    """Crea el workflow en n8n, lo activa y guarda la URL del webhook."""
+    try:
         r = await _post(f"{base}/api/v1/workflows", body=payload,
                         headers={"X-N8N-API-KEY": key}, timeout=25)
         if r.status_code not in (200, 201):
