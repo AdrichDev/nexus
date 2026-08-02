@@ -133,8 +133,15 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 for i in range(0, min(len(text), 40000), CHUNK):
                     frag = text[i:i + CHUNK].strip()
                     if frag:
+                        # `origen` en CADA fragmento, no solo en el primero. La
+                        # cabecera «Carpeta:» va únicamente en el trozo inicial,
+                        # así que sin esto los fragmentos de continuación quedan
+                        # huérfanos: al purgar la carpeta nadie los reclama y se
+                        # quedan vivos contestando búsquedas. Pasó de verdad con
+                        # «20. FP DAM Euroformac» (02/08/2026).
                         pg.remember(f"[{folder} › {f.name}] {frag}",
-                                    kind="knowledge", tags=["doc", f.stem, folder])
+                                    kind="knowledge", tags=["doc", f.stem, folder],
+                                    origen=f"{folder}/{f.name}", origen_tipo="carpeta")
                         chunks += 1
         db_txt = f", {chunks} fragmentos indexados en la DB" if chunks else " (DB offline)"
         skip_txt = (f" Salté {skipped} (PDF/Word sin librería: instala pypdf y python-docx "

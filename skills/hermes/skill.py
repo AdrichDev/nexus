@@ -961,7 +961,7 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
                                          "messages": [{"role": "user", "content": orden}]})
             if r.status_code < 400:
                 out = (r.json().get("choices") or [{}])[0].get("message", {}).get("content", "")
-                out = out or "Hermes terminó sin texto de respuesta."
+                out = out or "He terminado, pero sin texto de respuesta."
                 break
             detalle = (r.text or "")[:400]
             # 401/403 del CEREBRO interno de Hermes (sin credenciales) → mensaje claro, sin reintento
@@ -1012,7 +1012,10 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
     try:
         import asyncio as _a
         from backend.core.memory import pg
-        await _a.to_thread(pg.remember, f"[Encargo a Hermes] {orden} => {out[:600]}", "hermes")
+        # El PREFIJO va neutro a propósito: esto se recupera con «qué recuerdas
+        # de X» y se le enseña al operador tal cual. Quién ejecutó el encargo ya
+        # queda marcado en `kind="hermes"`, que es interno y no se pinta nunca.
+        await _a.to_thread(pg.remember, f"[Trabajo] {orden} => {out[:600]}", "hermes")
     except Exception:
         pass
     # La notificación de fin la publica el GESTOR DE TRABAJOS (notify=True en el

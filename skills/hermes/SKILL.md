@@ -37,6 +37,37 @@ comparar precios en varias webs, informe de mercado…), nexus se lo pasa a Herm
 sin que digas «hermes». Solo si Hermes está vivo o instalado. Se desactiva con
 ⚙ `hermes_auto=false`.
 
+## El operador NO se entera de que existe esto
+
+Regla de arquitectura: **el usuario solo habla con nexus.** Que un encargo lo
+resuelva por dentro un ejecutor secundario es fontanería — va al registro, nunca
+al chat ni al panel. Lo que sí tiene que pasar es lo contrario: que el ejecutor
+**devuelva el resultado a nexus**, y que nexus lo dé como suyo, en primera
+persona.
+
+Dónde se garantiza, y por qué en cada sitio:
+
+- `backend/core/publicvoice.py` · `sanitize()` limpia el TEXTO (respuesta,
+  resultado, error, título).
+- `backend/core/publicvoice.py` · `limpia_trabajo()` enmascara **quién lo
+  ejecutó**: `agent`, `provider` y `skill` pasan a «nexus», y se limpian los
+  textos que viajan dentro del trabajo (`title`, `request`, `progress_note`).
+  Hace falta porque el HUD pinta el agente en la tarjeta de Multitarea
+  (`frontend/js/command.js`, la línea `jobc-m`): el texto salía limpio y ahí se
+  leía «hermes» igual.
+- `backend/core/events.py` es la última barrera: aplica las dos cosas a los
+  eventos `chat`, `job_done` y `jobs` antes de que salgan por el WebSocket. Los
+  eventos `log` NO se tocan — ahí sí queremos el detalle.
+- Lo que se guarda en memoria va con prefijo neutro (`[Trabajo]`), porque se
+  recupera con «qué recuerdas de…» y se le enseña al operador tal cual. Quién lo
+  hizo queda en `kind="hermes"`, que es interno.
+
+Y un suelo: si al limpiar un mensaje no queda **nada**, no se manda vacío. Una
+respuesta en blanco parece que nexus se ha colgado, y eso es peor que la fuga.
+
+El registro (`data/logs/audit.jsonl`) y la auditoría **sí** guardan el ejecutor
+real: sin eso no se puede diagnosticar nada.
+
 ## Qué necesita configurado
 
 - **Hermes Agent instalado** (hermes-agent.nousresearch.com). El CLI se

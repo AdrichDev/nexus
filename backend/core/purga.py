@@ -595,6 +595,129 @@ def exportar(lote: str, destino: str | None = None) -> dict:
     return {"ok": True, "copiados": copiados, "destino": str(dest_dir)}
 
 
+def retirar_carpeta(carpeta: str, lote: str | None = None) -> dict:
+    """Retira TODO lo que declare venir de esa carpeta, lleve marca o no.
+
+    Por qué hace falta, además de `aplicar()`: el vínculo nota↔fila de siempre
+    es el prefijo `[fichero]` del texto, y los fragmentos ingeridos de una
+    carpeta NO lo llevan —empiezan por `# doc <título>`—. Retirar sus notas
+    dejaba las filas vivas y buscables en la memoria vectorial.
+
+    INCIDENTE (02/08/2026): tras purgar «20. FP DAM Euroformac» seguían
+    contestando 32 filas de esa carpeta. Las notas estaban en la papelera y las
+    filas no: nadie las reclamaba.
+
+    Aquí el vínculo es la procedencia que el propio texto declara
+    (`Carpeta: <nombre>`), que es la única que esos fragmentos sí tienen.
+
+    Retira, no destruye: deja el lote en la papelera. Para que desaparezca de
+    verdad hay que llamar después a `borrar_definitivo(lote)`, que es el paso
+    que exige el «sí» del operador.
+    """
+    from . import memory
+    lote = lote or f"carpeta-{dt.datetime.now():%Y%m%d%H%M%S}"
+    filas = 0
+    if memory.pg.online:
+        ids = [f["id"] for f in memory.pg.filas_de_carpeta(carpeta)]
+        filas = memory.pg.retirar_filas(ids, lote) if ids else 0
+
+    # Y las notas que sigan fuera de la papelera declarando esa carpeta.
+    notas = 0
+    marca = f"Carpeta: {carpeta}"
+    for nota in _notas():
+        try:
+            if marca in nota.read_text(encoding="utf-8", errors="ignore"):
+                _exportar_copia_personal(nota, lote)
+                if retirar_nota(str(nota.relative_to(MEMORY_DIR)), lote).get("movido"):
+                    notas += 1
+        except Exception:                                  # noqa: BLE001
+            continue
+
+    from . import audit
+    audit.log(action="purga_retirar_carpeta", actor="operador", destructive=False,
+              confirmed=True, result=f"{notas} nota(s) y {filas} fila(s) a la papelera",
+              targets=[{"carpeta": carpeta}], extra={"lote": lote})
+    return {"ok": True, "lote": lote, "notas": notas, "filas": filas, "carpeta": carpeta}
+
+
+def borrar_carpeta_definitivo(carpeta: str) -> dict:
+    """Borra de Postgres TODA fila que declare venir de esa carpeta. Irreversible.
+
+    `borrar_definitivo()` trabaja por LOTE, y las filas de una misma carpeta
+    acaban repartidas entre varios lotes según cuándo se retiraran. Para
+    «que no quede nada de esta ruta» hace falta borrar por procedencia, no por
+    lote — si no, o se dejan filas vivas o se arrastran filas de otras carpetas
+    que compartían lote.
+
+    CANDADO: exige que quede copia en disco (papelera o exportado). Nunca
+    destruye la última copia de algo. Si no la encuentra, no borra y lo dice.
+    """
+    from . import audit, memory
+    marca = f"Carpeta: {carpeta}"
+    copias, corpus = 0, []
+    for base in (PAPELERA_DIR, EXPORT_DIR):
+        if not base.exists():
+            continue
+        for f in base.rglob("*.md"):
+            try:
+                texto = f.read_text(encoding="utf-8", errors="ignore")
+            except Exception:                              # noqa: BLE001
+                continue
+            if marca in texto:
+                copias += 1
+                corpus.append(" ".join(texto.split()))
+    corpus = "\n".join(corpus)
+    if not copias:
+        return {"ok": False, "carpeta": carpeta, "borradas": 0,
+                "razon": "no encuentro ninguna copia en la papelera ni en el exportado, "
+                         "así que esto sería la última copia y no la destruyo"}
+
+    if not memory.pg.online:
+        return {"ok": False, "carpeta": carpeta, "borradas": 0,
+                "razon": "Postgres no responde, así que no he borrado nada"}
+
+    # Se retira antes lo que siga activo: nada se borra sin pasar por la
+    # papelera, aunque sea un instante. Así el audit cuenta los dos tiempos.
+    pendientes = [f["id"] for f in memory.pg.filas_de_carpeta(carpeta)]
+    if pendientes:
+        memory.pg.retirar_filas(pendientes, f"carpeta-{dt.datetime.now():%Y%m%d%H%M%S}")
+
+    filas = memory.pg._rows(
+        "DELETE FROM memories WHERE content LIKE %s AND retirado_en IS NOT NULL "
+        "RETURNING id", (f"%{marca}\n%",))
+
+    # SEGUNDA PASADA — los fragmentos de continuación. Al trocear un documento,
+    # la cabecera `Carpeta:` va SOLO en el primer trozo: del segundo en adelante
+    # no hay nada que diga de dónde salen. Tras borrar la carpeta «20. FP DAM
+    # Euroformac» quedaban 22 fragmentos así, vivos y contestando a las
+    # búsquedas, con la normativa y las condiciones de pago del centro.
+    #
+    # El vínculo se reconstruye COTEJANDO: si el texto del fragmento aparece
+    # dentro de un documento de esa carpeta que está en disco, es de esa
+    # carpeta. Es una prueba, no una heurística de nombres — y por eso se coge
+    # una huella del centro del fragmento, lejos de los bordes del troceo.
+    huerfanas = []
+    for r in memory.pg._rows(
+            "SELECT id, content FROM memories WHERE retirado_en IS NULL"):
+        c = " ".join(str(r["content"]).split())
+        huella = c[len(c) // 3: len(c) // 3 + 120]
+        if len(huella) >= 60 and huella in corpus:
+            huerfanas.append(r["id"])
+    if huerfanas:
+        memory.pg._rows("DELETE FROM memories WHERE id = ANY(%s)", (huerfanas,))
+
+    total = len(filas) + len(huerfanas)
+    audit.log(action="purga_borrar_carpeta_definitivo", actor="operador",
+              destructive=True, confirmed=True,
+              result=f"{total} fila(s) borradas de «{carpeta}» "
+                     f"({len(filas)} con marca, {len(huerfanas)} por cotejo)",
+              targets=[{"carpeta": carpeta}],
+              extra={"copias_en_disco": copias})
+    return {"ok": True, "carpeta": carpeta, "borradas": total,
+            "con_marca": len(filas), "por_cotejo": len(huerfanas),
+            "copias_en_disco": copias}
+
+
 def borrar_definitivo(lote: str) -> dict:
     """IRREVERSIBLE: destruye físicamente los ficheros de un lote en
     papelera y hace `DELETE` de las filas Postgres de ese lote. El ÚNICO

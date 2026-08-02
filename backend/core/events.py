@@ -64,13 +64,22 @@ class EventBus:
         # Da igual qué módulo lo emita — aquí no pasa la fontanería interna
         # (subagentes, gateways, colas, códigos HTTP, trazas). Los eventos `log`
         # NO se tocan: ahí sí queremos el detalle técnico.
-        if type_ in ("chat", "job_done") and isinstance(data, dict) and not data.get("admin"):
+        if (type_ in ("chat", "job_done", "jobs")
+                and isinstance(data, dict) and not data.get("admin")):
             try:
-                from .publicvoice import sanitize
+                from .publicvoice import limpia_trabajo, sanitize
                 data = dict(data)
                 for campo in ("reply", "result", "error", "title"):
                     if data.get(campo):
                         data[campo] = sanitize(str(data[campo]))
+                # Y el NOMBRE DEL EJECUTOR. El HUD pinta el agente de cada
+                # trabajo en su tarjeta de Multitarea, así que un encargo
+                # delegado ponía «hermes» a la vista aunque el texto estuviera
+                # limpio. Para el operador el ejecutor es siempre nexus: quién
+                # lo resuelve por dentro es fontanería, y va al log, no al chat.
+                data = limpia_trabajo(data)
+                if isinstance(data.get("list"), list):     # evento `jobs`
+                    data["list"] = [limpia_trabajo(j) for j in data["list"]]
             except Exception:
                 pass
         evt = {"type": type_, "data": data, "ts": time.time()}

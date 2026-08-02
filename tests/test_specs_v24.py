@@ -80,10 +80,11 @@ def test_el_caso_real_de_la_captura():
 
 def test_el_bus_es_la_ultima_barrera():
     src = Path(ROOT, "backend", "core", "events.py").read_text(encoding="utf-8")
-    check("from .publicvoice import sanitize" in src,
-          "el bus de eventos sanea antes de mandar nada al HUD")
-    check('type_ in ("chat", "job_done")' in src,
-          "se aplica a las respuestas y a los avisos de fin de trabajo")
+    check("from .publicvoice import limpia_trabajo, sanitize" in src,
+          "el bus de eventos sanea antes de mandar nada al HUD, texto y ejecutor")
+    check('"chat", "job_done", "jobs"' in src,
+          "se aplica a las respuestas, a los avisos de fin y a la LISTA de "
+          "trabajos, que es la que pinta la tarjeta de Multitarea")
     check('not data.get("admin")' in src,
           "el panel de administración sí puede ver el detalle")
     check('if type_ == "log":' in src and "sanitize" in src.split('if type_ == "log":')[0],
@@ -125,6 +126,100 @@ def test_la_skill_ya_nace_limpia():
     check("pv.mensaje_fallo(" in src, "el fallo usa el mensaje funcional")
     check('f"#{num}: {orden[:44]}"' in src,
           "el nombre del trabajo en Multitarea tampoco delata al subagente")
+
+
+def test_el_ejecutor_no_se_ve_en_la_tarjeta_de_multitarea():
+    """El texto salía limpio, pero el HUD pintaba «hermes» igual (02/08/2026).
+
+    `frontend/js/command.js` escribe el agente de cada trabajo en su tarjeta de
+    Multitarea (`jobc-m`). El saneador del bus solo miraba los campos de TEXTO
+    —reply, result, error, title—, así que un encargo delegado llegaba con
+    `agent: "hermes"` y ahí se leía tal cual. Para el operador el ejecutor es
+    siempre nexus.
+    """
+    import backend.core.publicvoice as pv
+
+    for interno in ("hermes", "HERMES", "gateway", "worker", "subagente"):
+        salida = pv.limpia_trabajo({"agent": interno, "num": 7})
+        check(salida["agent"] == "nexus",
+              f"un trabajo con agent=«{interno}» sigue enseñando el ejecutor")
+    check(pv.limpia_trabajo({"agent": "nexus"})["agent"] == "nexus",
+          "un trabajo propio no debería cambiar")
+    check("agent" not in pv.limpia_trabajo({"num": 1}),
+          "un trabajo sin agente no debería estrenar uno")
+    # No muta el original: el registro y la auditoría necesitan saber quién fue.
+    original = {"agent": "hermes", "num": 9}
+    pv.limpia_trabajo(original)
+    check(original["agent"] == "hermes",
+          "limpia_trabajo ha mutado el original, y la auditoría pierde el ejecutor real")
+
+    # `provider` y `skill` delatan igual: van en cada mensaje de chat.
+    for campo in ("provider", "skill"):
+        salida = pv.limpia_trabajo({campo: "hermes"})
+        check(salida[campo] == "nexus", f"el campo «{campo}» sigue nombrando al ejecutor")
+
+    # Y los textos del propio trabajo, que viajan DENTRO de la lista y por eso
+    # se escapaban del saneo de los campos de arriba.
+    salida = pv.limpia_trabajo({"title": "encargo a Hermes: investiga",
+                                "request": "mándale a hermes que investigue",
+                                "progress_note": "hermes está trabajando"})
+    for campo, valor in salida.items():
+        check("hermes" not in str(valor).lower(),
+              f"el campo «{campo}» del trabajo llega con el ejecutor a la vista: {valor!r}")
+
+    # El HUD sigue pintando el agente: si algún día deja de hacerlo, este test
+    # sobra, pero mientras lo pinte hace falta.
+    from _frontend_js import js_hud
+    check("j.agent" in js_hud(),
+          "el HUD ya no pinta el agente del trabajo: revisa si este enmascarado "
+          "sigue haciendo falta")
+
+
+def test_sanear_no_puede_dejar_la_respuesta_vacia():
+    """Un mensaje que era fontanería de arriba abajo se quedaba en NADA.
+
+    `_FRASE_FUERA` se lleva la oración entera cuando habla de infraestructura.
+    Con «se lo he delegado a Hermes, el gateway responde en http://127.0.0.1:8642»
+    no quedaba ni un carácter, y el operador ve una respuesta vacía: parece que
+    nexus se ha colgado, que es peor que la fuga.
+
+    Y el suelo NO puede reclamar progreso: el mensaje original podía ser un fallo.
+    """
+    import backend.core.publicvoice as pv
+
+    for crudo in ("Se lo he delegado a Hermes, el gateway responde en http://127.0.0.1:8642",
+                  "El worker falló con HTTP 500 en el endpoint /v1/chat.",
+                  "Traceback (most recent call last): boom"):
+        s = pv.sanitize(crudo)
+        check(s.strip() != "", f"«{crudo[:40]}…» deja la respuesta VACÍA")
+        check(pv.tiene_fugas(s) == [], f"«{crudo[:40]}…» deja fugas: {pv.tiene_fugas(s)}")
+    suelo = pv.sanitize("Traceback (most recent call last): boom")
+    for reclamo in ("estoy en ello", "ya está", "hecho", "terminado", "listo"):
+        check(reclamo not in suelo.lower(),
+              f"el mensaje de respaldo reclama «{reclamo}», y el original podía ser un fallo")
+
+    # Una dirección no puede partir la frase por sus puntos.
+    s = pv.sanitize("El servicio responde en http://127.0.0.1:8642 y todo bien.")
+    check("0.0.1" not in s, f"la IP se ha partido y ha dejado un trozo suelto: {s!r}")
+    check("todo bien" in s, f"se ha llevado por delante texto que sí valía: {s!r}")
+
+    # Y lo normal sigue pasando intacto.
+    for sano in ("una respuesta normal y corriente",
+                 "Ya lo tengo #3 — «investiga el mercado»: el sector crece un 12%."):
+        check(pv.sanitize(sano) == sano, f"«{sano[:40]}…» se ha tocado sin motivo")
+
+
+def test_el_encargo_guardado_en_memoria_no_nombra_al_ejecutor():
+    """Lo que se guarda en memoria se recupera con «qué recuerdas de X» y se le
+    enseña al operador tal cual. El prefijo era «[Encargo a Hermes]»."""
+    src = Path(ROOT, "skills", "hermes", "skill.py").read_text(encoding="utf-8")
+    check("[Encargo a Hermes]" not in src,
+          "la skill sigue guardando en memoria con el prefijo «[Encargo a Hermes]», "
+          "que el operador acaba viendo al preguntar qué recuerdas")
+    check('pg.remember, f"[Trabajo]' in src,
+          "el encargo debería guardarse con un prefijo neutro")
+    check('kind="hermes"' in src or '"hermes")' in src,
+          "y seguir marcado por dentro con kind=hermes, que no se pinta nunca")
 
 
 # ══════════════ T5: acuses variados ══════════════
@@ -213,6 +308,9 @@ if __name__ == "__main__":
     asyncio.set_event_loop(asyncio.new_event_loop())
     tests = [test_frases_prohibidas_de_las_specs, test_el_caso_real_de_la_captura,
              test_el_bus_es_la_ultima_barrera, test_la_skill_ya_nace_limpia,
+             test_el_ejecutor_no_se_ve_en_la_tarjeta_de_multitarea,
+             test_sanear_no_puede_dejar_la_respuesta_vacia,
+             test_el_encargo_guardado_en_memoria_no_nombra_al_ejecutor,
              test_acuses_variados_y_contextuales, test_clasificacion_de_errores,
              test_mensaje_de_fallo_unico_y_funcional, test_lista_de_terminos_prohibidos]
     for t in tests:

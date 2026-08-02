@@ -71,8 +71,22 @@ _FRASE_FUERA = re.compile(
     r"traceback|stack\s*trace|\brpm\b|\btpm\b|hermes_gateway)\b[^.\n]*\.?",
     re.IGNORECASE)
 # Sintagmas de delegación: « a Hermes», « para Hermes», « de Hermes»…
+# Lo que se contesta cuando el mensaje era fontanería de arriba abajo y no queda
+# nada que enseñar. Ni inventa un resultado ni deja al operador sin respuesta.
+# No dice «estoy en ello» ni «ya está»: el mensaje original podía ser un fallo,
+# y reclamar progreso donde hubo error es justo lo que este proyecto no hace.
+_SIN_NADA_QUE_ENSEÑAR = ("De esto no te puedo enseñar el detalle: es interno y "
+                         "queda en el registro. Dime «diagnostica el sistema» "
+                         "si quieres que lo revise.")
+
 _SINTAGMA_HERMES = re.compile(
     r"\s*(?:,\s*)?\b(?:a|al|para|de|del|con|en|por)\s+hermes\b", re.IGNORECASE)
+
+# Direcciones enteras, de una pieza. Van ANTES que nada porque sus puntos
+# rompen el recorte por oraciones (`_FRASE_FUERA` usa `[^.\n]*`).
+_RX_DIRECCION = re.compile(
+    r"\b(?:https?://)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d+)?(?:/\S*)?",
+    re.IGNORECASE)
 
 
 def sanitize(texto: str) -> str:
@@ -83,7 +97,12 @@ def sanitize(texto: str) -> str:
     if not texto:
         return texto
     out = str(texto)
-    for rx, rep in _RX[:5]:            # primero las frases de delegación
+    # PRIMERO las direcciones. `_FRASE_FUERA` corta la oración con `[^.\n]*`, y
+    # los puntos de una IP la parten por la mitad: «el gateway responde en
+    # http://127.0.0.1:8642» se quedaba en «0.0.1:8642», que es peor que la
+    # frase entera porque parece un dato y no lo es.
+    out = _RX_DIRECCION.sub("el equipo", out)
+    for rx, rep in _RX[:5]:            # luego las frases de delegación
         out = rx.sub(rep, out)
     out = _FRASE_FUERA.sub("", out)    # fuera las oraciones de fontanería
     out = _SINTAGMA_HERMES.sub("", out)
@@ -93,7 +112,14 @@ def sanitize(texto: str) -> str:
     out = re.sub(r"\(\s*\)|«\s*»", "", out)
     out = re.sub(r"[ \t]{2,}", " ", out)
     out = re.sub(r"\n{3,}", "\n\n", out)
-    return out.strip()
+    out = out.strip()
+    # SUELO. Si el mensaje entero hablaba de fontanería, `_FRASE_FUERA` se lo
+    # lleva todo y el operador se queda mirando una respuesta VACÍA, que es peor
+    # que la fuga: parece que nexus se ha colgado. Pasó con «se lo he delegado a
+    # Hermes, el gateway responde en http://127.0.0.1:8642»: no quedaba nada.
+    if not out and str(texto).strip():
+        return _SIN_NADA_QUE_ENSEÑAR
+    return out
 
 
 def tiene_fugas(texto: str) -> list[str]:
@@ -254,3 +280,47 @@ def frase_inicio(orden: str, activas: int = 0) -> str:
 
 def reset_frases() -> None:
     _ultimas.clear()
+
+
+# ── 4. EL EJECUTOR TAMBIÉN ES FONTANERÍA ──────────────────────────────────────
+# Para el operador, el agente es SIEMPRE nexus. Que por dentro un encargo lo
+# resuelva un ejecutor secundario es arquitectura, y la arquitectura no sale al
+# chat ni al panel.
+#
+# INCIDENTE (02/08/2026): el texto salía limpio, pero la tarjeta de Multitarea
+# del HUD pinta el agente de cada trabajo —`frontend/js/command.js`, la línea
+# `jobc-m`— y ahí se leía «hermes» tal cual. El saneador solo miraba los campos
+# de texto (reply, result, error, title), no quién lo ejecutaba.
+_EJECUTORES_INTERNOS = {"hermes", "gateway", "worker", "subagente", "sub"}
+
+
+def limpia_trabajo(job: dict) -> dict:
+    """Devuelve el trabajo listo para el panel: ejecutor enmascarado y textos limpios.
+
+    Tres campos delatan al ejecutor y ninguno es texto de respuesta, así que el
+    saneador de siempre no los miraba:
+      * `agent`    — lo pinta la tarjeta de Multitarea del HUD.
+      * `provider` — acompaña a cada mensaje de chat.
+      * `skill`    — igual, y además marca el módulo en el panel de nodos.
+
+    Y los textos del propio trabajo (`title`, `request`, `progress_note`), que
+    van dentro de la lista y por eso se escapaban del saneo de arriba.
+
+    No toca el original: el registro y la auditoría siguen guardando quién lo
+    hizo de verdad, que para diagnosticar hace falta.
+    """
+    if not isinstance(job, dict):
+        return job
+    salida = None
+    for campo in ("agent", "provider", "skill"):
+        if str(job.get(campo) or "").strip().lower() in _EJECUTORES_INTERNOS:
+            salida = salida if salida is not None else dict(job)
+            salida[campo] = "nexus"
+    for campo in ("title", "request", "progress_note"):
+        crudo = job.get(campo)
+        if crudo:
+            limpio = sanitize(str(crudo))
+            if limpio != crudo:
+                salida = salida if salida is not None else dict(job)
+                salida[campo] = limpio
+    return salida if salida is not None else job

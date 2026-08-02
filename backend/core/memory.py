@@ -763,6 +763,36 @@ class PgMemory:
             "SELECT id FROM memories WHERE content LIKE %s AND retirado_en IS NULL",
             (f"[{nombre_fichero}]%",))
 
+    def filas_de_carpeta(self, carpeta: str, incluir_retiradas: bool = False) -> list[dict]:
+        """Filas que declaran venir de esa carpeta, la lleven marcada o no.
+
+        SEGUNDO vínculo, y el que faltaba. Al ingerir una carpeta, cada
+        fragmento escribe en su propio texto la línea `Carpeta: <nombre>`. Eso
+        es procedencia declarada, y estaba ahí sin que nadie la usara.
+
+        INCIDENTE que obliga a esto (02/08/2026): tras purgar la carpeta
+        «20. FP DAM Euroformac» quedaron **32 filas vivas y buscables**. Las
+        notas `.md` sí se fueron a la papelera, pero `filas_ligadas_a_nota()`
+        solo ve las que empiezan por `[fichero]`, y estas empiezan por
+        `# doc <título>`. Sin dueño y sin marca, nadie las reclamaba: se
+        quedaban en la memoria vectorial contestando a las búsquedas.
+
+        Se busca por la marca entera para no confundir carpetas cuyo nombre es
+        prefijo de otra («20. FP» no puede llevarse «20. FP DAM Euroformac»).
+
+        Se mira por las TRES vías, porque cada ingesta dejó una marca distinta:
+          * `origen` — lo pone la ingesta desde 02/08/2026, en cada fragmento.
+          * el prefijo `[carpeta › archivo]` del texto — desde antes.
+          * la línea `Carpeta: <nombre>` — solo en el PRIMER trozo de cada
+            documento, que es justo por lo que hacían falta las otras dos.
+        """
+        cond = ["origen LIKE %s", "content LIKE %s", "content LIKE %s"]
+        params = [f"{carpeta}/%", f"[{carpeta} › %", f"%Carpeta: {carpeta}\n%"]
+        sql = "SELECT id FROM memories WHERE (" + " OR ".join(cond) + ")"
+        if not incluir_retiradas:
+            sql += " AND retirado_en IS NULL"
+        return self._rows(sql + " ORDER BY id", tuple(params))
+
     def filas_sin_marca_origen(self, tipos: list[str] | None = None) -> list[dict]:
         """Filas HUÉRFANAS: ni marca `[fichero]` en el texto ni columna
         `origen` (que el bloque C añadió a todo lo ingerido). Son las 464 de
