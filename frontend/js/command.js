@@ -253,6 +253,13 @@ window.orbHTML = orbHTML;
     if (window.speechSynthesis) { try { speechSynthesis.cancel(); } catch (e) { /* */ } }
     stopTTSGlow();
   }
+  /** Callar del todo: lo que suena Y lo que estaba esperando turno. `stopTTS`
+   *  solo corta lo que suena, y con la cola llena el siguiente audio arrancaba
+   *  acto seguido, así que parecía que no se había callado. */
+  function callarVoz() {
+    _ttsQueue.length = 0;
+    stopTTS();
+  }
   // ---- VOZ DE RESPALDO del navegador (Web Speech / SAPI) ----------------------
   // GARANTIZA que nexus HABLA aunque el TTS del backend (edge-tts) falle, no esté
   // instalado o el audio quede mudo. Se dispara solo si el backend NO manda audio.
@@ -520,6 +527,10 @@ window.orbHTML = orbHTML;
   /* ---------------- envío de órdenes ---------------- */
   function send(text) {
     if (!text) return;
+    // Escribir es interrumpir, igual que pulsar el botón de hablar: si le estás
+    // diciendo otra cosa, lo anterior ya no interesa. Se corta también la COLA,
+    // o el siguiente audio ya encolado seguiría sonando encima.
+    callarVoz();
     window.__lastUserText = text;      // v23 (T7): el TTS jamás repetirá esto
     if (wsReady()) {
       // speak=true → el backend genera la voz (edge-tts) y la manda por 'audio';
@@ -539,7 +550,7 @@ window.orbHTML = orbHTML;
       });
   }
   function voice() {
-    stopTTS();
+    callarVoz();
     // Si el estado se quedó atascado (Procesando/Escuchando), lo recuperamos al
     // instante para que el botón nunca parezca muerto, y reintentamos.
     if (window.__vstate === 'thinking' || window.__vstate === 'listening') setVoiceState('idle');
