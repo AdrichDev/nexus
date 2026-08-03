@@ -1,431 +1,435 @@
 {
- "_lee_esto": [
-  "Los numeros con los que nexus interpreta tus metricas. Cambia uno, reinicia",
-  "nexus, y la lectura del informe cambia. No hay nada de esto escrito en el",
-  "codigo.",
-  "",
-  "Vienen con los valores que usaba nexus antes de existir este archivo, asi",
-  "que si no tocas nada, nada cambia.",
-  "",
-  "Cada cuenta de Instagram puede pisar cualquiera de estos valores desde su",
-  "perfil (campo 'umbrales'): lo que no ponga, lo hereda de aqui."
- ],
- "lecturas": {
-  "_que_es": "A partir de que % sobre el alcance una metrica se lee como buena.",
-  "guardados_pct_reach_fuerte": 3.0,
-  "interacciones_pct_reach_alto": 10.0
- },
- "sentimiento": {
-  "_que_es": "Cuanta muestra hace falta para fiarse de un porcentaje.",
-  "n_minimo_fiable": 30,
-  "n_sin_aviso": 100,
-  "confianza_z": 1.96
- },
- "gancho": {
-  "_que_es": "Cuando un racimo de comentarios cortos es una campana y no ruido.",
-  "min_personas": 5,
-  "min_pct": 2.0,
-  "max_palabras": 3,
-  "max_caracteres": 24,
-  "min_pct_mayusculas": 25.0
- },
- "erratas": {
-  "_que_es": "Cuantos errores de tecleo se perdonan segun lo larga que sea la palabra. Una palabra corta no perdona ninguna: se comeria medio diccionario.",
-  "sin_margen_hasta": 4,
-  "margen_1_hasta": 6,
-  "margen_2_hasta": 9,
-  "margen_maximo": 3
- },
- "dudas": {
-  "_que_es": "Cuando dos preguntas escritas distinto son la misma duda.",
-  "solape_minimo": 0.4,
-  "veces_para_ser_recurrente": 2
- },
- "red": {
-  "_que_es": "Cuanto vale un sondeo de red antes de repetirlo.",
   "_lee_esto": [
-   "01/08/2026: nexus se congelaba 4,3 segundos cada 45. La causa: para saber si",
-   "'TUPC.local:8177' contesta hay que resolver ese nombre por mDNS, y en este",
-   "equipo eso tarda 4,25 segundos medidos (3 de 3 intentos). El resultado se",
-   "guardaba, pero solo 30 segundos, y el HUD pregunta cada 45: cuando volvia a",
-   "preguntar la respuesta guardada ya habia caducado y se pagaba el mDNS entero",
-   "otra vez. O sea que no cacheaba NADA.",
-   "",
-   "REGLA: este numero tiene que ser MAYOR que cada cuanto pregunta el HUD (45 s,",
-   "en frontend/js/command.js, refreshDevices). Si lo bajas por debajo de 45, la",
-   "cache deja de servir para nada y vuelve el tiron.",
-   "",
-   "Que se pierde subiendolo: si desenchufas el cable de red, nexus tarda hasta",
-   "este tiempo en enterarse de que esa direccion ya no vale. Es un cartel en el",
-   "HUD un minuto desactualizado, nada mas: el movil prueba las direcciones una",
-   "por una de todas formas."
-  ],
-  "cache_sondeo_seg": 120.0
- },
- "openrouter": {
-  "_que_es": "Que le pedimos a OpenRouter sobre QUIEN puede ver tus prompts.",
-  "_lee_esto": [
-   "OpenRouter no sirve los modelos: los reparte entre proveedores de arriba. Su",
-   "documentacion dice que POR DEFECTO usa 'allow', que en sus palabras significa",
-   "permitir proveedores que guardan tus datos y PUEDEN ENTRENAR CON ELLOS.",
-   "",
-   "Eso importa aqui mas que en otros sitios: en el prompt de nexus viaja lo que",
-   "saca de la memoria, y desde el 01/08/2026 la memoria lleva dentro el documento",
-   "maestro de marca, el manual de conversaciones y notas personales. Se blindaron",
-   "los embeddings para que no salieran del equipo; mandarlos por el chat a un",
-   "proveedor que entrena con ellos seria la misma fuga por la otra puerta.",
-   "",
-   "Solo se manda cuando el endpoint ES OpenRouter. El campo 'provider' es suyo:",
-   "enviarselo a OpenAI o a Groq da error.",
-   "",
-   "data_collection 'deny' = solo proveedores que no recogen datos. Es lo justo y",
-   "casi nunca quita modelos. Ponlo en 'allow' solo si sabes lo que cede.",
-   "",
-   "zdr true = ademas, solo puntos finales con retencion CERO. Es mas estricto y",
-   "SI puede dejar sin servir algunos modelos, por eso viene apagado: se enciende",
-   "a proposito cuando el contenido lo pida."
-  ],
-  "data_collection": "deny",
-  "zdr": false
- },
- "comentarios": {
-  "_que_es": "Cuando un comentario 'dice algo' y no es un emoji suelto.",
-  "min_palabras_sustantivo": 2,
-  "min_caracteres_sustantivo": 8
- },
- "cola_editorial": {
-  "_que_es": "Como se calcula la prioridad de cada idea. Es una cuenta, no una opinion.",
-  "peso_veces": 2,
-  "peso_personas": 1,
-  "peso_intencion_compra": 3,
-  "peso_objecion": 2
- },
- "memoria": {
-  "_que_es": "Cuando una nota guardada merece llamarse relevante y colarse en lo que lee el modelo. Subir un numero = recordar menos, pero mas a cuento.",
-  "coseno_minimo": 0.42,
-  "solape_minimo_palabras": 0.5,
-  "coseno_minimo_tarea": 0.62,
-  "_letras_minimas_palabra_sola": "Cuando de la frase solo queda UNA palabra clave, el porcentaje de arriba no filtra nada: una de una es el 100% y pasa siempre. Ahi manda la longitud. 'wabiksco' busca; 'ves' no, y por eso 'Que es lo que ves' ya no trae el manual de Gmail.",
-  "letras_minimas_palabra_sola": 5,
-  "embedding": {
-   "_que_es": [
-    "Politica de embeddings del RAG: que proveedor los calcula, si puede",
-    "salir a la nube, y cuando merece la pena crear el indice de similitud.",
+    "Los numeros con los que nexus interpreta tus metricas. Cambia uno, reinicia",
+    "nexus, y la lectura del informe cambia. No hay nada de esto escrito en el",
+    "codigo.",
     "",
-    "01/08/2026: la columna memories.embedding es vector(768) pero el",
-    "modelo activo daba otra dimension: 741 filas sin vector, y recall()",
-    "cayendo siempre al respaldo ILIKE. La DIMENSION NO se pone aqui a",
-    "mano (eso reproduciria el mismo bug en otra direccion): se MIDE",
-    "contra el modelo activo y se guarda en",
-    "data/memoria/estado_embeddings.json, que es estado derivado, no",
-    "configuracion. Aqui solo va la POLITICA."
-   ],
-   "proveedor_preferido": "ollama",
-   "_proveedor_preferido": "Con que proveedor se vectoriza la MEMORIA. Independiente del cerebro de chat (llm_provider): cambiar de cerebro NUNCA cambia esto.",
-   "permitir_nube": false,
-   "_permitir_nube": "Con false, reindexar con un proveedor de nube (openai/gemini/cloud) falla con motivo claro y no llega a la interfaz. Cambialo a mano si de verdad quieres permitirlo, sabiendo que el contenido de tus documentos sale de este equipo.",
-   "lote_reindex": 32,
-   "_lote_reindex": "Filas por lote al reindexar. Reanudable: si se interrumpe, la siguiente llamada retoma desde la primera fila sin embedding.",
-   "filas_minimas_indice": 1000,
-   "_filas_minimas_indice": "Por debajo de esto, el indice ivfflat no se crea: con pocas filas por lista, un recorrido secuencial (exacto) gana al indice aproximado. Medido con 741 filas y lists=100 -> ~7 filas por lista, peor que secuencial."
-  },
-  "troceado": {
-   "_que_es": "002-memoria-y-conocimiento (bloque C): como se corta un documento largo en trozos para vectorizar. Antes rag.reindex() cortaba con [:1500] y el buzon con [:900] -- un 'Documento maestro' de 26 KB o un carrusel de 224 KB entraban mutilados, sin avisar. Ahora se trocea entero: la suma de trozos (quitando el solape) reproduce el original caracter a caracter.",
-   "tamano_caracteres": 1200,
-   "_tamano_caracteres": "Tamano objetivo de cada trozo. El corte respeta fronteras (encabezado markdown > linea en blanco > fin de frase > corte duro) antes de cortar a lo bruto.",
-   "solape_caracteres": 200,
-   "_solape_caracteres": "Cuanto se repite entre un trozo y el siguiente, para no perder contexto en la frontera.",
-   "minimo_caracteres": 120,
-   "_minimo_caracteres": "Una cola mas corta que esto no se convierte en trozo suelto: se funde con el anterior.",
-   "filas_por_trozo": 25,
-   "_filas_por_trozo": "Solo para .xlsx: cuantas filas de una hoja entran en cada trozo (leer_xlsx_estructurado). Antes _leer_xlsx cortaba a 3000 filas por hoja sin avisar; ahora se lee entera y se trocea por estructura, no por caracteres."
-  },
-  "ingesta": {
-   "_que_es": "002-memoria-y-conocimiento (bloque C): politica del buzon (data/memory/inbox/) y de la ingesta dirigida de carpetas.",
-   "max_bytes": 5000000,
-   "_max_bytes": "Tope de tamano por fichero en el buzon. Antes eran 500.000 bytes fijos en scheduler.py, insuficiente para un .docx con imagenes o un .xlsx real.",
-   "marcas_historico": [
-    "antiguo",
-    "historico",
-    "obsoleto"
-   ],
-   "_marcas_historico": "Palabras en el NOMBRE del fichero que lo marcan como historico (etiqueta 'historico', peso bajo en recall()). No decide un LLM: es texto plano contra el nombre.",
-   "filas_por_trozo": 25
-  },
-  "pesos": {
-   "_que_es": "Multiplicador que recall() aplica al score ANTES del umbral (score * peso). Sirve para que un documento marcado historico nunca gane al definitivo aunque hablen de lo mismo.",
-   "normal": 1.0,
-   "historico": 0.6
-  }
- },
- "correos": {
-  "_que_es": [
-   "Como se decide si un correo corre prisa.",
-   "",
-   "31/07/2026: un correo con asunto '[ALERTA] Plugin nuevo no presente en el",
-   "baseline' salio como NO urgente. La causa: los 30 no-leidos se mandaban al",
-   "modelo en UNA sola tirada (22.000 caracteres). Ollama corta el prompt a 4096",
-   "tokens, el modelo se salia del formato JSON y devolvia prosa. El codigo leia",
-   "'cero urgentes' y contestaba 'ninguno parece urgente'. Mentira: no habia",
-   "analizado nada.",
-   "",
-   "De ahi salen los dos numeros de abajo. 'por_lote' es lo que el modelo local",
-   "aguanta sin desbarrar; 'marcas_urgentes' es la red que hay DEBAJO del modelo,",
-   "para lo que no se puede permitir fallar."
-  ],
-  "por_lote": 6,
-  "_por_lote": "Correos por llamada al modelo, cuando el proveedor activo no aparece en la tabla de abajo. Es el valor prudente: si no se sabe con que se esta hablando, se trocea fino.",
-  "por_lote_por_proveedor": {
-   "ollama": 6,
-   "openai": 30,
-   "anthropic": 30,
-   "gemini": 30,
-   "cloud": 30
-  },
-  "_por_lote_por_proveedor": [
-   "Cuantos correos van en cada llamada, segun el 'llm_provider' que tengas puesto",
-   "en ajustes. Se lee en cada analisis, asi que cambiar de modelo en la rueda ya",
-   "cambia el numero: no hay que reiniciar ni tocar esto.",
-   "",
-   "DE DONDE SALE CADA NUMERO:",
-   "",
-   "  ollama: 6. MEDIDO el 31/07/2026 con qwen3:8b sobre 30 no-leidos.",
-   "    30 de golpe -> 0 de 30 clasificados (ollama corta el prompt a 4096 tokens",
-   "                   por defecto y el modelo contesta en prosa, no en JSON)",
-   "    lotes de 10 -> 21 de 30, alerta perdida",
-   "    lotes de 8  -> 30 de 30, pero SE COME la alerta",
-   "    lotes de 6  -> 30 de 30 y alerta detectada, 3 de 3 intentos, ~24 s",
-   "",
-   "  openai / anthropic / gemini / cloud: 30, o sea los 30 en una sola llamada.",
-   "    NO ESTA MEDIDO. Es un razonamiento: 30 correos son ~22.000 caracteres",
-   "    (~6.000 tokens) y esos modelos tienen ventanas de cientos de miles, asi",
-   "    que el problema que rompia a qwen3 (prompt cortado) no existe ahi.",
-   "    Pero 'cabe' no es 'acierta'. Comprueba tu numero cuando cambies de",
-   "    modelo, que se tarda un minuto:",
-   "      .venv\\Scripts\\python.exe tests\\bench_lotes_correo.py",
-   "    Si con 30 se deja correos sin clasificar, baja a 15 y vuelve a probar.",
-   "",
-   "OJO: este numero es de RENDIMIENTO, no de seguridad. Aunque lo pongas mal,",
-   "las 'marcas_urgentes' de abajo siguen saltando y lo que no se haya podido",
-   "clasificar se sigue diciendo. Equivocarse aqui sale caro en tiempo, no en",
-   "alertas perdidas."
-  ],
-  "marcas_urgentes": [
-   "[alerta]",
-   "[urgente]",
-   "[urgent]",
-   "[critico]",
-   "[critical]",
-   "alerta de seguridad",
-   "security alert",
-   "acceso no autorizado",
-   "intento de acceso",
-   "actividad sospechosa",
-   "suspension de cuenta",
-   "pago rechazado",
-   "factura vencida"
-  ],
-  "_marcas_urgentes": [
-   "Si alguna de estas cadenas aparece en el REMITENTE o en el ASUNTO, el correo",
-   "sale urgente aunque el modelo diga que no, y aunque el modelo no conteste.",
-   "Se compara sin tildes y sin distinguir mayusculas: 'critico' pilla 'CRITICO'",
-   "y 'Critico'.",
-   "",
-   "Sabemos que esto deja pasar algun falso positivo (una promo que ponga",
-   "'ultimo aviso' en el asunto). Es a proposito: que te salte una promo de mas",
-   "cuesta dos segundos; que se cuele una intrusion sin avisar cuesta mucho mas.",
-   "Anade o quita cadenas aqui, no en el codigo."
-  ]
- },
- "content_os": {
-  "_que_es": [
-   "Vocabulario y umbrales del panel Content OS (001-honestidad-content-os).",
-   "",
-   "01/08/2026: Content OS servia numeros sin decir de donde salian. El panel",
-   "mezclaba lo de la Graph API con un dataset de mentira mediante un 'or'",
-   "silencioso, y la skill contestaba en el chat '12.840 seguidores, retencion",
-   "media 48,6%' con una coletilla de '(ejemplo)' que el resto del texto",
-   "contradecia. Peor todavia: cerraba con 'el gancho de resultado visible va",
-   "por encima de tu mediana en 4 de 8 reels', una conclusion estadistica sobre",
-   "una mediana que nadie habia calculado y ocho reels que no existian.",
-   "",
-   "Desde aqui se manda el VOCABULARIO (como se llama cada origen y que se dice",
-   "cuando no hay nada) y el UMBRAL del validador. Nada de esto esta escrito en",
-   "el codigo: cambia un texto, reinicia nexus, y cambia lo que se lee."
-  ],
-  "n_minimo": 3,
-  "_n_minimo": "Cuantos casos hacen falta para que un aprendizaje deje de ser un apunte. Es el espejo del N_MINIMO=3 de skills/instagram/inteligencia.py: son dos numeros que pueden separarse, y por eso se dice aqui. Unificarlos exige tocar la skill, que queda fuera de este cambio.",
-  "etiquetas": {
-   "_que_es": "Como se llama cada origen de cara al usuario. El HUD no inventa rotulos: los lee de aqui.",
-   "medido": "medido",
-   "demostración": "demostración",
-   "sin_datos": "todavía no lo sé"
-  },
-  "textos": {
-   "_que_es": "Lo que se dice cuando NO hay dato. Un panel vacio no ensena que se gana conectando la cuenta, pero rellenarlo con mentiras es peor: aqui se dice la verdad con palabras utiles.",
-   "sin_procedencia": "sin procedencia",
-   "sin_calendario": "Todavía no hay nada en el calendario.",
-   "sin_ideas": "Todavía no hay ideas guardadas. Di «dame ideas de reels».",
-   "sin_inspiraciones": "Todavía no hay inspiraciones guardadas.",
-   "sin_aprendizajes": "Todavía no hay aprendizajes.",
-   "apunte_manual": "apunte tuyo, sin evidencia",
-   "sin_retencion": "La Graph API no da el tiempo de visualización de un reel, así que la retención no se puede calcular todavía.",
-   "unidad_evidencia": "aprendizajes con muestra, periodo y método",
-   "sin_evidencia": "Solo hay {n} aprendizaje(s) con muestra, periodo y método (hacen falta {minimo}): todavía no hay nada concluyente.",
-   "periodo_seguidores": "últimos 30 días",
-   "periodo_alcance": "últimos 28 días",
-   "periodo_publicaciones": "histórico de la cuenta"
-  },
-  "validador": {
-   "_que_es": [
-    "Frontera del validador determinista de procedencia.sin_cifras_inventadas().",
+    "Vienen con los valores que usaba nexus antes de existir este archivo, asi",
+    "que si no tocas nada, nada cambia.",
     "",
-    "Un numero grande, con decimales, con separador de millares o con % es casi",
-    "siempre una METRICA. Un entero pequeno ('3 golpes', '2 segundos') es casi",
-    "siempre estructura del guion. Por debajo de este numero, y sin % ni coma,",
-    "una cifra que el modelo no tenia pasa igual: censurar '3 golpes' romperia",
-    "el generador sin ganar nada."
-   ],
-   "magnitud_minima": 100
-  }
- },
- "drive": {
-  "_que_es": "Donde aterrizan en Google Drive los informes que genera nexus.",
-  "_por_que_aqui": [
-   "El nombre de la carpeta NO esta en el codigo a proposito. Cambialo aqui,",
-   "reinicia nexus, y el informe diario pasa a caer en otra carpeta sin tocar",
-   "Python ni volver a autorizar nada.",
-   "",
-   "OJO, ESTO CAMBIO EL 02/08/2026: nexus ya NO pide 'drive.file' sino",
-   "'auth/drive' COMPLETO, por decision expresa del dueno de la cuenta. Esta",
-   "nota decia lo contrario y era MENTIRA sobre los permisos que tiene: si",
-   "pones aqui una carpeta que creaste TU a mano, ahora SI la encuentra y",
-   "sube dentro, no crea una duplicada. El precio esta escrito en",
-   "skills/google_workspace/skill.py: puede leer, mover, renombrar y mandar a",
-   "la papelera CUALQUIER documento de la cuenta. Por eso lo destructivo va",
-   "a la papelera de Drive y el borrado definitivo pide confirmacion."
+    "Cada cuenta de Instagram puede pisar cualquiera de estos valores desde su",
+    "perfil (campo 'umbrales'): lo que no ponga, lo hereda de aqui."
   ],
-  "carpeta": "nexus"
- },
- "purga": {
-  "_que_es": [
-   "Motor de reglas de purga.py (002-memoria-y-conocimiento, bloque B).",
-   "NINGUN LLM decide que se retira: solo estas palabras y umbrales. Cada",
-   "resultado lleva la regla que lo clasifico, para que se pueda auditar.",
-   "",
-   "'personal':true marca CV, vida laboral, empadronamiento, tasas,",
-   "matricula y BOE: su accion por defecto es exportar antes de mover,",
-   "nunca el borrado duro (ver skills/tasks_board/skill.py, incidente que",
-   "fijo la regla de 'nada se borra sin confirmar')."
-  ],
-  "minutos_vigencia_plan": 30,
-  "_minutos_vigencia_plan": "Cuanto vive una previsualizacion antes de que aplicar() la rechace por caducada.",
-  "papelera_aviso_items": 3000,
-  "_papelera_aviso_items": "Aviso INFORMATIVO al superar este numero de items en la papelera. No es un tope: la papelera no tiene limite, capar el indice rompería la reversibilidad prometida.",
-  "emparejar_por_contenido": {
-   "_que_es": [
-    "INCIDENTE: previsualizar() daba filas_pg=0 en TODAS las categorias porque",
-    "filas_ligadas_a_nota() ata fila y nota por la marca de origen '[fichero]',",
-    "y solo 233 de 697 filas knowledge la llevan. Las otras 464 son anteriores",
-    "al bloque C y quedaron huerfanas: retirar las 35 notas de la FP habria",
-    "dejado 10 filas de tablespaces/actividades/2DAM vivas y buscables.",
-    "",
-    "Segundo camino, SOLO para notas sin ninguna fila con marca de origen:",
-    "se compara el vocabulario de la nota con el de cada fila huerfana. Se",
-    "exige que la NOTA cubra casi todo el vocabulario de la FILA (no al reves):",
-    "una fila ajena siempre trae terminos que la nota no tiene. ANTE LA DUDA NO",
-    "SE CASA: es peor llevarse una fila ajena que dejar una propia."
-   ],
-   "activo": true,
-   "tipos": [
-    "knowledge"
-   ],
-   "_tipos": "Tipos de fila elegibles. 'conversation' JAMAS entra: es el registro de conversacion del usuario, no conocimiento derivado de una nota.",
-   "longitud_minima_termino": 4,
-   "minimo_terminos_fila": 6,
-   "_minimo_terminos_fila": "Una fila con menos terminos distintivos que esto NO se casa nunca: es demasiado corta para juzgarla sin inventar.",
-   "minimo_terminos_comunes": 6,
-   "solape_minimo": 0.75,
-   "_solape_minimo": "Fraccion del vocabulario de la FILA que la nota tiene que cubrir. 0.75 = tres de cada cuatro terminos de la fila estan en la nota.",
-   "palabras_vacias": [
-    "para",
-    "como",
-    "este",
-    "esta",
-    "estos",
-    "estas",
-    "pero",
-    "porque",
-    "cuando",
-    "donde",
-    "desde",
-    "hasta",
-    "sobre",
-    "entre",
-    "tambien",
-    "también",
-    "todos",
-    "todas",
-    "todo",
-    "toda",
-    "otro",
-    "otra",
-    "otros",
-    "otras",
-    "cada",
-    "menos",
-    "sido",
-    "hacer",
-    "hace",
-    "puede",
-    "pueden",
-    "tiene",
-    "tienen",
-    "aunque",
-    "segun",
-    "según",
-    "ademas",
-    "además",
-    "mismo",
-    "misma",
-    "asi",
-    "así",
-    "solo",
-    "sólo",
-    "nota",
-    "notas",
-    "archivo",
-    "carpeta",
-    "fichero",
-    "documento",
-    "http",
-    "https",
-    "www",
-    "null",
-    "true",
-    "false",
-    "none"
-   ],
-   "_palabras_vacias": "Palabras genericas y andamiaje de cabecera ('Carpeta:', 'Archivo:'): inflarian el solape sin decir nada del tema."
+  "lecturas": {
+    "_que_es": "A partir de que % sobre el alcance una metrica se lee como buena.",
+    "guardados_pct_reach_fuerte": 3.0,
+    "interacciones_pct_reach_alto": 10.0
   },
-  "categorias": {
-   "papeleo-personal": {
-    "personal": true,
-    "minimo_aciertos": 1,
-    "palabras": [
-     "boe-a-",
-     "curriculum",
-     "empadronamiento",
-     "matricula fp",
-     "matrícula fp",
-     "vida laboral",
-     "vida_laboral"
+  "sentimiento": {
+    "_que_es": "Cuanta muestra hace falta para fiarse de un porcentaje.",
+    "n_minimo_fiable": 30,
+    "n_sin_aviso": 100,
+    "confianza_z": 1.96
+  },
+  "gancho": {
+    "_que_es": "Cuando un racimo de comentarios cortos es una campana y no ruido.",
+    "min_personas": 5,
+    "min_pct": 2.0,
+    "max_palabras": 3,
+    "max_caracteres": 24,
+    "min_pct_mayusculas": 25.0
+  },
+  "erratas": {
+    "_que_es": "Cuantos errores de tecleo se perdonan segun lo larga que sea la palabra. Una palabra corta no perdona ninguna: se comeria medio diccionario.",
+    "sin_margen_hasta": 4,
+    "margen_1_hasta": 6,
+    "margen_2_hasta": 9,
+    "margen_maximo": 3
+  },
+  "dudas": {
+    "_que_es": "Cuando dos preguntas escritas distinto son la misma duda.",
+    "solape_minimo": 0.4,
+    "veces_para_ser_recurrente": 2
+  },
+  "red": {
+    "_que_es": "Cuanto vale un sondeo de red antes de repetirlo.",
+    "_lee_esto": [
+      "01/08/2026: nexus se congelaba 4,3 segundos cada 45. La causa: para saber si",
+      "'TUPC.local:8177' contesta hay que resolver ese nombre por mDNS, y en este",
+      "equipo eso tarda 4,25 segundos medidos (3 de 3 intentos). El resultado se",
+      "guardaba, pero solo 30 segundos, y el HUD pregunta cada 45: cuando volvia a",
+      "preguntar la respuesta guardada ya habia caducado y se pagaba el mDNS entero",
+      "otra vez. O sea que no cacheaba NADA.",
+      "",
+      "REGLA: este numero tiene que ser MAYOR que cada cuanto pregunta el HUD (45 s,",
+      "en frontend/js/command.js, refreshDevices). Si lo bajas por debajo de 45, la",
+      "cache deja de servir para nada y vuelve el tiron.",
+      "",
+      "Que se pierde subiendolo: si desenchufas el cable de red, nexus tarda hasta",
+      "este tiempo en enterarse de que esa direccion ya no vale. Es un cartel en el",
+      "HUD un minuto desactualizado, nada mas: el movil prueba las direcciones una",
+      "por una de todas formas."
+    ],
+    "cache_sondeo_seg": 120.0
+  },
+  "openrouter": {
+    "_que_es": "Que le pedimos a OpenRouter sobre QUIEN puede ver tus prompts.",
+    "_lee_esto": [
+      "OpenRouter no sirve los modelos: los reparte entre proveedores de arriba. Su",
+      "documentacion dice que POR DEFECTO usa 'allow', que en sus palabras significa",
+      "permitir proveedores que guardan tus datos y PUEDEN ENTRENAR CON ELLOS.",
+      "",
+      "Eso importa aqui mas que en otros sitios: en el prompt de nexus viaja lo que",
+      "saca de la memoria, y desde el 01/08/2026 la memoria lleva dentro el documento",
+      "maestro de marca, el manual de conversaciones y notas personales. Se blindaron",
+      "los embeddings para que no salieran del equipo; mandarlos por el chat a un",
+      "proveedor que entrena con ellos seria la misma fuga por la otra puerta.",
+      "",
+      "Solo se manda cuando el endpoint ES OpenRouter. El campo 'provider' es suyo:",
+      "enviarselo a OpenAI o a Groq da error.",
+      "",
+      "data_collection 'deny' = solo proveedores que no recogen datos. Es lo justo y",
+      "casi nunca quita modelos. Ponlo en 'allow' solo si sabes lo que cede.",
+      "",
+      "zdr true = ademas, solo puntos finales con retencion CERO. Es mas estricto y",
+      "SI puede dejar sin servir algunos modelos, por eso viene apagado: se enciende",
+      "a proposito cuando el contenido lo pida."
+    ],
+    "data_collection": "deny",
+    "zdr": false
+  },
+  "comentarios": {
+    "_que_es": "Cuando un comentario 'dice algo' y no es un emoji suelto.",
+    "min_palabras_sustantivo": 2,
+    "min_caracteres_sustantivo": 8
+  },
+  "cola_editorial": {
+    "_que_es": "Como se calcula la prioridad de cada idea. Es una cuenta, no una opinion.",
+    "peso_veces": 2,
+    "peso_personas": 1,
+    "peso_intencion_compra": 3,
+    "peso_objecion": 2
+  },
+  "memoria": {
+    "_que_es": "Cuando una nota guardada merece llamarse relevante y colarse en lo que lee el modelo. Subir un numero = recordar menos, pero mas a cuento.",
+    "coseno_minimo": 0.42,
+    "solape_minimo_palabras": 0.5,
+    "coseno_minimo_tarea": 0.62,
+    "_letras_minimas_palabra_sola": "Cuando de la frase solo queda UNA palabra clave, el porcentaje de arriba no filtra nada: una de una es el 100% y pasa siempre. Ahi manda la longitud. 'wabiksco' busca; 'ves' no, y por eso 'Que es lo que ves' ya no trae el manual de Gmail.",
+    "letras_minimas_palabra_sola": 5,
+    "embedding": {
+      "_que_es": [
+        "Politica de embeddings del RAG: que proveedor los calcula, si puede",
+        "salir a la nube, y cuando merece la pena crear el indice de similitud.",
+        "",
+        "01/08/2026: la columna memories.embedding es vector(768) pero el",
+        "modelo activo daba otra dimension: 741 filas sin vector, y recall()",
+        "cayendo siempre al respaldo ILIKE. La DIMENSION NO se pone aqui a",
+        "mano (eso reproduciria el mismo bug en otra direccion): se MIDE",
+        "contra el modelo activo y se guarda en",
+        "data/memoria/estado_embeddings.json, que es estado derivado, no",
+        "configuracion. Aqui solo va la POLITICA."
+      ],
+      "proveedor_preferido": "ollama",
+      "_proveedor_preferido": "Con que proveedor se vectoriza la MEMORIA. Independiente del cerebro de chat (llm_provider): cambiar de cerebro NUNCA cambia esto.",
+      "permitir_nube": false,
+      "_permitir_nube": "Con false, reindexar con un proveedor de nube (openai/gemini/cloud) falla con motivo claro y no llega a la interfaz. Cambialo a mano si de verdad quieres permitirlo, sabiendo que el contenido de tus documentos sale de este equipo.",
+      "lote_reindex": 32,
+      "_lote_reindex": "Filas por lote al reindexar. Reanudable: si se interrumpe, la siguiente llamada retoma desde la primera fila sin embedding.",
+      "filas_minimas_indice": 1000,
+      "_filas_minimas_indice": "Por debajo de esto, el indice ivfflat no se crea: con pocas filas por lista, un recorrido secuencial (exacto) gana al indice aproximado. Medido con 741 filas y lists=100 -> ~7 filas por lista, peor que secuencial."
+    },
+    "troceado": {
+      "_que_es": "002-memoria-y-conocimiento (bloque C): como se corta un documento largo en trozos para vectorizar. Antes rag.reindex() cortaba con [:1500] y el buzon con [:900] -- un 'Documento maestro' de 26 KB o un carrusel de 224 KB entraban mutilados, sin avisar. Ahora se trocea entero: la suma de trozos (quitando el solape) reproduce el original caracter a caracter.",
+      "tamano_caracteres": 1200,
+      "_tamano_caracteres": "Tamano objetivo de cada trozo. El corte respeta fronteras (encabezado markdown > linea en blanco > fin de frase > corte duro) antes de cortar a lo bruto.",
+      "solape_caracteres": 200,
+      "_solape_caracteres": "Cuanto se repite entre un trozo y el siguiente, para no perder contexto en la frontera.",
+      "minimo_caracteres": 120,
+      "_minimo_caracteres": "Una cola mas corta que esto no se convierte en trozo suelto: se funde con el anterior.",
+      "filas_por_trozo": 25,
+      "_filas_por_trozo": "Solo para .xlsx: cuantas filas de una hoja entran en cada trozo (leer_xlsx_estructurado). Antes _leer_xlsx cortaba a 3000 filas por hoja sin avisar; ahora se lee entera y se trocea por estructura, no por caracteres."
+    },
+    "ingesta": {
+      "_que_es": "002-memoria-y-conocimiento (bloque C): politica del buzon (data/memory/inbox/) y de la ingesta dirigida de carpetas.",
+      "max_bytes": 5000000,
+      "_max_bytes": "Tope de tamano por fichero en el buzon. Antes eran 500.000 bytes fijos en scheduler.py, insuficiente para un .docx con imagenes o un .xlsx real.",
+      "marcas_historico": [
+        "antiguo",
+        "historico",
+        "obsoleto"
+      ],
+      "_marcas_historico": "Palabras en el NOMBRE del fichero que lo marcan como historico (etiqueta 'historico', peso bajo en recall()). No decide un LLM: es texto plano contra el nombre.",
+      "filas_por_trozo": 25
+    },
+    "pesos": {
+      "_que_es": "Multiplicador que recall() aplica al score ANTES del umbral (score * peso). Sirve para que un documento marcado historico nunca gane al definitivo aunque hablen de lo mismo.",
+      "normal": 1.0,
+      "historico": 0.6
+    }
+  },
+  "correos": {
+    "_que_es": [
+      "Como se decide si un correo corre prisa.",
+      "",
+      "31/07/2026: un correo con asunto '[ALERTA] Plugin nuevo no presente en el",
+      "baseline' salio como NO urgente. La causa: los 30 no-leidos se mandaban al",
+      "modelo en UNA sola tirada (22.000 caracteres). Ollama corta el prompt a 4096",
+      "tokens, el modelo se salia del formato JSON y devolvia prosa. El codigo leia",
+      "'cero urgentes' y contestaba 'ninguno parece urgente'. Mentira: no habia",
+      "analizado nada.",
+      "",
+      "De ahi salen los dos numeros de abajo. 'por_lote' es lo que el modelo local",
+      "aguanta sin desbarrar; 'marcas_urgentes' es la red que hay DEBAJO del modelo,",
+      "para lo que no se puede permitir fallar."
+    ],
+    "por_lote": 6,
+    "_por_lote": "Correos por llamada al modelo, cuando el proveedor activo no aparece en la tabla de abajo. Es el valor prudente: si no se sabe con que se esta hablando, se trocea fino.",
+    "por_lote_por_proveedor": {
+      "ollama": 6,
+      "openai": 30,
+      "anthropic": 30,
+      "gemini": 30,
+      "cloud": 30
+    },
+    "_por_lote_por_proveedor": [
+      "Cuantos correos van en cada llamada, segun el 'llm_provider' que tengas puesto",
+      "en ajustes. Se lee en cada analisis, asi que cambiar de modelo en la rueda ya",
+      "cambia el numero: no hay que reiniciar ni tocar esto.",
+      "",
+      "DE DONDE SALE CADA NUMERO:",
+      "",
+      "  ollama: 6. MEDIDO el 31/07/2026 con qwen3:8b sobre 30 no-leidos.",
+      "    30 de golpe -> 0 de 30 clasificados (ollama corta el prompt a 4096 tokens",
+      "                   por defecto y el modelo contesta en prosa, no en JSON)",
+      "    lotes de 10 -> 21 de 30, alerta perdida",
+      "    lotes de 8  -> 30 de 30, pero SE COME la alerta",
+      "    lotes de 6  -> 30 de 30 y alerta detectada, 3 de 3 intentos, ~24 s",
+      "",
+      "  openai / anthropic / gemini / cloud: 30, o sea los 30 en una sola llamada.",
+      "    NO ESTA MEDIDO. Es un razonamiento: 30 correos son ~22.000 caracteres",
+      "    (~6.000 tokens) y esos modelos tienen ventanas de cientos de miles, asi",
+      "    que el problema que rompia a qwen3 (prompt cortado) no existe ahi.",
+      "    Pero 'cabe' no es 'acierta'. Comprueba tu numero cuando cambies de",
+      "    modelo, que se tarda un minuto:",
+      "      .venv\\Scripts\\python.exe tests\\bench_lotes_correo.py",
+      "    Si con 30 se deja correos sin clasificar, baja a 15 y vuelve a probar.",
+      "",
+      "OJO: este numero es de RENDIMIENTO, no de seguridad. Aunque lo pongas mal,",
+      "las 'marcas_urgentes' de abajo siguen saltando y lo que no se haya podido",
+      "clasificar se sigue diciendo. Equivocarse aqui sale caro en tiempo, no en",
+      "alertas perdidas."
+    ],
+    "marcas_urgentes": [
+      "[alerta]",
+      "[urgente]",
+      "[urgent]",
+      "[critico]",
+      "[critical]",
+      "alerta de seguridad",
+      "security alert",
+      "acceso no autorizado",
+      "intento de acceso",
+      "actividad sospechosa",
+      "suspension de cuenta",
+      "pago rechazado",
+      "factura vencida"
+    ],
+    "_marcas_urgentes": [
+      "Si alguna de estas cadenas aparece en el REMITENTE o en el ASUNTO, el correo",
+      "sale urgente aunque el modelo diga que no, y aunque el modelo no conteste.",
+      "Se compara sin tildes y sin distinguir mayusculas: 'critico' pilla 'CRITICO'",
+      "y 'Critico'.",
+      "",
+      "Sabemos que esto deja pasar algun falso positivo (una promo que ponga",
+      "'ultimo aviso' en el asunto). Es a proposito: que te salte una promo de mas",
+      "cuesta dos segundos; que se cuele una intrusion sin avisar cuesta mucho mas.",
+      "Anade o quita cadenas aqui, no en el codigo."
     ]
-   },
-   "duplicados-exactos": {
-    "personal": false,
-    "_fuente": "No usa 'palabras': memory.duplicados_exactos() alimenta esta categoria directo desde Postgres (memoria-deduplicacion)."
-   }
+  },
+  "content_os": {
+    "_que_es": [
+      "Vocabulario y umbrales del panel Content OS (001-honestidad-content-os).",
+      "",
+      "01/08/2026: Content OS servia numeros sin decir de donde salian. El panel",
+      "mezclaba lo de la Graph API con un dataset de mentira mediante un 'or'",
+      "silencioso, y la skill contestaba en el chat '12.840 seguidores, retencion",
+      "media 48,6%' con una coletilla de '(ejemplo)' que el resto del texto",
+      "contradecia. Peor todavia: cerraba con 'el gancho de resultado visible va",
+      "por encima de tu mediana en 4 de 8 reels', una conclusion estadistica sobre",
+      "una mediana que nadie habia calculado y ocho reels que no existian.",
+      "",
+      "Desde aqui se manda el VOCABULARIO (como se llama cada origen y que se dice",
+      "cuando no hay nada) y el UMBRAL del validador. Nada de esto esta escrito en",
+      "el codigo: cambia un texto, reinicia nexus, y cambia lo que se lee."
+    ],
+    "n_minimo": 3,
+    "_n_minimo": "Cuantos casos hacen falta para que un aprendizaje deje de ser un apunte. Es el espejo del N_MINIMO=3 de skills/instagram/inteligencia.py: son dos numeros que pueden separarse, y por eso se dice aqui. Unificarlos exige tocar la skill, que queda fuera de este cambio.",
+    "etiquetas": {
+      "_que_es": "Como se llama cada origen de cara al usuario. El HUD no inventa rotulos: los lee de aqui.",
+      "medido": "medido",
+      "demostración": "demostración",
+      "sin_datos": "todavía no lo sé"
+    },
+    "textos": {
+      "_que_es": "Lo que se dice cuando NO hay dato. Un panel vacio no ensena que se gana conectando la cuenta, pero rellenarlo con mentiras es peor: aqui se dice la verdad con palabras utiles.",
+      "sin_procedencia": "sin procedencia",
+      "sin_calendario": "Todavía no hay nada en el calendario.",
+      "sin_ideas": "Todavía no hay ideas guardadas. Di «dame ideas de reels».",
+      "sin_inspiraciones": "Todavía no hay inspiraciones guardadas.",
+      "sin_aprendizajes": "Todavía no hay aprendizajes.",
+      "apunte_manual": "apunte tuyo, sin evidencia",
+      "sin_retencion": "La Graph API no da el tiempo de visualización de un reel, así que la retención no se puede calcular todavía.",
+      "unidad_evidencia": "aprendizajes con muestra, periodo y método",
+      "sin_evidencia": "Solo hay {n} aprendizaje(s) con muestra, periodo y método (hacen falta {minimo}): todavía no hay nada concluyente.",
+      "periodo_seguidores": "últimos 30 días",
+      "periodo_alcance": "últimos 28 días",
+      "periodo_publicaciones": "histórico de la cuenta"
+    },
+    "validador": {
+      "_que_es": [
+        "Frontera del validador determinista de procedencia.sin_cifras_inventadas().",
+        "",
+        "Un numero grande, con decimales, con separador de millares o con % es casi",
+        "siempre una METRICA. Un entero pequeno ('3 golpes', '2 segundos') es casi",
+        "siempre estructura del guion. Por debajo de este numero, y sin % ni coma,",
+        "una cifra que el modelo no tenia pasa igual: censurar '3 golpes' romperia",
+        "el generador sin ganar nada."
+      ],
+      "magnitud_minima": 100
+    }
+  },
+  "drive": {
+    "_que_es": "Donde aterrizan en Google Drive los informes que genera nexus.",
+    "_por_que_aqui": [
+      "El nombre de la carpeta NO esta en el codigo a proposito. Cambialo aqui,",
+      "reinicia nexus, y el informe diario pasa a caer en otra carpeta sin tocar",
+      "Python ni volver a autorizar nada.",
+      "",
+      "OJO, ESTO CAMBIO EL 02/08/2026: nexus ya NO pide 'drive.file' sino",
+      "'auth/drive' COMPLETO, por decision expresa del dueno de la cuenta. Esta",
+      "nota decia lo contrario y era MENTIRA sobre los permisos que tiene: si",
+      "pones aqui una carpeta que creaste TU a mano, ahora SI la encuentra y",
+      "sube dentro, no crea una duplicada. El precio esta escrito en",
+      "skills/google_workspace/skill.py: puede leer, mover, renombrar y mandar a",
+      "la papelera CUALQUIER documento de la cuenta. Por eso lo destructivo va",
+      "a la papelera de Drive y el borrado definitivo pide confirmacion."
+    ],
+    "carpeta": "nexus"
+  },
+  "purga": {
+    "_que_es": [
+      "Motor de reglas de purga.py (002-memoria-y-conocimiento, bloque B).",
+      "NINGUN LLM decide que se retira: solo estas palabras y umbrales. Cada",
+      "resultado lleva la regla que lo clasifico, para que se pueda auditar.",
+      "",
+      "'personal':true marca CV, vida laboral, empadronamiento, tasas,",
+      "matricula y BOE: su accion por defecto es exportar antes de mover,",
+      "nunca el borrado duro (ver skills/tasks_board/skill.py, incidente que",
+      "fijo la regla de 'nada se borra sin confirmar')."
+    ],
+    "minutos_vigencia_plan": 30,
+    "_minutos_vigencia_plan": "Cuanto vive una previsualizacion antes de que aplicar() la rechace por caducada.",
+    "papelera_aviso_items": 3000,
+    "_papelera_aviso_items": "Aviso INFORMATIVO al superar este numero de items en la papelera. No es un tope: la papelera no tiene limite, capar el indice rompería la reversibilidad prometida.",
+    "emparejar_por_contenido": {
+      "_que_es": [
+        "INCIDENTE: previsualizar() daba filas_pg=0 en TODAS las categorias porque",
+        "filas_ligadas_a_nota() ata fila y nota por la marca de origen '[fichero]',",
+        "y solo 233 de 697 filas knowledge la llevan. Las otras 464 son anteriores",
+        "al bloque C y quedaron huerfanas: retirar las 35 notas de la FP habria",
+        "dejado 10 filas de tablespaces/actividades/2DAM vivas y buscables.",
+        "",
+        "Segundo camino, SOLO para notas sin ninguna fila con marca de origen:",
+        "se compara el vocabulario de la nota con el de cada fila huerfana. Se",
+        "exige que la NOTA cubra casi todo el vocabulario de la FILA (no al reves):",
+        "una fila ajena siempre trae terminos que la nota no tiene. ANTE LA DUDA NO",
+        "SE CASA: es peor llevarse una fila ajena que dejar una propia."
+      ],
+      "activo": true,
+      "tipos": [
+        "knowledge"
+      ],
+      "_tipos": "Tipos de fila elegibles. 'conversation' JAMAS entra: es el registro de conversacion del usuario, no conocimiento derivado de una nota.",
+      "longitud_minima_termino": 4,
+      "minimo_terminos_fila": 6,
+      "_minimo_terminos_fila": "Una fila con menos terminos distintivos que esto NO se casa nunca: es demasiado corta para juzgarla sin inventar.",
+      "minimo_terminos_comunes": 6,
+      "solape_minimo": 0.75,
+      "_solape_minimo": "Fraccion del vocabulario de la FILA que la nota tiene que cubrir. 0.75 = tres de cada cuatro terminos de la fila estan en la nota.",
+      "palabras_vacias": [
+        "para",
+        "como",
+        "este",
+        "esta",
+        "estos",
+        "estas",
+        "pero",
+        "porque",
+        "cuando",
+        "donde",
+        "desde",
+        "hasta",
+        "sobre",
+        "entre",
+        "tambien",
+        "también",
+        "todos",
+        "todas",
+        "todo",
+        "toda",
+        "otro",
+        "otra",
+        "otros",
+        "otras",
+        "cada",
+        "menos",
+        "sido",
+        "hacer",
+        "hace",
+        "puede",
+        "pueden",
+        "tiene",
+        "tienen",
+        "aunque",
+        "segun",
+        "según",
+        "ademas",
+        "además",
+        "mismo",
+        "misma",
+        "asi",
+        "así",
+        "solo",
+        "sólo",
+        "nota",
+        "notas",
+        "archivo",
+        "carpeta",
+        "fichero",
+        "documento",
+        "http",
+        "https",
+        "www",
+        "null",
+        "true",
+        "false",
+        "none"
+      ],
+      "_palabras_vacias": "Palabras genericas y andamiaje de cabecera ('Carpeta:', 'Archivo:'): inflarian el solape sin decir nada del tema."
+    },
+    "categorias": {
+      "papeleo-personal": {
+        "personal": true,
+        "minimo_aciertos": 1,
+        "palabras": [
+          "boe-a-",
+          "curriculum",
+          "empadronamiento",
+          "matricula fp",
+          "matrícula fp",
+          "vida laboral",
+          "vida_laboral"
+        ]
+      },
+      "duplicados-exactos": {
+        "personal": false,
+        "_fuente": "No usa 'palabras': memory.duplicados_exactos() alimenta esta categoria directo desde Postgres (memoria-deduplicacion)."
+      }
+    }
+  },
+  "saludo": {
+    "_que_es": "Cada vez que se abre nexus, saluda. Si abres y cierras la ventana —o hay otra abierta, o el movil, o una prueba— saludaba OTRA VEZ, en voz alta y a todas las pantallas a la vez. Estos minutos son el descanso minimo entre saludos. Subirlo = saluda menos.",
+    "minutos_entre_saludos": 45
   }
- }
 }

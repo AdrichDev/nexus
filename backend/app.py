@@ -518,14 +518,40 @@ async def api_tts_test():
     return {"ok": True, "spoke": can}
 
 
+_ULTIMO_SALUDO = [0.0]          # marca de tiempo del último saludo REALMENTE dicho
+
+
 @app.post("/api/greet")
 async def api_greet():
     """Saludo al abrir: lo GENERA el modelo y es DISTINTO cada vez (día, fecha,
     tareas de hoy, un toque de ingenio). Si el LLM tarda >10 s o no hay proveedor,
-    cae a un saludo local VARIADO (nunca la frase fija de siempre)."""
+    cae a un saludo local VARIADO (nunca la frase fija de siempre).
+
+    CON DESCANSO. Este endpoint lo llama el HUD al arrancar, y el saludo NO va
+    solo a quien lo pidió: se emite al bus (lo ven todas las ventanas) y se dice
+    EN VOZ ALTA. Así que cada pestaña que se abría, cada vez que se cerraba y
+    reabría la ventana, el móvil, o una prueba automática, saludaba otra vez —y
+    a todo el mundo—. Adrián lo vio saludándole tres veces seguidas sin haber
+    dicho nada.
+
+    Dentro del descanso se contesta que sí, pero sin emitir ni hablar: quien
+    acaba de abrir ya tiene su HUD, y quien estaba mirando no se lleva un saludo
+    que no ha provocado.
+    """
     import datetime as _dt
     import random
+    import time as _t
+
     from backend.core import llm as _llm
+    from backend.core.config import CONFIG_DIR
+    minutos = 45.0
+    try:                                    # el umbral vive en config/umbrales.json
+        _u = json.loads((CONFIG_DIR / "umbrales.json").read_text(encoding="utf-8"))
+        minutos = float((_u.get("saludo") or {}).get("minutos_entre_saludos", 45))
+    except Exception:                       # un JSON roto no deja a nexus sin saludo
+        pass
+    if _ULTIMO_SALUDO[0] and _t.monotonic() - _ULTIMO_SALUDO[0] < minutos * 60:
+        return {"ok": True, "spoke": False, "text": "", "repetido": True}
     op = settings.get("operator_name", "") or "jefe"
     now = _dt.datetime.now()
     momento = ("buenos días" if now.hour < 13
@@ -577,6 +603,7 @@ async def api_greet():
                                "msg": "Voz: no hay motor TTS instalado — ejecuta run.bat "
                                       "(instala edge-tts) para que nexus te hable."})
     await bus.emit("chat", {"user": "", "reply": text, "provider": "saludo", "skill": None})
+    _ULTIMO_SALUDO[0] = _t.monotonic()      # se marca SOLO cuando de verdad ha saludado
     return {"ok": True, "spoke": can, "text": text}
 
 
