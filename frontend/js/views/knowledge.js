@@ -104,22 +104,27 @@ function knLimitaVista() {
 function knAjustar() {
   const stage = $('#kn-stage');
   if (!stage || !knNodes.length) return;
-  // Se encuadra TODO, núcleo incluido. Antes se excluía el núcleo para que las
-  // 32 skills no comieran la vista; sin skills eso ya no hace falta, y dejarlo
-  // fuera descolocaba el centro del grafo.
-  const xs = knNodes.map((n) => n.x), ys = knNodes.map((n) => n.y);
-  const x0 = Math.min(...xs) - 80, x1 = Math.max(...xs) + 80;
-  const y0 = Math.min(...ys) - 80, y1 = Math.max(...ys) + 80;
+  // SE CENTRA EN EL NÚCLEO, no en la caja que envuelve a los nodos. Todo cuelga
+  // de él, así que es el centro de verdad del dibujo; encuadrar por la caja lo
+  // dejaba descolocado en cuanto un racimo pesaba más hacia un lado.
+  const core = knNodes.find((n) => n.core) || knNodes[0];
+  const vw = stage.clientWidth, vh = stage.clientHeight;
+  // El zoom sale del nodo MÁS LEJANO al núcleo, para que quepan todos alrededor.
+  const dx = Math.max(80, ...knNodes.map((n) => Math.abs(n.x - core.x) + n.sz / 2 + 30));
+  const dy = Math.max(80, ...knNodes.map((n) => Math.abs(n.y - core.y) + n.sz / 2 + 30));
   // SUELO del ajuste automático: por debajo de aquí no se lee nada, y se
   // prefiere dejar algo fuera —para eso está arrastrar el fondo—. El zoom
   // MANUAL sí puede bajar hasta ZOOM_MIN: ahí lo pides tú.
   const AJUSTE_MIN = 0.5;
   const z = Math.min(ZOOM_MAX, Math.max(AJUSTE_MIN,
-    Math.min(stage.clientWidth / (x1 - x0), stage.clientHeight / (y1 - y0))));
+    Math.min(vw / (2 * dx), vh / (2 * dy))));
   knView.z = z;
-  knView.x = (x0 + x1) / 2 * z - stage.clientWidth / 2;
-  knView.y = (y0 + y1) / 2 * z - stage.clientHeight / 2;
-  knLimitaVista();
+  knView.x = core.x * z - vw / 2;
+  knView.y = core.y * z - vh / 2;
+  // OJO: aquí NO se llama a knLimitaVista(). Ese tope existe para que no te
+  // pierdas mirando al vacío al arrastrar, pero aplicado al encuadre empuja la
+  // cámara contra el borde del mundo y descentra el núcleo, que es justo lo que
+  // había que arreglar.
   knAplicaVista();
 }
 
@@ -259,6 +264,39 @@ export function mountKnowledge() {
     knPan = { x: e.clientX, y: e.clientY, vx: knView.x, vy: knView.y };
     stage.classList.add('panning');
   });
+  knCableaTirador();
+}
+
+/**
+ * El ancho del lateral se ajusta a mano arrastrando la barra que lo separa del
+ * grafo. Se guarda, para no tener que recolocarlo cada vez que se entra.
+ */
+function knCableaTirador() {
+  const tirador = $('#kn-resize'), tree = $('#kn-tree'), split = $('#kn-split');
+  if (!tirador || !tree || !split || tirador._listo) return;
+  tirador._listo = true;
+  const guardado = Number(localStorage.getItem('kn_ancho') || 0);
+  if (guardado) tree.style.setProperty('--kn-w', guardado + 'px');
+  tirador.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    tirador.classList.add('arrastrando');
+    const x0 = e.clientX, w0 = tree.getBoundingClientRect().width;
+    const mover = (ev) => {
+      // Con topes: sin ellos se puede dejar el lateral en 0 px, y entonces no
+      // hay forma de recuperarlo porque el propio tirador se va con él.
+      const w = Math.max(150, Math.min(split.clientWidth - 220, w0 + ev.clientX - x0));
+      tree.style.setProperty('--kn-w', w + 'px');
+    };
+    const soltar = () => {
+      document.removeEventListener('mousemove', mover);
+      document.removeEventListener('mouseup', soltar);
+      tirador.classList.remove('arrastrando');
+      localStorage.setItem('kn_ancho', String(Math.round(tree.getBoundingClientRect().width)));
+      knAjustar();          // el grafo tiene otro tamaño: se reencuadra
+    };
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  });
 }
 
 /** Nombre del sistema. No se escribe a fuego: quien instale esto lo llama como quiera. */
@@ -276,7 +314,7 @@ const knPlegadas = new Set();
  * Las carpetas se pliegan y despliegan con un clic en su triángulo.
  */
 function knPintaArbol(raices, porCarpeta, carpetas) {
-  const tree = $('#kn-tree');
+  const tree = $('#kn-arbol');
   if (!tree) return;
   const item = (nm, color) =>
     `<div class="kn-file" data-note="${esc(nm)}" style="--c:${color}">

@@ -436,9 +436,39 @@ body::after{
    la derecha. El grafo es una VENTANA (overflow:hidden) sobre un mundo mayor:
    así arrastrar un nodo contra un borde ya no puede estirar el contenedor ni
    recolocar el resto (era lo que comprimía y apilaba el grafo). */
-#kn-split{display:flex;gap:14px;height:560px;min-height:420px}
-#kn-tree{flex:0 0 250px;overflow:auto;padding:10px;border:1px solid var(--line);
-  border-radius:12px;background:rgba(6,14,24,.45)}
+/* La pantalla ENTERA para el grafo. El panel ocupa el alto disponible y el
+   split se estira dentro: antes los tres paneles de arriba (vector store,
+   operador, consultar) se comian media pantalla y el grafo quedaba partido. */
+.kn-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+.kn-panel > h2{flex:0 0 auto;display:flex;align-items:center;gap:10px}
+/* el estado del almacen, en un piloto de la cabecera */
+.vs-pill{font-size:10px;letter-spacing:1px;padding:2px 8px;border-radius:999px;
+  border:1px solid currentColor;font-weight:700}
+.vs-pill.on{color:var(--ok);text-shadow:0 0 8px var(--ok)}
+.vs-pill.off{color:var(--txt-dim)}
+#kn-split{display:flex;gap:0;flex:1;min-height:0}
+/* el ancho del lateral se guarda en una variable para poder arrastrarlo */
+#kn-tree{flex:0 0 var(--kn-w,260px);min-width:150px;max-width:60%;overflow:auto;
+  padding:10px;border:1px solid var(--line);border-radius:12px;
+  background:rgba(6,14,24,.45);display:flex;flex-direction:column;gap:10px}
+/* tirador: 8 px de zona de agarre entre el lateral y el grafo */
+#kn-resize{flex:0 0 8px;cursor:col-resize;position:relative}
+#kn-resize::after{content:'';position:absolute;inset:0 3px;border-radius:2px;
+  background:var(--line);transition:background .15s}
+#kn-resize:hover::after,#kn-resize.arrastrando::after{background:var(--cy)}
+
+/* consultar / alimentar memoria, ahora en el lateral */
+.kn-tools{display:flex;flex-direction:column;gap:6px;flex:0 0 auto;
+  padding-bottom:10px;border-bottom:1px solid var(--line)}
+.kn-row{display:flex;gap:6px}
+.kn-row input{flex:1;min-width:0;background:var(--panel2);border:1px solid var(--line);
+  color:var(--txt);font-family:inherit;font-size:11.5px;padding:7px;border-radius:6px;outline:none}
+.kn-row button{background:var(--cy);border:none;color:#04121a;font-weight:700;
+  font-family:inherit;font-size:11.5px;padding:0 10px;border-radius:6px;cursor:pointer}
+.kn-row button.ghost{background:transparent;border:1px solid var(--cy);color:var(--cy)}
+#mem-answer{font-size:11.5px;color:var(--cy-soft);line-height:1.45;max-height:110px;overflow:auto}
+.kn-hint{font-size:10px;color:var(--txt-dim);line-height:1.4}
+#kn-arbol{flex:1;min-height:0;overflow:auto}
 #kn-stage{position:relative;flex:1;min-width:0;overflow:hidden;
   border:1px solid var(--line);border-radius:12px;cursor:grab}
 #kn-stage.panning{cursor:grabbing}
@@ -688,7 +718,17 @@ a.ext:hover{text-shadow:0 0 8px var(--cy)}
 
 /* estado del equipo (hardware) */
 #hw-body{flex:1;min-height:0;overflow-y:auto}
-.hw-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+/* En pantalla completa esto era un desastre: `minmax(240px,1fr)` con 2340 px de
+   ancho hacía NUEVE columnas de 240, cada tarjeta convertida en una tira
+   estrecha con el texto partido en seis líneas, y el 70 % de la pantalla vacío
+   debajo. El mínimo tiene que CRECER con la pantalla, no quedarse fijo. */
+.hw-grid{display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fit,minmax(clamp(260px,22%,440px),1fr));
+  align-content:start}
+/* y el cuerpo ocupa el alto, para que las tarjetas se repartan la pantalla en
+   vez de apelmazarse arriba */
+#hw-body{display:flex;flex-direction:column;gap:12px;min-height:100%}
+#hw-body > .hw-grid{flex:1;grid-auto-rows:minmax(170px,auto)}
 .hw-card h2{margin-bottom:8px}
 .hw-name{font-size:14px;color:#eaf6ff;line-height:1.4;word-break:break-word}
 .hw-meta{font-size:11px;color:var(--txt-dim);margin-top:5px;line-height:1.5}
@@ -1553,3 +1593,71 @@ textarea.ha-in{resize:vertical;min-height:40px;font-family:ui-monospace,monospac
 .ig-pico-g span{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:1px;
   color:var(--cos);opacity:.85}
 .ig-pico-g em{font-style:normal;color:var(--txt-dim);font-size:10.5px;margin-left:6px}
+
+/* ============ AGENDA — calendario mes / semana / día ============
+   Sustituye a las dos listas de antes («próximos eventos» y «tareas con
+   fecha»), que no dejaban ver un mes ni saber qué caía en qué día. */
+.cal-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+.cal-bar{display:flex;align-items:center;gap:8px;flex:0 0 auto;margin-bottom:10px}
+.cal-bar b{font-size:14px;color:#eaf6ff;letter-spacing:1px;  margin-left:6px;flex:1}
+/* solo la PRIMERA letra: `capitalize` ponia «Agosto De 2026» */
+.cal-bar b::first-letter{text-transform:uppercase}
+.cal-nav{background:transparent;border:1px solid var(--line);color:var(--txt);
+  font-family:inherit;font-size:12px;padding:4px 10px;border-radius:6px;cursor:pointer}
+.cal-nav:hover{border-color:var(--cy);color:var(--cy)}
+.cal-modos{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.cal-modo{background:transparent;border:0;color:var(--txt-dim);font-family:inherit;
+  font-size:11.5px;padding:5px 12px;cursor:pointer}
+.cal-modo:hover{color:var(--txt)}
+.cal-modo.on{background:var(--cy);color:#04121a;font-weight:700}
+.cal-split{display:flex;gap:12px;flex:1;min-height:0}
+.cal-cuerpo{flex:1;min-width:0;overflow:auto}
+/* mes: 7 columnas; semana: 7 columnas mas altas; dia: lista */
+/* La primera fila es la de los NOMBRES de los dias y mide lo que mide el texto.
+   Con `grid-auto-rows` a secas se llevaba los 84 px de un dia y dejaba una franja
+   vacia enorme encima del calendario. */
+.cal-cuerpo.mes{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;
+  grid-template-rows:auto repeat(6,minmax(84px,1fr))}
+.cal-cuerpo.semana{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;
+  grid-template-rows:auto minmax(180px,1fr)}
+.cal-cab{font-size:10px;letter-spacing:1.5px;color:var(--txt-dim);text-align:center;
+  padding:4px 0;min-height:0}
+.cal-dia{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:5px 6px;cursor:pointer;overflow:hidden;display:flex;flex-direction:column;gap:3px}
+.cal-dia:hover{border-color:var(--cy)}
+.cal-dia.fuera{opacity:.35}
+.cal-dia.hoy{border-color:var(--cy);box-shadow:inset 0 0 0 1px var(--cy)}
+.cal-dia.sel{background:rgba(34,211,238,.12);border-color:var(--cy)}
+.cal-num{font-size:12px;color:var(--txt-dim);font-weight:700}
+.cal-dia.hoy .cal-num{color:var(--cy);text-shadow:0 0 8px var(--cy)}
+.cal-chip{font-size:9.5px;line-height:1.3;padding:2px 4px;border-radius:4px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-chip.evento{background:rgba(34,211,238,.16);color:#bfefff;border-left:2px solid var(--cy)}
+.cal-chip.tarea{background:rgba(124,246,192,.14);color:#cdfbe6;border-left:2px solid #7cf6c0}
+.cal-chip b{color:inherit}
+.cal-mas{font-size:9px;color:var(--txt-dim)}
+
+/* lateral del día y vista de día: la ficha completa de cada cita */
+.cal-detalle{flex:0 0 330px;overflow:auto;border:1px solid var(--line);border-radius:10px;
+  padding:10px;background:rgba(6,14,24,.45)}
+.cal-dh{font-size:12.5px;color:#eaf6ff;letter-spacing:.5px;padding-bottom:8px;
+  margin-bottom:8px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
+.cal-dh b{color:var(--txt-dim);font-weight:400;font-size:11px}
+.cal-aviso{font-size:11px;color:var(--warn);line-height:1.45;margin-bottom:10px;
+  padding:8px;border:1px solid var(--warn);border-radius:8px}
+.cal-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.cal-item:last-child{border:0}
+.cal-item.hecha{opacity:.5}
+.cal-it-h{flex:0 0 84px;font-size:11px;color:var(--cy-soft);padding-top:1px}
+.cal-it-c{flex:1;min-width:0}
+.cal-it-t{font-size:12.5px;color:#eaf6ff;line-height:1.35;word-break:break-word}
+.cal-item.hecha .cal-it-t{text-decoration:line-through}
+.cal-it-l{font-size:11px;color:var(--txt-dim);margin-top:3px}
+.cal-it-d{font-size:11.5px;color:var(--txt-dim);margin-top:5px;line-height:1.5;
+  white-space:pre-wrap;word-break:break-word}
+.cal-cuerpo.dia{padding-right:6px}
+.cal-cuerpo.dia .cal-item{border-bottom:1px solid var(--line)}
+@media (max-width:1100px){
+  .cal-split{flex-direction:column}
+  .cal-detalle{flex:0 0 auto;max-height:280px}
+}

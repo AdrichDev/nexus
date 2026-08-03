@@ -139,10 +139,18 @@ def main() -> int:
               f"el CSS se sirve SIN CACHÉ, para que un cambio se vea al reiniciar (recibí «{cc}»)")
 
         # ── 3. ¿ES EL ARCHIVO DE VERDAD O UNA COPIA VIEJA? ────────────────────
-        disco = (ROOT / "frontend" / "css" / "command.css").read_text(encoding="utf-8")
-        check(len(css) == len(disco),
+        # Se comparan los finales de línea NORMALIZADOS. Comparar longitudes a
+        # pelo daba un falso rojo: por el cable llegan los CRLF tal cual y
+        # `read_text()` los convierte a LF, así que el disco salía siempre más
+        # corto — exactamente en el número de líneas del fichero. Lo que se
+        # quiere comprobar es que es EL MISMO CONTENIDO, no el mismo recuento de
+        # bytes bajo dos decodificadores distintos.
+        _n = lambda s: s.replace("\r\n", "\n")             # noqa: E731
+        disco = _n((ROOT / "frontend" / "css" / "command.css").read_text(encoding="utf-8"))
+        servido = _n(css)
+        check(servido == disco,
               f"lo servido ES el archivo del disco, no otra copia "
-              f"(servido {len(css)} · disco {len(disco)})")
+              f"(servido {len(servido)} · disco {len(disco)})")
 
         # ── 4. EL JS QUE RECIBE EL NAVEGADOR ──────────────────────────────────
         mj = re.search(r'src="(/static/js/command\.js[^"]*)"', html)

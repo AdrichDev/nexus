@@ -967,58 +967,200 @@ window.orbHTML = orbHTML;
     ti.focus();
   }
 
+  /* ================== AGENDA — un calendario de verdad ==================
+     Antes esto eran dos listas: «los 10 próximos eventos» y «tareas con fecha».
+     No se podía ver un mes, ni saber qué cae en qué día. Ahora hay rejilla de
+     MES, tira de SEMANA y detalle de DÍA, y al pulsar un día salen sus citas
+     con su hora y su descripción —que el backend ni siquiera traía—. */
+  let calVista = 'mes', calRef = new Date(), calSel = null, calDatos = null;
+
+  const CAL_DIAS = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
+  const CAL_MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+    'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+  /* Fecha local en AAAA-MM-DD. NO vale toISOString(): convierte a UTC y en
+     España adelanta o atrasa un día según la hora, con lo que un evento de las
+     23:30 aparecía en el día siguiente. */
+  const calISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const calLunes = (d) => { const x = new Date(d); const j = (x.getDay() + 6) % 7; x.setDate(x.getDate() - j); return x; };
+  const calSuma = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+
   views.calendar = () => `<div class="section-title">Agenda</div>
-    <div class="section-sub">Google Calendar real + tareas del tablero con fecha.</div>
-    <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
-      <div class="panel"><h2>Google Calendar <span class="link" id="cal-refresh">actualizar</span></h2>
-        <div id="cal-google"><div class="empty">cargando…</div></div></div>
-      <div class="panel"><h2>Tareas con fecha</h2><div id="cal-tasks"><div class="empty">cargando…</div></div></div>
+    <div class="section-sub">Tu Google Calendar y las tareas del tablero con fecha, en el mismo sitio. Pulsa un día para ver todo lo que tiene.</div>
+    <div class="panel cal-panel">
+      <div class="cal-bar">
+        <button class="cal-nav" id="cal-prev" title="Anterior">‹</button>
+        <button class="cal-nav" id="cal-hoy">Hoy</button>
+        <button class="cal-nav" id="cal-next" title="Siguiente">›</button>
+        <b id="cal-titulo"></b>
+        <span class="cal-modos">
+          <button class="cal-modo" data-v="mes">Mes</button>
+          <button class="cal-modo" data-v="semana">Semana</button>
+          <button class="cal-modo" data-v="dia">Día</button>
+        </span>
+        <span class="link" id="cal-refresh">actualizar</span>
+      </div>
+      <div class="cal-split">
+        <div id="cal-cuerpo" class="cal-cuerpo"><div class="empty"><span class="dots">cargando</span></div></div>
+        <aside id="cal-detalle" class="cal-detalle"></aside>
+      </div>
     </div>`;
 
-  async function loadCalendar() {
-    const data = await api('/api/calendar');
-    const g = $('#cal-google'), t = $('#cal-tasks');
-    if (!g || !data) return;
-    if (data.google_status === 'ok') {
-      g.innerHTML = data.google.length
-        ? data.google.map((e) => `<div class="mnote"><span>◉ ${esc(e.what)}</span><span>${esc(e.when)}</span></div>`).join('')
-        : '<div class="empty">Calendario despejado — sin eventos próximos.</div>';
-    } else if (data.google_status === 'no conectado') {
-      g.innerHTML = '<div class="empty">Google no conectado.<br>Pon el Client ID y Secret en ⚙ (sección Google),<br>luego pide «qué tengo en el calendario de google»<br>y autoriza en el navegador (solo una vez).</div>';
-    } else if (data.google_status === 'sin autorizar') {
-      g.innerHTML = '<div class="empty">Credenciales puestas, falta autorizar.<br>Di «qué tengo en el calendario de google»<br>y se abrirá el navegador para dar permiso (una vez).</div>';
+  /** Todo lo que cae un día: eventos de Google + tareas del tablero con fecha. */
+  function calDelDia(iso) {
+    const d = calDatos || {};
+    const evs = (d.google || []).filter((e) => (e.fecha || e.when || '').slice(0, 10) === iso)
+      .map((e) => ({ tipo: 'evento', hora: e.hora || '', fin: e.hora_fin || '',
+        titulo: e.what, desc: e.desc || '', lugar: e.lugar || '', dia: !!e.todo_el_dia }));
+    const tks = (d.tasks || []).filter((t) => t.due === iso)
+      .map((t) => ({ tipo: 'tarea', hora: t.time || '', fin: '', titulo: t.title,
+        desc: t.notes || '', lugar: '', dia: false,
+        hecha: t.state === 'completada', prio: t.priority }));
+    // Lo que tiene hora, en orden; lo de todo el día no la tiene y sube arriba.
+    return [...evs, ...tks].sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));
+  }
+
+  /** Una cita, con su hora, su sitio y su descripción entera. */
+  const calFicha = (x) => `
+    <div class="cal-item ${x.tipo}${x.hecha ? ' hecha' : ''}">
+      <div class="cal-it-h">${x.dia ? 'todo el día' : (x.hora ? esc(x.hora) + (x.fin ? '–' + esc(x.fin) : '') : '—')}</div>
+      <div class="cal-it-c">
+        <div class="cal-it-t">${x.tipo === 'tarea' ? (x.hecha ? '✓ ' : '○ ') : '◉ '}${esc(x.titulo)}${x.prio === 'alta' ? ' <span class="badge-alta">⚡ ALTA</span>' : ''}</div>
+        ${x.lugar ? `<div class="cal-it-l">📍 ${esc(x.lugar)}</div>` : ''}
+        ${x.desc ? `<div class="cal-it-d">${linkify(x.desc)}</div>` : ''}
+      </div>
+    </div>`;
+
+  function calPintaDetalle(iso) {
+    const el = $('#cal-detalle');
+    if (!el) return;
+    if (!iso) { el.innerHTML = '<div class="empty">Pulsa un día para ver sus citas.</div>'; return; }
+    const [a, m, d] = iso.split('-');
+    const items = calDelDia(iso);
+    el.innerHTML = `<div class="cal-dh">${d} de ${CAL_MESES[+m - 1]} de ${a}<b>${items.length}</b></div>`
+      + (items.length ? items.map(calFicha).join('')
+        : '<div class="empty">Nada este día.</div>');
+  }
+
+  function calPinta() {
+    const cuerpo = $('#cal-cuerpo'), tit = $('#cal-titulo');
+    if (!cuerpo) return;
+    $$('.cal-modo').forEach((b) => b.classList.toggle('on', b.dataset.v === calVista));
+    const hoy = calISO(new Date());
+    const celda = (d, fuera) => {
+      const iso = calISO(d), items = calDelDia(iso);
+      const chips = items.slice(0, 3).map((x) =>
+        `<div class="cal-chip ${x.tipo}">${x.hora ? `<b>${esc(x.hora)}</b> ` : ''}${esc(x.titulo)}</div>`).join('');
+      return `<div class="cal-dia${fuera ? ' fuera' : ''}${iso === hoy ? ' hoy' : ''}${iso === calSel ? ' sel' : ''}" data-d="${iso}">
+          <div class="cal-num">${d.getDate()}</div>${chips}
+          ${items.length > 3 ? `<div class="cal-mas">+${items.length - 3} más</div>` : ''}
+        </div>`;
+    };
+    if (calVista === 'mes') {
+      const y = calRef.getFullYear(), m = calRef.getMonth();
+      tit.textContent = `${CAL_MESES[m]} de ${y}`;
+      let d = calLunes(new Date(y, m, 1));
+      let html = CAL_DIAS.map((x) => `<div class="cal-cab">${x}</div>`).join('');
+      for (let i = 0; i < 42; i++) { html += celda(d, d.getMonth() !== m); d = calSuma(d, 1); }
+      cuerpo.className = 'cal-cuerpo mes';
+      cuerpo.innerHTML = html;
+    } else if (calVista === 'semana') {
+      const l = calLunes(calRef);
+      tit.textContent = `semana del ${l.getDate()} de ${CAL_MESES[l.getMonth()]}`;
+      let html = '';
+      for (let i = 0; i < 7; i++) {
+        const d = calSuma(l, i);
+        html += `<div class="cal-cab">${CAL_DIAS[i]} ${d.getDate()}</div>`;
+      }
+      for (let i = 0; i < 7; i++) html += celda(calSuma(l, i), false);
+      cuerpo.className = 'cal-cuerpo semana';
+      cuerpo.innerHTML = html;
     } else {
-      g.innerHTML = `<div class="empty">Calendario no disponible ahora mismo.<br>Reintenta con «Actualizar».</div>`;
+      const iso = calSel || calISO(calRef);
+      const [a, m2, d2] = iso.split('-');
+      tit.textContent = `${d2} de ${CAL_MESES[+m2 - 1]} de ${a}`;
+      const items = calDelDia(iso);
+      cuerpo.className = 'cal-cuerpo dia';
+      cuerpo.innerHTML = items.length ? items.map(calFicha).join('')
+        : '<div class="empty">Nada este día.</div>';
     }
-    const today = new Date().toISOString().slice(0, 10);
-    const tasks = (data.tasks || []).sort((a, c) => a.due.localeCompare(c.due));
-    t.innerHTML = tasks.length
-      ? tasks.map((x) => `<div class="mnote"><span style="color:${x.due < today && x.state !== 'completada' ? 'var(--err)' : 'var(--txt)'}">${x.state === 'completada' ? '✓ ' : '○ '}${esc(x.title)}</span><span>${x.due}${x.priority === 'alta' ? ' · ⚡' : ''}</span></div>`).join('')
-      : '<div class="empty">Sin tareas con fecha. «crea la tarea X para el viernes».</div>';
+    // Pulsar un día lo abre en el lateral, ESTÉS EN LA VISTA QUE ESTÉS.
+    $$('#cal-cuerpo .cal-dia').forEach((c) => c.addEventListener('click', () => {
+      calSel = c.dataset.d;
+      calPinta();
+      calPintaDetalle(calSel);
+    }));
+    calPintaDetalle(calSel);
+  }
+
+  async function loadCalendar() {
+    if (!$('#cal-cuerpo')) return;
+    // Se pide el RANGO COMPLETO que se va a pintar, con margen a los lados para
+    // los días de otro mes que asoman en la rejilla. Sin esto llegaban los 10
+    // próximos eventos y el resto del mes salía vacío aunque tuviera citas.
+    const y = calRef.getFullYear(), m = calRef.getMonth();
+    const desde = calISO(calSuma(calLunes(new Date(y, m, 1)), -7));
+    const hasta = calISO(calSuma(calLunes(new Date(y, m + 1, 0)), 14));
+    calDatos = await api(`/api/calendar?desde=${desde}&hasta=${hasta}`) || {};
+    calPinta();
+
+    const est = calDatos.google_status;
+    if (est && est !== 'ok') {
+      // Sin Google se sigue pintando el calendario con las tareas del tablero:
+      // decir solo «no conectado» y dejar la pantalla vacía sería peor.
+      const txt = est === 'no conectado'
+        ? 'Google no conectado. Pon el Client ID y el Secret en ⚙ (sección Google) y luego pide «qué tengo en el calendario de google».'
+        : est === 'sin autorizar'
+          ? 'Credenciales puestas, falta autorizar. Di «qué tengo en el calendario de google» y se abrirá el navegador una vez.'
+          : 'El calendario de Google no responde ahora mismo. Las tareas del tablero sí se ven.';
+      const el = $('#cal-detalle');
+      if (el) el.insertAdjacentHTML('afterbegin', `<div class="cal-aviso">${esc(txt)}</div>`);
+    }
+
+    const salto = (n) => {
+      if (calVista === 'mes') calRef = new Date(calRef.getFullYear(), calRef.getMonth() + n, 1);
+      else if (calVista === 'semana') calRef = calSuma(calRef, 7 * n);
+      else {
+        calRef = calSuma(calSel ? new Date(calSel + 'T12:00') : calRef, n);
+        calSel = calISO(calRef);
+      }
+      loadCalendar();
+    };
+    $('#cal-prev').onclick = () => salto(-1);
+    $('#cal-next').onclick = () => salto(1);
+    $('#cal-hoy').onclick = () => { calRef = new Date(); calSel = calISO(calRef); loadCalendar(); };
+    $('#cal-refresh').onclick = () => loadCalendar();
+    $$('.cal-modo').forEach((b) => { b.onclick = () => {
+      calVista = b.dataset.v;
+      if (calVista === 'dia' && !calSel) calSel = calISO(new Date());
+      calPinta();
+    }; });
   }
 
   views.memory = () => {
     const m = state.status?.memory || {};
-    return `<div class="section-title">Nodos de conocimiento</div><div class="section-sub">Todo lo que ${esc(_sysName())} sabe: en el centro él, y colgando de él tus carpetas y tus notas. Postgres/pgvector con RAG semántico.</div>
-      <div class="grid" style="grid-template-columns:200px 200px 1fr;gap:14px">
-        <div class="panel"><h2>Vector store</h2>
-          <div style="font-size:24px;color:${m.db_online ? 'var(--ok)' : 'var(--txt-dim)'};font-weight:600">${m.db_online ? 'ONLINE' : 'OFFLINE'}</div>
-          <div style="color:var(--txt-dim);font-size:11px;margin-top:6px">${esc(m.backend || '')}<br>${m.graph_notes || 0} notas</div>
-        </div>
-        <div class="panel"><h2>Operador</h2>
-          <div style="font-size:13px;color:var(--cy-soft)">${esc(state.config.operator_name || 'Operador')}</div>
-          <div style="color:var(--txt-dim);font-size:11px;margin-top:6px">${interactions} interacciones<br>${esc(state.config.llm_provider || '')}</div>
-        </div>
-        <div class="panel"><h2>Consultar / alimentar memoria</h2>
-          <div style="display:flex;gap:8px"><input id="mem-q" placeholder="qué recuerdas de…" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:9px;border-radius:6px;outline:none"><button id="mem-go" style="background:var(--cy);border:none;color:#04121a;font-weight:700;padding:0 16px;border-radius:6px;cursor:pointer">▶</button></div>
-          <div style="display:flex;gap:8px;margin-top:8px"><input id="mem-learn" placeholder="ruta de un archivo o carpeta a aprender…" style="flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:9px;border-radius:6px;outline:none"><button id="mem-learn-go" style="background:transparent;border:1px solid var(--cy);color:var(--cy);font-weight:700;font-family:inherit;padding:0 12px;border-radius:6px;cursor:pointer">Aprender</button></div>
-          <div id="mem-answer" style="font-size:12px;color:var(--cy-soft);margin-top:8px;line-height:1.5;max-height:60px;overflow:auto"></div>
-          <div style="font-size:10.5px;color:var(--txt-dim);margin-top:6px">💡 Buzón automático: deja archivos (.txt/.md/.pdf→texto/código) en <b>data/memory/inbox/</b> y los aprende solo.</div>
-        </div>
-      </div>
-      <div class="panel" style="margin-top:14px"><h2>Grafo de conocimiento <span class="link" id="mem-reload">recargar</span></h2>
+    /* Una sola caja, y toda la pantalla para el grafo. Antes esto eran tres
+       paneles arriba (vector store, operador, consultar) y el grafo debajo, con
+       lo que el grafo se quedaba con media pantalla. El estado del almacén cabe
+       en un piloto de la cabecera, el operador ya sale en la barra superior, y
+       los campos de consultar/aprender se van al lateral. */
+    return `<div class="panel kn-panel">
+        <h2>Grafo de conocimiento
+          <span class="vs-pill ${m.db_online ? 'on' : 'off'}"
+                title="${esc(m.backend || '')} · ${m.graph_notes || 0} notas">
+            vector store ${m.db_online ? 'ONLINE' : 'OFFLINE'}</span>
+          <span class="link" id="mem-reload">recargar</span></h2>
         <div id="kn-split">
-          <aside id="kn-tree"><div class="empty"><span class="dots">leyendo</span></div></aside>
+          <aside id="kn-tree">
+            <div class="kn-tools">
+              <div class="kn-row"><input id="mem-q" placeholder="qué recuerdas de…"><button id="mem-go">▶</button></div>
+              <div class="kn-row"><input id="mem-learn" placeholder="ruta de un archivo o carpeta…"><button id="mem-learn-go" class="ghost">Aprender</button></div>
+              <div id="mem-answer"></div>
+              <div class="kn-hint">💡 Deja archivos en <b>data/memory/inbox/</b> y los aprende solo.</div>
+            </div>
+            <div id="kn-arbol"><div class="empty"><span class="dots">leyendo</span></div></div>
+          </aside>
+          <div id="kn-resize" title="Arrastra para cambiar el ancho"></div>
           <div id="kn-stage">
             <div id="kn-world"><canvas id="kn-links"></canvas></div>
             <div id="mem-tip"></div>
@@ -1202,7 +1344,7 @@ window.orbHTML = orbHTML;
 
 
   /* ---------------- router ---------------- */
-  const SCROLL_VIEWS = new Set(['skills', 'hardware', 'aicore', 'monitor', 'memory', 'calendar', 'tasks', 'contentos', 'reels', 'jobs', 'home']);
+  const SCROLL_VIEWS = new Set(['skills', 'hardware', 'aicore', 'monitor', 'calendar', 'tasks', 'contentos', 'reels', 'jobs', 'home']);
   function render(view) {
     /* specs v23 (T16): la pantalla «Hoy» ya no existe como sección propia — su
        información vive donde toca (tiempo en el header, tareas en Tareas,

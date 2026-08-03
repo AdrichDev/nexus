@@ -667,9 +667,13 @@ async def api_hardware():
 
 
 @app.get("/api/calendar")
-async def api_calendar():
+async def api_calendar(desde: str = "", hasta: str = ""):
     """Agenda unificada: eventos REALES de Google Calendar (si está conectado)
-    + tareas del tablero con fecha. Tolerante: sin Google devuelve solo tareas."""
+    + tareas del tablero con fecha. Tolerante: sin Google devuelve solo tareas.
+
+    `desde`/`hasta` (AAAA-MM-DD) acotan el rango. Los pide la vista de agenda
+    para traerse el MES entero: sin ellos solo llegaban los 10 próximos eventos,
+    y con eso no se puede pintar un calendario."""
     from backend.core import board
     tasks = [t for col in board.board().values() for t in col if t.get("due")]
     google_events, google_status = [], "no conectado"
@@ -689,8 +693,11 @@ async def api_calendar():
             # Hay credenciales pero aún no se ha autorizado (haría falta abrir el navegador)
             google_status = "sin autorizar"
         else:
+            tmin = f"{desde}T00:00:00Z" if desde else None
+            tmax = f"{hasta}T23:59:59Z" if hasta else None
+            tope = 250 if desde else 10        # un mes entero cabe de sobra en 250
             google_events = await asyncio.wait_for(
-                asyncio.to_thread(gws._fetch_events, 10), timeout=15)
+                asyncio.to_thread(gws._fetch_events, tope, tmin, tmax), timeout=20)
             google_status = "ok"
     except Exception:
         google_status = "sin autorizar"

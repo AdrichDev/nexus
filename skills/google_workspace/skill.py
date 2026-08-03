@@ -406,8 +406,23 @@ def _fetch_events(limit: int = 6, tmin: str | None = None, tmax: str | None = No
     out = []
     for ev in res.get("items", []):
         start = ev["start"].get("dateTime", ev["start"].get("date", ""))
+        fin = ev["end"].get("dateTime", ev["end"].get("date", "")) if ev.get("end") else ""
+        # `dateTime` lleva hora; `date` a secas es un evento de DÍA COMPLETO.
+        todo_el_dia = not ev["start"].get("dateTime")
+        # `when`/`what` se quedan tal cual: los usan las respuestas habladas de la
+        # skill. Lo demás es NUEVO y lo pide la vista de agenda, que necesita la
+        # fecha y la hora por separado para poder pintar un calendario de verdad
+        # —y la descripción, que antes se perdía por el camino—.
         out.append({"when": start[:16].replace("T", " "),
-                    "what": ev.get("summary", "(sin título)")})
+                    "what": ev.get("summary", "(sin título)"),
+                    "fecha": start[:10],
+                    "hora": "" if todo_el_dia else start[11:16],
+                    "hora_fin": "" if todo_el_dia else fin[11:16],
+                    "fecha_fin": fin[:10],
+                    "todo_el_dia": todo_el_dia,
+                    "desc": (ev.get("description") or "").strip(),
+                    "lugar": (ev.get("location") or "").strip(),
+                    "id": ev.get("id", "")})
     return out
 
 
