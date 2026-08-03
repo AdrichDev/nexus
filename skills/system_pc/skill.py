@@ -57,16 +57,71 @@ _NO_ES_PROGRAMA = (
     r")\b)"
 )
 
+# Palabras con las que se nombra a ESTE equipo cuando se pide volumen.
+_ESTE_PC = r"(?:pc|ordenador|ordenata|equipo|sistema|windows|m[aá]quina|torre|sobremesa|port[aá]til)"
+
+# Artículo o determinante delante del destino. Se CONSUME antes del lookahead
+# de exclusión para que este vea el sustantivo, no el «los».
+_ART = r"(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+|mi\s+|mis\s+|este\s+|esta\s+)?"
+
+# Lo que NO es una aplicación con sonido propio. Va como lookahead negativo en
+# las formas cortas («silencia X», «el volumen de X») para que no se traguen ni
+# la orden sin destino ni lo que es de otras skills. Cada bloque dice de quién
+# es lo que protege.
+_NO_ES_APP_SONIDO = (
+    r"(?!(?:"
+    r"tele|televisi[oó]n|televisor(?:es)?|smart|tv|"                 # domotica
+    r"casa|sal[oó]n|comedor|cocina|habitaci[oó]n|dormitorio|"        # domotica
+    r"recordatorios?|notificaciones?|avisos?|alarmas?|"              # tasks_board / tools
+    r"tareas?|m[oó]vil|tel[eé]fono|chats?|mensajes?|"                # tasks_board / telefono / comms
+    r"sonido|audio|volumen|silencio|ruido|todo|esto|eso|"            # la orden sin destino
+    r"el|la|los|las|un|una|unos|unas|mi|mis|este|esta|"              # determinantes sueltos
+    r"poco|mucho|algo"                                               # cuantificadores
+    r")\b)"
+)
+
 SKILL = {
     "name": "Sistema / PC",
     "description": ("Control real del PC: CPU/RAM/GPU con temperaturas, procesos, abrir apps "
                     "y webs, capturas, webcam, Wake-on-LAN y apagado con doble confirmación"),
     "patterns": {
-        # Volumen del PC. El «sube/baja el volumen» a secas lo atiende domotica
-        # (va antes por alfabeto y lo manda a la tele); aquí caen «pon el volumen
-        # al 40», «volumen al 75%» y similares con número.
-        "volume": r"\bvolumen\s+(?:del?\s+(?:pc|equipo|sistema)\s+)?(?:al?\s*)?(?P<vol>\d{1,3})\s*%?"
-                  r"|\b(sube|baja|pon)(?:me|le)?\b[^.\n]{0,25}\bvolumen\b",
+        # Volumen MAESTRO del PC. Exige que la orden nombre el equipo («del pc»,
+        # «del ordenador», «del sistema»): el destino lo dice siempre quien da la
+        # orden. Va el primero de los tres de volumen para que «del pc» no lo
+        # capture `volume_app` como si «pc» fuera un programa.
+        "volume": r"\bvolumen\b[^.\n]{0,12}\b(?:de(?:l)?\s+|en\s+)(?:la\s+|el\s+|mi\s+|este\s+)?"
+                  + _ESTE_PC + r"\b"
+                  r"|\b(?:s[uú]be|b[aá]ja|p[oó]n)(?:me|le)?\b[^.\n]{0,15}\b(?:de(?:l)?\s+)"
+                  + _ESTE_PC + r"\b[^.\n]{0,15}\bvolumen\b"
+                  r"|\b(?:sil[eé]ncia|mut[eé]a)(?:me|le)?(?:lo|la)?\s+(?:el\s+|la\s+|mi\s+|este\s+)?"
+                  + _ESTE_PC + r"\b"
+                  r"|\b(?:qu[ií]ta(?:me|le)?\s+el\s+(?:sonido|audio|volumen)|"
+                  r"qu[ií]ta(?:me|le)?\s+el\s+silencio|activa(?:me)?\s+el\s+sonido|"
+                  r"devu[eé]lve(?:le|me)?\s+el\s+sonido)\s+(?:de(?:l)?|a(?:l)?)\s+"
+                  r"(?:la\s+|el\s+|mi\s+)?" + _ESTE_PC + r"\b"
+                  r"|\b(?:desil[eé]ncia|desmutea)(?:me|le)?\s+(?:el\s+|la\s+|mi\s+)?"
+                  + _ESTE_PC + r"\b",
+        # Volumen de UNA APLICACIÓN concreta, por su sesión de audio de Windows.
+        # El nombre se captura tal cual lo dice el operador («spotify») y el
+        # handler lo empareja con el proceso real («Spotify.exe»).
+        "volume_app": r"\bvolumen\b[^.\n]{0,12}\b(?:de(?:l)?\s+|en\s+)" + _ART
+                      + _NO_ES_APP_SONIDO + r"(?P<app>[\w.\-]{2,})"
+                      r"|\bqu[ií]ta(?:me|le)?\s+el\s+(?:sonido|audio|volumen)\s+(?:de(?:l)?|a(?:l)?)\s+"
+                      + _ART + _NO_ES_APP_SONIDO + r"(?P<app2>[\w.\-]{2,})"
+                      r"|\b(?:sil[eé]ncia|mut[eé]a)(?:me|le)?\s+" + _ART
+                      + _NO_ES_APP_SONIDO + r"(?P<app3>[\w.\-]{2,})"
+                      r"|\b(?:qu[ií]ta(?:me|le)?\s+el\s+silencio|activa(?:me)?\s+el\s+sonido|"
+                      r"devu[eé]lve(?:le|me)?\s+el\s+sonido)\s+(?:de(?:l)?|a(?:l)?)\s+"
+                      + _ART + _NO_ES_APP_SONIDO + r"(?P<app4>[\w.\-]{2,})"
+                      r"|\b(?:desil[eé]ncia|desmutea)(?:me|le)?\s+" + _ART
+                      + _NO_ES_APP_SONIDO + r"(?P<app5>[\w.\-]{2,})",
+        # Volumen SIN destino. No se adivina: se pregunta. Va detrás de los dos
+        # anteriores, que ya se han quedado las órdenes que sí nombran destino.
+        "volume_ask": r"\b(?:s[uú]be|b[aá]ja|p[oó]n|qu[ií]ta)(?:me|le)?\b[^.\n]{0,25}\bvolumen\b"
+                      r"|\bvolumen\s+(?:al?\s*)?\d{1,3}\s*%?"
+                      r"|\b(?:m[aá]s|menos)\s+volumen\b"
+                      r"|^\s*(?:sil[eé]ncia(?:lo|la|me)?|mut[eé]a(?:lo|la)?|silencio)\s*[.!]*$"
+                      r"|^\s*qu[ií]ta(?:me)?\s+el\s+(?:sonido|audio|volumen)\s*[.!]*$",
         # Brillo de la PANTALLA. El SKILL.md de `media` lleva tiempo mandando
         # «pon el brillo al 80» aquí, y aquí no había nada: la frase caía al
         # planificador. Exige «pantalla» o «monitor» cuando no lleva número,
@@ -189,6 +244,183 @@ def _steam_appid_by_name(name: str):
     except Exception:
         return None
     return None
+
+
+def _mezclador_maestro():
+    """Control del volumen maestro de la salida de audio por pycaw, o None si
+    pycaw/comtypes no están o Windows no expone el dispositivo."""
+    try:
+        from pycaw.utils import AudioUtilities
+        return AudioUtilities.GetSpeakers().EndpointVolume
+    except Exception:                                      # noqa: BLE001
+        return None
+
+
+def _sesiones_audio() -> list:
+    """[(nombre_proceso, SimpleAudioVolume)] de cada aplicación con sesión de
+    audio abierta. La sesión del sistema no trae proceso y se descarta."""
+    try:
+        from pycaw.utils import AudioUtilities
+        salida = []
+        for s in AudioUtilities.GetAllSessions():
+            proc = getattr(s, "Process", None)
+            vol = getattr(s, "SimpleAudioVolume", None)
+            if proc is None or vol is None:
+                continue
+            try:
+                nombre = proc.name() or ""
+            except Exception:                              # noqa: BLE001
+                continue
+            if nombre:
+                salida.append((nombre, vol))
+        return salida
+    except Exception:                                      # noqa: BLE001
+        return []
+
+
+def _hay_pycaw() -> bool:
+    """True si pycaw está instalado. El volumen por aplicación lo necesita: nircmd
+    solo sabe del volumen general."""
+    try:
+        from pycaw.utils import AudioUtilities                   # noqa: F401
+        return True
+    except Exception:                                            # noqa: BLE001
+        return False
+
+
+def _sesiones_de(nombre: str) -> list:
+    """Sesiones de audio que casan con el nombre pedido. Misma puntería que el
+    cierre de procesos: primero el nombre EXACTO (con o sin `.exe`) y solo si no
+    casa ninguno se cae a la subcadena, para que «code» no se lleve «codecs»."""
+    low = _ALIAS_PROCESO.get(nombre.lower().strip(), nombre.lower().strip())
+    if low.endswith(".exe"):
+        low = low[:-4]
+    exactos, parciales = [], []
+    for n, vol in _sesiones_audio():
+        nl = n.lower()
+        if nl == low or nl == f"{low}.exe" or nl.rsplit(".", 1)[0] == low:
+            exactos.append((n, vol))
+        elif low and low in nl:
+            parciales.append((n, vol))
+    return exactos or parciales
+
+
+def _hay_nircmd() -> bool:
+    """True si nircmd está en el PATH."""
+    import shutil
+    return shutil.which("nircmd") is not None
+
+
+def _accion_volumen(text: str) -> tuple:
+    """Qué pide la orden: ('set', 0-100) | ('step', ±10) | ('mute', None) |
+    ('unmute', None). Quitar el silencio se mira ANTES que silenciar, porque
+    «quita el silencio» contiene la palabra «silencio»."""
+    t = text.lower()
+    if re.search(r"\b(?:qu[ií]ta\w*\s+el\s+silencio|desil[eé]ncia\w*|desmutea\w*|"
+                 r"activa\w*\s+el\s+sonido|devu[eé]lve\w*\s+el\s+sonido)", t):
+        return "unmute", None
+    if re.search(r"\b(?:sil[eé]ncia\w*|mut[eé]a\w*|silencio)\b", t) or \
+            re.search(r"\bqu[ií]ta\w*\s+el\s+(?:sonido|audio|volumen)\b", t):
+        return "mute", None
+    m = re.search(r"\b(\d{1,3})\s*%?", t)
+    if m:
+        return "set", max(0, min(100, int(m.group(1))))
+    if re.search(r"\b(?:b[aá]ja\w*|menos)\b", t):
+        return "step", -10
+    return "step", 10
+
+
+def _volumen_pc(text: str) -> dict:
+    """Volumen maestro de este PC. pycaw primero; nircmd solo como respaldo."""
+    accion, valor = _accion_volumen(text)
+    ev = _mezclador_maestro()
+    if ev is not None:
+        try:
+            if accion == "mute":
+                ev.SetMute(1, None)
+                return {"reply": "PC en silencio. ✔", "data": {"target": "pc", "mute": 1}}
+            if accion == "unmute":
+                ev.SetMute(0, None)
+                leido = round(ev.GetMasterVolumeLevelScalar() * 100)
+                return {"reply": f"El PC vuelve a sonar, al {leido}%. ✔",
+                        "data": {"target": "pc", "mute": 0, "ahora": leido}}
+            antes = round(ev.GetMasterVolumeLevelScalar() * 100)
+            destino = valor if accion == "set" else max(0, min(100, antes + valor))
+            ev.SetMasterVolumeLevelScalar(destino / 100.0, None)
+            leido = round(ev.GetMasterVolumeLevelScalar() * 100)
+            aviso = (" Ojo: el PC está silenciado, así que no lo vas a oír; "
+                     "di «quita el silencio del pc».") if ev.GetMute() else ""
+            return {"reply": f"Volumen del PC al {leido}%. ✔" + aviso,
+                    "data": {"target": "pc", "antes": antes, "ahora": leido}}
+        except Exception as exc:                           # noqa: BLE001
+            return {"reply": f"He intentado tocar el volumen del PC con pycaw y Windows lo ha "
+                             f"rechazado ({type(exc).__name__}). No te digo que esté hecho, "
+                             "porque no lo está."}
+    if sys.platform == "win32" and _hay_nircmd():
+        try:
+            if accion in ("mute", "unmute"):
+                subprocess.run(["nircmd", "mutesysvolume", "1" if accion == "mute" else "0"],
+                               timeout=3, check=True)
+                return {"reply": ("PC en silencio (por nircmd). ✔" if accion == "mute"
+                                  else "El PC vuelve a sonar (por nircmd). ✔")}
+            if accion == "set":
+                subprocess.run(["nircmd", "setsysvolume", str(int(valor * 655.35))],
+                               timeout=3, check=True)
+                return {"reply": f"Volumen del PC al {valor}% (por nircmd). ✔"}
+            subprocess.run(["nircmd", "changesysvolume", str(int(valor * 655.35))],
+                           timeout=3, check=True)
+            return {"reply": f"Volumen del PC {'subido' if valor > 0 else 'bajado'} "
+                             "(por nircmd). ✔"}
+        except Exception:                                  # noqa: BLE001
+            pass
+    return {"reply": "No puedo tocar el volumen del PC: falta pycaw (pip install pycaw "
+                     "comtypes y reinicia nexus) y tampoco tengo nircmd en el PATH. "
+                     "No te digo que esté hecho, porque no lo está."}
+
+
+def _volumen_app(text: str, nombre: str) -> dict:
+    """Volumen de la sesión de audio de una aplicación concreta."""
+    nombre = (nombre or "").strip()
+    if not _hay_pycaw():
+        return {"reply": f"No puedo tocar el volumen de «{nombre}»: el volumen por "
+                         "aplicación necesita pycaw (pip install pycaw comtypes y "
+                         "reinicia nexus). nircmd no sirve aquí, solo toca el volumen "
+                         "general. No te digo que esté hecho, porque no lo está."}
+    sesiones = _sesiones_de(nombre)
+    if not sesiones:
+        abiertas = sorted({n.rsplit(".", 1)[0] if n.lower().endswith(".exe") else n
+                           for n, _v in _sesiones_audio()})
+        extra = (" Ahora mismo suenan: " + ", ".join(abiertas) + ".") if abiertas \
+            else " Ahora mismo no hay ninguna aplicación con sesión de audio abierta."
+        return {"reply": f"«{nombre}» no tiene sesión de audio ahora mismo, así que no hay "
+                         f"volumen suyo que tocar.{extra}"}
+    accion, valor = _accion_volumen(text)
+    crudo = sesiones[0][0]
+    prog = (crudo.rsplit(".", 1)[0] if crudo.lower().endswith(".exe") else crudo).title()
+    try:
+        if accion == "mute":
+            for _n, v in sesiones:
+                v.SetMute(1, None)
+            return {"reply": f"{prog} en silencio. ✔", "data": {"target": crudo, "mute": 1}}
+        if accion == "unmute":
+            for _n, v in sesiones:
+                v.SetMute(0, None)
+            leido = round(sesiones[0][1].GetMasterVolume() * 100)
+            return {"reply": f"{prog} vuelve a sonar, al {leido}%. ✔",
+                    "data": {"target": crudo, "mute": 0, "ahora": leido}}
+        antes = round(sesiones[0][1].GetMasterVolume() * 100)
+        destino = valor if accion == "set" else max(0, min(100, antes + valor))
+        for _n, v in sesiones:
+            v.SetMasterVolume(destino / 100.0, None)
+        leido = round(sesiones[0][1].GetMasterVolume() * 100)
+        aviso = (f" Ojo: {prog} está silenciado; di «quita el silencio de {crudo}» "
+                 "para oírlo.") if sesiones[0][1].GetMute() else ""
+        return {"reply": f"Volumen de {prog} al {leido}%. ✔" + aviso,
+                "data": {"target": crudo, "antes": antes, "ahora": leido}}
+    except Exception as exc:                                         # noqa: BLE001
+        return {"reply": f"He intentado tocar el volumen de {prog} y Windows lo ha "
+                         f"rechazado ({type(exc).__name__}). No te digo que esté hecho, "
+                         "porque no lo está."}
 
 
 def _brillo_actual():
@@ -425,25 +657,18 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     bus = ctx["bus"]
 
     if intent == "volume":
-        num = match.groupdict().get("vol")
-        if not num:  # «pon el volumen al 40» entra por la 2ª alternativa: rescata el número
-            m2 = re.search(r"\b(\d{1,3})\s*%?", text)
-            num = m2.group(1) if m2 else None
-        target = f"al {num}%" if num else ("subido" if "sube" in text.lower() else "bajado")
-        if sys.platform == "win32":
-            try:  # nircmd si está en PATH; si no, simulado
-                if num:
-                    subprocess.run(["nircmd", "setsysvolume", str(int(int(num) * 655.35))],
-                                   timeout=3, check=True)
-                else:
-                    step = "5000" if "sube" in text.lower() else "-5000"
-                    subprocess.run(["nircmd", "changesysvolume", step], timeout=3, check=True)
-                return {"reply": f"Volumen {target}. ✔"}
-            except Exception:
-                pass
-        return {"reply": f"Volumen {target}… en teoría. Aún no tengo nircmd para tocarlo de "
-                         "verdad: descárgalo de nirsoft.net y deja nircmd.exe en el PATH; "
-                         "a partir de ahí el control es real."}
+        return _volumen_pc(text)
+
+    if intent == "volume_app":
+        gd = match.groupdict()
+        nombre = next((gd.get(k) for k in ("app", "app2", "app3", "app4", "app5")
+                       if gd.get(k)), "")
+        return _volumen_app(text, nombre)
+
+    if intent == "volume_ask":
+        return {"reply": "¿A quién le toco el volumen? No lo adivino, dímelo y voy: la tele "
+                         "(«sube el volumen de la tele»), este PC («sube el volumen del pc») "
+                         "o una aplicación concreta («sube el volumen de spotify»)."}
 
     if intent == "brightness":
         num = match.groupdict().get("bri")

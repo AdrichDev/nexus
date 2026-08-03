@@ -134,7 +134,7 @@ def test_routing_telefono():
 def test_routing_domotica():
     p = patterns(load_skill("domotica"))
     for t, exp in [("enciende la tele", "tv_on"), ("apaga la televisión", "tv_off"),
-                   ("sube el volumen", "tv_volume"), ("silencia la tele", "tv_mute"),
+                   ("sube el volumen de la tele", "tv_volume"), ("silencia la tele", "tv_mute"),
                    ("escanea la red", "descubrir"), ("enciende la luz del salón", "casa")]:
         check(route_local(p, t) == exp, f"domotica '{t}' -> {exp}, dio {route_local(p, t)}")
 

@@ -49,7 +49,8 @@ MOD = SSK.module if SSK else None
 check(MOD is not None and hasattr(MOD, "handle"), "system_pc no expone handle()")
 
 INTENTS = list(SSK.patterns.keys()) if SSK else []
-for i in ("volume", "temps", "hardware", "processes", "kill", "youtube", "open_web",
+for i in ("volume", "volume_app", "volume_ask",
+          "temps", "hardware", "processes", "kill", "youtube", "open_web",
           "reindex", "list_apps", "open_app", "screenshot", "webcam",
           "shutdown", "shutdown_confirm", "restart", "restart_confirm",
           "wake", "set_mac"):
@@ -86,7 +87,16 @@ ACTIVAN = {
                  "métete en elmundo.es", "visita github.com",
                  "abre https://ejemplo.org/ruta"],
     "youtube": ["abre youtube y busca lofi"],
-    "volume": ["pon el volumen al 40", "volumen al 75%", "sube el volumen del pc"],
+    # El destino del volumen lo dice SIEMPRE quien da la orden: el PC, una
+    # aplicación, o nada — y entonces se pregunta, no se adivina.
+    "volume": ["sube el volumen del pc", "baja el volumen del ordenador",
+               "pon el volumen del pc al 40", "silencia el pc",
+               "quita el silencio del pc", "sube el volumen del equipo"],
+    "volume_app": ["sube el volumen de spotify", "baja el volumen de chrome",
+                   "pon el volumen de discord al 30", "silencia spotify",
+                   "quita el sonido de chrome", "quita el silencio de spotify"],
+    "volume_ask": ["sube el volumen", "más volumen", "pon el volumen al 50",
+                   "volumen al 75%", "silencia", "quita el sonido"],
     "screenshot": ["haz una captura de pantalla", "hazme un pantallazo",
                    "sácame una captura"],
     "webcam": ["haz una foto con la webcam", "sácame una foto", "échame una foto"],

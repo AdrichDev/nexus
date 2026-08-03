@@ -114,7 +114,7 @@ def test_planificador_frases():
         ("me apetece algo de música tranquila", {"media"}),
         ("apúntame que tengo que llamar al gestor mañana", {"memory_graph", "telefono", "google_workspace"}),
         ("échale un ojo a mis correos a ver qué hay", {"google_workspace"}),
-        ("bájale al volumen que está muy alto", {"domotica"}),
+        ("bájale al volumen de la tele que está muy alto", {"domotica"}),
     ]
     for t, permit in casos:
         check(not st.match(t), f"planif: '{t}' NO es charla (llega al planificador)")

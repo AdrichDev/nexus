@@ -18,9 +18,12 @@ extra: usa estándares (ARP, SSDP/UPnP, mDNS, NetBIOS, Roku ECP, Samsung Tizen, 
   tv», «apaga el televisor», «apágame la tele», «quita la tele».
 - **`tv_mute`**: «silencia la tele», «quita el sonido de la tele», «pon la tele en
   silencio», «quítale el volumen a la tv».
-- **`tv_volume`**: «sube el volumen», «bájale el volumen», «más volumen». El volumen
-  «a secas» es el de la tele; si la orden nombra otro destino («sube el volumen de
-  Spotify», «…del PC») la atienden `media` / `system_pc`.
+- **`tv_volume`**: «sube el volumen de la tele», «bájale el volumen a la tv», «más
+  volumen en la televisión». **Exige nombrar la tele**, igual que `tv_mute`: el
+  destino lo dice siempre quien da la orden. El volumen sin tele no es de aquí — lo
+  recoge `system_pc`, que pregunta a qué aparato en vez de adivinar. Si la orden
+  nombra otro destino («sube el volumen de Spotify», «…del PC») la atienden
+  `media` / `system_pc`.
 - **`tv_channel`**: «pon el canal 5», «pon el canal cinco», «cámbiame al canal 3»,
   «canal siguiente», «canal anterior».
 - **`tv_app`**: «pon Netflix en la tele», «quiero ver YouTube en la tv». Apps

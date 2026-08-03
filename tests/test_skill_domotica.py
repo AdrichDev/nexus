@@ -129,9 +129,12 @@ FRASES = {
     "tv_mute": ["silencia la tele", "quita el sonido de la tele", "mutea la tv",
                 "quítale el volumen a la tele", "pon la tele en silencio",
                 "silénciame la tele", "calla la tele", "quita el ruido de la tele"],
-    "tv_volume": ["sube el volumen", "súbeme el volumen", "baja el volumen",
-                  "bájale el volumen", "sube el volumen de la tele", "más volumen",
-                  "menos volumen", "baja un poco el volumen"],
+    # El volumen EXIGE nombrar la tele, igual que silenciarla: el destino lo dice
+    # siempre quien da la orden. El volumen a secas es de system_pc, que pregunta.
+    "tv_volume": ["sube el volumen de la tele", "súbeme el volumen de la tv",
+                  "baja el volumen del televisor", "bájale el volumen a la tele",
+                  "más volumen en la televisión", "menos volumen en la tele",
+                  "baja un poco el volumen de la tv"],
     "tv_channel": ["pon el canal 5", "ponme el canal 3", "cámbiame al canal 7",
                    "cambia al canal 12", "canal siguiente", "siguiente canal",
                    "canal anterior", "pon el canal cinco", "quiero el canal 1"],
@@ -187,7 +190,7 @@ def test_el_pronombre_enclitico_desplaza_la_tilde_y_aun_asi_casa():
         "silénciame la tele": "tv_mute",
         "enciéndeme la tele": "tv_on",
         "cámbiame al canal 9": "tv_channel",
-        "súbeme el volumen": "tv_volume",
+        "súbeme el volumen de la tele": "tv_volume",
         "enciéndeme el ordenador": "wol",
         "despiértame el pc": "wol",
         "apágame la luz del salón": "casa",
@@ -229,12 +232,13 @@ def test_silenciar_gana_a_apagar_y_a_encender():
 
 # ==================== 3. COLISIONES CON OTRAS SKILLS =========================
 def test_no_le_roba_el_volumen_de_la_musica_ni_el_del_pc():
-    """`domotica` va antes que `media` y `system_pc` por alfabeto: un «sube el
-    volumen» sin más es de la tele, pero en cuanto la orden nombra OTRO destino
-    deja de serlo."""
+    """`domotica` va antes que `media` y `system_pc` por alfabeto, así que si su
+    volumen no exigiera la palabra «tele» se quedaría con todas las órdenes de
+    volumen del sistema. El volumen sin tele NO es suyo, ni siquiera a secas."""
     for frase in ("sube el volumen de spotify", "baja el volumen de la música",
                   "sube el volumen del pc", "baja el volumen del vídeo",
-                  "sube el volumen de youtube"):
+                  "sube el volumen de youtube", "sube el volumen", "más volumen",
+                  "pon el volumen al 50", "silencia", "quita el sonido"):
         folder, intent = _ruta(frase)
         check(folder != "domotica",
               f"«{frase}» → {folder}/{intent}; eso no es la tele")
@@ -296,7 +300,7 @@ def test_sin_tv_a_la_vista_dice_como_ensenarsela():
         for intent, frase in (("tv_on", "enciende la tele"),
                               ("tv_off", "apaga la tele"),
                               ("tv_mute", "silencia la tele"),
-                              ("tv_volume", "sube el volumen"),
+                              ("tv_volume", "sube el volumen de la tele"),
                               ("tv_channel", "pon el canal 5"),
                               ("tv_app", "pon netflix en la tele")):
             txt = _corre(intent, frase, _ctx())["reply"]

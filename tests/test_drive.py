@@ -444,7 +444,7 @@ def test_drive_no_le_roba_frases_a_nadie():
         "crea una tarea en el to-do: pagar al proveedor": ("google_workspace", "create_task"),
         # y de otras skills, que van ANTES por orden alfabético
         "levanta el docker": ("autoprovision", "docker_up"),
-        "sube el volumen": ("domotica", "tv_volume"),
+        "sube el volumen de la tele": ("domotica", "tv_volume"),
         "guarda en el proyecto nexus que arreglé el bug": ("engram", "save"),
     }
     for frase, (folder_esp, intent_esp) in intocables.items():

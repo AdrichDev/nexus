@@ -26,7 +26,17 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
   «ábreme la página de renfe» / «ponme la web del as» / «entra en la web de X» /
   «abre marca.com» / «métete en elmundo.es» / «abre https://…»
 - «abre youtube y busca lofi»
-- «pon el volumen al 40» / «volumen al 75%»
+- **Volumen, con el destino SIEMPRE dicho por quien da la orden.** Nunca se
+  adivina a qué aparato va:
+- «sube el volumen del pc» / «baja el volumen del ordenador» / «pon el volumen del
+  pc al 40» / «silencia el pc» / «quita el silencio del pc» → volumen MAESTRO de
+  Windows, leído y escrito con pycaw
+- «sube el volumen de spotify» / «baja el volumen de chrome» / «pon el volumen de
+  discord al 30» / «silencia spotify» / «quita el sonido de chrome» → la sesión de
+  audio de ESA aplicación, con pycaw. El nombre se empareja sin distinguir
+  mayúsculas y con o sin `.exe`
+- «sube el volumen» / «más volumen» / «pon el volumen al 50» / «silencia» / «quita
+  el sonido» → sin destino **no actúa: pregunta** si es la tele, el PC o una app
 - «haz una captura de pantalla» / «hazme un pantallazo»
 - «haz una foto con la webcam» / «sácame una foto»
 - «guarda la mac aa:bb:cc:dd:ee:ff» → deja la MAC en ajustes para Wake-on-LAN
@@ -36,7 +46,9 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 ## Fronteras (para no pisar a otras skills)
 
 - «¿qué temperatura hace en Madrid?» → clima. Aquí solo temperaturas de hardware.
-- «sube el volumen» a secas → domotica lo manda a la tele; aquí el volumen del PC con número.
+- «sube el volumen de la tele» → domotica, que exige nombrar la tele igual que para
+  silenciarla. El volumen a secas SÍ llega aquí, pero no toca nada: pregunta el
+  destino. El volumen de una app sí se ejecuta aquí, porque lleva el destino dentro.
 - «abre el tablero», «abre el correo 2», «abre X en chrome» → tasks_board,
   google_workspace y navegador. El lookahead de `open_app` los deja pasar.
 - **«enciende el pc» / «despierta el ordenador» → domotica**, que va antes por orden
@@ -80,6 +92,10 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
   antes y después y distingue «arrancó», «arrancó otra cosa» y «no arrancó».
 - No abre juegos de Steam que no estén instalados; lo dice y ofrece instalarlos.
 - No borra archivos (eso es `files`) ni toca dispositivos de casa (eso es `domotica`).
+- No adivina de qué aparato es el volumen: si la orden no nombra destino, pregunta.
+  Y si no tiene con qué tocarlo —ni pycaw ni nircmd— lo dice, en vez de contestar
+  «volumen subido» sin haber movido nada. Si la aplicación que le nombras no tiene
+  sesión de audio abierta, también lo dice y enumera las que sí suenan.
 - No finge haber cambiado el brillo. Si la pantalla no expone el control por WMI
   —los monitores de sobremesa suelen llevarlo en sus propios botones— lo dice y
   explica por qué, en vez de contestar «brillo al 80%» sin haber tocado nada.
@@ -87,8 +103,9 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 ## Notas técnicas
 
 - Dependencias opcionales: `psutil` (hardware/procesos y verificación de arranque),
-  `mss` (capturas), `opencv-python` (webcam), `nircmd` en el PATH (volumen real en
-  Windows), `wmi` + LibreHardwareMonitor abierto (temperatura de CPU en Windows),
+  `mss` (capturas), `opencv-python` (webcam), `pycaw` + `comtypes` (volumen real,
+  maestro y por aplicación, en Windows) con `nircmd` en el PATH solo como respaldo
+  para el maestro, `wmi` + LibreHardwareMonitor abierto (temperatura de CPU en Windows),
   `nvidia-smi` (GPU NVIDIA). Sin ellas, responde explicando qué instalar.
 - El informe de hardware pasa por `backend.core.permissions` (se puede denegar en ⚙).
 - Capturas y fotos quedan en `data/captures/` con marca de fecha y hora.

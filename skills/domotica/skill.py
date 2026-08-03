@@ -66,12 +66,13 @@ SKILL = {
         # órdenes como «pon spotify»/«pon youtube» (que van a media, no a la TV).
         "tv_app": r"(?:abre|pon|lanza|quiero\s+ver)\b[^.\n]{0,25}\b(?P<app>netflix|youtube|prime\s*video|prime|disney\+?|hbo\s*max|hbo|movistar|spotify|plex|twitch)\b[^.\n]{0,20}\b(?:en\s+)?(?:la\s+)?" + _TV + r"\b"
                   r"|\b(?:en\s+)?(?:la\s+)?" + _TV + r"\b[^.\n]{0,20}\b(?:abre|pon|lanza|quiero\s+ver)?\s*(?P<app2>netflix|youtube|prime\s*video|prime|disney\+?|hbo\s*max|hbo|movistar|spotify|plex|twitch)\b",
-        # El volumen «a secas» es el de la tele; si la orden nombra OTRO destino
-        # (música, spotify, el PC…) se deja pasar a las skills de media/sistema.
+        # El volumen EXIGE nombrar la tele, igual que `tv_mute`. Sin esa palabra
+        # la orden no es de aquí: el destino lo dice siempre quien da la orden y
+        # el volumen sin destino lo pregunta `system_pc`.
         "tv_volume": r"(?P<dir>s[uú]be\w*|b[aá]ja\w*|m[aá]s|menos)\b[^.\n]{0,15}\b(?:el\s+)?volumen\b"
-                     r"(?!\s*(?:de(?:l)?\s+|en\s+|a\s+)?(?:la\s+|el\s+|mi\s+)?"
-                     r"(?:m[uú]sica|canci[oó]n|spotify|youtube|v[ií]deo|pel[ií]cula|serie|pc|"
-                     r"ordenador|equipo|sistema|windows|navegador|juego|micr[oó]fono|discord))",
+                     r"[^.\n]{0,15}\b(?:de\s+|a\s+|en\s+)?(?:la\s+|el\s+|mi\s+)?" + _TV + r"\b"
+                     r"|\b" + _TV + r"\b[^.\n]{0,20}\b(?P<dir2>s[uú]be\w*|b[aá]ja\w*|m[aá]s|menos)\b"
+                     r"[^.\n]{0,15}\b(?:el\s+)?volumen\b",
         "tv_channel": r"(?:p[oó]n" + _CL + r"|c[aá]mbia" + _CL + r"(?:\s+al?)?|salta\s+al?|pasa\s+al?|quiero)"
                       r"\b[^.\n]{0,15}\b(?:el\s+)?canal\s+(?:(?P<n>\d+)|(?P<nw>uno|dos|tres|cuatro|"
                       r"cinco|seis|siete|ocho|nueve|diez))\b"
@@ -1599,7 +1600,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"{name} en silencio." if ok else _tv_fail(tv)}
 
         if intent == "tv_volume":
-            d = _norm_txt(match.group("dir") or "")
+            d = _norm_txt(match.group("dir") or match.group("dir2") or "")
             up = d.startswith("sub") or d == "mas"
             ok = await _tv_key(ctx, tv, "keypress/Volume" + ("Up" if up else "Down"),
                                "KEY_VOLUP" if up else "KEY_VOLDOWN")
