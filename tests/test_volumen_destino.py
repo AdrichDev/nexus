@@ -227,8 +227,12 @@ with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [("Spotify.exe
     check("suena" in txt.lower() or "sonar" in txt.lower(),
           f"no dice que vuelve a sonar: {txt}")
 
-# una aplicación que no suena se dice, no se finge
-with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [("chrome.exe", _Vol())]):
+# Una aplicación que no suena se dice, no se finge. `_proceso_en_marcha` se
+# parchea a propósito: sin eso la respuesta dependía de si el Spotify de la
+# máquina estaba abierto en ese momento, y un test que cambia según lo que tengas
+# abierto no prueba nada.
+with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [("chrome.exe", _Vol())],
+             _proceso_en_marcha=lambda n: False):
     txt = _corre("sube el volumen de spotify")
     check("✔" not in txt, f"dice que ha tocado el volumen de algo que no suena: {txt}")
     check("spotify" in txt.lower() and "sesión de audio" in txt.lower(),
@@ -335,6 +339,63 @@ else:
         _ev.SetMute(_mute0, None)
     check(abs(_ev.GetMasterVolumeLevelScalar() - _vol0) < 0.001 and _ev.GetMute() == _mute0,
           "la prueba no ha dejado el volumen como estaba")
+
+
+# ============ 10) QUITAR EL SILENCIO ES LO CONTRARIO DE PONERLO =============
+print("== 10) quitar el silencio no es subir el volumen, ni silenciar otra vez ==")
+
+# EL BUG, visto usando nexus: «quítale el silencio» no llegaba a NINGUNA skill.
+# Caía al planificador, que contestaba «✔» sin haber tocado nada; y al insistir,
+# «sigue en silencio» volvía a SILENCIAR. Además `_accion_volumen` clasificaba
+# «quítale el mute» como el caso por defecto, que es SUBIR el volumen: pedir que
+# vuelva a sonar te subía el volumen de un PC que seguía mudo.
+for _frase in ("quítale el silencio", "quita el silencio", "quítale el mute",
+               "desilencia", "vuelve a sonar"):
+    check(_ruta(_frase) == "system_pc/volume_ask",
+          f"«{_frase}» sin destino debe preguntar, no caer al planificador "
+          f"(fue a {_ruta(_frase)})")
+    check(SPC._accion_volumen(_frase)[0] == "unmute",
+          f"«{_frase}» se interpreta como {SPC._accion_volumen(_frase)[0]}, no como quitar "
+          "el silencio")
+
+for _frase in ("quítale el silencio al pc", "quita el silencio del pc",
+               "desilencia el pc", "quítale el mute al pc", "vuelve a sonar el pc"):
+    check(_ruta(_frase) == "system_pc/volume",
+          f"«{_frase}» nombra el PC y debe ir al volumen del PC (fue a {_ruta(_frase)})")
+    check(SPC._accion_volumen(_frase)[0] == "unmute",
+          f"«{_frase}» no se interpreta como quitar el silencio")
+
+for _frase in ("quítale el silencio a spotify", "desilencia spotify",
+               "quítale el mute a chrome"):
+    check(_ruta(_frase) == "system_pc/volume_app",
+          f"«{_frase}» nombra una aplicación (fue a {_ruta(_frase)})")
+
+# Silenciar SIGUE siendo silenciar: el arreglo no puede invertirse.
+for _frase, _esperada in (("silencia el pc", "mute"), ("silencia spotify", "mute"),
+                          ("sube el volumen del pc", "step"),
+                          ("pon el volumen del pc al 40", "set")):
+    check(SPC._accion_volumen(_frase)[0] == _esperada,
+          f"«{_frase}» debía ser {_esperada} y es {SPC._accion_volumen(_frase)[0]}")
+
+
+# ============ 11) ABIERTA Y CALLADA NO ES LO MISMO QUE CERRADA ==============
+print("== 11) una aplicación abierta pero sin sonar se distingue de una cerrada ==")
+
+# Windows solo crea la sesión de audio cuando la aplicación EMPIEZA a sonar.
+# Decir «no tiene sesión de audio» a secas suena a que no está abierta, y son
+# dos situaciones con dos arreglos distintos: darle al play, o abrirla.
+with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [],
+             _proceso_en_marcha=lambda n: True):
+    _txt = SPC._volumen_app("baja el volumen de spotify", "spotify")["reply"]
+    check("abierto" in _txt.lower() and "reproduciendo" in _txt.lower(),
+          f"no dice que está abierta pero callada: {_txt}")
+    check("✔" not in _txt, f"finge haber actuado sobre algo que no suena: {_txt}")
+
+with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [],
+             _proceso_en_marcha=lambda n: False):
+    _txt = SPC._volumen_app("baja el volumen de spotify", "spotify")["reply"]
+    check("ni abierto" in _txt.lower() or "no lo veo" in _txt.lower(),
+          f"no distingue una aplicación cerrada de una abierta y callada: {_txt}")
 
 
 print(f"\n{'#' * 54}\ntest_volumen_destino: {_pass} OK, {len(_fail)} fallos")

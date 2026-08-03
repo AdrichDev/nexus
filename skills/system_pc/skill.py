@@ -80,6 +80,16 @@ _NO_ES_APP_SONIDO = (
     r")\b)"
 )
 
+# Las formas de QUITAR el silencio, en un solo sitio. Se escribían sueltas en
+# cada patrón y por eso «quítale el silencio» a secas no llegaba a ninguna skill:
+# caía al planificador, que además contestaba que lo había hecho.
+_QUITAR_SILENCIO = (
+    r"(?:qu[ií]ta(?:me|le|te)?\s+el\s+(?:silencio|mute)"
+    r"|desil[eé]ncia(?:me|le|lo|la)?|desmutea(?:me|le|lo|la)?"
+    r"|activa(?:me)?\s+el\s+sonido|devu[eé]lve(?:le|me)?\s+el\s+sonido"
+    r"|(?:que\s+)?vu[eé]lva?\w*\s+a\s+sonar)"
+)
+
 SKILL = {
     "name": "Sistema / PC",
     "description": ("Control real del PC: CPU/RAM/GPU con temperaturas, procesos, abrir apps "
@@ -95,12 +105,10 @@ SKILL = {
                   + _ESTE_PC + r"\b[^.\n]{0,15}\bvolumen\b"
                   r"|\b(?:sil[eé]ncia|mut[eé]a)(?:me|le)?(?:lo|la)?\s+(?:el\s+|la\s+|mi\s+|este\s+)?"
                   + _ESTE_PC + r"\b"
-                  r"|\b(?:qu[ií]ta(?:me|le)?\s+el\s+(?:sonido|audio|volumen)|"
-                  r"qu[ií]ta(?:me|le)?\s+el\s+silencio|activa(?:me)?\s+el\s+sonido|"
-                  r"devu[eé]lve(?:le|me)?\s+el\s+sonido)\s+(?:de(?:l)?|a(?:l)?)\s+"
-                  r"(?:la\s+|el\s+|mi\s+)?" + _ESTE_PC + r"\b"
-                  r"|\b(?:desil[eé]ncia|desmutea)(?:me|le)?\s+(?:el\s+|la\s+|mi\s+)?"
-                  + _ESTE_PC + r"\b",
+                  r"|\bqu[ií]ta(?:me|le)?\s+el\s+(?:sonido|audio|volumen)\s+"
+                  r"(?:de(?:l)?|a(?:l)?)\s+(?:la\s+|el\s+|mi\s+)?" + _ESTE_PC + r"\b"
+                  r"|\b" + _QUITAR_SILENCIO + r"\s+(?:de(?:l)?\s+|a(?:l)?\s+)?"
+                  r"(?:la\s+|el\s+|mi\s+|este\s+)?" + _ESTE_PC + r"\b",
         # Volumen de UNA APLICACIÓN concreta, por su sesión de audio de Windows.
         # El nombre se captura tal cual lo dice el operador («spotify») y el
         # handler lo empareja con el proceso real («Spotify.exe»).
@@ -110,18 +118,18 @@ SKILL = {
                       + _ART + _NO_ES_APP_SONIDO + r"(?P<app2>[\w.\-]{2,})"
                       r"|\b(?:sil[eé]ncia|mut[eé]a)(?:me|le)?\s+" + _ART
                       + _NO_ES_APP_SONIDO + r"(?P<app3>[\w.\-]{2,})"
-                      r"|\b(?:qu[ií]ta(?:me|le)?\s+el\s+silencio|activa(?:me)?\s+el\s+sonido|"
-                      r"devu[eé]lve(?:le|me)?\s+el\s+sonido)\s+(?:de(?:l)?|a(?:l)?)\s+"
-                      + _ART + _NO_ES_APP_SONIDO + r"(?P<app4>[\w.\-]{2,})"
-                      r"|\b(?:desil[eé]ncia|desmutea)(?:me|le)?\s+" + _ART
-                      + _NO_ES_APP_SONIDO + r"(?P<app5>[\w.\-]{2,})",
+                      r"|\b" + _QUITAR_SILENCIO + r"\s+(?:de(?:l)?\s+|a(?:l)?\s+)?"
+                      + _ART + _NO_ES_APP_SONIDO + r"(?P<app4>[\w.\-]{2,})",
         # Volumen SIN destino. No se adivina: se pregunta. Va detrás de los dos
         # anteriores, que ya se han quedado las órdenes que sí nombran destino.
         "volume_ask": r"\b(?:s[uú]be|b[aá]ja|p[oó]n|qu[ií]ta)(?:me|le)?\b[^.\n]{0,25}\bvolumen\b"
                       r"|\bvolumen\s+(?:al?\s*)?\d{1,3}\s*%?"
                       r"|\b(?:m[aá]s|menos)\s+volumen\b"
                       r"|^\s*(?:sil[eé]ncia(?:lo|la|me)?|mut[eé]a(?:lo|la)?|silencio)\s*[.!]*$"
-                      r"|^\s*qu[ií]ta(?:me)?\s+el\s+(?:sonido|audio|volumen)\s*[.!]*$",
+                      r"|^\s*qu[ií]ta(?:me)?\s+el\s+(?:sonido|audio|volumen)\s*[.!]*$"
+                      # Quitar el silencio SIN destino. Sin esto se iba al
+                      # planificador, que respondía «✔» sin haber tocado nada.
+                      r"|^\s*" + _QUITAR_SILENCIO + r"\s*[.!]*$",
         # Brillo de la PANTALLA. El SKILL.md de `media` lleva tiempo mandando
         # «pon el brillo al 80» aquí, y aquí no había nada: la frase caía al
         # planificador. Exige «pantalla» o «monitor» cuando no lleva número,
@@ -298,6 +306,21 @@ def _hay_pycaw() -> bool:
     return not _porque_no_pycaw()
 
 
+def _proceso_en_marcha(nombre: str) -> bool:
+    """¿Hay un proceso en marcha que se llame así? Misma puntería que al cerrar
+    programas: primero el nombre EXACTO (con o sin `.exe`) y solo si no casa
+    ninguno, la subcadena."""
+    low = _ALIAS_PROCESO.get(nombre.lower().strip(), nombre.lower().strip())
+    if not low:
+        return False
+    en_marcha = _proc_names()
+    if not en_marcha:
+        return False
+    if low in en_marcha or f"{low}.exe" in en_marcha:
+        return True
+    return any(low in n for n in en_marcha)
+
+
 def _detalle_pycaw(motivo: str) -> str:
     """Convierte el motivo crudo en algo accionable, sin ocultarlo.
 
@@ -349,10 +372,12 @@ def _accion_volumen(text: str) -> tuple:
     ('unmute', None). Quitar el silencio se mira ANTES que silenciar, porque
     «quita el silencio» contiene la palabra «silencio»."""
     t = text.lower()
-    if re.search(r"\b(?:qu[ií]ta\w*\s+el\s+silencio|desil[eé]ncia\w*|desmutea\w*|"
-                 r"activa\w*\s+el\s+sonido|devu[eé]lve\w*\s+el\s+sonido)", t):
+    if re.search(r"\b" + _QUITAR_SILENCIO, t):
         return "unmute", None
-    if re.search(r"\b(?:sil[eé]ncia\w*|mut[eé]a\w*|silencio)\b", t) or \
+    # «mute» como sustantivo va DESPUÉS de quitarlo, porque «quítale el mute»
+    # lleva la palabra dentro. Antes no estaba y esa frase caía al final del
+    # todo, que es «subir»: pedir que vuelva a sonar te subía el volumen.
+    if re.search(r"\b(?:sil[eé]ncia\w*|mut[eé]a\w*|silencio|mute)\b", t) or \
             re.search(r"\bqu[ií]ta\w*\s+el\s+(?:sonido|audio|volumen)\b", t):
         return "mute", None
     m = re.search(r"\b(\d{1,3})\s*%?", t)
@@ -425,8 +450,17 @@ def _volumen_app(text: str, nombre: str) -> dict:
                            for n, _v in _sesiones_audio()})
         extra = (" Ahora mismo suenan: " + ", ".join(abiertas) + ".") if abiertas \
             else " Ahora mismo no hay ninguna aplicación con sesión de audio abierta."
+        # Windows solo crea la sesión de audio cuando la aplicación EMPIEZA a
+        # sonar. Abierta y callada no tiene volumen que tocar, y decir «no tiene
+        # sesión» a secas suena a que no está: son dos situaciones distintas y se
+        # arreglan de forma distinta (darle al play, o abrirla).
+        if _proceso_en_marcha(nombre):
+            return {"reply": f"{nombre.title()} está abierto, pero no está reproduciendo nada, "
+                             "y Windows solo le da control de volumen cuando suena. Dale al "
+                             f"play y repítemelo.{extra}"}
         return {"reply": f"«{nombre}» no tiene sesión de audio ahora mismo, así que no hay "
-                         f"volumen suyo que tocar.{extra}"}
+                         f"volumen suyo que tocar. No lo veo ni abierto: ábrelo, ponlo a sonar "
+                         f"y vuelve a pedírmelo.{extra}"}
     accion, valor = _accion_volumen(text)
     crudo = sesiones[0][0]
     prog = (crudo.rsplit(".", 1)[0] if crudo.lower().endswith(".exe") else crudo).title()
