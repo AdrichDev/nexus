@@ -266,6 +266,16 @@ Y apagar la tele podía **tardar medio minuto**: sondeos en serie, uno duplicado
 y ninguno con tope. Ahora los puertos se prueban a la vez, la sonda duplicada no
 está y hay un límite total contado desde que entra la orden.
 
+### El único test rojo del repo no era del código
+
+`test_ingesta_documentos` llevaba días acusando al buzón de rechazar los `.pdf`.
+El buzón no tenía nada: **el PDF del propio test estaba mal formado**, sin tabla
+`xref` ni `startxref`. `read_any` lo rechazaba diciendo exactamente eso, que es
+lo correcto — un lector que aceptase eso sería el defecto.
+
+**La suite entera queda en verde**, 21 bloques sin un fallo. Antes de dar un
+fallo por preexistente, conviene comprobar que el material de prueba es válido.
+
 ## Dudas y pendientes anotados, no tocados
 
 - **«dámelas»** a secas no llega a ningún sitio. El pronombre enclítico sin
@@ -273,8 +283,6 @@ está y hay un límite total contado desde que entra la orden.
 - **La voz del frontend** (ver arriba): el bloque que falta por extraer, y el
   modal de configuración que depende de él.
 - **Trasladar `core/` a subcarpetas**: la regla está, el movimiento no.
-- **El buzón no acepta `.pdf`**: `test_ingesta_documentos` en rojo. Es el único
-  test rojo del repo y es preexistente, comprobado con `git stash`.
 - **El HUD pinta encendida una TV en estado ambiguo**: al no poder confirmar el
   apagado no se persiste «apagada». Deliberado: no dar por hecho lo que no se ha
   comprobado es justo lo que se arregló.
