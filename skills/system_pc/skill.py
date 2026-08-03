@@ -278,14 +278,47 @@ def _sesiones_audio() -> list:
         return []
 
 
-def _hay_pycaw() -> bool:
-    """True si pycaw está instalado. El volumen por aplicación lo necesita: nircmd
-    solo sabe del volumen general."""
+def _porque_no_pycaw() -> str:
+    """'' si pycaw sirve aquí; si no, el motivo EXACTO, tal cual lo da Windows.
+
+    No basta con que importe: hay que poder abrir el dispositivo de salida, que
+    es COM y puede fallar por su cuenta. Tragarse ese motivo y decir «falta
+    pycaw» manda a reinstalar lo que ya está puesto."""
     try:
-        from pycaw.utils import AudioUtilities                   # noqa: F401
-        return True
-    except Exception:                                            # noqa: BLE001
-        return False
+        from pycaw.utils import AudioUtilities
+        AudioUtilities.GetSpeakers()
+        return ""
+    except Exception as exc:                                     # noqa: BLE001
+        return f"{type(exc).__name__}: {exc}"
+
+
+def _hay_pycaw() -> bool:
+    """True si pycaw sirve aquí. El volumen por aplicación lo necesita: nircmd
+    solo sabe del volumen general."""
+    return not _porque_no_pycaw()
+
+
+def _detalle_pycaw(motivo: str) -> str:
+    """Convierte el motivo crudo en algo accionable, sin ocultarlo.
+
+    Un `ModuleNotFoundError` sí se arregla instalando; cualquier otra cosa
+    significa que está instalado y falla por otro lado, y mandar a reinstalar
+    ahí es hacer perder el tiempo."""
+    if "ModuleNotFoundError" in motivo or "ImportError" in motivo:
+        return "No está instalado: «pip install pycaw comtypes» y reinicia nexus."
+    return f"Está instalado, pero Windows contesta: {motivo}."
+
+
+def _motivo_sin_mezclador() -> str:
+    """Por qué no se puede tocar el volumen general, mirando las DOS vías.
+
+    Las dos se nombran siempre: saber cuál falta y cuál no es lo que distingue
+    «instala algo» de «está puesto y aun así no va»."""
+    cola = "" if _hay_nircmd() else " Tampoco tengo nircmd en el PATH."
+    motivo = _porque_no_pycaw()
+    if motivo:
+        return _detalle_pycaw(motivo) + cola
+    return "pycaw responde, pero el dispositivo de salida no ha aceptado la orden." + cola
 
 
 def _sesiones_de(nombre: str) -> list:
@@ -373,19 +406,19 @@ def _volumen_pc(text: str) -> dict:
                              "(por nircmd). ✔"}
         except Exception:                                  # noqa: BLE001
             pass
-    return {"reply": "No puedo tocar el volumen del PC: falta pycaw (pip install pycaw "
-                     "comtypes y reinicia nexus) y tampoco tengo nircmd en el PATH. "
-                     "No te digo que esté hecho, porque no lo está."}
+    return {"reply": "No puedo tocar el volumen del PC: " + _motivo_sin_mezclador() +
+                     " No te digo que esté hecho, porque no lo está."}
 
 
 def _volumen_app(text: str, nombre: str) -> dict:
     """Volumen de la sesión de audio de una aplicación concreta."""
     nombre = (nombre or "").strip()
-    if not _hay_pycaw():
+    motivo = _porque_no_pycaw()
+    if motivo:
         return {"reply": f"No puedo tocar el volumen de «{nombre}»: el volumen por "
-                         "aplicación necesita pycaw (pip install pycaw comtypes y "
-                         "reinicia nexus). nircmd no sirve aquí, solo toca el volumen "
-                         "general. No te digo que esté hecho, porque no lo está."}
+                         "aplicación va por pycaw y aquí no responde. " +
+                         _detalle_pycaw(motivo) + " nircmd no serviría: solo toca el "
+                         "volumen general. No te digo que esté hecho, porque no lo está."}
     sesiones = _sesiones_de(nombre)
     if not sesiones:
         abiertas = sorted({n.rsplit(".", 1)[0] if n.lower().endswith(".exe") else n

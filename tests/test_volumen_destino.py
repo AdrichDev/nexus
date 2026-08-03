@@ -184,7 +184,7 @@ class _Parche:
 
 
 SES = [("Spotify.exe", _Vol()), ("chrome.exe", _Vol()), ("codecs_host.exe", _Vol())]
-with _Parche(_hay_pycaw=lambda: True, _sesiones_audio=lambda: SES):
+with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: SES):
     check([n for n, _ in SPC._sesiones_de("spotify")] == ["Spotify.exe"],
           "«spotify» no encuentra Spotify.exe (el emparejado distingue mayúsculas)")
     check([n for n, _ in SPC._sesiones_de("SPOTIFY.EXE")] == ["Spotify.exe"],
@@ -206,7 +206,7 @@ with _Parche(_hay_pycaw=lambda: True, _sesiones_audio=lambda: SES):
 # ============ 6) EL HANDLER: actúa de verdad sobre la sesión =================
 print("== 6) el handler de aplicación escribe y lee de vuelta ==")
 spo = _Vol(nivel=0.80, mute=0)
-with _Parche(_hay_pycaw=lambda: True, _sesiones_audio=lambda: [("Spotify.exe", spo)]):
+with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [("Spotify.exe", spo)]):
     txt = _corre("pon el volumen de spotify al 30")
     check(abs(spo.nivel - 0.30) < 0.01, f"no ha escrito el 30% en la sesión: {spo.nivel}")
     check("30" in txt and "✔" in txt, f"no confirma con la cifra leída: {txt}")
@@ -228,7 +228,7 @@ with _Parche(_hay_pycaw=lambda: True, _sesiones_audio=lambda: [("Spotify.exe", s
           f"no dice que vuelve a sonar: {txt}")
 
 # una aplicación que no suena se dice, no se finge
-with _Parche(_hay_pycaw=lambda: True, _sesiones_audio=lambda: [("chrome.exe", _Vol())]):
+with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [("chrome.exe", _Vol())]):
     txt = _corre("sube el volumen de spotify")
     check("✔" not in txt, f"dice que ha tocado el volumen de algo que no suena: {txt}")
     check("spotify" in txt.lower() and "sesión de audio" in txt.lower(),
@@ -236,7 +236,7 @@ with _Parche(_hay_pycaw=lambda: True, _sesiones_audio=lambda: [("chrome.exe", _V
     check("chrome" in txt.lower(), f"no enumera lo que SÍ está sonando: {txt}")
 
 # sin pycaw no hay volumen por aplicación, y se admite
-with _Parche(_hay_pycaw=lambda: False, _sesiones_audio=lambda: []):
+with _Parche(_porque_no_pycaw=lambda: "ModuleNotFoundError: No module named 'pycaw'", _sesiones_audio=lambda: []):
     txt = _corre("sube el volumen de spotify")
     check("✔" not in txt, f"finge haber actuado sin pycaw: {txt}")
     check("pycaw" in txt.lower(), f"no dice qué falta: {txt}")
