@@ -186,3 +186,8 @@ config/purga_local.json
 .openclaw/
 .windsurf/
 .serena/
+# Lanzadores personales de Adrian para abrir SU herramienta de agente. Estan en
+# la raiz porque los usa con doble clic, pero no son del proyecto: quien clone
+# esto no los quiere.
+iniciar-opencode-claude.bat
+iniciar-opencode-claude.ps1
