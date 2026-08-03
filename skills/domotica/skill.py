@@ -694,6 +694,75 @@ def _mark_paired(ctx, tv: dict, paired: bool = True) -> None:
         pass
 
 
+# Palabras del nombre de una TV que NO sirven para distinguirla de otra TV: o
+# las lleva cualquiera («tv», «tele») o son la marca, y con dos Samsung en casa
+# la marca no desempata.
+_PALABRAS_SIN_VALOR_ENTRE_TVS = {
+    "tv", "tvs", "tele", "teles", "television", "televisor", "televisores",
+    "smart", "samsung", "roku", "sony", "philips", "hisense", "xiaomi",
+    "generic", "generica", "pantalla", "monitor",
+}
+
+
+def _nombre_de_tv_en_la_frase(d: dict, text: str) -> bool:
+    """¿La frase nombra a ESTA TV? Vale cualquier palabra propia de su nombre,
+    incluida la estancia, porque aquí ya solo se elige entre televisiones."""
+    tn = _norm_txt(text)
+    nn = _norm_txt(d.get("name") or "")
+    if not nn:
+        return False
+    if nn in tn:
+        return True
+    propias = [w for w in re.findall(r"[a-z0-9]+", nn)
+               if len(w) >= 4 and w not in _PALABRAS_SIN_VALOR_ENTRE_TVS]
+    return any(re.search(rf"\b{re.escape(w)}\b", tn) for w in propias)
+
+
+def _tvs_guardadas(ctx) -> list[dict]:
+    """Las TVs que tienes configuradas, sin repetir.
+
+    `my_devices` y `known_devices` listan los mismos aparatos, así que se
+    deduplica por MAC —lo único estable— y gana la ficha de `my_devices`, que es
+    la que tú mantienes. Sin deduplicar, dos TVs parecen cuatro."""
+    vistas: dict[str, dict] = {}
+    for origen in (ctx["settings"].get("my_devices", []) or [], _known(ctx)):
+        for d in origen:
+            if not _is_tv_device(d):
+                continue
+            clave = (d.get("mac") or "").replace("-", ":").lower() or (d.get("ip") or "")
+            if clave and clave not in vistas:
+                vistas[clave] = d
+    return list(vistas.values())
+
+
+async def _elegir_tv(ctx, text: str) -> tuple[dict | None, list[dict]]:
+    """(la TV que toca, las candidatas si NO se puede decidir).
+
+    Antes se devolvía siempre la PRIMERA TV de la lista sin mirar la frase: «la
+    de la habitación» y «la del salón» acababan las dos en la misma, y que
+    acertara dependía del orden de la lista.
+
+    Ahora manda el nombre que digas. Si no nombras ninguna y hay más de una, no
+    se elige por ti: se pregunta. Actuar sobre un aparato que no has nombrado es
+    peor que preguntar."""
+    nombrada = _resolve_named_device(ctx, text)
+    if nombrada and _is_tv_device(nombrada):
+        return nombrada, []
+    tvs = _tvs_guardadas(ctx)
+    if len(tvs) == 1:
+        return tvs[0], []
+    if len(tvs) > 1:
+        # Aquí ya sabemos que la orden es de TV, así que la ESTANCIA sirve para
+        # elegir entre ellas. `_resolve_named_device` las descarta a propósito,
+        # pero por otro motivo: allí decide si la frase es de una TV o de una luz,
+        # y «salón» a secas no puede decidir eso. Elegir entre dos TVs, sí.
+        casan = [d for d in tvs if _nombre_de_tv_en_la_frase(d, text)]
+        if len(casan) == 1:
+            return casan[0], []
+        return None, casan or tvs
+    return await _resolve_tv(ctx), []       # ninguna guardada: a buscarla por la red
+
+
 async def _resolve_tv(ctx) -> dict | None:
     """Elige la TV a controlar sin bloquear el loop. Por orden: known_devices
     (instantáneo) -> caché de 10 min -> SSDP en un hilo -> escaneo completo. Lo
@@ -1612,7 +1681,14 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                      "el formato AA:BB:CC:DD:EE:FF y que estés en la misma red que el equipo."}
 
     if intent in ("tv_on", "tv_off", "tv_mute", "tv_volume", "tv_channel", "tv_app"):
-        tv = await _resolve_tv(ctx)
+        tv, ambiguas = await _elegir_tv(ctx, text)
+        if ambiguas:
+            nombres = " o ".join(f"«{d.get('name') or 'sin nombre'}»" for d in ambiguas)
+            return {"reply": f"Tienes {len(ambiguas)} TVs y no sé a cuál te refieres: "
+                             f"{nombres}. Dímelo con una palabra de su nombre y voy. No "
+                             "elijo yo, que acabaría apagándote la que estabas viendo.\n"
+                             "Si el nombre no es el que usarías al hablar, cámbialo en "
+                             "⚙ → CASA y con eso me vale."}
         if not tv:
             return {"reply": "No veo ninguna TV en la red ahora mismo. Enciéndela una vez con "
                              "el mando y repítemelo (así aprendo su IP y su MAC), o añádela en "

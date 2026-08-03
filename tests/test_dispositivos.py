@@ -324,6 +324,68 @@ def test_apagar_no_se_queda_esperando_para_siempre():
     check("no" in r["reply"].lower(), f"y dice que no ha podido confirmarlo ({r['reply']})")
 
 
+def _ctx_dos_tvs():
+    """Dos TVs guardadas, en my_devices y known_devices a la vez, como en casa."""
+    tvs = [{"name": "Habitación Maqueda", "ip": "192.168.1.136",
+            "mac": "38:68:a4:95:54:cc", "brand": "samsung", "is_tv": True},
+           {"name": "TV Samsung salón", "ip": "192.168.1.137",
+            "mac": "d4:9d:c0:45:74:72", "brand": "samsung", "is_tv": True}]
+    ctx = _ctx(list(tvs))
+    ctx["settings"]["my_devices"] = list(tvs)
+    return ctx
+
+
+def test_la_tv_que_se_toca_es_la_que_has_nombrado():
+    """EL BUG: `_resolve_tv` NO recibía la frase. Devolvía la PRIMERA TV de la
+    lista, así que «enciende la tv de la habitación» encendía la del salón y que
+    acertara dependía del orden de la lista, no de lo que pedías.
+
+    Actuar sobre un aparato que no has nombrado es lo más grave que puede hacer:
+    apagar la tele que estabas viendo."""
+    m = _skill()
+    ctx = _ctx_dos_tvs()
+
+    def elegida(frase):
+        tv, amb = asyncio.run(m._elegir_tv(ctx, frase))
+        return (tv or {}).get("name"), [d["name"] for d in amb]
+
+    # 1) el nombre propio manda
+    for frase, esperado in (("enciende la tv de maqueda", "Habitación Maqueda"),
+                            ("apaga maqueda", "Habitación Maqueda"),
+                            ("apaga la tv del salón", "TV Samsung salón"),
+                            ("sube el volumen de la tele del salón", "TV Samsung salón")):
+        n, _ = elegida(frase)
+        check(n == esperado, f"«{frase}» debía ir a {esperado} y fue a {n}")
+
+    # 2) la ESTANCIA también desambigua, aunque `_resolve_named_device` la ignore:
+    #    allí decide si la frase es de una TV o de una luz; aquí solo entre TVs.
+    n, _ = elegida("enciende la tv de la habitación")
+    check(n == "Habitación Maqueda",
+          f"«la tv de la habitación» debía ir a la de la habitación y fue a {n}")
+
+    # 3) sin decir cuál y con dos, NO se elige: se pregunta
+    n, amb = elegida("apaga la tele")
+    check(n is None and len(amb) == 2,
+          f"con dos TVs y sin nombrar ninguna hay que preguntar, no elegir ({n})")
+
+    # 4) con una sola no hay nada que preguntar
+    una = _ctx([{"name": "TV Samsung salón", "ip": "192.168.1.137",
+                 "mac": "d4:9d:c0:45:74:72", "brand": "samsung", "is_tv": True}])
+    una["settings"]["my_devices"] = []
+    tv, amb = asyncio.run(m._elegir_tv(una, "apaga la tele"))
+    check(tv is not None and not amb, "con UNA sola TV no hay ambigüedad que preguntar")
+
+
+def test_las_tvs_no_se_cuentan_por_duplicado():
+    """`my_devices` y `known_devices` listan los mismos aparatos. Sin deduplicar
+    por MAC, dos TVs parecen cuatro y la pregunta sale absurda."""
+    m = _skill()
+    tvs = m._tvs_guardadas(_ctx_dos_tvs())
+    check(len(tvs) == 2, f"dos TVs guardadas en dos listas siguen siendo dos ({len(tvs)})")
+    check({d["name"] for d in tvs} == {"Habitación Maqueda", "TV Samsung salón"},
+          "y son las dos que hay, no la misma repetida")
+
+
 def test_mandar_una_tecla_no_es_que_la_tv_obedezca():
     """`_samsung`/`_roku` devolvían True tras enviar por el socket: eso es «salió»,
     no «la TV hizo caso». Tizen acepta teclas que luego ignora."""
@@ -552,6 +614,8 @@ if __name__ == "__main__":
              test_apagar_avisa_cuando_no_puede_confirmarlo,
              test_apagar_a_ciegas_no_pulsa_el_interruptor,
              test_apagar_no_se_queda_esperando_para_siempre,
+             test_la_tv_que_se_toca_es_la_que_has_nombrado,
+             test_las_tvs_no_se_cuentan_por_duplicado,
              test_mandar_una_tecla_no_es_que_la_tv_obedezca,
              test_la_ip_caducada_se_resuelve_desde_la_mac,
              test_que_algo_sea_tv_lo_dice_la_configuracion_no_su_nombre,
