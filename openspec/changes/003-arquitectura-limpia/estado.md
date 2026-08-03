@@ -171,7 +171,21 @@ se verifica; el traslado va por grupos y puede esperar.
 
 1. **Credenciales de Instagram.** Sin ellas no hay datos propios ni de
    competencia. Es el primer dominó de todo lo que queda de Content OS.
-2. **RDD no es operable desde Claude Code.** Desactivado a petición tuya.
+2. **RDD se activó, sirvió, y se atascó.** Revisó el apagado de las TVs con las
+   cuatro lentes y cazó dos cosas de verdad: que el interruptor podía encender
+   al apagar, y la regresión del pronombre que los tests no vieron. Ambas
+   corregidas.
+
+   Pero **no llega a emitir el recibo**. `gentle-ai` 2.2.4 no sabe calcular la
+   transición siguiente cuando la revisión está en `correction_required`, y esa
+   es justamente la única puerta: `finalize` la exige, `review start` se declara
+   bloqueado, y `recover` e `invalidate` rechazan ese estado. O sea que corregir
+   lo que la revisión te pide es lo que te deja atrapado.
+
+   Aislado con una sola variable: con `--projection staged` la misma orden
+   funciona, con `workspace` revienta. Descartados el binario viejo, la ruta con
+   espacios y un lineage huérfano. La evidencia completa está en engram. Los
+   commits de esa tanda van **sin recibo**, a propósito.
 
 **Google ya NO es un bloqueante** (03/08/2026). Aquí figuraba como pendiente de
 reautorizar, y era falso: el token está autorizado desde el 02/08 a las 23:59
@@ -205,26 +219,65 @@ Todo verificado con Chromium sobre nexus real, no solo con tests.
 - **Estado del equipo**: en pantalla completa hacía 9 columnas de 240 px.
 - **El saludo se repetía** en cada apertura, a todas las ventanas y en voz alta.
 
+## Sesión del 03/08 por la tarde — los pendientes, resueltos
+
+Los cinco primeros puntos de la lista de abajo ya no están. Lo que se hizo:
+
+### Las TVs se apagan (y cuando no, se dice)
+
+La causa no estaba en el apagado: las **IPs guardadas habían caducado por DHCP**.
+Encender iba por MAC, que no cambia; apagar iba por IP, que sí. Ahora la IP se
+re-resuelve desde la MAC antes de actuar.
+
+Debajo había algo peor: **Tizen acepta `KEY_POWEROFF` y no apaga**. La única
+tecla que apaga es `KEY_POWER`, que es un interruptor y sobre una TV en reposo
+la **enciende**. Por eso el interruptor solo se pulsa con el estado confirmado
+`on`, leído de `device.PowerState`. Sin poder confirmarlo se manda la absoluta:
+puede que no apague, pero jamás encenderá lo que estaba apagado.
+
+Y se comprueba el resultado. `_samsung` devolvía `True` tras el envío —o sea
+«salió», nunca «obedeció»— y el llamante escribía «Apagando» sin mirar nada.
+
+### El volumen ya no adivina destino
+
+«sube el volumen» iba a la tele y «pon el volumen al 50» al PC, y ninguna de las
+dos cosas estaba decidida: salía del orden alfabético. Ahora **el destino lo
+dice siempre quien da la orden**, y sin destino se pregunta.
+
+Destino nuevo: **la aplicación**. «sube el volumen de spotify», «silencia
+chrome». Y de paso se descubrió que **el volumen del PC no funcionaba**:
+dependía de `nircmd` en el PATH, que no está puesto, así que respondía «Volumen
+subido… en teoría». Ahora va por `pycaw` contra la Core Audio de Windows.
+
+### Tres órdenes que no llegaban a nadie
+
+«busca información sobre python», «crea una tarea» a secas (que ahora pregunta
+el asunto en vez de crear una titulada «nueva») y «dame ideas para el regalo de
+mi madre», que se lo llevaba `memory_graph` confundiendo el pronombre «de mí»
+con el posesivo «de mi madre». Los separa la tilde.
+
+### Lo que enseñó la revisión
+
+El primer arreglo del pronombre era **demasiado bruto** —descartar si había
+cualquier palabra detrás— y rompía «qué sabes de mí ahora». Los tests solo
+cubrían las formas desnudas, por eso salieron verdes con la regresión dentro.
+
+Y apagar la tele podía **tardar medio minuto**: sondeos en serie, uno duplicado
+y ninguno con tope. Ahora los puertos se prueban a la vez, la sonda duplicada no
+está y hay un límite total contado desde que entra la orden.
+
 ## Dudas y pendientes anotados, no tocados
 
-Lo que he visto y he preferido dejarte a ti, porque no era determinante:
-
-- **«sube el volumen» va a la tele** (`domotica/tv_volume`), no al PC, porque
-  `domotica` va antes por orden alfabético. Pero «pon el volumen al 50» sí va al
-  PC. Es incoherente, y decidir cuál gana es tuyo: cambiarlo puede romper el
-  control de la tele.
-- **«dame ideas para el regalo de mi madre»** acaba en `memory_graph/list_knowledge`.
-  Content OS lo rechaza bien; el que lo caza de más es `memory_graph`. Preexistente.
-- **«crea una tarea»** y **«busca información sobre python»** caen al
-  planificador. Parecen órdenes normales que deberían tener dueño.
 - **«dámelas»** a secas no llega a ningún sitio. El pronombre enclítico sin
   antecedente es genuinamente ambiguo; haría falta memoria de turno.
 - **La voz del frontend** (ver arriba): el bloque que falta por extraer, y el
   modal de configuración que depende de él.
 - **Trasladar `core/` a subcarpetas**: la regla está, el movimiento no.
-- **La statusline de Claude Code tarda 0,27 s** por redibujado (lanza un
-  PowerShell entero cada vez). Es el sospechoso de que la terminal salte. Sin
-  confirmar: hay que quitarla un rato y ver si para.
+- **El buzón no acepta `.pdf`**: `test_ingesta_documentos` en rojo. Es el único
+  test rojo del repo y es preexistente, comprobado con `git stash`.
+- **El HUD pinta encendida una TV en estado ambiguo**: al no poder confirmar el
+  apagado no se persiste «apagada». Deliberado: no dar por hecho lo que no se ha
+  comprobado es justo lo que se arregló.
 - **Credenciales de Instagram**: sigue siendo el único bloqueante de verdad.
 
 ## Deuda anterior, sigue en pie
