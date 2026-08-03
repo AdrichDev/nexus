@@ -481,7 +481,7 @@ def test_apagar_una_TV_que_no_contesta_no_dice_que_la_ha_apagado():
     """La TV está encendida pero no acepta la orden: ni se dice que se ha apagado
     ni se calla con quién se ha intentado."""
     with _Parche(_resolve_tv=_corutina({"name": "TV", "ip": "10.0.0.9", "brand": "roku"}),
-                 _tv_ip_actual=_corutina("10.0.0.9"),
+                 _tv_ip_actual=_corutina(("10.0.0.9", True)),   # (ip, contesta)
                  _tv_estado=_corutina("on"),
                  _tv_key=_corutina("")):
         txt = _corre("tv_off", "apaga la tele", _ctx())["reply"]

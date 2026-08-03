@@ -797,36 +797,44 @@ def _wol_burst(mac: str, ip: str = "", broadcast: str = "") -> bool:
 
 async def _tv_esta_viva(ip: str, timeout: float = 1.2) -> bool:
     """¿La TV responde en su puerto de control? (Roku 8060 / Samsung 8001-8002).
-    Si responde, está ENCENDIDA o en reposo con red: acepta órdenes directas."""
+    Si responde, está ENCENDIDA o en reposo con red: acepta órdenes directas.
+
+    Los tres puertos se prueban A LA VEZ. En serie, una TV apagada costaba tres
+    esperas completas seguidas, y esta comprobación se hace varias veces por
+    orden."""
     if not ip:
         return False
-    for puerto in (8001, 8002, 8060):
+
+    async def _puerto(p: int) -> bool:
         try:
-            fut = asyncio.open_connection(ip, puerto)
-            r, w = await asyncio.wait_for(fut, timeout=timeout)
+            _r, w = await asyncio.wait_for(asyncio.open_connection(ip, p), timeout=timeout)
             w.close()
             return True
         except Exception:
-            continue
-    return False
+            return False
+
+    return any(await asyncio.gather(*(_puerto(p) for p in (8001, 8002, 8060))))
 
 
-async def _tv_ip_actual(ctx, tv: dict) -> str:
-    """IP por la que se puede hablar AHORA con el aparato.
+async def _tv_ip_actual(ctx, tv: dict) -> tuple[str, bool]:
+    """(IP por la que se puede hablar AHORA con el aparato, si contesta por ella).
 
     La IP guardada caduca (DHCP); la MAC no. Si la guardada no contesta, se busca
-    la MAC en la tabla ARP y, si sale otra IP, se actualiza la configuración."""
+    la MAC en la tabla ARP y, si sale otra IP, se actualiza la configuración.
+
+    Devuelve también si contesta porque para saberlo ya ha habido que preguntar:
+    que lo vuelva a preguntar quien llama es pagar la misma espera dos veces."""
     ip = (tv.get("ip") or "").strip()
     mac = (tv.get("mac") or "").strip()
     if ip and await _tv_esta_viva(ip):
-        return ip
+        return ip, True
     if not mac:
-        return ip
+        return ip, False
     nueva = await asyncio.to_thread(_ip_for_mac, mac)
     if nueva and nueva != ip:
         _save_ip(ctx, mac, nueva)
-        return nueva
-    return nueva or ip
+        return nueva, await _tv_esta_viva(nueva)
+    return nueva or ip, False
 
 
 async def _samsung_power_state(ip: str) -> str:
@@ -870,6 +878,21 @@ async def _tv_estado(ip: str) -> str:
 # Medido contra las TVs: de «encendida» a «reposo» tardan unos 3 s.
 _ESPERA_APAGADO = 3.0
 
+# Tope TOTAL de la orden de apagado, contando desde que entra.
+# Apagar encadena sondeos de red: resolver la IP, leer el estado, mandar la
+# tecla, esperar y releerlo. Cada uno falla por agotamiento y sin un tope común
+# se suman: una TV desenchufada dejaba «apaga la tele» pensando medio minuto.
+# Agotarlo no es un error, es dejar de esperar: la respuesta lo dice.
+_LIMITE_APAGADO = 15.0
+
+
+async def _o_agota(coro, segundos: float, por_defecto):
+    """Espera a `coro` como mucho `segundos`; si no llega a tiempo, `por_defecto`."""
+    try:
+        return await asyncio.wait_for(coro, timeout=max(0.2, segundos))
+    except asyncio.TimeoutError:
+        return por_defecto
+
 
 async def _tv_apagar(ctx, tv: dict) -> dict:
     """APAGAR una TV: mirar el estado, elegir la tecla según lo que se SEPA, y
@@ -885,14 +908,22 @@ async def _tv_apagar(ctx, tv: dict) -> dict:
     que no apague, pero jamás va a encender una TV que ya estaba en reposo.
     """
     name = tv.get("name") or "la TV"
-    ip = await _tv_ip_actual(ctx, tv)
+    fin = time.monotonic() + _LIMITE_APAGADO
+
+    def _queda() -> float:
+        return fin - time.monotonic()
+
+    ip, _viva = await _o_agota(_tv_ip_actual(ctx, tv), _queda(),
+                               ((tv.get("ip") or "").strip(), False))
     if not ip:
         return {"ok": False, "reply": f"No sé por qué IP hablar con {name}: la que tenía "
                                       "guardada no contesta y su MAC no aparece en la red. "
                                       "Comprueba que está enchufada y en tu WiFi."}
     tv = dict(tv, ip=ip)
 
-    antes = await _tv_estado(ip)
+    # '' = no ha dado tiempo a averiguarlo. Cuenta como «no lo sé», que es lo que
+    # obliga a usar la tecla que no puede encender nada por error.
+    antes = await _o_agota(_tv_estado(ip), _queda(), "")
     if antes == "off":
         _save_estado(ctx, tv, False)
         return {"ok": True, "state": "off", "reply": f"{name} ya estaba apagada."}
@@ -904,7 +935,7 @@ async def _tv_apagar(ctx, tv: dict) -> dict:
         return {"ok": False, "reply": _tv_fail(tv)}
 
     await asyncio.sleep(_ESPERA_APAGADO)
-    despues = await _tv_estado(ip)
+    despues = await _o_agota(_tv_estado(ip), _queda(), "")
     if despues == "off":
         _save_estado(ctx, tv, False)
         return {"ok": True, "state": "off", "reply": f"{name} apagada."}
@@ -916,11 +947,12 @@ async def _tv_apagar(ctx, tv: dict) -> dict:
                          "que no la he usado. Le he mandado la orden de apagado que no puede "
                          "encenderla por error, y no puedo confirmarte que haya servido. "
                          "Apágala con el mando."}
-    if despues == "on?":
+    if despues in ("on?", ""):
         return {"ok": True, "state": None,
                 "reply": f"He mandado la orden de apagado a {name} y la ha aceptado, pero "
-                         "ha dejado de decir si está encendida o en reposo, así que no puedo "
-                         "confirmarte que se haya apagado. Míralo en la pantalla."}
+                         "no he conseguido que me diga si está encendida o en reposo, así "
+                         "que no puedo confirmarte que se haya apagado. Míralo en la "
+                         "pantalla."}
     return {"ok": False, "state": None,
             "reply": f"He mandado la orden de apagado a {name} pero sigue diciendo que está "
                      "encendida. No te lo doy por hecho. Vuelve a pedírmelo o apágala con "
@@ -941,10 +973,9 @@ async def _tv_power_on(ctx, tv: dict) -> dict:
         tv = dict(tv, mac=mac)
         _save_tv(ctx, dict(tv, is_tv=True))
     # La IP guardada caduca por DHCP: se re-resuelve desde la MAC antes de actuar.
-    ip = await _tv_ip_actual(ctx, dict(tv, ip=ip, mac=mac))
+    # `viva` sale de esa misma resolución: preguntarlo aparte era sondear dos veces.
+    ip, viva = await _tv_ip_actual(ctx, dict(tv, ip=ip, mac=mac))
     tv = dict(tv, ip=ip)
-
-    viva = await _tv_esta_viva(ip)
 
     async def _key():
         try:

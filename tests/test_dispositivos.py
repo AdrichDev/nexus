@@ -21,6 +21,7 @@ import asyncio
 import importlib.util
 import re
 import sys
+import time
 from pathlib import Path
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
@@ -113,6 +114,7 @@ def test_encender_una_tv_dormida_no_manda_tecla():
     teclas, wol = [], []
     m._tv_esta_viva = lambda ip, timeout=1.2: asyncio.sleep(0, result=False)
     m._mac_for_ip = lambda ip: "AA:BB:CC:DD:EE:FF"
+    m._ip_for_mac = lambda mac: ""      # sin esto se leia la tabla ARP de verdad
     m._wol_burst = lambda mac, ip, bc: wol.append(mac) or True
     m._save_tv = lambda ctx, tv: None
     m._save_estado = lambda ctx, tv, on: teclas.append(("estado", on))
@@ -135,6 +137,7 @@ def test_encender_una_tv_viva_manda_encender():
     teclas, wol = [], []
     m._tv_esta_viva = lambda ip, timeout=1.2: asyncio.sleep(0, result=True)
     m._mac_for_ip = lambda ip: "AA:BB:CC:DD:EE:FF"
+    m._ip_for_mac = lambda mac: ""      # sin esto se leia la tabla ARP de verdad
     m._wol_burst = lambda mac, ip, bc: wol.append(mac) or True
     m._save_tv = lambda ctx, tv: None
     m._save_estado = lambda ctx, tv, on: None
@@ -157,6 +160,7 @@ def test_encender_dos_veces_no_la_apaga():
     m = _skill()
     m._tv_esta_viva = lambda ip, timeout=1.2: asyncio.sleep(0, result=True)
     m._mac_for_ip = lambda ip: ""
+    m._ip_for_mac = lambda mac: ""      # sin esto se leia la tabla ARP de verdad
     m._save_tv = lambda ctx, tv: None
     estados = []
     m._save_estado = lambda ctx, tv, on: estados.append(on)
@@ -199,7 +203,7 @@ def _apagado(estados, teclas=None, guardado=None):
     secuencia = list(estados)
 
     async def _ip(ctx, tv):
-        return tv.get("ip", "")
+        return tv.get("ip", ""), True
 
     async def _estado(ip):
         return secuencia.pop(0) if secuencia else "off"
@@ -281,6 +285,45 @@ def test_apagar_a_ciegas_no_pulsa_el_interruptor():
     check(guardado == [], "sin persistir ningún estado")
 
 
+def test_apagar_no_se_queda_esperando_para_siempre():
+    """Apagar encadena sondeos de red: resolver la IP, leer el estado, mandar la
+    tecla, esperar y releerlo. Cada uno falla por agotamiento, y sin un tope
+    común se suman: una TV desenchufada dejaba la orden pensando medio minuto.
+
+    Aquí la TV no contesta NUNCA. Lo que se fija es que se deja de esperar
+    dentro del tope y que la respuesta no da por hecho lo que no ha podido
+    comprobar."""
+    m = _skill()
+    m._ESPERA_APAGADO = 0
+    m._LIMITE_APAGADO = 0.6          # el mismo tope, en pequeño, para no dormir el test
+    m._save_tv = lambda ctx, tv: None
+    m._save_estado = lambda ctx, tv, on: None
+    teclas = []
+
+    async def _nunca_contesta(ip):
+        await asyncio.sleep(30)      # una TV muerta: la conexión se agota, no falla
+        return "on"
+
+    async def _ip(ctx, tv):
+        return tv.get("ip", ""), False
+
+    async def _key(ctx, tv, roku, samsung):
+        teclas.append(samsung)
+        return m.ENVIADO
+    m._tv_ip_actual, m._tv_estado, m._tv_key = _ip, _nunca_contesta, _key
+
+    t0 = time.monotonic()
+    r = asyncio.run(m._tv_apagar(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
+                                          "name": "TV salón"}))
+    tardo = time.monotonic() - t0
+
+    check(tardo < 3, f"deja de esperar dentro del tope (tardó {tardo:.1f} s)")
+    check(teclas == ["KEY_POWEROFF"],
+          f"sin saber el estado manda la tecla que no puede encenderla ({teclas})")
+    check("apagada." not in r["reply"], f"no afirma haberla apagado ({r['reply']})")
+    check("no" in r["reply"].lower(), f"y dice que no ha podido confirmarlo ({r['reply']})")
+
+
 def test_mandar_una_tecla_no_es_que_la_tv_obedezca():
     """`_samsung`/`_roku` devolvían True tras enviar por el socket: eso es «salió»,
     no «la TV hizo caso». Tizen acepta teclas que luego ignora."""
@@ -294,7 +337,9 @@ def test_mandar_una_tecla_no_es_que_la_tv_obedezca():
         check("return True" not in bloque,
               f"{fn} ya no devuelve True: enviar no es obedecer")
     i_ap = src.find("async def _tv_apagar")
-    check("await _tv_estado(ip)" in src[i_ap:src.find("\nasync def", i_ap + 10)],
+    # Sin «await» delante: la lectura va envuelta en el tope de tiempo, y lo que
+    # este test fija es que se lee el estado, no cómo se espera a que conteste.
+    check("_tv_estado(ip)" in src[i_ap:src.find("\nasync def", i_ap + 10)],
           "quien apaga comprueba el resultado leyendo el estado")
 
 
@@ -306,15 +351,16 @@ def test_la_ip_caducada_se_resuelve_desde_la_mac():
     m._ip_for_mac = lambda mac: "192.168.1.77"
     ctx = _ctx([{"name": "TV", "ip": "192.168.1.50", "mac": "AA:BB:CC:DD:EE:FF",
                  "is_tv": True}])
-    ip = asyncio.run(m._tv_ip_actual(ctx, {"ip": "192.168.1.50",
-                                           "mac": "AA:BB:CC:DD:EE:FF"}))
+    ip, viva = asyncio.run(m._tv_ip_actual(ctx, {"ip": "192.168.1.50",
+                                                 "mac": "AA:BB:CC:DD:EE:FF"}))
     check(ip == "192.168.1.77", f"se actúa contra la IP viva, no la caducada ({ip})")
+    check(viva is False, "y dice si contesta por ella, para no sondearla dos veces")
     check(ctx["settings"]["known_devices"][0]["ip"] == "192.168.1.77",
           "y la nueva queda guardada para la próxima orden")
 
     # sin MAC no hay de dónde sacarla: se dice, no se inventa
     m._ip_for_mac = lambda mac: ""
-    ip2 = asyncio.run(m._tv_ip_actual(_ctx(), {"ip": "192.168.1.50", "mac": ""}))
+    ip2, _ = asyncio.run(m._tv_ip_actual(_ctx(), {"ip": "192.168.1.50", "mac": ""}))
     check(ip2 == "192.168.1.50", f"sin MAC se queda con lo único que tiene ({ip2})")
 
 
@@ -505,6 +551,7 @@ if __name__ == "__main__":
              test_apagar_no_afirma_lo_que_no_ha_comprobado,
              test_apagar_avisa_cuando_no_puede_confirmarlo,
              test_apagar_a_ciegas_no_pulsa_el_interruptor,
+             test_apagar_no_se_queda_esperando_para_siempre,
              test_mandar_una_tecla_no_es_que_la_tv_obedezca,
              test_la_ip_caducada_se_resuelve_desde_la_mac,
              test_que_algo_sea_tv_lo_dice_la_configuracion_no_su_nombre,
