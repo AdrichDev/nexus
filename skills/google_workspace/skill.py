@@ -72,6 +72,15 @@ OAUTH_PORT = 8765
 REDIRECT_HOST = "127.0.0.1"
 REDIRECT_URI = f"http://{REDIRECT_HOST}:{OAUTH_PORT}/"
 
+# Los dias del mes dichos EN LETRA, para el ROUTER. La tabla que los traduce a
+# numero vive mas abajo, con el parser de fechas; aqui solo hace falta
+# reconocerlos, y el router mira el texto tal cual llega.
+_DIA_EN_LETRA = (r"uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|"
+                 r"trece|catorce|quince|diecis[eé]is|diecisiete|dieciocho|diecinueve|"
+                 r"veinte|veintiuno|veintid[oó]s|veintitr[eé]s|veinticuatro|"
+                 r"veinticinco|veintis[eé]is|veintisiete|veintiocho|veintinueve|"
+                 r"treinta|primero")
+
 SKILL = {
     "name": "Google (Gmail/Calendar/Drive)",
     "description": "Gmail, Calendar, Tasks y Drive reales por OAuth2: lee, cuenta, resume, envía y borra correos; triaje con IA que crea tareas; eventos que se crean, mueven y cancelan; sube informes a Drive y devuelve el enlace",
@@ -158,10 +167,16 @@ SKILL = {
                         # EVENTOS del día 5» otra vez: dice «borra los del día 5».
                         # La fecha es el ancla, y sin ella esta rama no casa.
                         r"|(?:b[oó]rra(?:me)?|borres|borrar|elimin(?:a(?:me)?|es|en|ar)|"
-                        r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar))\b\s*"
-                        r"(?:el|la|los|las|todo|todos|todas)?\s*"
-                        r"(?P<whatdia>(?:de[l]?\s+)?(?:d[ií]a\s+\d{1,2}|\d{1,2}\s+de\s+[a-záéíóú]+|"
-                        r"(?<=del\s)\d{1,2}\b|"
+                        r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar))\b"
+                        # Hueco para lo que se dice entre el verbo y la fecha:
+                        # «borra LO QUE HAYA EL día 5», «borra TAMBIÉN LA del 9».
+                        r"[^.\n]{0,28}?\s*"
+                        # `_DIA_EN_LETRA` va aquí porque el router mira el texto
+                        # CRUDO: la conversión de letra a número la hace después
+                        # el parser de fechas, y para entonces ya sería tarde.
+                        r"(?P<whatdia>(?:de[l]?\s+)?(?:d[ií]a\s+(?:\d{1,2}|" + _DIA_EN_LETRA + r")|"
+                        r"\d{1,2}\s+de\s+[a-záéíóú]+|"
+                        r"(?<=del\s)(?:\d{1,2}|" + _DIA_EN_LETRA + r")\b|"
                         r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
                         r"lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|ma[ñn]ana|hoy)\b.*)",
         # MOVER / REPROGRAMAR un evento (CRUD Calendar)
@@ -627,6 +642,22 @@ def _proximo_dia_mes(dia: int, hoy: dt.date) -> dt.date | None:
     return None
 
 
+# Los días del mes dichos EN LETRA. Hablando se dice «el día nueve» tanto como
+# «el día 9», y por voz el dictado los escribe así casi siempre.
+_EN_LETRA = {
+    "uno": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5", "seis": "6",
+    "siete": "7", "ocho": "8", "nueve": "9", "diez": "10", "once": "11",
+    "doce": "12", "trece": "13", "catorce": "14", "quince": "15",
+    "dieciseis": "16", "diecisiete": "17", "dieciocho": "18", "diecinueve": "19",
+    "veinte": "20", "veintiuno": "21", "veintidos": "22", "veintitres": "23",
+    "veinticuatro": "24", "veinticinco": "25", "veintiseis": "26",
+    "veintisiete": "27", "veintiocho": "28", "veintinueve": "29", "treinta": "30",
+    "primero": "1",
+}
+_NUMEROS_EN_LETRA = re.compile(r"\b(?:" + "|".join(
+    sorted(_EN_LETRA, key=len, reverse=True)) + r")\b")
+
+
 def _fechas_pedidas(text: str) -> list[dt.date]:
     """Las fechas que la orden usa como SELECTOR de eventos.
 
@@ -637,7 +668,8 @@ def _fechas_pedidas(text: str) -> list[dt.date]:
     Si hay algún número de día, los nombres de día de la semana se IGNORAN: en
     «el miércoles día 5 y el domingo día 9» el número manda, y mezclarlos con el
     próximo miércoles borraría eventos que nadie ha pedido borrar."""
-    low = _ORDINAL_EVENTO_RX.sub(" ", _sin_tildes(text))
+    low = _NUMEROS_EN_LETRA.sub(lambda m: _EN_LETRA[m.group(0)],
+                                _ORDINAL_EVENTO_RX.sub(" ", _sin_tildes(text)))
     hoy = dt.date.today()
     fechas: list[dt.date] = []
 
@@ -694,6 +726,34 @@ def _fechas_pedidas(text: str) -> list[dt.date]:
                 _anota(hoy + dt.timedelta(days=((wd - hoy.weekday()) % 7) or 7))
 
     return sorted(fechas)
+
+
+# Cuando el operador dice que ya lo ha comprobado él, preguntar otra vez no es
+# prudencia: es hacerle repetir. Todo lo que se borra va a la papelera, así que
+# saltarse la confirmación no destruye nada de forma irreversible.
+_SIN_PREGUNTAR_RX = re.compile(
+    r"\b(?:directamente|sin\s+preguntar(?:me)?|no\s+(?:me\s+)?preguntes(?:\s+m[aá]s)?|"
+    r"ya\s+lo\s+(?:he\s+)?(?:comprobado|mirado|revisado|visto)|"
+    r"sin\s+confirmar|sin\s+m[aá]s|de\s+una\s+vez|hazlo\s+ya|"
+    r"no\s+preguntes|a\s+la\s+primera)\b", re.IGNORECASE)
+
+
+def _tareas_en(fechas: list[dt.date]) -> list[dict]:
+    """Las tareas del TABLERO cuya fecha cae en esos días.
+
+    La agenda del HUD junta el calendario de Google y las tareas con fecha, así
+    que para quien mira la pantalla son la misma cosa. Se cuentan las que están
+    vivas: las que ya están en la papelera no se vuelven a borrar."""
+    if not fechas:
+        return []
+    dias = {f.isoformat() for f in fechas}
+    try:
+        from backend.core import board
+        return [t for t in board._load()
+                if (t.get("due") or "")[:10] in dias
+                or (t.get("dueEnd") or "")[:10] in dias]
+    except Exception:                                      # noqa: BLE001
+        return []
 
 
 def _eventos_en(fechas: list[dt.date], limit: int = 100) -> list[dict]:
@@ -1906,12 +1966,21 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
             if fechas:
                 evs = await asyncio.to_thread(_eventos_en, fechas, 100)
+                # Y LAS TAREAS CON FECHA. La agenda del HUD pinta las dos cosas
+                # en el mismo día, así que «borra lo que haya el día 5» se
+                # refiere a lo que se VE. Mirar solo el calendario contestaba
+                # «no hay nada» con dos cosas en pantalla: cierto e inútil.
+                tareas = await asyncio.to_thread(_tareas_en, fechas)
                 dias = " y ".join(_fmt_cuando(f.isoformat()) for f in fechas)
-                if not evs:
-                    return {"reply": f"No hay nada en tu calendario el {dias}."}
-                victimas = [{"id": e["id"], "title": e["what"],
+                if not evs and not tareas:
+                    return {"reply": f"No hay nada el {dias}, ni en el calendario "
+                                     "ni en el tablero."}
+                victimas = [{"id": e["id"], "title": e["what"], "tipo": "evento",
                              "when": _fmt_cuando(f"{e['fecha']}T{e['hora']}" if e.get("hora")
                                                  else e["fecha"])} for e in evs]
+                victimas += [{"id": t["id"], "title": t.get("title") or "(sin título)",
+                              "tipo": "tarea", "when": _fmt_cuando(t.get("due") or "")}
+                             for t in tareas]
             else:
                 evs = await asyncio.to_thread(_find_events, what, 10)
                 if not evs:
@@ -1921,31 +1990,46 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                     evs = evs[:6]
                 else:
                     evs = evs[:1]
-                victimas = [{"id": e["id"], "title": e["summary"],
+                victimas = [{"id": e["id"], "title": e["summary"], "tipo": "evento",
                              "when": _fmt_cuando(e["start"])} for e in evs]
 
-            ids = [v["id"] for v in victimas]
-
             def _borrar() -> str:
+                """Borra cada víctima donde vive: el calendario o el tablero."""
                 n = 0
-                for eid in ids:
+                for v in victimas:
                     try:
-                        _delete_event(eid)
-                        n += 1
+                        if v.get("tipo") == "tarea":
+                            from backend.core import board
+                            # A la papelera, no destruido: el tablero ya sabe
+                            # deshacer un borrado y esto no es una excepción.
+                            n += 1 if board.delete_task(v["id"],
+                                                        reason="borrar por fecha") else 0
+                        else:
+                            _delete_event(v["id"])
+                            n += 1
                     except Exception:                              # noqa: BLE001, PERF203
                         pass
-                if n == len(ids) == 1:
+                total = len(victimas)
+                if n == total == 1:
                     return f"🗑 Borrado: «{victimas[0]['title']}»."
-                if n == len(ids):
-                    return f"🗑 Borrados {n} eventos."
-                return f"🗑 Borrados {n} de {len(ids)}. El resto ha fallado."
+                if n == total:
+                    return f"🗑 Borrados {n}."
+                return f"🗑 Borrados {n} de {total}. El resto ha fallado."
+
+            # «bórralo directamente», «sin preguntar», «ya lo he comprobado yo»,
+            # «no preguntes más»: la confirmación existe para que nadie borre a
+            # ciegas, no para hacerla repetir. Si dice que ya lo ha mirado, ya
+            # está mirado — y todo va a la papelera, que se puede deshacer.
+            if _SIN_PREGUNTAR_RX.search(text):
+                hecho = await asyncio.to_thread(_borrar)
+                return {"reply": hecho}
 
             if len(victimas) == 1:
                 v = victimas[0]
                 pregunta = f"Voy a borrar «{v['title']}» ({v['when']}). ¿Lo borro?"
             else:
                 lineas = "\n".join(f"• {v['when']} — {v['title']}" for v in victimas)
-                pregunta = f"Voy a borrar {len(victimas)} eventos:\n{lineas}\n¿Los borro?"
+                pregunta = f"Voy a borrar {len(victimas)}:\n{lineas}\n¿Los borro?"
             return {"reply": confirm.request(
                 channel=canal, kind="borrar_eventos", summary=pregunta,
                 request_text=text, targets=victimas,

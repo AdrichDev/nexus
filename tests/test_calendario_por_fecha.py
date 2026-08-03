@@ -260,7 +260,9 @@ def test_selecciona_los_eventos_de_esos_dias_y_solo_esos():
     check(ids == ["ev-A", "ev-B", "ev-C"],
           f"ha seleccionado {ids}; se esperaban los 3 de los días {DIA5} y {DIA9}")
     check("ev-Z" not in ids, "se ha colado un evento de otro día")
-    check("Voy a borrar 3 eventos" in reply, f"no dice cuántos va a borrar: {reply[:80]}")
+    # Ya no dice «3 eventos»: la lista puede mezclar eventos del calendario y
+    # tareas del tablero, que es lo que la agenda enseña junto.
+    check("Voy a borrar 3" in reply, f"no dice cuántos va a borrar: {reply[:80]}")
 
 
 def test_no_borra_nada_hasta_que_se_dice_que_si():
@@ -302,8 +304,12 @@ def test_si_no_hay_nada_ese_dia_lo_dice_corto_y_para():
     with _SinGoogle() as g:
         g.agenda = []
         _, reply = _pedir("borra los eventos del día 5")
-    check(reply == f"No hay nada en tu calendario el {_ddmmaaaa(DIA5)}.",
+    # Nombra los DOS sitios donde ha mirado: decir solo «en tu calendario» era
+    # cierto y a la vez inútil con una tarea de ese día en pantalla.
+    check(_ddmmaaaa(DIA5) in reply and "no hay nada" in reply.lower(),
           f"respuesta cuando no hay nada: {reply!r}")
+    check("tablero" in reply.lower(),
+          f"no dice que también ha mirado el tablero: {reply!r}")
     check(confirm.pending("pc") is None, "deja armada una confirmación sin víctimas")
     check(len(reply) < 90, f"se enrolla cuando no hay nada que borrar: {len(reply)} caracteres")
 
@@ -386,6 +392,75 @@ def test_las_respuestas_del_borrado_son_cortas():
     check(len(uno.splitlines()) <= 6, f"la confirmación tiene {len(uno.splitlines())} líneas")
     for linea in uno.splitlines():
         check(len(linea) <= 80, f"línea larga en la confirmación: {linea!r}")
+
+def test_borrar_por_fecha_alcanza_tambien_las_tareas_del_tablero():
+    """LO QUE PASÓ DE VERDAD (03/08/2026). Adrián borró el evento del día 5 y en
+    la agenda seguía viendo algo el 5 y algo el 9. Pidió borrarlos y nexus
+    contestó «no hay nada en tu calendario el 05 y el 09» — cierto, y a la vez
+    inútil: lo que veía eran TAREAS DEL TABLERO con fecha.
+
+    La agenda del HUD pinta las dos cosas juntas. Quien mira la pantalla no
+    distingue, y no tiene por qué: «borra lo que haya el día 5» se refiere a lo
+    que se VE. Mirar solo el calendario es contestar a otra pregunta."""
+    from backend.core import board
+    tareas = [{"id": "t5", "due": _iso(HOY + dt.timedelta(days=2)),
+               "title": "tarea del dia del evento", "state": "pendiente"},
+              {"id": "t9", "due": _iso(HOY + dt.timedelta(days=6)),
+               "title": "tarea de otro dia", "state": "pendiente"},
+              {"id": "tx", "due": _iso(HOY + dt.timedelta(days=20)),
+               "title": "esta no se toca", "state": "pendiente"}]
+    borradas = []
+    viejo_load, viejo_del = board._load, board.delete_task
+    board._load = lambda: list(tareas)
+    board.delete_task = lambda q, reason="", by="": (borradas.append(q)
+                                                     or {"id": q, "count": 1, "batch": "b"})
+    try:
+        dia = (HOY + dt.timedelta(days=2)).day
+        with _SinGoogle():
+            _ruta_r, r = _pedir(f"borra lo que haya el dia {dia}")
+            check("Voy a borrar" in r, f"no propone borrar nada teniendo tarea: {r[:90]}")
+            check(not borradas, "borra la tarea ANTES de que se confirme")
+            asyncio.run(confirm.answer("si", "pc"))
+            check("t5" in borradas,
+                   f"la tarea del tablero de ese día no se borra ({borradas})")
+            check("tx" not in borradas, "se lleva por delante una tarea de otro día")
+    finally:
+        board._load, board.delete_task = viejo_load, viejo_del
+
+
+def test_un_dia_de_letra_es_un_dia():
+    """«borra también la del día NUEVE». Hablando se dicen los días en letra, y
+    por voz el dictado los escribe así casi siempre. El router mira el texto
+    crudo, así que tiene que reconocerlos ÉL: cuando llega al parser de fechas
+    ya sería tarde."""
+    for palabra, numero in (("cinco", 5), ("nueve", 9), ("veintitres", 23)):
+        folder, intent, _m = _ruta(f"borra los del dia {palabra}")
+        check((folder, intent) == ("google_workspace", "delete_event"),
+               f"«del día {palabra}» no llega al borrado ({folder}/{intent})")
+        fechas = GW._fechas_pedidas(f"borra los del dia {palabra}")
+        check(fechas and fechas[0].day == numero,
+               f"«{palabra}» no se entiende como día {numero} ({fechas})")
+
+
+def test_si_ya_lo_ha_comprobado_el_no_se_le_pregunta():
+    """«bórrala directamente, ya lo he comprobado yo», «no preguntes más».
+
+    La confirmación está para que nadie borre a ciegas, no para hacer repetir al
+    operador. Si dice que ya lo ha mirado, ya está mirado — y todo va a la
+    papelera, así que tampoco es irreversible."""
+    with _SinGoogle() as g:
+        dia = dt.date.fromisoformat(g.agenda[0]["fecha"]).day
+        _ruta_r, r = _pedir(f"borra los del dia {dia} directamente, ya lo he comprobado yo")
+        check("¿" not in r, f"sigue preguntando cuando le han dicho que no ({r[:80]})")
+        check(_BORRADOS, f"no ha borrado nada pese a la orden directa ({r[:80]})")
+
+    # Y sin esa coletilla, SIGUE preguntando: el atajo es explícito, no el modo
+    # por defecto.
+    with _SinGoogle() as g:
+        dia = dt.date.fromisoformat(g.agenda[0]["fecha"]).day
+        _ruta_r, r = _pedir(f"borra los del dia {dia}")
+        check("¿" in r, f"ha dejado de preguntar cuando nadie se lo ha pedido ({r[:80]})")
+        check(not _BORRADOS, "borra sin confirmación cuando no se la han quitado")
 
 
 # =============================== runner =====================================
