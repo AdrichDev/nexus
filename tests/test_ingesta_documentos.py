@@ -228,29 +228,44 @@ def test_buzon_no_trunca_a_900():
 
 
 # =============================== C3 ==========================================
-_PDF_MINIMO_CON_TEXTO = b"""%PDF-1.4
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 200 200] /Contents 5 0 R >>
-endobj
-4 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-5 0 obj
-<< /Length 46 >>
-stream
-BT /F1 12 Tf 10 100 Td (Hola mundo pdf de prueba) Tj ET
-endstream
-endobj
-trailer
-<< /Size 6 /Root 1 0 R >>
-%%EOF
-"""
+def _pdf_minimo(texto: str = "Hola mundo pdf de prueba") -> bytes:
+    """Un PDF de una página VÁLIDO, con `texto` dentro.
+
+    Se construye midiendo, no escribiendo a mano. Un PDF termina con una tabla
+    `xref` que lleva el desplazamiento EN BYTES de cada objeto, y un `startxref`
+    con el del propio xref; el lector entra por ahí. Escritos a mano se
+    desajustan en cuanto se toca una línea de arriba.
+
+    Aquí había uno sin `xref` ni `startxref` y con un `/Length` que no cuadraba
+    con su flujo. `read_any` lo rechazaba con «startxref not found» —
+    correctamente, porque eso no es un PDF— y este test llevaba desde entonces
+    en rojo culpando al buzón de un defecto que estaba en el propio material de
+    prueba."""
+    flujo = f"BT /F1 12 Tf 10 100 Td ({texto}) Tj ET".encode("latin-1")
+    objetos = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> "
+        b"/MediaBox [0 0 200 200] /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length %d >>\nstream\n%s\nendstream" % (len(flujo), flujo),
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    desplazamientos = []
+    for n, cuerpo in enumerate(objetos, start=1):
+        desplazamientos.append(len(out))
+        out += b"%d 0 obj\n" % n + cuerpo + b"\nendobj\n"
+    inicio_xref = len(out)
+    out += b"xref\n0 %d\n" % (len(objetos) + 1)
+    out += b"0000000000 65535 f \n"
+    for desp in desplazamientos:
+        out += b"%010d 00000 n \n" % desp
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objetos) + 1, inicio_xref)
+    return bytes(out)
+
+
+_PDF_MINIMO_CON_TEXTO = _pdf_minimo()
 
 
 def test_buzon_acepta_docx_pdf_xlsx():
