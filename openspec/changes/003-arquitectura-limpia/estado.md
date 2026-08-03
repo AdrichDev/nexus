@@ -184,6 +184,27 @@ Y el refresco automático funciona: forzando un token caducado (sobre una copia,
 nunca sobre el real), `_get_creds()` lo renueva y **reescribe el fichero** con
 la caducidad nueva. No hay llamadas de más.
 
+## Sesión del 03/08 — lo que se hizo después
+
+Todo verificado con Chromium sobre nexus real, no solo con tests.
+
+- **El grafo de conocimiento**, rehecho. Una sola pantalla (antes había dos
+  dibujando lo mismo), el sistema en el centro, árbol de carpetas plegable a la
+  izquierda con el ancho ajustable, y **simulación de fuerzas como la de
+  Obsidian**: arrastras un nodo y sus vecinos le siguen; lo sueltas y el grafo se
+  recoloca. Las cuatro fuerzas se ajustan desde el ⚙ con los rangos de Obsidian.
+- **La papelera salía en el grafo.** `NoteGraph` recorría `data/memory/` con
+  `rglob()` y la papelera vive dentro. De 93 nodos, 22 eran conocimiento.
+  Vaciada de verdad (con copia previa de las 47 notas que no la tenían).
+- **El cerebro elegido se perdía al arrancar.** Dos causas: `test_dispositivos`
+  escribía `llm_provider=ollama` en el `settings.json` REAL, y la verificación de
+  arranque escribía el proveedor en disco aunque no fuera a guardarlo. Hay
+  candado nuevo en `run_all.py`: fotografía los ajustes antes y compara al final.
+- **El ejecutor interno no sale al chat**, pero sí devuelve el resultado.
+- **Agenda**: calendario real con mes / semana / día.
+- **Estado del equipo**: en pantalla completa hacía 9 columnas de 240 px.
+- **El saludo se repetía** en cada apertura, a todas las ventanas y en voz alta.
+
 ## Dudas y pendientes anotados, no tocados
 
 Lo que he visto y he preferido dejarte a ti, porque no era determinante:
@@ -201,6 +222,10 @@ Lo que he visto y he preferido dejarte a ti, porque no era determinante:
 - **La voz del frontend** (ver arriba): el bloque que falta por extraer, y el
   modal de configuración que depende de él.
 - **Trasladar `core/` a subcarpetas**: la regla está, el movimiento no.
+- **La statusline de Claude Code tarda 0,27 s** por redibujado (lanza un
+  PowerShell entero cada vez). Es el sospechoso de que la terminal salte. Sin
+  confirmar: hay que quitarla un rato y ver si para.
+- **Credenciales de Instagram**: sigue siendo el único bloqueante de verdad.
 
 ## Deuda anterior, sigue en pie
 
