@@ -486,7 +486,9 @@ def test_apagar_una_TV_que_no_contesta_no_dice_que_la_ha_apagado():
                  _tv_key=_corutina("")):
         txt = _corre("tv_off", "apaga la tele", _ctx())["reply"]
     check("apagada" not in txt.lower(), "dice que apaga una TV que no ha respondido")
-    check("10.0.0.9" in txt, "no dice con qué aparato lo ha intentado")
+    # Se comprueba que NOMBRA el aparato, no cómo lo escribe: la IP sobraba en
+    # una respuesta hablada y el mensaje se acortó.
+    check("TV" in txt, "no dice con qué aparato lo ha intentado")
 
 
 # --------------------------------------------------------------- funciones puras

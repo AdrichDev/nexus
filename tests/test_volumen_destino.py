@@ -235,7 +235,10 @@ with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [("chrome.exe"
              _proceso_en_marcha=lambda n: False):
     txt = _corre("sube el volumen de spotify")
     check("✔" not in txt, f"dice que ha tocado el volumen de algo que no suena: {txt}")
-    check("spotify" in txt.lower() and "sesión de audio" in txt.lower(),
+    # Se comprueba el SENTIDO, no las palabras: que nombre la aplicación y diga
+    # que no va a sonar nada. La redacción se acortó y un test atado a la frase
+    # exacta se rompe cada vez que se cuida el tono.
+    check("spotify" in txt.lower() and ("no está" in txt.lower() or "no suena" in txt.lower()),
           f"no explica que esa aplicación no tiene sesión de audio: {txt}")
     check("chrome" in txt.lower(), f"no enumera lo que SÍ está sonando: {txt}")
 
@@ -387,14 +390,15 @@ print("== 11) una aplicación abierta pero sin sonar se distingue de una cerrada
 with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [],
              _proceso_en_marcha=lambda n: True):
     _txt = SPC._volumen_app("baja el volumen de spotify", "spotify")["reply"]
-    check("abierto" in _txt.lower() and "reproduciendo" in _txt.lower(),
+    check("abierto" in _txt.lower() and ("no suena" in _txt.lower()
+                                         or "reproduciendo" in _txt.lower()),
           f"no dice que está abierta pero callada: {_txt}")
     check("✔" not in _txt, f"finge haber actuado sobre algo que no suena: {_txt}")
 
 with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [],
              _proceso_en_marcha=lambda n: False):
     _txt = SPC._volumen_app("baja el volumen de spotify", "spotify")["reply"]
-    check("ni abierto" in _txt.lower() or "no lo veo" in _txt.lower(),
+    check("no está abierto" in _txt.lower() or "ni abierto" in _txt.lower(),
           f"no distingue una aplicación cerrada de una abierta y callada: {_txt}")
 
 

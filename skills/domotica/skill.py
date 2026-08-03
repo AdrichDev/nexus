@@ -735,6 +735,36 @@ def _tvs_guardadas(ctx) -> list[dict]:
     return list(vistas.values())
 
 
+# La última TV que nombraste, por canal. Diez minutos.
+#
+# Sin esto, decir «la de la habitación» y a la orden siguiente volver a
+# preguntarte cuál es lo que hace una máquina, no alguien con quien hablas. No es
+# adivinar: solo se guarda lo que has dicho TÚ, y se olvida enseguida.
+_ULTIMA_TV: dict[str, dict] = {}
+_MEMORIA_TV = 600.0
+
+
+def _canal(ctx) -> str:
+    return (ctx.get("channel") or "pc") if hasattr(ctx, "get") else "pc"
+
+
+def _recuerda_tv(ctx, tv: dict) -> None:
+    _ULTIMA_TV[_canal(ctx)] = {"tv": dict(tv), "ts": time.monotonic()}
+
+
+def _tv_recordada(ctx, tvs: list[dict]) -> dict | None:
+    """La última que nombraste, si sigue siendo una de las que hay y no ha
+    caducado."""
+    guardada = _ULTIMA_TV.get(_canal(ctx))
+    if not guardada or time.monotonic() - guardada["ts"] > _MEMORIA_TV:
+        return None
+    mac = (guardada["tv"].get("mac") or "").lower()
+    for d in tvs:
+        if mac and (d.get("mac") or "").lower() == mac:
+            return d
+    return None
+
+
 async def _elegir_tv(ctx, text: str) -> tuple[dict | None, list[dict]]:
     """(la TV que toca, las candidatas si NO se puede decidir).
 
@@ -747,6 +777,7 @@ async def _elegir_tv(ctx, text: str) -> tuple[dict | None, list[dict]]:
     peor que preguntar."""
     nombrada = _resolve_named_device(ctx, text)
     if nombrada and _is_tv_device(nombrada):
+        _recuerda_tv(ctx, nombrada)
         return nombrada, []
     tvs = _tvs_guardadas(ctx)
     if len(tvs) == 1:
@@ -758,7 +789,12 @@ async def _elegir_tv(ctx, text: str) -> tuple[dict | None, list[dict]]:
         # y «salón» a secas no puede decidir eso. Elegir entre dos TVs, sí.
         casan = [d for d in tvs if _nombre_de_tv_en_la_frase(d, text)]
         if len(casan) == 1:
+            _recuerda_tv(ctx, casan[0])
             return casan[0], []
+        if not casan:
+            recordada = _tv_recordada(ctx, tvs)
+            if recordada:
+                return recordada, []
         return None, casan or tvs
     return await _resolve_tv(ctx), []       # ninguna guardada: a buscarla por la red
 
@@ -985,9 +1021,7 @@ async def _tv_apagar(ctx, tv: dict) -> dict:
     ip, _viva = await _o_agota(_tv_ip_actual(ctx, tv), _queda(),
                                ((tv.get("ip") or "").strip(), False))
     if not ip:
-        return {"ok": False, "reply": f"No sé por qué IP hablar con {name}: la que tenía "
-                                      "guardada no contesta y su MAC no aparece en la red. "
-                                      "Comprueba que está enchufada y en tu WiFi."}
+        return {"ok": False, "reply": f"No encuentro {name} en la red. ¿Está enchufada?"}
     tv = dict(tv, ip=ip)
 
     # '' = no ha dado tiempo a averiguarlo. Cuenta como «no lo sé», que es lo que
@@ -1010,22 +1044,13 @@ async def _tv_apagar(ctx, tv: dict) -> dict:
         return {"ok": True, "state": "off", "reply": f"{name} apagada."}
     if a_ciegas:
         return {"ok": False, "state": None,
-                "reply": f"No he podido apagar {name} con garantías. Este modelo no publica "
-                         "si está encendida o en reposo, y la única tecla que la apagaría es "
-                         "un interruptor: a ciegas podría encenderla en vez de apagarla, así "
-                         "que no la he usado. Le he mandado la orden de apagado que no puede "
-                         "encenderla por error, y no puedo confirmarte que haya servido. "
-                         "Apágala con el mando."}
+                "reply": f"No sé si {name} se ha apagado: este modelo no dice su estado. "
+                         "Míralo."}
     if despues in ("on?", ""):
         return {"ok": True, "state": None,
-                "reply": f"He mandado la orden de apagado a {name} y la ha aceptado, pero "
-                         "no he conseguido que me diga si está encendida o en reposo, así "
-                         "que no puedo confirmarte que se haya apagado. Míralo en la "
-                         "pantalla."}
+                "reply": f"Orden enviada a {name}, pero ha dejado de responder. Míralo."}
     return {"ok": False, "state": None,
-            "reply": f"He mandado la orden de apagado a {name} pero sigue diciendo que está "
-                     "encendida. No te lo doy por hecho. Vuelve a pedírmelo o apágala con "
-                     "el mando."}
+            "reply": f"{name} sigue encendida. Vuelve a pedírmelo."}
 
 
 async def _tv_power_on(ctx, tv: dict) -> dict:
@@ -1683,12 +1708,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent in ("tv_on", "tv_off", "tv_mute", "tv_volume", "tv_channel", "tv_app"):
         tv, ambiguas = await _elegir_tv(ctx, text)
         if ambiguas:
-            nombres = " o ".join(f"«{d.get('name') or 'sin nombre'}»" for d in ambiguas)
-            return {"reply": f"Tienes {len(ambiguas)} TVs y no sé a cuál te refieres: "
-                             f"{nombres}. Dímelo con una palabra de su nombre y voy. No "
-                             "elijo yo, que acabaría apagándote la que estabas viendo.\n"
-                             "Si el nombre no es el que usarías al hablar, cámbialo en "
-                             "⚙ → CASA y con eso me vale."}
+            nombres = " o ".join(d.get("name") or "sin nombre" for d in ambiguas)
+            return {"reply": f"¿Cuál? {nombres}."}
         if not tv:
             return {"reply": "No veo ninguna TV en la red ahora mismo. Enciéndela una vez con "
                              "el mando y repítemelo (así aprendo su IP y su MAC), o añádela en "
@@ -1781,9 +1802,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
 
 def _tv_fail(tv: dict) -> str:
-    return (f"No he podido mandar la orden a {tv.get('name', 'la TV')} ({tv.get('ip', '?')}). "
-            "Si es Samsung, acepta el aviso de permiso que sale en la TV la primera vez. "
-            "Para control total de cualquier marca, conéctala a Home Assistant.")
+    return (f"{tv.get('name', 'La TV')} no acepta la orden. Si sale un aviso de permiso "
+            "en su pantalla, acéptalo.")
 
 
 # ============================================================================

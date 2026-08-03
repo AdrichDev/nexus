@@ -431,8 +431,7 @@ def _volumen_pc(text: str) -> dict:
                              "(por nircmd). ✔"}
         except Exception:                                  # noqa: BLE001
             pass
-    return {"reply": "No puedo tocar el volumen del PC: " + _motivo_sin_mezclador() +
-                     " No te digo que esté hecho, porque no lo está."}
+    return {"reply": "No puedo tocar el volumen del PC: " + _motivo_sin_mezclador()}
 
 
 def _volumen_app(text: str, nombre: str) -> dict:
@@ -440,10 +439,7 @@ def _volumen_app(text: str, nombre: str) -> dict:
     nombre = (nombre or "").strip()
     motivo = _porque_no_pycaw()
     if motivo:
-        return {"reply": f"No puedo tocar el volumen de «{nombre}»: el volumen por "
-                         "aplicación va por pycaw y aquí no responde. " +
-                         _detalle_pycaw(motivo) + " nircmd no serviría: solo toca el "
-                         "volumen general. No te digo que esté hecho, porque no lo está."}
+        return {"reply": f"No puedo con el volumen de {nombre}: " + _detalle_pycaw(motivo)}
     sesiones = _sesiones_de(nombre)
     if not sesiones:
         abiertas = sorted({n.rsplit(".", 1)[0] if n.lower().endswith(".exe") else n
@@ -455,12 +451,8 @@ def _volumen_app(text: str, nombre: str) -> dict:
         # sesión» a secas suena a que no está: son dos situaciones distintas y se
         # arreglan de forma distinta (darle al play, o abrirla).
         if _proceso_en_marcha(nombre):
-            return {"reply": f"{nombre.title()} está abierto, pero no está reproduciendo nada, "
-                             "y Windows solo le da control de volumen cuando suena. Dale al "
-                             f"play y repítemelo.{extra}"}
-        return {"reply": f"«{nombre}» no tiene sesión de audio ahora mismo, así que no hay "
-                         f"volumen suyo que tocar. No lo veo ni abierto: ábrelo, ponlo a sonar "
-                         f"y vuelve a pedírmelo.{extra}"}
+            return {"reply": f"{nombre.title()} está abierto pero no suena. Dale al play."}
+        return {"reply": f"{nombre.title()} no está abierto.{extra}"}
     accion, valor = _accion_volumen(text)
     crudo = sesiones[0][0]
     prog = (crudo.rsplit(".", 1)[0] if crudo.lower().endswith(".exe") else crudo).title()
@@ -733,9 +725,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return _volumen_app(text, nombre)
 
     if intent == "volume_ask":
-        return {"reply": "¿A quién le toco el volumen? No lo adivino, dímelo y voy: la tele "
-                         "(«sube el volumen de la tele»), este PC («sube el volumen del pc») "
-                         "o una aplicación concreta («sube el volumen de spotify»)."}
+        return {"reply": "¿De qué? La tele, el PC o una aplicación."}
 
     if intent == "brightness":
         num = match.groupdict().get("bri")

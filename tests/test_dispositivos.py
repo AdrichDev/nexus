@@ -248,7 +248,7 @@ def test_apagar_no_afirma_lo_que_no_ha_comprobado():
                                           "name": "TV"}))
     check(teclas == ["KEY_POWER"], "se manda la orden")
     check(not r["ok"], f"pero no se da por buena ({r})")
-    check("sigue diciendo que está encendida" in r["reply"],
+    check("sigue encendida" in r["reply"].lower(),
           f"y se dice lo que pasa de verdad ({r['reply']})")
     check(guardado == [], f"sin persistir un apagado que no ha ocurrido ({guardado})")
 
@@ -261,7 +261,8 @@ def test_apagar_avisa_cuando_no_puede_confirmarlo():
     r = asyncio.run(m._tv_apagar(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
                                           "name": "TV"}))
     check(r.get("state") is None, f"no se inventa un estado ({r})")
-    check("no puedo confirmarte" in r["reply"], f"y se avisa de que no consta ({r['reply']})")
+    check("míralo" in r["reply"].lower() or "no puedo confirmar" in r["reply"].lower(),
+          f"y se avisa de que no consta ({r['reply']})")
     check(guardado == [], "ni se persiste nada sin confirmar")
     check(teclas == ["KEY_POWEROFF"],
           f"y a ciegas se manda la absoluta, nunca el interruptor ({teclas})")
@@ -280,8 +281,8 @@ def test_apagar_a_ciegas_no_pulsa_el_interruptor():
     check(teclas == ["KEY_POWEROFF"],
           f"manda la tecla absoluta, que no puede encender nada ({teclas})")
     check(not r["ok"], f"y no se da por bueno lo que no se ha podido comprobar ({r})")
-    check("podría encenderla" in r["reply"],
-          f"diciendo por qué no se ha usado el interruptor ({r['reply']})")
+    check("no sé si" in r["reply"].lower() or "podría encenderla" in r["reply"].lower(),
+          f"sin dar por hecho lo que no se ha comprobado ({r['reply']})")
     check(guardado == [], "sin persistir ningún estado")
 
 
@@ -363,12 +364,23 @@ def test_la_tv_que_se_toca_es_la_que_has_nombrado():
     check(n == "Habitación Maqueda",
           f"«la tv de la habitación» debía ir a la de la habitación y fue a {n}")
 
-    # 3) sin decir cuál y con dos, NO se elige: se pregunta
+    # 3) sin decir cuál, con dos y SIN antecedente, NO se elige: se pregunta
+    m._ULTIMA_TV.clear()
     n, amb = elegida("apaga la tele")
     check(n is None and len(amb) == 2,
           f"con dos TVs y sin nombrar ninguna hay que preguntar, no elegir ({n})")
 
-    # 4) con una sola no hay nada que preguntar
+    # 4) pero si acabas de nombrar una, «apaga la tele» es ESA. Preguntar dos
+    #    veces seguidas lo mismo es lo que hace una máquina, no alguien con quien
+    #    hablas. Solo se recuerda lo que has dicho TÚ, y caduca en 10 minutos.
+    m._ULTIMA_TV.clear()
+    elegida("apaga la tv de maqueda")
+    n, amb = elegida("y ahora apágala")
+    check(n == "Habitación Maqueda" and not amb,
+          f"no recuerda la TV que acabas de nombrar ({n})")
+    m._ULTIMA_TV.clear()
+
+    # 5) con una sola no hay nada que preguntar
     una = _ctx([{"name": "TV Samsung salón", "ip": "192.168.1.137",
                  "mac": "d4:9d:c0:45:74:72", "brand": "samsung", "is_tv": True}])
     una["settings"]["my_devices"] = []
