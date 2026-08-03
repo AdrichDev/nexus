@@ -9,6 +9,9 @@ tareas por voz/texto, avisa de retrasos y prioriza con la matriz de Eisenhower.
 
 - "crea la tarea diseñar calcetines para el viernes prioridad alta" → 🛠 acción
   con fecha límite y prioridad.
+- "crea una tarea" / "créame una tarea" / "ponme otra tarea" → no crea nada:
+  PREGUNTA de qué va. Sin asunto no hay tarea, porque una titulada «nueva» es
+  peor que ninguna.
 - "apunta la mentoría el jueves a las 18" / "anótame la clase de inglés el
   martes a las 5 de la tarde" → 📅 evento con fecha+hora; si Google Calendar
   ya está autorizado, se apunta también allí (nunca dispara el OAuth desde

@@ -16,6 +16,11 @@ Lite → DuckDuckGo HTML, sin API key). Es la PRIMERA skill del router
 - «pasa a texto la nota de voz D:\audios\idea.ogg y guárdala»
 - «busca en internet quién ganó el mundial de clubes»
 - «googlea precio del cobre hoy» / «qué dice internet sobre el nuevo iPhone»
+- «busca información sobre python» / «búscame información de la ley de
+  teletrabajo» / «consulta datos sobre el IBEX» — el sustantivo
+  (información/info/datos/referencias) hace de ancla, así que no hace falta
+  decir «en internet». Si la frase termina en «en la carpeta X», «en mis
+  notas» o «en el mapa», no es de aquí y se deja pasar.
 
 ## Qué es real y qué no (honesto)
 

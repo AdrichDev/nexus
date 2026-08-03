@@ -1,6 +1,19 @@
 """Minion Memoria — recordar, consultar y visualizar el grafo de notas."""
 from __future__ import annotations
 
+# El usuario hablando de SÍ MISMO, distinguido del posesivo «mi <algo>».
+#
+# Son dos palabras distintas y las separa la tilde: «mí» solo puede ser el
+# pronombre, así que detrás puede llevar lo que quiera («qué sabes de mí
+# AHORA», «de mí Y de mi familia»). «mi» sin tilde es ambiguo, porque mucha
+# gente escribe el pronombre sin ella; ahí decide la gramática: el posesivo
+# SIEMPRE lleva un sustantivo detrás, el pronombre no lleva nada.
+#
+# Lo que queda fuera: «de mi ahora», sin tilde y con palabra detrás. Es
+# genuinamente indistinguible de «de mi coche» sin un diccionario, y se prefiere
+# no atender la frase antes que robársela a otra skill.
+_YO = r"(?:mí\b|mi\b(?!\s+\w))"
+
 SKILL = {
     "name": "Memoria",
     "description": ("Memoria a largo plazo de doble capa: graba hechos, aprende documentos "
@@ -22,12 +35,15 @@ SKILL = {
         "learn_doc": r"(?:apr[eé]nde(?:te)?|est[uú]dia(?:te)?|indexa|ingiere|memoriza)\s+"
                      r"(?:el\s+|este\s+)?(?:documento|archivo|fichero|pdf|docx?|word)\s+(?P<path>.+)",
         "learn": r"apr[eé]nde(?:te)?\s+que\s+(?P<fact>.+)",
+        # «de mí» es el PRONOMBRE (sobre mi persona) y «de mi madre» el POSESIVO,
+        # que es otra palabra. Sin separarlos, «dame ideas para el regalo de mi
+        # madre» acababa aquí. Los separa `_YO` (ver arriba).
         "list_knowledge": r"(?:qu[eé]\s+sabes|cu[aá]nto\s+sabes|qu[eé]\s+has\s+aprendido|qu[eé]\s+conoces|"
                           r"qu[eé]\s+informaci[oó]n\s+tienes|qu[eé]\s+datos\s+tienes|"
                           r"qu[eé]\s+conocimiento\s+tienes|lista(?:me)?|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|dame)"
-                          r"\b[^.\n]{0,45}\b(?:de\s+m[ií]|sobre\s+m[ií]|archivos?\s+de\s+conocimiento|"
-                          r"conocimiento\s+(?:que\s+tienes\s+)?(?:de|sobre)\s+m[ií])\b"
-                          r"|todo\s+lo\s+que\s+(?:sabes|has\s+aprendido|recuerdas)\s+(?:de|sobre)\s+m[ií]",
+                          r"\b[^.\n]{0,45}\b(?:(?:de|sobre)\s+" + _YO + r"|archivos?\s+de\s+conocimiento|"
+                          r"conocimiento\s+(?:que\s+tienes\s+)?(?:de|sobre)\s+" + _YO + r")"
+                          r"|todo\s+lo\s+que\s+(?:sabes|has\s+aprendido|recuerdas)\s+(?:de|sobre)\s+" + _YO,
         "graph": r"(mu[eé]strame|ens[eé][ñn]ame|abre|ver|visualiza) (el )?grafo"
                  r"|grafo de (notas|memoria|conocimiento)|mapa (de (la )?)?memoria",
         "status": r"estado de (la |tu )?memoria|c[oó]mo (va|est[aá]|anda) (la |tu )?memoria"

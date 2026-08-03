@@ -509,10 +509,131 @@ def test_pedir_ideas_y_mirar_la_competencia(load_skills=None):
         check(ruta(frase) == "instagram/ig_descubrir", f"«{frase}» va a {ruta(frase)}")
 
 
+def test_crear_tarea_a_secas_y_buscar_informacion(load_skills=None):
+    """03/08/2026. Dos órdenes normales que no tenían dueño y acababan en el
+    planificador.
+
+    · «crea una tarea» a secas: el patrón exigía cuerpo. Y «crea una tarea
+      nueva» SÍ casaba, pero con body="nueva": creaba una tarea titulada
+      «nueva». Un falso positivo es peor que no casar.
+    · «busca información sobre python»: `web_search` de ai_media exigía decir
+      «en internet» o «googlea». Ahora el ancla es el sustantivo.
+
+    El límite del arreglo: buscar información EN UN SITIO CONCRETO no es
+    búsqueda web. El lookahead devuelve carpetas, notas y mapas a su dueño.
+    """
+    import asyncio as _asyncio
+    from backend.core import skills_loader as sl
+    sl.load_skills()
+
+    def ruta(f):
+        r = sl.route(f)
+        return f"{r[0].folder}/{r[1]}" if r else None
+
+    for frase in ("crea una tarea", "crea tarea", "créame una tarea",
+                  "añade una tarea", "apúntame una tarea", "anótame una tarea",
+                  "crea una tarea nueva", "ponme otra tarea"):
+        check(ruta(frase) == "tasks_board/create", f"«{frase}» va a {ruta(frase)}")
+
+    # Sin asunto se PREGUNTA: no puede quedar ninguna tarea creada.
+    async def _sin_asunto(frase):
+        skill, intent, m = sl.route(frase)
+        return await skill.module.handle(intent, frase, m, {})
+
+    for frase in ("crea una tarea", "crea una tarea nueva", "ponme otra tarea"):
+        out = _asyncio.run(_sin_asunto(frase))
+        reply = out.get("reply", "")
+        check("¿Tarea de qué?" in reply, f"«{frase}» no pregunta el asunto: {reply[:60]}")
+        check("creada" not in reply.lower() and "apuntado" not in reply.lower(),
+              f"«{frase}» ha creado una tarea sin asunto: {reply[:60]}")
+
+    # Con asunto se crea, como siempre.
+    out = _asyncio.run(_sin_asunto("crea una tarea de comprar pan para el viernes"))
+    check("comprar pan" in out.get("reply", ""),
+          f"«crea una tarea de comprar pan» ya no crea nada: {out.get('reply', '')[:60]}")
+
+    for frase in ("busca información sobre python", "busca informacion sobre python",
+                  "búscame información de la ley de teletrabajo",
+                  "busca info sobre la dieta keto", "consulta datos sobre el ibex",
+                  "búscame referencias sobre diseño editorial"):
+        check(ruta(frase) == "ai_media/web_search", f"«{frase}» va a {ruta(frase)}")
+
+    # Buscar en un sitio concreto NO es búsqueda web: cada uno con su dueño.
+    check(ruta("busca facturas en la carpeta documentos") == "files/search",
+          f"«busca facturas en la carpeta documentos» va a {ruta('busca facturas en la carpeta documentos')}")
+    check(ruta("busca en mis notas lo de pgvector") == "memory_graph/recall",
+          f"«busca en mis notas lo de pgvector» va a {ruta('busca en mis notas lo de pgvector')}")
+    for frase in ("busca información sobre bares en el mapa",
+                  "busca información de pgvector en mis notas",
+                  "busca información sobre contratos en la carpeta clientes"):
+        check(ruta(frase) != "ai_media/web_search",
+              f"«{frase}» se la queda la búsqueda web y no es suya")
+
+    # Y lo que ya funcionaba sigue funcionando.
+    for frase, dueno in (("busca en internet quién ganó el mundial", "ai_media/web_search"),
+                         ("googlea el precio del oro", "ai_media/web_search"),
+                         ("investiga sobre la energía solar", "research/research"),
+                         ("busca vuelos a parís", "places/flights"),
+                         ("busca restaurantes en el mapa", "places/place_search")):
+        check(ruta(frase) == dueno, f"«{frase}» va a {ruta(frase)}, debería ir a {dueno}")
+
+
+def test_dame_ideas_no_es_una_pregunta_sobre_mi(load_skills=None):
+    """03/08/2026. «dame ideas para el regalo de mi madre» se lo llevaba
+    `memory_graph/list_knowledge`, que no tiene nada que ver.
+
+    La causa es una tilde. El patrón ancla en «de mí» (el PRONOMBRE: sobre mi
+    persona) pero lo escribe `m[ií]` para tolerar que el usuario no ponga
+    tildes. Con eso acepta también el POSESIVO «de mi madre», que es otra
+    palabra: «dame» + hasta 45 caracteres + «de mi» casaba con media frase.
+
+    Lo que los separa es la tilde: «mí» solo puede ser el pronombre, y detrás
+    puede llevar lo que quiera. Sin tilde decide la gramática, porque el
+    posesivo SIEMPRE lleva un sustantivo detrás y el pronombre no lleva nada.
+
+    Dónde acabe la frase después es otra discusión; lo que este test fija es
+    que NO es de memory_graph.
+    """
+    from backend.core import skills_loader as sl
+    sl.load_skills()
+
+    def ruta(f):
+        r = sl.route(f)
+        return f"{r[0].folder}/{r[1]}" if r else None
+
+    # El posesivo NO es una pregunta sobre el usuario.
+    for frase in ("dame ideas para el regalo de mi madre",
+                  "dame ideas para el cumple de mi hermano",
+                  "dame ideas para la cena de mi padre"):
+        r = ruta(frase)
+        check(r != "memory_graph/list_knowledge",
+              f"«{frase}» se lo lleva memory_graph, y es un posesivo, no una "
+              f"pregunta sobre el usuario (fue a {r})")
+
+    # Y el pronombre SIGUE siendo de memory_graph: el arreglo no puede
+    # llevarse por delante lo que ya funcionaba. Las tres primeras acaban en el
+    # pronombre; las demás llevan palabra detrás, que es justo lo que un primer
+    # arreglo demasiado bruto («cualquier palabra detrás lo descarta») rompía:
+    # «ahora» y «y» no son sustantivos poseídos.
+    for frase in ("que sabes de mi",
+                  "dame conocimiento sobre mi",
+                  "que has aprendido de mi",
+                  "qué sabes de mí ahora",
+                  "qué sabes sobre mí exactamente",
+                  "dame todo lo que sabes de mí y de mi familia",
+                  "qué información tienes de mí?"):
+        r = ruta(frase)
+        check(r == "memory_graph/list_knowledge",
+              f"«{frase}» es una pregunta sobre el usuario y debe ir a "
+              f"memory_graph/list_knowledge (fue a {r})")
+
+
 def main() -> int:
     for f in (test_analizar_una_cuenta_sin_arroba, test_lo_mio_sigue_siendo_mio,
               test_cerrar_y_abrir_son_ordenes_de_pc,
               test_pedir_ideas_y_mirar_la_competencia,
+              test_crear_tarea_a_secas_y_buscar_informacion,
+              test_dame_ideas_no_es_una_pregunta_sobre_mi,
               test_marcar_una_tarea_como_hecha, test_el_tablero_no_revienta_sin_grupos,
               test_marcar_de_punta_a_punta,
               test_el_id_de_cuenta_vale_lo_pongas_donde_lo_pongas,

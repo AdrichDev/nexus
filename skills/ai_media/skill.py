@@ -32,13 +32,21 @@ SKILL = {
         "transcribe": r"(?:transcr[ií]be(?:me)?|p[aá]sa(?:me)?\s+a\s+texto)\s+"
                       r"(?:el\s+|la\s+|este\s+|esta\s+)?(?:audio|nota\s+de\s+voz|grabaci[oó]n|memo\s+de\s+voz)\s+"
                       r"(?P<path>.+?)(\s+y\s+(?P<extra>.+))?$",
-        # Búsqueda web: SIEMPRE con ancla explícita («en internet/la web/google»,
+        # Búsqueda web: con ancla explícita («en internet/la web/google»,
         # «googlea», «qué dice internet de...»). google(?!\s*maps) deja los mapas
         # a la skill places; «investiga...» se queda en research (informes).
+        # La cuarta alternativa se ancla en el SUSTANTIVO («busca información
+        # sobre X»): sin ella esa frase, que es de las normales, caía al
+        # planificador. El lookahead devuelve a su dueño lo que se busca en un
+        # sitio concreto: carpetas (files), notas (memory_graph) y mapas (places).
         "web_search": r"(?:\b(?:busca|b[uú]scame|buscar|consulta(?:me)?|mira(?:me)?)\s+(?:r[aá]pido\s+)?"
                       r"en\s+(?:internet|la\s+web|la\s+red|google(?!\s*maps)|el\s+buscador|duckduckgo)\s+"
                       r"|\bgoogl[eé]a(?:me)?\s+"
-                      r"|qu[eé]\s+dice\s+(?:internet|google|la\s+web)\s+(?:de|sobre)\s+)"
+                      r"|qu[eé]\s+dice\s+(?:internet|google|la\s+web)\s+(?:de|sobre)\s+"
+                      r"|\b(?:busca|b[uú]scame|buscar|consulta(?:me)?|inf[oó]rmame)\s+"
+                      r"(?:informaci[oó]n|info|datos|referencias)\s+(?:sobre|de|acerca\s+de)\s+"
+                      r"(?!.*\ben\s+(?:la\s+carpeta|el\s+(?:mapa|grafo|disco|directorio)|"
+                      r"mis?\s+(?:notas|apuntes|documentos|archivos)|drive|google\s*maps|maps)\b))"
                       r"(?P<q>.+)",
     },
 }

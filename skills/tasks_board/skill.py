@@ -37,8 +37,11 @@ SKILL = {
         # NOTA: el router prueba los intents EN ESTE ORDEN. «show» va EL ÚLTIMO
         # a propósito: es muy amplio (cualquier mención a ver/consultar tareas)
         # y si fuera antes se tragaría retrasadas/organiza/borra/crea.
+        # El cuerpo es OPCIONAL: «crea una tarea» a secas es la forma normal de
+        # pedirlo hablando y antes no casaba con nada. Sin cuerpo el handler
+        # PREGUNTA de qué va; no crea nada.
         "create": r"(?:cr[eé]a(?:me)?|a[ñn][aá]de(?:me)?|ap[uú]nta(?:me)?|an[oó]ta(?:me)?|agr[eé]ga(?:me)?|mete(?:me)?|pon(?:me)?)\s+"
-                  r"(?:la\s+|una\s+|otra\s+|nueva\s+)?tarea\s+(?:de\s+|:\s*)?(?P<body>.+)"
+                  r"(?:la\s+|una\s+|otra\s+|nueva\s+)?tarea\b\s*(?:de\s+|:\s*)?(?P<body>.*)"
                   r"|(?:ap[uú]nta(?:me)?|an[oó]ta(?:me)?|ag[eé]nda(?:me)?)\s+(?:el\s+|la\s+|una\s+|un\s+)?(?P<body2>(?:evento|reuni[oó]n|mentor[ií]a|cita|clase|sesi[oó]n)\s+.+)",
         # v23 (T13): posponer un recordatorio sin tocar la tarea.
         "snooze": r"(?:recu[eé]rdame(?:lo|la)?|av[ií]same|d[ií]melo)\s+"
@@ -136,6 +139,11 @@ _EVENT_RX = re.compile(
     r"\b(reuni[oó]n|mentor[ií]a|mentor[ií]as|cita|llamada|entrevista|clase|sesi[oó]n|"
     r"evento|m[eé]dico|dentista|consulta|quedada|asistir|webinar|taller|charla|"
     r"kick-?off|demo|revisi[oó]n\s+con)\b", re.IGNORECASE)
+
+# Lo que queda tras «crea una tarea …» cuando el usuario NO ha dicho el asunto.
+# «crea una tarea nueva» dejaba body="nueva" y creaba una tarea titulada «nueva».
+_SIN_ASUNTO_RX = re.compile(
+    r"^(?:nueva|nuevo|otra|otro|m[aá]s|ya|porfa|por\s+favor|anda|venga)?$", re.IGNORECASE)
 
 
 def _extract_due(text: str) -> tuple[str, str | None]:
@@ -322,6 +330,13 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 body = ""
             if body:
                 break
+        # Sin asunto no se crea nada: se pregunta. Crear una tarea titulada
+        # «nueva» es peor que no crearla.
+        if _SIN_ASUNTO_RX.match(body.strip(" ,.:;¡!¿?")):
+            return {"reply": "¿Tarea de qué? Dime el asunto y la apunto. Por ejemplo: "
+                             "«crea una tarea de llamar al fontanero mañana a las 10» "
+                             "o «crea una tarea de revisar las facturas para el viernes».",
+                    "speak": True}
         prio = "media"
         if re.search(r"prioridad alta|urgente|importante", body, re.I):
             prio = "alta"
