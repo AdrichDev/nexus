@@ -651,6 +651,30 @@ PENDIENTES = [
 
 
 
+def _siembra_plan_contenido(sandbox) -> None:
+    """Deja un plan de contenido del USUARIO en los datos desechables.
+
+    03/08/2026: hasta ahora este fichero no se sembraba y el plan salía igual,
+    porque `contentos._seed()` se inventaba tres publicaciones y las escribía en
+    disco la primera vez. Es decir: esta prueba comprobaba que el HUD sabe pintar
+    una ficción del backend. Ahora el backend nace vacío —que es la verdad en una
+    instalación limpia— y es la PRUEBA quien pone el plan, como haría el usuario.
+    Lo que se sigue verificando es lo de siempre: que cada publicación se
+    despliega con su ficha de cuándo/formato/estado."""
+    (sandbox / "data").mkdir(parents=True, exist_ok=True)
+    (sandbox / "data" / "contentos.json").write_text(json.dumps({
+        "calendar": [
+            {"n": 1, "title": "Lo que la prueba escribe en el plan",
+             "type": "Reel", "when": "Hoy · 19:30", "status": "Listo"},
+            {"n": 2, "title": "Segunda entrada del plan de la prueba",
+             "type": "Carrusel", "when": "Jueves · 13:00", "status": "Borrador"},
+        ],
+        "ideas": ["Una idea escrita por la prueba"],
+        "inspirations": [],
+        "learnings": [],
+    }, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def _siembra_analisis(sandbox) -> None:
     """Deja un analisis REAL en los datos desechables.
 
@@ -1066,6 +1090,7 @@ def main() -> int:
     }, ensure_ascii=False, indent=1), encoding="utf-8")
 
     _siembra_analisis(sandbox)
+    _siembra_plan_contenido(sandbox)
 
     port = _free_port()
     base = f"http://127.0.0.1:{port}"

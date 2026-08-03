@@ -394,8 +394,65 @@ def test_aviso_heredado():
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.rmtree(tmp_scripts, ignore_errors=True)
 
-    check(not (ROOT / "data" / "inspiration").exists()
-          or True, "data/inspiration/ no se toca en este cambio")
+
+# ══════ 8 bis. Y NADA lo borra: el material heredado no se purga de tapadillo ══════
+def test_no_borra_heredado():
+    print("· ningún intent de Content OS borra lo que hay en data/inspiration/")
+    import backend.core.llm as llm
+
+    # Aquí vivía un `check(not path.exists() or True, …)`: `X or True` es cierto
+    # pase lo que pase, o sea que la ÚNICA comprobación que amparaba «no borrar
+    # datos del usuario sin confirmación» no podía fallar nunca. Si alguien
+    # metía un rmtree en un intent, la suite seguía verde.
+    # Esto de aquí sí falla: se siembra material heredado en un arenero, se
+    # pasan TODOS los intents de la skill por encima y se exige que la carpeta
+    # quede exactamente igual —ni un fichero menos, ni uno más.
+    tmp = Path(tempfile.mkdtemp(prefix="nexus_insp_borra_"))
+    tmp_scripts = Path(tempfile.mkdtemp(prefix="nexus_scr_borra_"))
+    heredado = tmp / "creador-1.json"
+    heredado.write_text(json.dumps(
+        {"creator": "creador", "url": "u", "transcript": "un texto heredado"},
+        ensure_ascii=False), encoding="utf-8")
+    antes = {p.name for p in tmp.iterdir()}
+    insp_orig, scr_orig, ask_orig = co.INSP_DIR, co.SCRIPTS_DIR, llm.ask_llm
+
+    async def _falso(user_text, context=None, system=None):
+        return ("texto de mentira", "mock")
+
+    # Todos los intents de la skill, más una orden que no reconoce: el borrado
+    # accidental se cuela igual de bien por la rama que nadie mira.
+    ordenes = [
+        ("connect", "conecta mi instagram"),
+        ("analytics", "analítica de instagram"),
+        ("best", "mis mejores reels"),
+        ("inspire", "analiza este reel de @creador https://instagram.com/reel/x"),
+        ("patterns", "analiza los patrones"),
+        ("script", "genera un guion sobre automatización"),
+        ("ideas", "dame ideas de reels"),
+        ("desconocida", "haz algo que no existe"),
+    ]
+    sigue, despues, contenido = False, set(), ""
+    try:
+        co.INSP_DIR, co.SCRIPTS_DIR, llm.ask_llm = tmp, tmp_scripts, _falso
+        ctx = {**CTX, "graph": _GrafoFalso(), "pg": None}
+        for intent, frase in ordenes:
+            m = _match(intent, frase) if intent in co.SKILL["patterns"] else None
+            run(co.handle(intent, frase, m, ctx))
+        sigue = heredado.exists()
+        contenido = heredado.read_text(encoding="utf-8") if sigue else ""
+        despues = {p.name for p in tmp.iterdir()} if tmp.exists() else set()
+    finally:
+        co.INSP_DIR, co.SCRIPTS_DIR, llm.ask_llm = insp_orig, scr_orig, ask_orig
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(tmp_scripts, ignore_errors=True)
+
+    check(sigue, "un intent de Content OS ha BORRADO el material heredado de "
+                 "data/inspiration/ sin pedir confirmación")
+    check(despues == antes,
+          f"data/inspiration/ ha cambiado de contenido al pasar los intents: "
+          f"{sorted(antes)} → {sorted(despues)}")
+    check("un texto heredado" in contenido,
+          "el fichero heredado sigue ahí, pero alguien le ha cambiado el contenido")
 
 
 # ══════════════ 9. Colisión de enrutado ══════════════
@@ -494,6 +551,53 @@ def test_dashboard_contrato():
           "las secciones vacías no traen su texto «Todavía no hay…»")
 
 
+# ══════════════ 11. Instalación limpia: el panel no se inventa el plan ══════════
+def test_instalacion_limpia():
+    print("· en una instalación limpia el panel dice que no hay nada, no se lo inventa")
+    from backend.core import contentos
+
+    # Arenero PROPIO. Las pruebas anteriores ya han escrito en el store del
+    # arenero común, y lo que se prueba aquí es justo la PRIMERA vez que se abre
+    # el panel en una máquina donde todavía no hay nada del usuario.
+    tmp = Path(tempfile.mkdtemp(prefix="nexus_limpio_"))
+    store_orig = contentos.STORE
+    try:
+        contentos.STORE = tmp / "contentos.json"
+        d = run(contentos.dashboard())
+
+        # Estas tres secciones eran las únicas que seguían fingiendo: entradas de
+        # calendario con hora («Hoy · 19:30») y estado («Listo») presentadas como
+        # el plan REAL del usuario, sin marca de origen y sin pasar por cosDato().
+        for seccion in ("calendar", "ideas", "inspirations"):
+            check(d.get(seccion) == [],
+                  f"«{seccion}» llega relleno de semilla en una instalación limpia: "
+                  f"{d.get(seccion)!r}")
+            check(bool((d.get("vacios") or {}).get(seccion)),
+                  f"y sin el texto «Todavía no hay…» de «{seccion}» no hay qué pintar")
+
+        # Y la ficción tampoco se PERSISTE. Ese era el mecanismo exacto por el
+        # que el estado vacío honesto no se llegaba a ver nunca: `_load()` la
+        # escribía en disco la primera vez y a partir de ahí ya era «tuya».
+        crudo = contentos.STORE.read_text(encoding="utf-8")
+        for inventado in ("Hoy · 19:30", "@creador.automatiza",
+                          "5 flujos de n8n que todo negocio debería tener"):
+            check(inventado not in crudo,
+                  f"data/contentos.json nace con contenido inventado: {inventado!r}")
+
+        # TRIANGULACIÓN. El vacío tiene que venir de que no hay nada, no de que
+        # el payload esté roto: en cuanto el usuario escribe algo suyo, sale.
+        mia = "Gancho: esto sí lo ha escrito el usuario"
+        contentos.add_item("idea", mia)
+        d2 = run(contentos.dashboard())
+        check(d2.get("ideas") == [mia],
+              f"lo que escribe el usuario no llega al panel: {d2.get('ideas')!r}")
+        check(d2.get("calendar") == [] and d2.get("inspirations") == [],
+              "y las demás secciones siguen vacías, que es la verdad")
+    finally:
+        contentos.STORE = store_orig
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_sin_literales():
     print("· 48.6, 4.1, 18.4 y 3.2 ya no están escritos en contentos.py")
     fuente = (ROOT / "backend" / "core" / "contentos.py").read_text(encoding="utf-8")
@@ -587,8 +691,10 @@ def main() -> int:
     test_analytics_honesto()
     test_inspire_politica()
     test_aviso_heredado()
+    test_no_borra_heredado()
     test_enrutado()
     test_dashboard_contrato()
+    test_instalacion_limpia()
     test_sin_literales()
     test_evidencia_y_aprendizajes()
     test_hud_contrato()

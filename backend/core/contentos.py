@@ -31,25 +31,24 @@ GRAPH = "https://graph.facebook.com/v19.0"
 
 # --------------------------------------------------------------- almacenamiento
 def _seed() -> dict:
-    """Contenido editable inicial (se puede cambiar por voz/HUD y persiste)."""
+    """El almacén editable la primera vez: VACÍO donde el contenido es del usuario.
+
+    03/08/2026: `calendar`, `ideas` e `inspirations` nacían con tres entradas de
+    calendario, tres ideas y dos inspiraciones INVENTADAS —con hora («Hoy ·
+    19:30») y estado («Listo»)— que `_load()` escribía en disco la primera vez.
+    A partir de ese momento ya eran, a todos los efectos, «el plan del usuario»:
+    sin marca de origen, sin pasar por `procedencia.dato()`, y tapando para
+    siempre los estados vacíos honestos de `payload.vacios`, que existían pero
+    no se llegaban a ver NUNCA porque las listas jamás estaban vacías.
+
+    Eran los tres únicos bloques del panel que seguían fingiendo. Ahora nacen
+    vacíos y el HUD pinta «Todavía no hay…» leído de `config/umbrales.json`.
+    Lo ya escrito en `data/contentos.json` NO se toca: borrarlo exige
+    confirmación explícita del usuario (regla del proyecto)."""
     return {
-        "calendar": [
-            {"n": 1, "title": "El error que hace que tus automatizaciones fallen",
-             "type": "Reel", "when": "Hoy · 19:30", "status": "Listo"},
-            {"n": 2, "title": "3 tareas que nunca deberías automatizar",
-             "type": "Carrusel", "when": "Jueves · 13:00", "status": "Borrador"},
-            {"n": 3, "title": "Lo que aprendí después de automatizar mi negocio",
-             "type": "Reel", "when": "Sábado · 11:30", "status": "Revisar"},
-        ],
-        "ideas": [
-            "Gancho: «el error de automatización que te cuesta clientes»",
-            "Carrusel: 5 flujos de n8n que todo negocio debería tener",
-            "Reel POV: un día dejando que la IA gestione tu agenda",
-        ],
-        "inspirations": [
-            {"src": "@creador.automatiza", "note": "Gancho de resultado visible en 2 s"},
-            {"src": "@marca.saas", "note": "Carruseles con 1 idea por tarjeta"},
-        ],
+        "calendar": [],
+        "ideas": [],
+        "inspirations": [],
         # Sin etiqueta de confianza. Estas tres frases venían con «consistente»,
         # «prometedora» y «observación» TECLEADAS a mano: una etiqueta de rigor
         # sobre un texto de semilla que nadie ha medido. Ahora entran como lo

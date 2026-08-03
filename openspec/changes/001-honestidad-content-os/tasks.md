@@ -124,6 +124,33 @@ afirma nada sobre KPIs, así que no requiere cambio).
 > runtime se hizo contra un PROCESO NUEVO en el puerto 8178, y la e2e levanta su
 > propio uvicorn con datos de arenero.
 
+## Fase 7: Remediación de los CRITICAL del informe de verificación (03/08/2026)
+
+Alcance ACOTADO a los dos CRITICAL de `verify-report.md`. Nada más: el WARNING-1
+(`best[]/worst[].eng` y `charts.*` fuera del sobre), la lista blanca `_LIBRES` y
+el desfase del `?v=NN` en los artefactos quedan FUERA a propósito.
+
+- [x] 7.1 **CRITICAL-1** · `backend/core/contentos.py` `_seed()`: `calendar`, `ideas`
+  e `inspirations` nacen VACÍOS. Dejaban de existir los estados vacíos honestos
+  porque `_load()` escribía la ficción en disco la primera vez. Los `learnings`
+  de semilla SE QUEDAN: el escenario «Aprendizaje de semilla sin evidencia» de la
+  spec los exige, y ya salen rotulados como apuntes. Lo ya escrito en
+  `data/contentos.json` NO se toca (borrar exige confirmación explícita).
+  Test: `test_instalacion_limpia()` — las tres secciones vacías, sus textos
+  «Todavía no hay…» presentes, la ficción ausente del fichero persistido, y
+  triangulación con `add_item()` para probar que el vacío no es un payload roto.
+- [x] 7.2 **CRITICAL-2** · `tests/test_content_os_honestidad.py`: fuera la
+  tautología `check(not path.exists() or True, …)` (`X or True` nunca falla).
+  La sustituye `test_no_borra_heredado()`: siembra material heredado en un
+  arenero, pasa los 7 intents de la skill MÁS una orden desconocida, y exige que
+  la carpeta quede idéntica (ni un fichero menos, ni uno más) y con el mismo
+  contenido. Verificada por mutación: inyectando un `rmtree` en el intent
+  `ideas` la aserción FALLA (3 fallos); revertido, pasa.
+- [x] 7.3 `tests/e2e/run_e2e.py`: nuevo `_siembra_plan_contenido()`. El flujo
+  `flujo_contentos` comprobaba el despliegue de fichas sobre las publicaciones
+  que se inventaba el backend; ahora el plan lo pone la PRUEBA, como haría el
+  usuario. Sin esto, arreglar 7.1 dejaba la e2e en 8/9.
+
 ## Orden de dependencia
 
 Fase 1 (sin dependencias) → Fase 2 y 3 dependen de 1.1/1.3 → Fase 4 es independiente
