@@ -28,6 +28,37 @@ _TTL = 600           # segundos de vida del contexto de lista
 _channels: dict = {}
 
 
+# ── PREGUNTA ABIERTA («¿cuál de las dos?») ────────────────────────────────────
+# Distinto de la lista numerada de abajo: aquí no se ha enseñado un listado, se
+# ha hecho una pregunta, y la respuesta es un nombre suelto («la de arriba»).
+# Suelto no significa nada — «la de arriba» no es una orden — pero pegado a la
+# pregunta sí lo es.
+#
+# Aquí solo se guarda la orden original. QUIÉN es «la de arriba» lo decide la
+# skill que preguntó, que es la única que conoce sus opciones y cómo se parecen.
+_preguntas: dict = {}
+_TTL_PREGUNTA = 180
+
+
+def note_pregunta(orden: str, channel: str = "pc") -> None:
+    """Apunta que se ha preguntado algo y con qué orden venía."""
+    if orden:
+        _preguntas[channel or "pc"] = {"orden": orden, "ts": time.time()}
+
+
+def pregunta_pendiente(channel: str = "pc") -> str:
+    """La orden que dejó una pregunta abierta en este canal, o '' si no hay."""
+    p = _preguntas.get(channel or "pc")
+    if not p or time.time() - p["ts"] > _TTL_PREGUNTA:
+        _preguntas.pop(channel or "pc", None)
+        return ""
+    return p["orden"]
+
+
+def olvida_pregunta(channel: str = "pc") -> None:
+    _preguntas.pop(channel or "pc", None)
+
+
 def _state_for(channel: str) -> dict:
     return _channels.setdefault(channel or "pc",
                                 {"source": "", "intent": "", "items": [], "ts": 0.0})

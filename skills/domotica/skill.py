@@ -709,6 +709,44 @@ _PALABRAS_SIN_VALOR_ENTRE_TVS = {
 }
 
 
+def _clave_fonetica(palabra: str) -> str:
+    """Cómo SUENA una palabra, en castellano y sin adornos.
+
+    El dictado por voz escribe mal los nombres propios, y un nombre guardado
+    puede tener una errata («salóm» por «salón»). Comparar letra a letra falla en
+    los dos casos aunque suenen igual, así que primero se reduce cada palabra a
+    su sonido: se quitan tildes, la hache muda, y se unifican los pares que en
+    castellano suenan idéntico (qu/c → k, z → s, v → b, ll → y)."""
+    s = _norm_txt(palabra)
+    s = re.sub(r"[^a-z]", "", s)
+    for viejo, nuevo in (("qu", "k"), ("gu", "g"), ("ll", "y"), ("c", "k"),
+                         ("z", "s"), ("v", "b"), ("h", "")):
+        s = s.replace(viejo, nuevo)
+    return s
+
+
+# Cuánto tienen que parecerse dos sonidos para darlos por el mismo nombre.
+# Medido con lo que dictó el micro sobre un nombre real: sus dos transcripciones
+# erróneas dieron 0,77 y 0,67; una palabra ajena al nombre se quedó en 0,27, muy
+# lejos. 0,66 los separa con aire.
+_PARECIDO_MINIMO = 0.66
+
+
+def _suena_como(tv: dict, text: str) -> float:
+    """Cuánto se parece el nombre de esta TV a lo que se ha dicho (0 a 1)."""
+    import difflib
+    propias = [w for w in re.findall(r"[a-z0-9]+", _norm_txt(tv.get("name") or ""))
+               if len(w) >= 4 and w not in _PALABRAS_SIN_VALOR_ENTRE_TVS]
+    dichas = [w for w in re.findall(r"[a-z0-9]+", _norm_txt(text)) if len(w) >= 4]
+    mejor = 0.0
+    for p in propias:
+        cp = _clave_fonetica(p)
+        for d in dichas:
+            mejor = max(mejor, difflib.SequenceMatcher(None, cp,
+                                                       _clave_fonetica(d)).ratio())
+    return mejor
+
+
 def _nombre_de_tv_en_la_frase(d: dict, text: str) -> bool:
     """¿La frase nombra a ESTA TV? Vale cualquier palabra propia de su nombre,
     incluida la estancia, porque aquí ya solo se elige entre televisiones."""
@@ -793,6 +831,16 @@ async def _elegir_tv(ctx, text: str) -> tuple[dict | None, list[dict]]:
         # pero por otro motivo: allí decide si la frase es de una TV o de una luz,
         # y «salón» a secas no puede decidir eso. Elegir entre dos TVs, sí.
         casan = [d for d in tvs if _nombre_de_tv_en_la_frase(d, text)]
+        if not casan:
+            # Último recurso: por cómo SUENA. El dictado se come los nombres
+            # propios, y un nombre guardado puede llevar una errata. Solo vale
+            # si señala a UNA sola: entre dos parecidas se pregunta, porque
+            # actuar sobre la que no era es peor que preguntar.
+            sonando = sorted(((_suena_como(d, text), d) for d in tvs),
+                             key=lambda x: x[0], reverse=True)
+            if sonando and sonando[0][0] >= _PARECIDO_MINIMO and (
+                    len(sonando) == 1 or sonando[0][0] - sonando[1][0] >= 0.15):
+                casan = [sonando[0][1]]
         if len(casan) == 1:
             _recuerda_tv(ctx, casan[0])
             return casan[0], []
@@ -1797,6 +1845,13 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent in ("tv_on", "tv_off", "tv_mute", "tv_volume", "tv_channel", "tv_app"):
         tv, ambiguas = await _elegir_tv(ctx, text)
         if ambiguas:
+            # Se apunta la orden para que la respuesta («la de arriba») tenga a
+            # qué pegarse: suelta no significa nada.
+            try:
+                from backend.core import context as _ctxt
+                _ctxt.note_pregunta(text, ctx.get("channel", "pc"))
+            except Exception:                                  # noqa: BLE001
+                pass
             nombres = " o ".join(d.get("name") or "sin nombre" for d in ambiguas)
             return {"reply": f"¿Cuál? {nombres}."}
         if not tv:

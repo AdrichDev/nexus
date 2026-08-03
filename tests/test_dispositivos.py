@@ -346,7 +346,7 @@ def test_apagar_no_se_queda_esperando_para_siempre():
 
 def _ctx_dos_tvs():
     """Dos TVs guardadas, en my_devices y known_devices a la vez, como en casa."""
-    tvs = [{"name": "Habitación Maqueda", "ip": "192.168.1.136",
+    tvs = [{"name": "Habitación Robledo", "ip": "192.168.1.136",
             "mac": "38:68:a4:95:54:cc", "brand": "samsung", "is_tv": True},
            {"name": "TV Samsung salón", "ip": "192.168.1.137",
             "mac": "d4:9d:c0:45:74:72", "brand": "samsung", "is_tv": True}]
@@ -370,8 +370,8 @@ def test_la_tv_que_se_toca_es_la_que_has_nombrado():
         return (tv or {}).get("name"), [d["name"] for d in amb]
 
     # 1) el nombre propio manda
-    for frase, esperado in (("enciende la tv de maqueda", "Habitación Maqueda"),
-                            ("apaga maqueda", "Habitación Maqueda"),
+    for frase, esperado in (("enciende la tv de robledo", "Habitación Robledo"),
+                            ("apaga robledo", "Habitación Robledo"),
                             ("apaga la tv del salón", "TV Samsung salón"),
                             ("sube el volumen de la tele del salón", "TV Samsung salón")):
         n, _ = elegida(frase)
@@ -380,7 +380,7 @@ def test_la_tv_que_se_toca_es_la_que_has_nombrado():
     # 2) la ESTANCIA también desambigua, aunque `_resolve_named_device` la ignore:
     #    allí decide si la frase es de una TV o de una luz; aquí solo entre TVs.
     n, _ = elegida("enciende la tv de la habitación")
-    check(n == "Habitación Maqueda",
+    check(n == "Habitación Robledo",
           f"«la tv de la habitación» debía ir a la de la habitación y fue a {n}")
 
     # 3) sin decir cuál, con dos y SIN antecedente, NO se elige: se pregunta
@@ -393,9 +393,9 @@ def test_la_tv_que_se_toca_es_la_que_has_nombrado():
     #    veces seguidas lo mismo es lo que hace una máquina, no alguien con quien
     #    hablas. Solo se recuerda lo que has dicho TÚ, y caduca en 10 minutos.
     m._ULTIMA_TV.clear()
-    elegida("apaga la tv de maqueda")
+    elegida("apaga la tv de robledo")
     n, amb = elegida("y ahora apágala")
-    check(n == "Habitación Maqueda" and not amb,
+    check(n == "Habitación Robledo" and not amb,
           f"no recuerda la TV que acabas de nombrar ({n})")
     m._ULTIMA_TV.clear()
 
@@ -407,13 +407,102 @@ def test_la_tv_que_se_toca_es_la_que_has_nombrado():
     check(tv is not None and not amb, "con UNA sola TV no hay ambigüedad que preguntar")
 
 
+def test_el_dictado_no_escribe_robledo_y_aun_asi_se_entiende():
+    """LO QUE PASÓ (03/08/2026). Adrián dijo por voz «apaga la televisión de
+    Robledo» y el micro escribió «Robledal»; al repetir, «Roblera». nexus preguntó
+    cuál las dos veces, porque el emparejado era letra a letra.
+
+    Se comparan los SONIDOS, no las letras: fuera tildes y hache muda, y qu/c→k,
+    z→s, v→b, ll→y, que en castellano suenan igual. De paso deja de importar que
+    el nombre guardado tenga una errata: «salóm» encuentra «salón».
+
+    Solo vale si señala a UNA sola TV y con margen sobre la segunda. Entre dos
+    parecidas se pregunta: actuar sobre la que no era es peor que preguntar."""
+    m = _skill()
+    ctx = _ctx_dos_tvs()
+
+    def elegida(frase):
+        m._ULTIMA_TV.clear()                 # sin memoria: se prueba el sonido
+        tv, amb = asyncio.run(m._elegir_tv(ctx, frase))
+        return (tv or {}).get("name"), amb
+
+    for frase in ("apaga la televisión de Robledal", "la de Roblera",
+                  "enciende la tv de robleda"):
+        n, _ = elegida(frase)
+        check(n == "Habitación Robledo",
+              f"«{frase}» no llega a Robledo por cómo suena (fue a {n})")
+
+    # Lo que NO suena parecido sigue sin colarse.
+    check(m._suena_como({"name": "Habitación Robledo"}, "apaga la cocina")
+          < m._PARECIDO_MINIMO,
+          "da por buena una palabra que no se parece en nada")
+
+    # Y con dos TVs y una palabra que no señala a ninguna, se pregunta.
+    n, amb = elegida("apaga esa cosa")
+    check(n is None and len(amb) == 2,
+          f"elige sin que nada apunte a una TV concreta ({n})")
+
+
+def test_una_errata_en_el_nombre_no_deja_la_tv_inalcanzable():
+    """El nombre guardado era «TV Samsung salóm», con eme. «Del salón» no casaba
+    y esa TV solo se podía nombrar escribiendo la errata."""
+    m = _skill()
+    ctx = _ctx([{"name": "Habitación Robledo", "ip": "192.168.1.136",
+                 "mac": "38:68:a4:95:54:cc", "brand": "samsung", "is_tv": True},
+                {"name": "TV Samsung salóm", "ip": "192.168.1.137",
+                 "mac": "d4:9d:c0:45:74:72", "brand": "samsung", "is_tv": True}])
+    ctx["settings"]["my_devices"] = []
+    m._ULTIMA_TV.clear()
+    tv, _ = asyncio.run(m._elegir_tv(ctx, "apaga la tv del salón"))
+    check((tv or {}).get("name") == "TV Samsung salóm",
+          f"la errata del nombre deja la TV inalcanzable ({(tv or {}).get('name')})")
+
+
+def test_contestar_a_la_pregunta_de_que_tele_es_una_orden():
+    """«¿Cuál? A o B» → «la de arriba». Suelto no significa nada, y por eso no
+    llegaba a ninguna skill: se iba al planificador y la orden se perdía.
+
+    Pegado a la pregunta sí es una orden. Aquí se comprueban las dos piezas: que
+    la orden queda apuntada al preguntar, y que la frase resultante enruta y
+    elige la TV correcta. El pegado lo hace el cerebro, y solo cuando la frase
+    suelta NO llega a nadie por su cuenta."""
+    from backend.core import context as ctxt
+    from backend.core.skills_loader import load_skills, route
+    load_skills()
+
+    ctxt.olvida_pregunta("pc")
+    check(ctxt.pregunta_pendiente("pc") == "", "arranca con una pregunta pendiente")
+
+    ctxt.note_pregunta("apaga la tele", "pc")
+    check(ctxt.pregunta_pendiente("pc") == "apaga la tele",
+          "no recuerda la orden que dejó la pregunta abierta")
+
+    # La respuesta suelta no es una orden; pegada a la pregunta, sí.
+    check(route("la de robleda") is None,
+          "«la de robleda» a secas ya enruta: entonces no hace falta pegarla")
+    r = route("apaga la tele la de robleda")
+    check(r is not None and r[0].folder == "domotica",
+          "la frase pegada no llega a domotica")
+
+    # Y elige la que suena parecido, no la otra.
+    m = _skill()
+    m._ULTIMA_TV.clear()
+    tv, amb = asyncio.run(m._elegir_tv(_ctx_dos_tvs(), "apaga la tele la de robleda"))
+    check((tv or {}).get("name") == "Habitación Robledo" and not amb,
+          f"la respuesta no señala a la TV que suena parecido ({tv})")
+
+    ctxt.olvida_pregunta("pc")
+    check(ctxt.pregunta_pendiente("pc") == "",
+          "la pregunta sigue viva después de contestarla")
+
+
 def test_las_tvs_no_se_cuentan_por_duplicado():
     """`my_devices` y `known_devices` listan los mismos aparatos. Sin deduplicar
     por MAC, dos TVs parecen cuatro y la pregunta sale absurda."""
     m = _skill()
     tvs = m._tvs_guardadas(_ctx_dos_tvs())
     check(len(tvs) == 2, f"dos TVs guardadas en dos listas siguen siendo dos ({len(tvs)})")
-    check({d["name"] for d in tvs} == {"Habitación Maqueda", "TV Samsung salón"},
+    check({d["name"] for d in tvs} == {"Habitación Robledo", "TV Samsung salón"},
           "y son las dos que hay, no la misma repetida")
 
 
@@ -646,6 +735,9 @@ if __name__ == "__main__":
              test_apagar_a_ciegas_no_pulsa_el_interruptor,
              test_apagar_no_se_queda_esperando_para_siempre,
              test_la_tv_que_se_toca_es_la_que_has_nombrado,
+             test_el_dictado_no_escribe_robledo_y_aun_asi_se_entiende,
+             test_una_errata_en_el_nombre_no_deja_la_tv_inalcanzable,
+             test_contestar_a_la_pregunta_de_que_tele_es_una_orden,
              test_las_tvs_no_se_cuentan_por_duplicado,
              test_mandar_una_tecla_no_es_que_la_tv_obedezca,
              test_la_ip_caducada_se_resuelve_desde_la_mac,

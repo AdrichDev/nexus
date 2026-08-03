@@ -648,6 +648,25 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                                    "msg": f"🧭 Interpreto «{text}» como «{_resolved}»"})
             text = _resolved
 
+        # RESPUESTA A UNA PREGUNTA ABIERTA. Si nexus preguntó «¿cuál?» y llega
+        # algo corto que por sí solo no es una orden («la de arriba»), se pega a
+        # la orden que provocó la pregunta y se enruta eso. Quién es «la de
+        # arriba» lo resuelve la skill, que es la que conoce sus opciones.
+        #
+        # Solo cuando la frase suelta NO llega a nadie: un mensaje que ya es una
+        # orden por su cuenta manda sobre cualquier pregunta anterior.
+        try:
+            _pend = _mturn.pregunta_pendiente(channel)
+            if _pend and len(text.split()) <= 8 and route(text) is None:
+                _junto = f"{_pend} {text}"
+                if route(_junto) is not None:
+                    await bus.emit("log", {"level": "info",
+                                           "msg": f"🧭 Respondes a «{_pend}»: «{text}»"})
+                    text = _junto
+                    _mturn.olvida_pregunta(channel)
+        except Exception:                                   # noqa: BLE001
+            pass
+
     # AUDITORÍA (v23 T24): «qué has hecho hoy», «qué has borrado», «por qué se borró».
     if source in ("text", "voice") and _AUDIT_RX.search(text):
         from . import audit as _aud

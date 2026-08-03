@@ -81,8 +81,8 @@ INTACTAS = [
     "He borrado 3 eventos.",
     "Voy a borrar «Dentista» (05/08/2026 10:00). ¿Lo borro?",
     "No tengo nada que borrar el 05/08/2026.",
-    "¿Cuál? Habitación Maqueda o TV Samsung salóm.",
-    "Habitación Maqueda apagada.",
+    "¿Cuál? Habitación Robledo o TV Samsung salóm.",
+    "Habitación Robledo apagada.",
     "Volumen del PC al 40%. ✔",
 ]
 for t in INTACTAS:
@@ -140,7 +140,7 @@ PROHIBEN = ["no te he dicho que leas los correos",
             "no quiero que leas nada",
             "deja de leerme los correos"]
 INSISTEN = ["te he dicho que borres los del día 5",
-            "te he dicho que apagues la tele de maqueda"]
+            "te he dicho que apagues la tele de robledo"]
 
 for t in PROHIBEN:
     check(bool(brain._NO_ACCION_RX.search(t)),
