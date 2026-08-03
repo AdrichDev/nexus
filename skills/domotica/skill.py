@@ -108,12 +108,16 @@ def _arp_table() -> list[dict]:
     """Lee la tabla ARP del sistema → [{ip, mac}]. Multiplataforma (arp -a)."""
     out = []
     try:
+        # errors="replace": en Windows «arp» escribe en la página de códigos de la
+        # consola (cp850/cp1252), no en UTF-8. Sin esto la lectura reventaba y nos
+        # quedábamos sin tabla ARP, que es de donde sale la IP actual de cada MAC.
         raw = subprocess.run(["arp", "-a"], capture_output=True, text=True,
-                             timeout=6).stdout
+                             errors="replace", timeout=6).stdout
     except Exception:
         return out
     for ip, mac in re.findall(
-            r"(\d{1,3}(?:\.\d{1,3}){3})\D+([0-9a-fA-F]{2}(?:[:-][0-9a-fA-F]{2}){5})", raw):
+            r"(\d{1,3}(?:\.\d{1,3}){3})\D+([0-9a-fA-F]{2}(?:[:-][0-9a-fA-F]{2}){5})",
+            raw or ""):
         out.append({"ip": ip, "mac": mac.replace("-", ":").lower()})
     return out
 
@@ -600,6 +604,37 @@ def _mac_for_ip(ip: str) -> str:
     return ""
 
 
+def _ip_for_mac(mac: str) -> str:
+    """IP ACTUAL de una MAC según la tabla ARP del sistema ('' si no aparece).
+    La IP la reparte el router por DHCP y caduca; la MAC no cambia nunca."""
+    m = (mac or "").replace("-", ":").strip().lower()
+    if not m:
+        return ""
+    for e in _arp_table():
+        if (e.get("mac") or "").lower() == m:
+            return e.get("ip", "")
+    return ""
+
+
+def _save_ip(ctx, mac: str, ip: str) -> None:
+    """Anota la IP nueva de una MAC en my_devices y en known_devices."""
+    m = (mac or "").replace("-", ":").strip().lower()
+    if not m or not ip:
+        return
+    try:
+        for clave in ("my_devices", "known_devices"):
+            devs = list(ctx["settings"].get(clave, []) or [])
+            tocado = False
+            for d in devs:
+                if (d.get("mac") or "").replace("-", ":").lower() == m and d.get("ip") != ip:
+                    d["ip"] = ip
+                    tocado = True
+            if tocado:
+                ctx["settings"].set(clave, devs)
+    except Exception:
+        pass
+
+
 def _save_tv(ctx, tv: dict) -> None:
     """Persiste la TV en known_devices (⚙) para NO re-escanear en cada orden."""
     try:
@@ -775,6 +810,122 @@ async def _tv_esta_viva(ip: str, timeout: float = 1.2) -> bool:
     return False
 
 
+async def _tv_ip_actual(ctx, tv: dict) -> str:
+    """IP por la que se puede hablar AHORA con el aparato.
+
+    La IP guardada caduca (DHCP); la MAC no. Si la guardada no contesta, se busca
+    la MAC en la tabla ARP y, si sale otra IP, se actualiza la configuración."""
+    ip = (tv.get("ip") or "").strip()
+    mac = (tv.get("mac") or "").strip()
+    if ip and await _tv_esta_viva(ip):
+        return ip
+    if not mac:
+        return ip
+    nueva = await asyncio.to_thread(_ip_for_mac, mac)
+    if nueva and nueva != ip:
+        _save_ip(ctx, mac, nueva)
+        return nueva
+    return nueva or ip
+
+
+async def _samsung_power_state(ip: str) -> str:
+    """`device.PowerState` de la API REST de una Samsung: 'on' | 'standby'.
+    Devuelve '' si la TV no contesta o si el modelo no publica ese campo (los
+    anteriores a la serie RU no lo traen)."""
+    if not ip:
+        return ""
+    try:
+        import httpx
+    except Exception:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as cli:
+            r = await cli.get(f"http://{ip}:8001/api/v2/")
+            data = r.json()
+    except Exception:
+        return ""
+    return str((data.get("device") or {}).get("PowerState") or "").strip().lower()
+
+
+async def _tv_estado(ip: str) -> str:
+    """Estado REAL de la TV, preguntándoselo a ella:
+
+      'off'  no contesta, o dice que está en reposo.
+      'on'   dice que está encendida.
+      'on?'  contesta pero no publica su estado: está encendida O en reposo con
+             la red aún viva, y por esa vía no se pueden distinguir.
+    """
+    if not ip:
+        return "off"
+    ps = await _samsung_power_state(ip)
+    if ps:
+        return "on" if ps == "on" else "off"
+    if await _tv_esta_viva(ip):
+        return "on?"
+    return "off"
+
+
+# Segundos que se espera antes de releer el estado tras mandar el apagado.
+# Medido contra las TVs: de «encendida» a «reposo» tardan unos 3 s.
+_ESPERA_APAGADO = 3.0
+
+
+async def _tv_apagar(ctx, tv: dict) -> dict:
+    """APAGAR una TV: mirar el estado, elegir la tecla según lo que se SEPA, y
+    comprobar el resultado.
+
+    En Tizen hay dos teclas y la diferencia es justo la que importa: KEY_POWER
+    apaga, pero es un interruptor y sobre una TV en reposo la ENCIENDE;
+    KEY_POWEROFF no apaga (la acepta y la ignora) pero no puede encender nada.
+
+    Por eso el interruptor SOLO se pulsa con el estado confirmado 'on'. Con
+    'off' no se pulsa nada, y con 'on?' —que significa «encendida o en reposo
+    con la red aún viva», sin poder distinguirlas— se manda la absoluta: puede
+    que no apague, pero jamás va a encender una TV que ya estaba en reposo.
+    """
+    name = tv.get("name") or "la TV"
+    ip = await _tv_ip_actual(ctx, tv)
+    if not ip:
+        return {"ok": False, "reply": f"No sé por qué IP hablar con {name}: la que tenía "
+                                      "guardada no contesta y su MAC no aparece en la red. "
+                                      "Comprueba que está enchufada y en tu WiFi."}
+    tv = dict(tv, ip=ip)
+
+    antes = await _tv_estado(ip)
+    if antes == "off":
+        _save_estado(ctx, tv, False)
+        return {"ok": True, "state": "off", "reply": f"{name} ya estaba apagada."}
+
+    a_ciegas = antes != "on"
+    roku_path, samsung_key = _TECLA_APAGADO_SEGURA if a_ciegas else _TV_KEYMAP["off"]
+    enviado = await _tv_key(ctx, tv, roku_path, samsung_key)
+    if not enviado:
+        return {"ok": False, "reply": _tv_fail(tv)}
+
+    await asyncio.sleep(_ESPERA_APAGADO)
+    despues = await _tv_estado(ip)
+    if despues == "off":
+        _save_estado(ctx, tv, False)
+        return {"ok": True, "state": "off", "reply": f"{name} apagada."}
+    if a_ciegas:
+        return {"ok": False, "state": None,
+                "reply": f"No he podido apagar {name} con garantías. Este modelo no publica "
+                         "si está encendida o en reposo, y la única tecla que la apagaría es "
+                         "un interruptor: a ciegas podría encenderla en vez de apagarla, así "
+                         "que no la he usado. Le he mandado la orden de apagado que no puede "
+                         "encenderla por error, y no puedo confirmarte que haya servido. "
+                         "Apágala con el mando."}
+    if despues == "on?":
+        return {"ok": True, "state": None,
+                "reply": f"He mandado la orden de apagado a {name} y la ha aceptado, pero "
+                         "ha dejado de decir si está encendida o en reposo, así que no puedo "
+                         "confirmarte que se haya apagado. Míralo en la pantalla."}
+    return {"ok": False, "state": None,
+            "reply": f"He mandado la orden de apagado a {name} pero sigue diciendo que está "
+                     "encendida. No te lo doy por hecho. Vuelve a pedírmelo o apágala con "
+                     "el mando."}
+
+
 async def _tv_power_on(ctx, tv: dict) -> dict:
     """ENCENDER es encender, nunca un interruptor. Se mira primero si la TV está viva:
 
@@ -788,6 +939,9 @@ async def _tv_power_on(ctx, tv: dict) -> dict:
     if mac and not tv.get("mac"):
         tv = dict(tv, mac=mac)
         _save_tv(ctx, dict(tv, is_tv=True))
+    # La IP guardada caduca por DHCP: se re-resuelve desde la MAC antes de actuar.
+    ip = await _tv_ip_actual(ctx, dict(tv, ip=ip, mac=mac))
+    tv = dict(tv, ip=ip)
 
     viva = await _tv_esta_viva(ip)
 
@@ -832,15 +986,23 @@ async def _tv_power_on(ctx, tv: dict) -> dict:
                                   "orden directa han respondido. Revisa su MAC en ⚙."}
 
 
+# Resultado de mandar una tecla a una TV. Es «la orden salió y no la rechazó»,
+# NO «la TV hizo lo que le pedí»: para saber eso hay que leerle el estado después.
+ENVIADO = "enviado"
+
+
 # ---------------------------------------------------------------- Roku (ECP)
-async def _roku(ip: str, path: str) -> bool:
+async def _roku(ip: str, path: str) -> str:
+    """Manda una orden ECP a una Roku. Devuelve ENVIADO si la TV aceptó la
+    petición y '' si no. ENVIADO no es «obedecido»: solo dice que la orden salió
+    y la TV no la rechazó. Quien necesite saber el resultado tiene que mirarlo."""
     import httpx
     try:
         async with httpx.AsyncClient(timeout=2.5) as cli:
             r = await cli.post(f"http://{ip}:8060/{path}")
-            return r.status_code < 400
+            return ENVIADO if r.status_code < 400 else ""
     except Exception:
-        return False
+        return ""
 
 
 _ROKU_APPS = {"netflix": "12", "youtube": "837", "prime": "13", "prime video": "13",
@@ -849,18 +1011,22 @@ _ROKU_APPS = {"netflix": "12", "youtube": "837", "prime": "13", "prime video": "
 
 
 # ---------------------------------------------------------------- Samsung Tizen
-async def _samsung(ctx, ip: str, key: str, tvid: str = "") -> bool:
+async def _samsung(ctx, ip: str, key: str, tvid: str = "") -> str:
     """Envía una tecla a una Samsung moderna (Tizen) por WebSocket. La primera vez la TV
     muestra un aviso para permitir el control; el token se guarda para no repetir. El
     token va POR TV (clave = su MAC/IP): con dos Samsung en casa, cada una tiene el suyo
-    y no se pisan."""
+    y no se pisan.
+
+    Devuelve ENVIADO si la tecla salió por el socket autorizado, '' si no se pudo
+    mandar. ENVIADO no es «obedecido»: Tizen acepta teclas que luego ignora (es
+    justo lo que hace con KEY_POWEROFF). El resultado hay que comprobarlo aparte."""
     try:
         import base64
         import json
         import ssl
         import websockets
     except Exception:
-        return False
+        return ""
     _id = re.sub(r"[^0-9a-z]", "", (tvid or ip).lower())
     tok_key = f"samsung_tv_token_{_id}" if _id else "samsung_tv_token"
     token = ctx["settings"].secret(tok_key)
@@ -903,17 +1069,18 @@ async def _samsung(ctx, ip: str, key: str, tvid: str = "") -> bool:
                     if data.get("event") == "ms.channel.connect":
                         await ws.send(payload)
                         await asyncio.sleep(0.3)
-                        return True
+                        return ENVIADO
         except Exception:
             continue
-    return False
+    return ""
 
 
-async def _tv_key(ctx, tv: dict, roku_path: str, samsung_key: str) -> bool:
+async def _tv_key(ctx, tv: dict, roku_path: str, samsung_key: str) -> str:
+    """Manda una tecla a la TV. Devuelve ENVIADO o '' — nunca «obedecido»."""
     brand = (tv.get("brand") or "").lower()
     ip = tv.get("ip", "")
     if not ip:
-        return False
+        return ""
     tvid = tv.get("mac") or ip or ""     # token de Samsung POR TV (no global)
     if brand == "roku":
         return await _roku(ip, roku_path)
@@ -1280,9 +1447,21 @@ def _resolve_named_device(ctx, text: str):
 
 
 def _is_tv_device(d: dict) -> bool:
-    blob = (str(d.get("brand", "")) + " " + str(d.get("name", ""))
-            + " " + str(d.get("kind", "")) + " " + str(d.get("type", ""))).lower()
-    return bool(d.get("is_tv")) or d.get("kind") == "tv" or "tv" in blob or "tele" in blob
+    """¿Es una TV? Manda lo que dice la CONFIGURACIÓN, por este orden:
+
+      1. el flag explícito `is_tv` (si está, se respeta tal cual, también en False),
+      2. el tipo declarado (`kind`/`type`),
+      3. y solo si no hay nada de eso, se adivina por la marca o el nombre.
+
+    Adivinar por el nombre es el último recurso: una TV a la que le pusiste el
+    nombre de su cuarto no lleva «tv» dentro y se quedaba fuera del apagado."""
+    if "is_tv" in d:
+        return bool(d.get("is_tv"))
+    kind = str(d.get("kind") or d.get("type") or "").strip().lower()
+    if kind:
+        return "tv" in kind or "tele" in kind
+    blob = (str(d.get("brand", "")) + " " + str(d.get("name", ""))).lower()
+    return "tv" in blob or "tele" in blob
 
 
 def _wants_on(t: str) -> bool:
@@ -1299,12 +1478,7 @@ async def _power_named_device(ctx, d: dict, on: bool) -> dict:
               "mac": d.get("mac", ""), "is_tv": True}
         if on:
             return await _tv_power_on(ctx, tv)
-        # KEY_POWEROFF (apagar), nunca KEY_POWER (interruptor): «apaga la tele» no
-        # puede acabar encendiéndola.
-        ok = await _tv_key(ctx, tv, "keypress/PowerOff", "KEY_POWEROFF")
-        if ok:
-            _save_estado(ctx, tv, False)
-        return {"reply": f"Apagando {name}." if ok else _tv_fail(tv)}
+        return await _tv_apagar(ctx, tv)
     # entidad de Home Assistant guardada (my_devices con entity_id)
     eid = d.get("entity_id", "")
     if eid:
@@ -1418,8 +1592,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return await _tv_power_on(ctx, tv)
 
         if intent == "tv_off":
-            ok = await _tv_key(ctx, tv, "keypress/PowerOff", "KEY_POWEROFF")
-            return {"reply": f"Apagando {name}." if ok else _tv_fail(tv)}
+            return await _tv_apagar(ctx, tv)
 
         if intent == "tv_mute":
             ok = await _tv_key(ctx, tv, "keypress/VolumeMute", "KEY_MUTE")
@@ -1711,10 +1884,13 @@ async def scan_api(ctx) -> dict:
                        "controllable": sum(1 for d in out if d.get("controllable"))}}
 
 
-# KEY_POWERON / KEY_POWEROFF son órdenes ABSOLUTAS; KEY_POWER es un interruptor
-# (toggle) y por eso está prohibido aquí: si pone «apagar», se apaga y punto.
+# Teclas de apagado, por marca. Roku tiene una orden absoluta (PowerOff) y la
+# obedece. Tizen acepta KEY_POWEROFF y NO apaga: la única que apaga es KEY_POWER,
+# que es un INTERRUPTOR y sobre una TV en reposo la enciende. Por eso la entrada
+# «off» SOLO se usa desde `_tv_apagar`, y solo cuando la TV ha confirmado que
+# está encendida.
 _TV_KEYMAP = {
-    "off": ("keypress/PowerOff", "KEY_POWEROFF"),
+    "off": ("keypress/PowerOff", "KEY_POWER"),
     "mute": ("keypress/VolumeMute", "KEY_MUTE"),
     "vol_up": ("keypress/VolumeUp", "KEY_VOLUP"),
     "vol_down": ("keypress/VolumeDown", "KEY_VOLDOWN"),
@@ -1722,6 +1898,10 @@ _TV_KEYMAP = {
     "ch_down": ("keypress/ChannelDown", "KEY_CHDOWN"),
     "pair": ("keypress/Home", "KEY_HOME"),   # provoca el aviso de permiso en Samsung
 }
+# La que se manda cuando NO se sabe si la TV está encendida o en reposo. Puede
+# que no apague —Tizen la acepta y la ignora—, pero no puede encender nada, que
+# es lo que la hace utilizable a ciegas.
+_TECLA_APAGADO_SEGURA = ("keypress/PowerOff", "KEY_POWEROFF")
 _TV_VERB = {"off": "Apagando", "mute": "Silenciando", "vol_up": "Subiendo el volumen",
             "vol_down": "Bajando el volumen", "ch_up": "Canal siguiente",
             "ch_down": "Canal anterior"}
@@ -1773,6 +1953,10 @@ async def control_api(ctx, payload: dict) -> dict:
         name = tv["name"]
         if action == "on":
             return await _tv_power_on(ctx, tv)
+        # Apagar NO pasa por el mapa de teclas a pelo: hay que leer el estado antes
+        # (el interruptor solo es seguro sabiéndolo) y comprobarlo después.
+        if action == "off":
+            return await _tv_apagar(ctx, tv)
         if action in _TV_KEYMAP:
             rp, sk = _TV_KEYMAP[action]
             ok = await _tv_key(ctx, tv, rp, sk)
@@ -1784,9 +1968,7 @@ async def control_api(ctx, payload: dict) -> dict:
                 return {"ok": False, "reply": f"Estoy conectando con {name}: ACEPTA el aviso de "
                         "permiso que sale en la pantalla de la TV (la primera vez). Si no aparece, "
                         "enciéndela y vuelve a pulsar Conectar."}
-            if ok and action in ("on", "off"):
-                _save_estado(ctx, tv, action == "on")
-            return {"ok": ok, "state": ("off" if action == "off" else None),
+            return {"ok": bool(ok), "state": None,
                     "reply": f"{_TV_VERB[action]} en {name}." if ok else _tv_fail(tv)}
         return {"ok": False, "reply": "Acción de TV no reconocida."}
 

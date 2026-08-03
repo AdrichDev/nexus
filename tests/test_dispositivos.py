@@ -73,16 +73,38 @@ def _ctx(known=None):
 
 # ══════════════ 1. Nunca un toggle ══════════════
 
-def test_las_teclas_son_absolutas_no_interruptores():
-    m = _skill()
-    check(m._TV_KEYMAP["off"][1] == "KEY_POWEROFF",
-          f"apagar manda KEY_POWEROFF, no el interruptor ({m._TV_KEYMAP['off'][1]})")
+def test_encender_es_una_orden_absoluta():
+    """ENCENDER nunca puede ser un interruptor: no hay estado que lo haga seguro
+    (la TV dormida no contesta), así que solo vale la tecla absoluta."""
     src = (ROOT / "skills" / "domotica" / "skill.py").read_text(encoding="utf-8")
-    # KEY_POWER a secas no puede aparecer como orden de encendido/apagado
-    usos = re.findall(r'"(KEY_POWER)"', src)
-    check(not usos, f"no queda ninguna orden con el interruptor KEY_POWER ({len(usos)})")
     check('"KEY_POWERON"' in src, "encender usa KEY_POWERON")
-    check('"KEY_POWEROFF"' in src, "apagar usa KEY_POWEROFF")
+    i_on = src.find("async def _tv_power_on")
+    bloque = src[i_on:src.find("\nasync def", i_on + 10)]
+    check('"KEY_POWER"' not in bloque,
+          "encender no puede usar el interruptor KEY_POWER")
+
+
+def test_apagar_usa_el_interruptor_solo_tras_leer_el_estado():
+    """Medido contra dos Tizen: KEY_POWEROFF se acepta y la TV NO se apaga; la que
+    apaga es KEY_POWER, que es un interruptor. Usarlo es seguro SOLO con el estado
+    confirmado «encendida»: no basta con descartar «apagada», porque hay un tercer
+    estado —responde pero no dice cuál— que también puede ser reposo."""
+    m = _skill()
+    check(m._TV_KEYMAP["off"][1] == "KEY_POWER",
+          f"apagar manda KEY_POWER, que es la que Tizen obedece ({m._TV_KEYMAP['off'][1]})")
+    check(m._TECLA_APAGADO_SEGURA[1] == "KEY_POWEROFF",
+          f"y hay una tecla absoluta para cuando no se sabe el estado "
+          f"({m._TECLA_APAGADO_SEGURA[1]})")
+    src = (ROOT / "skills" / "domotica" / "skill.py").read_text(encoding="utf-8")
+    # el interruptor solo se toca desde el camino que ANTES lee el estado
+    i_ap = src.find("async def _tv_apagar")
+    bloque = src[i_ap:src.find("\nasync def", i_ap + 10)]
+    check("_tv_estado(ip)" in bloque, "apagar lee el estado antes de pulsar")
+    check('antes == "off"' in bloque, "y si ya está apagada no pulsa el interruptor")
+    check('antes != "on"' in bloque,
+          "y si el estado no está confirmado tampoco: ahí va la tecla absoluta")
+    check(src.count('_TV_KEYMAP["off"]') == 1,
+          "la tecla de apagado solo se usa desde ese camino comprobado")
 
 
 def test_encender_una_tv_dormida_no_manda_tecla():
@@ -166,21 +188,149 @@ def test_el_estado_se_persiste():
     check(len(ctx["settings"]["known_devices"]) == 1, "sin duplicar el aparato")
 
 
-def test_apagar_devuelve_estado():
+def _apagado(estados, teclas=None, guardado=None):
+    """Prepara el módulo para probar `_tv_apagar` sin tocar la red. `estados` es la
+    secuencia que irá devolviendo la lectura de estado (antes, después…)."""
     m = _skill()
+    m._ESPERA_APAGADO = 0
     m._save_tv = lambda ctx, tv: None
-    guardado = []
-    m._save_estado = lambda ctx, tv, on: guardado.append(on)
     m._mac_for_ip = lambda ip: ""
+    m._save_estado = lambda ctx, tv, on: (guardado if guardado is not None else []).append(on)
+    secuencia = list(estados)
+
+    async def _ip(ctx, tv):
+        return tv.get("ip", "")
+
+    async def _estado(ip):
+        return secuencia.pop(0) if secuencia else "off"
 
     async def _key(ctx, tv, roku, samsung):
-        return True
-    m._tv_key = _key
+        if teclas is not None:
+            teclas.append(samsung)
+        return m.ENVIADO
+    m._tv_ip_actual, m._tv_estado, m._tv_key = _ip, _estado, _key
+    return m
+
+
+def test_apagar_devuelve_estado():
+    guardado, teclas = [], []
+    m = _apagado(["on", "off"], teclas, guardado)
     r = asyncio.run(m.control_api(_ctx(), {"kind": "tv", "action": "off",
                                            "ip": "192.168.1.50", "brand": "samsung",
                                            "name": "TV"}))
     check(r["ok"] and r.get("state") == "off", f"apagar devuelve el estado ({r})")
     check(guardado == [False], "y lo persiste")
+    check(teclas == ["KEY_POWER"], f"pulsando la tecla que Tizen obedece ({teclas})")
+
+
+def test_apagar_lo_ya_apagado_no_pulsa_nada():
+    """El interruptor sobre una TV apagada la ENCENDERÍA. Por eso «apagar» es
+    idempotente: si el estado ya es apagado, no se manda ninguna tecla."""
+    guardado, teclas = [], []
+    m = _apagado(["off"], teclas, guardado)
+    r = asyncio.run(m._tv_apagar(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
+                                          "name": "TV"}))
+    check(teclas == [], f"a una TV ya apagada no se le pulsa nada ({teclas})")
+    check(r["ok"] and r.get("state") == "off", f"y se informa de que está apagada ({r})")
+    check("ya estaba apagada" in r["reply"], f"diciendo la verdad ({r['reply']})")
+
+
+def test_apagar_no_afirma_lo_que_no_ha_comprobado():
+    """Mandar la orden no es que la TV obedezca: si al comprobarlo sigue encendida,
+    ni se dice «apagada» ni se persiste ese estado."""
+    guardado, teclas = [], []
+    m = _apagado(["on", "on"], teclas, guardado)
+    r = asyncio.run(m._tv_apagar(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
+                                          "name": "TV"}))
+    check(teclas == ["KEY_POWER"], "se manda la orden")
+    check(not r["ok"], f"pero no se da por buena ({r})")
+    check("sigue diciendo que está encendida" in r["reply"],
+          f"y se dice lo que pasa de verdad ({r['reply']})")
+    check(guardado == [], f"sin persistir un apagado que no ha ocurrido ({guardado})")
+
+
+def test_apagar_avisa_cuando_no_puede_confirmarlo():
+    """Los modelos que no publican PowerState siguen respondiendo en reposo: ahí no
+    se puede confirmar el apagado, y hay que decirlo en vez de mentir."""
+    guardado, teclas = [], []
+    m = _apagado(["on?", "on?"], teclas, guardado)
+    r = asyncio.run(m._tv_apagar(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
+                                          "name": "TV"}))
+    check(r.get("state") is None, f"no se inventa un estado ({r})")
+    check("no puedo confirmarte" in r["reply"], f"y se avisa de que no consta ({r['reply']})")
+    check(guardado == [], "ni se persiste nada sin confirmar")
+    check(teclas == ["KEY_POWEROFF"],
+          f"y a ciegas se manda la absoluta, nunca el interruptor ({teclas})")
+
+
+def test_apagar_a_ciegas_no_pulsa_el_interruptor():
+    """EL FALLO QUE ESTE TEST GUARDA: «responde en la red» no es «está encendida».
+    Un modelo que no publica su estado responde igual en reposo, así que pulsar
+    ahí el interruptor no apaga: ENCIENDE la tele. La orden era apagarla."""
+    guardado, teclas = [], []
+    m = _apagado(["on?", "on?"], teclas, guardado)
+    r = asyncio.run(m._tv_apagar(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
+                                          "name": "TV"}))
+    check("KEY_POWER" not in teclas,
+          f"«apagar» sin estado confirmado NO pulsa el interruptor ({teclas})")
+    check(teclas == ["KEY_POWEROFF"],
+          f"manda la tecla absoluta, que no puede encender nada ({teclas})")
+    check(not r["ok"], f"y no se da por bueno lo que no se ha podido comprobar ({r})")
+    check("podría encenderla" in r["reply"],
+          f"diciendo por qué no se ha usado el interruptor ({r['reply']})")
+    check(guardado == [], "sin persistir ningún estado")
+
+
+def test_mandar_una_tecla_no_es_que_la_tv_obedezca():
+    """`_samsung`/`_roku` devolvían True tras enviar por el socket: eso es «salió»,
+    no «la TV hizo caso». Tizen acepta teclas que luego ignora."""
+    m = _skill()
+    src = (ROOT / "skills" / "domotica" / "skill.py").read_text(encoding="utf-8")
+    check(m.ENVIADO and m.ENVIADO is not True,
+          "hay un valor propio para «enviado» distinto de «hecho»")
+    for fn in ("_samsung", "_roku", "_tv_key"):
+        i = src.find(f"async def {fn}(")
+        bloque = src[i:src.find("\nasync def", i + 10)]
+        check("return True" not in bloque,
+              f"{fn} ya no devuelve True: enviar no es obedecer")
+    i_ap = src.find("async def _tv_apagar")
+    check("await _tv_estado(ip)" in src[i_ap:src.find("\nasync def", i_ap + 10)],
+          "quien apaga comprueba el resultado leyendo el estado")
+
+
+def test_la_ip_caducada_se_resuelve_desde_la_mac():
+    """La IP la reparte el router y caduca; la MAC no. Si la guardada no contesta,
+    se busca la MAC en la tabla ARP y se ACTUALIZA la configuración."""
+    m = _skill()
+    m._tv_esta_viva = lambda ip, timeout=1.2: asyncio.sleep(0, result=False)
+    m._ip_for_mac = lambda mac: "192.168.1.77"
+    ctx = _ctx([{"name": "TV", "ip": "192.168.1.50", "mac": "AA:BB:CC:DD:EE:FF",
+                 "is_tv": True}])
+    ip = asyncio.run(m._tv_ip_actual(ctx, {"ip": "192.168.1.50",
+                                           "mac": "AA:BB:CC:DD:EE:FF"}))
+    check(ip == "192.168.1.77", f"se actúa contra la IP viva, no la caducada ({ip})")
+    check(ctx["settings"]["known_devices"][0]["ip"] == "192.168.1.77",
+          "y la nueva queda guardada para la próxima orden")
+
+    # sin MAC no hay de dónde sacarla: se dice, no se inventa
+    m._ip_for_mac = lambda mac: ""
+    ip2 = asyncio.run(m._tv_ip_actual(_ctx(), {"ip": "192.168.1.50", "mac": ""}))
+    check(ip2 == "192.168.1.50", f"sin MAC se queda con lo único que tiene ({ip2})")
+
+
+def test_que_algo_sea_tv_lo_dice_la_configuracion_no_su_nombre():
+    """Una TV con el nombre de su cuarto no lleva «tv» dentro: adivinarlo por el
+    nombre la dejaba fuera de la ruta de apagado."""
+    m = _skill()
+    check(m._is_tv_device({"name": "Cuarto de arriba", "is_tv": True}),
+          "el flag explícito manda aunque el nombre no diga «tv»")
+    check(not m._is_tv_device({"name": "TV del salón", "is_tv": False}),
+          "y si la configuración dice que NO es una TV, se respeta")
+    check(m._is_tv_device({"name": "Cuarto de arriba", "kind": "tv"}),
+          "el tipo declarado también vale")
+    check(m._is_tv_device({"name": "TV del salón"}),
+          "adivinar por el nombre sigue estando, como último recurso")
+    check(not m._is_tv_device({"name": "Impresora"}), "y no marca lo que no lo es")
 
 
 def test_home_assistant_tambien_devuelve_estado():
@@ -345,11 +495,19 @@ def test_ollama_usa_el_modelo_de_la_peticion():
 
 
 if __name__ == "__main__":
-    tests = [test_las_teclas_son_absolutas_no_interruptores,
+    tests = [test_encender_es_una_orden_absoluta,
+             test_apagar_usa_el_interruptor_solo_tras_leer_el_estado,
              test_encender_una_tv_dormida_no_manda_tecla,
              test_encender_una_tv_viva_manda_encender,
              test_encender_dos_veces_no_la_apaga,
              test_el_estado_se_persiste, test_apagar_devuelve_estado,
+             test_apagar_lo_ya_apagado_no_pulsa_nada,
+             test_apagar_no_afirma_lo_que_no_ha_comprobado,
+             test_apagar_avisa_cuando_no_puede_confirmarlo,
+             test_apagar_a_ciegas_no_pulsa_el_interruptor,
+             test_mandar_una_tecla_no_es_que_la_tv_obedezca,
+             test_la_ip_caducada_se_resuelve_desde_la_mac,
+             test_que_algo_sea_tv_lo_dice_la_configuracion_no_su_nombre,
              test_home_assistant_tambien_devuelve_estado,
              test_el_hud_usa_el_estado_del_backend,
              test_ollama_no_acusa_sin_comprobar,

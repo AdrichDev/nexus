@@ -404,13 +404,22 @@ def test_lo_que_el_skill_md_dice_que_necesita_es_lo_que_lee_el_codigo():
               f"el SKILL.md promete controlar el dominio «{dominio}» de HA y no está")
 
 
-def test_apagar_nunca_usa_la_tecla_interruptor():
-    """KEY_POWER es un toggle: «apaga la tele» con la tele apagada la encendería.
-    El SKILL.md promete apagar, no cambiar de estado."""
-    check("KEY_POWER\"" not in SRC and "KEY_POWER'" not in SRC,
-          "se usa KEY_POWER (interruptor) en vez de KEY_POWEROFF/KEY_POWERON")
-    check("KEY_POWEROFF" in SRC and "KEY_POWERON" in SRC,
-          "faltan las teclas absolutas de apagar/encender")
+def test_apagar_nunca_puede_acabar_encendiendo():
+    """El SKILL.md promete apagar, no cambiar de estado. En Tizen la única tecla
+    que apaga es el interruptor KEY_POWER, así que «apagar» tiene que leer el
+    estado antes y pulsarlo SOLO con «encendida» confirmada: descartar «apagada»
+    no basta, porque queda un estado intermedio que también puede ser reposo."""
+    check('"KEY_POWERON"' in SRC, "encender sigue siendo una orden absoluta")
+    i = SRC.find("async def _tv_apagar")
+    check(i > 0, "existe un camino de apagado propio, no una tecla suelta")
+    bloque = SRC[i:SRC.find("\nasync def", i + 10)]
+    check("_tv_estado(ip)" in bloque and 'antes == "off"' in bloque,
+          "apagar lee el estado antes y no pulsa si ya está apagada")
+    check('antes != "on"' in bloque and "_TECLA_APAGADO_SEGURA" in bloque,
+          "y sin confirmación de que está encendida manda la tecla que no enciende")
+    # y ninguna ruta de apagado manda la tecla a pelo, saltándose la comprobación
+    check(SRC.count('"KEY_POWER"') == 1,
+          "el interruptor solo aparece en el mapa de teclas, no suelto por el código")
 
 
 # ================= 7. COMPORTAMIENTO CON DOBLES (sin tocar nada) ============
@@ -465,10 +474,14 @@ def test_el_wake_on_lan_prefiere_la_mac_configurada_a_mano():
 
 
 def test_apagar_una_TV_que_no_contesta_no_dice_que_la_ha_apagado():
+    """La TV está encendida pero no acepta la orden: ni se dice que se ha apagado
+    ni se calla con quién se ha intentado."""
     with _Parche(_resolve_tv=_corutina({"name": "TV", "ip": "10.0.0.9", "brand": "roku"}),
-                 _tv_key=_corutina(False)):
+                 _tv_ip_actual=_corutina("10.0.0.9"),
+                 _tv_estado=_corutina("on"),
+                 _tv_key=_corutina("")):
         txt = _corre("tv_off", "apaga la tele", _ctx())["reply"]
-    check("Apagando" not in txt, "dice que apaga una TV que no ha respondido")
+    check("apagada" not in txt.lower(), "dice que apaga una TV que no ha respondido")
     check("10.0.0.9" in txt, "no dice con qué aparato lo ha intentado")
 
 
