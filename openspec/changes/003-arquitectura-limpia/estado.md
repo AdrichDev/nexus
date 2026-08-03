@@ -306,6 +306,29 @@ lo correcto — un lector que aceptase eso sería el defecto.
 **La suite entera queda en verde**, 21 bloques sin un fallo. Antes de dar un
 fallo por preexistente, conviene comprobar que el material de prueba es válido.
 
+### Lo que salió de usarlo de verdad (03/08, tarde)
+
+Adrián probó todo en el chat y mandó la conversación entera. Nueve fallos, y
+ninguno lo habrían visto los tests:
+
+- **Actuaba sobre la TV equivocada.** `_resolve_tv` no recibía la frase:
+  devolvía la primera de la lista. «La de la habitación» encendía la del salón.
+- **La de la habitación no se apagaba.** No publica `PowerState`, así que nunca
+  se confirmaba «encendida» y nunca se usaba la única tecla que la apaga. La
+  señal que faltaba la da **UPnP `GetMute` en el 9197**: 0 encendida, 1 en
+  reposo. Medido con verdad conocida.
+- **Hablaba de más.** Cuatro líneas para preguntar cuál de dos televisiones.
+- **No se acordaba.** Le decías cuál, y a la orden siguiente volvía a preguntar.
+- **«quítale el silencio» volvía a silenciar**, y la cadena decía ✔ sin hacer nada.
+- **No callaba al escribir**, solo al pulsar el botón de hablar.
+- **Los títulos guardaban la paja** («que dure del miércoles hasta que sea…»).
+- **Los eventos de varios días no existían.**
+- **No se podía borrar en el calendario por fecha**, y borraba sin preguntar.
+
+**La lección**: todo esto pasó los tests. Lo cazó usarlo. Y varias respuestas
+largas las había escrito yo el mismo día «por honestidad»: explicar el mecanismo
+no es ser honesto, es no callarse.
+
 ## Dudas y pendientes anotados, no tocados
 
 - **«dámelas»** a secas no llega a ningún sitio. El pronombre enclítico sin
