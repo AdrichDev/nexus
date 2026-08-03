@@ -139,6 +139,10 @@ diagnostico.txt
 #   .atl/                  NO: registro de skills, se regenera solo.
 #   .tokensave/            NO: base de datos SQLite de ~15 MB. Un commit con
 #                          esto dentro es un problema serio de peso.
+#   .codegraph/            NO, por lo mismo: indice SQLite de ~19 MB que se
+#                          reconstruye solo. Trae su propio .gitignore dentro,
+#                          asi que ya no se colaba nada, pero salia como
+#                          carpeta sin seguimiento en cada «git status».
 .claude/*
 !.claude/settings.json
 !.claude/skills/
@@ -146,6 +150,7 @@ diagnostico.txt
 .claude/*.local.json
 .atl/
 .tokensave/
+.codegraph/
 *.db-shm
 *.db-wal
 
