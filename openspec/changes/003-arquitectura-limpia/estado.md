@@ -266,6 +266,36 @@ Y apagar la tele podía **tardar medio minuto**: sondeos en serie, uno duplicado
 y ninguno con tope. Ahora los puertos se prueban a la vez, la sonda duplicada no
 está y hay un límite total contado desde que entra la orden.
 
+### nexus arrancaba con el Python equivocado
+
+Lo más importante del día, y salió por casualidad. El volumen respondía «falta
+pycaw» con pycaw instalado. El proceso que escuchaba en el 8177 era
+`C:\Python314\python.exe`: **el Python del sistema, no el 3.12 del `.venv`**.
+
+El `activate.bat` de un venv guarda la ruta **absoluta** con la que se creó, y
+el nuestro sigue diciendo `D:\Adrian\22. Proyectos\WBKS\WABIKS\.venv` — el
+nombre viejo del proyecto. Esa carpeta no existe, la activación falla, `PATH` se
+llena con un directorio inexistente y `python` cae al del sistema.
+
+**Por qué nadie lo notó:** el Python del sistema tiene `fastapi` y `uvicorn`
+instalados, así que nexus arrancaba sin quejarse. Lo que declara
+`requirements.txt` no era lo que corría, y cualquier dependencia nueva tenía el
+mismo destino.
+
+`run.bat` ya no depende de la activación: fija la ruta del ejecutable del venv y
+la usa para arrancar y para cada `pip`.
+
+Para diagnosticarlo, el comando que lo destapó:
+
+```
+netstat -ano | findstr ":8177 " | findstr LISTENING
+Get-CimInstance Win32_Process -Filter 'ProcessId = <PID>' | Select ExecutablePath
+```
+
+Y al probar: **`python tests/run_all.py` usa el Python del sistema**. Para las
+suites que dependen de las dependencias del proyecto hay que lanzar
+`.venv\Scripts\python.exe tests\run_all.py`.
+
 ### El único test rojo del repo no era del código
 
 `test_ingesta_documentos` llevaba días acusando al buzón de rechazar los `.pdf`.
@@ -283,6 +313,10 @@ fallo por preexistente, conviene comprobar que el material de prueba es válido.
 - **La voz del frontend** (ver arriba): el bloque que falta por extraer, y el
   modal de configuración que depende de él.
 - **Trasladar `core/` a subcarpetas**: la regla está, el movimiento no.
+- **El `.venv` sigue caducado por dentro**: los `.exe` de `Scripts` (`pip`,
+  `bottle`…) llevan la ruta vieja embebida igual que el `activate.bat`.
+  `run.bat` ya es inmune, pero la limpieza de fondo es recrearlo — la subrutina
+  `:recreate_venv` está ahí, y reinstala todo desde `requirements.txt`.
 - **El HUD pinta encendida una TV en estado ambiguo**: al no poder confirmar el
   apagado no se persiste «apagada». Deliberado: no dar por hecho lo que no se ha
   comprobado es justo lo que se arregló.
