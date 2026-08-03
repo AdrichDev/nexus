@@ -398,6 +398,34 @@ with _Parche(_porque_no_pycaw=lambda: "", _sesiones_audio=lambda: [],
           f"no distingue una aplicación cerrada de una abierta y callada: {_txt}")
 
 
+# ============ 12) AL PARTIR UNA FRASE, EL DESTINO NO SE PIERDE =============
+print("== 12) «abre spotify y bájale el volumen»: la 2ª parte no se queda huérfana ==")
+
+# Visto usando nexus: «abre spotify y bájale el volumen al 25%» se parte en dos
+# órdenes, y la segunda llega sin destino. Preguntar «¿a quién?» es correcto en
+# aislado, pero acababas de decirlo en la primera parte. Ya existía el mismo
+# arreglo para la música (`_carry_music_service`); faltaba para el volumen.
+from backend.core import brain as _brain                                # noqa: E402
+
+for _partes, _esperado in (
+        (["abre spotify", "bájale el volumen al 25%"], "spotify"),
+        (["silencia el pc", "quítale el silencio"], "pc"),
+        (["pon el volumen del pc al 30", "sube el volumen"], "pc")):
+    _res = _brain._carry_volume_target(list(_partes))
+    check(_esperado in _res[1].lower(),
+          f"«{_partes[1]}» debía heredar el destino «{_esperado}» y quedó «{_res[1]}»")
+    check(_ruta(_res[1]) in ("system_pc/volume", "system_pc/volume_app"),
+          f"la parte con el destino heredado no enruta: «{_res[1]}» → {_ruta(_res[1])}")
+
+# Y no se inventa un destino donde no lo hay: sin sujeto, la parte se queda igual
+# y la skill preguntará, que es lo correcto.
+for _partes in (["abre spotify", "pon música"],
+                ["cuántos correos tengo", "dime la agenda"],
+                ["abre la calculadora", "qué hora es"]):
+    check(_brain._carry_volume_target(list(_partes)) == _partes,
+          f"ha tocado partes que no son de volumen: {_partes}")
+
+
 print(f"\n{'#' * 54}\ntest_volumen_destino: {_pass} OK, {len(_fail)} fallos")
 for m in _fail:
     print("  -", m)

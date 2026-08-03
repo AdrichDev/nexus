@@ -199,6 +199,48 @@ def _carry_music_service(parts: list[str]) -> list[str]:
 
 # Cache del estado de la DB (pg.online reconecta —bloqueante— si la DB está caída;
 # sin esto cada mensaje pagaba ~2s×2). Se revalida en un hilo cada 30 s.
+# Al partir «abre spotify Y bájale el volumen al 25%», la 2ª parte se queda sin
+# destino: llega a nexus como «bájale el volumen al 25%» y, con buen criterio, la
+# skill de volumen PREGUNTA a quién. Pero acabas de decirlo en la primera parte.
+# Mismo problema que la música de arriba, y misma solución: propagar el sujeto.
+_ABRIR_APP_RX = re.compile(
+    r"\b(?:abre(?:me)?|[aá]brelo|lanza(?:me)?|arranca(?:me)?|inicia(?:me)?|"
+    r"ejecuta(?:me)?|pon\s+en\s+marcha)\s+(?:el\s+|la\s+|mi\s+)?(?P<app>[\w.\-]{2,})",
+    re.IGNORECASE)
+
+
+def _carry_volume_target(parts: list[str]) -> list[str]:
+    """Propaga la aplicación que abre una parte a las partes de volumen que no
+    dicen sobre qué actuar.
+
+    La frase resultante NO se da por buena: se comprueba enrutándola. Si con el
+    sujeto añadido sigue sin llegar a la skill de volumen de aplicación, se deja
+    la parte como estaba y que pregunte, que es mejor que inventarse una orden."""
+    def _destino_de(p):
+        r = route(p)
+        return (r[0].folder, r[1]) if r else (None, None)
+
+    app = next((m.group("app") for p in parts if (m := _ABRIR_APP_RX.search(p))), "")
+    # «silencia el pc y quítale el silencio»: el destino también estaba dicho, solo
+    # que en la otra parte. Se detecta por dónde enruta, no por palabras sueltas.
+    hay_pc = any(_destino_de(p) == ("system_pc", "volume") for p in parts)
+    if not app and not hay_pc:
+        return parts
+
+    out = []
+    for p in parts:
+        if _destino_de(p) == ("system_pc", "volume_ask"):
+            base = p.rstrip(" .,")
+            candidatas = ([f"{base} de {app}", f"{base} {app}"] if app else []) \
+                + ([f"{base} del pc"] if hay_pc else [])
+            for candidata in candidatas:
+                if _destino_de(candidata)[1] in ("volume_app", "volume"):
+                    p = candidata
+                    break
+        out.append(p)
+    return out
+
+
 _pg_cache = {"v": None, "t": 0.0}
 
 
@@ -835,6 +877,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         parts = _split_orders(text)
         if len(parts) >= 2 and sum(route(p) is not None for p in parts) >= 2:
             parts = _carry_music_service(parts)   # «abre spotify y pon música» → …«en spotify»
+            parts = _carry_volume_target(parts)   # «abre spotify y bájale el volumen» → …«de spotify»
             await bus.emit("log", {"level": "info",
                                    "msg": f"🧩 Varias órdenes en una: {len(parts)} tareas"})
             replies, subskills = [], []
