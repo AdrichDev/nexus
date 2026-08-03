@@ -58,8 +58,13 @@ CSS = (ROOT / "frontend" / "css" / "command.css").read_text(encoding="utf-8")
 print("== 1) Ctrl + rueda acerca y aleja ==")
 
 check("addEventListener('wheel'" in JS, "la vista no escucha la rueda del ratón")
-check("e.ctrlKey" in JS,
-      "el zoom no exige Ctrl: la rueda a secas tiene que seguir moviendo la página")
+# La rueda a secas TAMBIÉN hace zoom, que es lo que hace Obsidian. Se podía
+# exigir Ctrl mientras la pantalla scrolleaba; ahora el panel ocupa el alto y no
+# scrollea, así que la rueda no le hace falta a la página.
+check("e.preventDefault()" in JS and "'wheel'" in JS,
+      "la rueda no hace zoom sobre el grafo")
+check("Ctrl + rueda" in SPA,
+      "la ayuda ya no menciona Ctrl + rueda, que es lo que se pidió y sigue valiendo")
 check("passive: false" in JS,
       "sin passive:false el navegador ignora el preventDefault y la página hace zoom ella")
 check("e.preventDefault()" in JS, "el zoom no evita el comportamiento por defecto")
@@ -152,7 +157,41 @@ check(re.search(r"\.kn-folder\.plegada[^{]*\{[^}]*display:none", CSS) is not Non
 check("kn-raiz" in JS and ".kn-raiz" in CSS,
       "no hay nodo raíz en el árbol: tiene que salir el sistema y de él las carpetas")
 
-print("== 8) el grafo real trae carpetas y enlaces de hermanas ==")
+print("== 8) el grafo se mueve como el de Obsidian ==")
+
+# Adrián: «lo siento muy estático, quiero un funcionamiento literalmente
+# idéntico al de Obsidian». Lo era: los nodos se colocaban en anillos calculados
+# y ahí se quedaban; al arrastrar uno, los demás ni se enteraban. Obsidian usa
+# una simulación de fuerzas continua (el modelo de d3-force) y expone CUATRO
+# palancas, con estos rangos exactos.
+check("function knPaso" in JS, "no hay simulación: el grafo sigue siendo un dibujo fijo")
+check("alphaDecay" in JS and "alphaTarget" in JS,
+      "sin alpha no hay enfriamiento: o tiembla para siempre o no se mueve nunca")
+check("friccion" in JS, "sin rozamiento los nodos oscilan y no se asientan")
+for f, rango in (("centro", (0, 1)), ("repulsion", (0, 20)),
+                 ("enlace", (0, 1)), ("distancia", (30, 500))):
+    check(f in JS, f"falta la fuerza «{f}», que Obsidian sí ajusta")
+    check(f'data-f="{f}"' in SPA, f"la fuerza «{f}» no tiene control en la interfaz")
+check('min="0" max="20"' in SPA and 'min="30" max="500"' in SPA,
+      "los rangos de los controles no son los de Obsidian (repulsión 0-20, distancia 30-500)")
+check("FUERZAS_DEF = { centro: 0.5, repulsion: 10, enlace: 1, distancia: 250 }" in JS,
+      "los valores por defecto no son los de Obsidian (0.5 / 10 / 1 / 250)")
+
+# El gesto de arrastrar es lo que distingue un grafo vivo de un dibujo:
+# se CLAVA el nodo al cursor (fx/fy), se RECALIENTA la simulación, y al soltar
+# se DESCLAVA para que el grafo se recoloque solo.
+check("n.fx = n.x; n.fy = n.y" in JS, "agarrar un nodo no lo clava al cursor")
+check("knAgita" in JS, "arrastrar no recalienta la simulación: los vecinos no reaccionarían")
+check("knDrag.fx = null" in JS,
+      "al soltar el nodo se queda clavado; en Obsidian vuelve a la física")
+check("if (n.fx != null)" in JS,
+      "la simulación no respeta los nodos agarrados y pelearía con el cursor")
+
+# Y el resaltado al pasar el ratón, que es de lo primero que se nota.
+check("mouseenter" in JS and "vecino" in JS,
+      "pasar el ratón no enciende los vecinos ni apaga el resto")
+
+print("== 9) el grafo real trae carpetas y enlaces de hermanas ==")
 
 from backend.core import memory as M                       # noqa: E402
 

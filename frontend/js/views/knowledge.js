@@ -64,6 +64,106 @@ let knView = { z: 1, x: 0, y: 0 };          // zoom y esquina superior izquierda
 let knPan = null;                            // arrastre del fondo
 let knByName = {};                           // nombre de nota → nodo
 
+/* ---------------------------------------------------------------- LA FÍSICA
+   Simulación de fuerzas continua, como la de Obsidian. Antes esto era estático:
+   los nodos se colocaban en anillos calculados y ahí se quedaban; al arrastrar
+   uno, los demás ni se enteraban. Se sentía muerto, y con razón.
+
+   Obsidian usa el modelo clásico de d3-force, y su panel de ajustes expone
+   exactamente cuatro palancas. Aquí están las cuatro, con sus mismos rangos y
+   valores por defecto:
+
+     centro   0–1    (0.5)  cuanto tira el centro. Más alto = grafo más compacto
+     repulsión 0–20  (10)   cuanto se empujan los nodos entre sí
+     enlace   0–1    (1)    la tensión de la goma que une dos nodos
+     distancia 30–500 (250) el largo en reposo de esa goma
+
+   El motor: `alpha` es la energía del sistema. Empieza en 1, decae y el grafo se
+   asienta. Al agarrar un nodo se RECALIENTA (alphaTarget) para que el resto
+   reaccione en vivo, y al soltarlo se deja enfriar otra vez. Eso es lo que hace
+   que se sienta elástico en vez de rígido. */
+const SIM = {
+  alpha: 1, alphaMin: 0.001, alphaTarget: 0,
+  alphaDecay: 1 - Math.pow(0.001, 1 / 300),   // ~300 pasos hasta asentarse
+  friccion: 0.4,                              // velocityDecay de d3
+};
+const FUERZAS_DEF = { centro: 0.5, repulsion: 10, enlace: 1, distancia: 250 };
+let knF = { ...FUERZAS_DEF };
+
+function knCargaFuerzas() {
+  try {
+    const g = JSON.parse(localStorage.getItem('kn_fuerzas') || '{}');
+    knF = { ...FUERZAS_DEF, ...g };
+  } catch { knF = { ...FUERZAS_DEF }; }
+}
+function knGuardaFuerzas() {
+  try { localStorage.setItem('kn_fuerzas', JSON.stringify(knF)); } catch { /* nada */ }
+}
+
+/** Un paso de la simulación. Mueve todos los nodos un poquito. */
+function knPaso(nodes, edges, cx, cy) {
+  // 1) ENFRIAMIENTO. Sin esto el grafo tiembla eternamente.
+  SIM.alpha += (SIM.alphaTarget - SIM.alpha) * SIM.alphaDecay;
+  const a = SIM.alpha;
+
+  // 2) REPULSIÓN entre todos contra todos. Es O(n²), y con las decenas de nodos
+  //    que tiene una memoria personal sobra; d3 usa un quadtree porque piensa en
+  //    miles. La fuerza cae con el cuadrado de la distancia.
+  const rep = -30 * knF.repulsion;
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const A = nodes[i], B = nodes[j];
+      let dx = B.x - A.x, dy = B.y - A.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 === 0) { dx = (Math.random() - 0.5) * 2; dy = (Math.random() - 0.5) * 2; d2 = 1; }
+      // Tope de cerca: sin él, dos nodos pegados salen disparados a la nada.
+      const d = Math.max(Math.sqrt(d2), 12);
+      const f = (rep * a) / (d * d);
+      const ux = dx / d, uy = dy / d;
+      A.vx += ux * f; A.vy += uy * f;
+      B.vx -= ux * f; B.vy -= uy * f;
+    }
+  }
+
+  // 3) ENLACES: cada arista es un muelle que tira hacia su longitud de reposo.
+  //    La fuerza se reparte según los grados, como en d3: un nodo muy conectado
+  //    se mueve menos que una hoja colgando de él.
+  for (const [A, B] of edges) {
+    const dx = B.x - A.x, dy = B.y - A.y;
+    const d = Math.max(Math.hypot(dx, dy), 1);
+    const k = knF.enlace * a * (d - knF.distancia) / d;
+    const wA = (B.grado || 1) / ((A.grado || 1) + (B.grado || 1));
+    const wB = 1 - wA;
+    A.vx += dx * k * wA; A.vy += dy * k * wA;
+    B.vx -= dx * k * wB; B.vy -= dy * k * wB;
+  }
+
+  // 4) CENTRO: tira de cada nodo hacia el medio. Es lo que evita que el grafo se
+  //    escape del mundo y lo que hace que suba más «redondo» al subirlo.
+  const kc = 0.08 * knF.centro * a;
+  for (const n of nodes) { n.vx += (cx - n.x) * kc; n.vy += (cy - n.y) * kc; }
+
+  // 5) INTEGRACIÓN con rozamiento, y los nodos AGARRADOS mandan sobre la física.
+  for (const n of nodes) {
+    if (n.fx != null) { n.x = n.fx; n.y = n.fy; n.vx = n.vy = 0; continue; }
+    n.vx *= 1 - SIM.friccion; n.vy *= 1 - SIM.friccion;
+    n.x += n.vx; n.y += n.vy;
+    const m = n.sz / 2 + 6;                    // el mundo sigue siendo el límite
+    n.x = Math.min(WORLD.w - m, Math.max(m, n.x));
+    n.y = Math.min(WORLD.h - m, Math.max(m, n.y));
+  }
+}
+
+/** Recalienta la simulación. Se llama al agarrar un nodo o al tocar una fuerza. */
+function knAgita(target = 0.3) {
+  SIM.alphaTarget = target;
+  if (SIM.alpha < 0.1) SIM.alpha = 0.4;
+}
+function knEnfria() { SIM.alphaTarget = 0; }
+// Asomada para poder comprobar desde fuera que el grafo SE ASIENTA de verdad.
+// Un grafo que nunca se enfría se ve igual de vivo y gasta CPU para siempre.
+window.__knSim = () => ({ alpha: SIM.alpha, target: SIM.alphaTarget, fuerzas: { ...knF } });
+
 function knAplicaVista() {
   const world = $('#kn-world');
   if (!world) return;
@@ -152,13 +252,32 @@ export function mountKnowledge() {
     el.style.width = el.style.height = sz + 'px';
     el.innerHTML = `<span>${esc(data.label)}</span>`;
     world.appendChild(el);
-    const n = Object.assign({ el, sz, x: data.x0 ?? cx, y: data.y0 ?? cy, moved: false }, data);
+    const n = Object.assign({ el, sz, x: data.x0 ?? cx, y: data.y0 ?? cy,
+      vx: 0, vy: 0, fx: null, fy: null, grado: 0, moved: false }, data);
     nodes.push(n);
     if (data.key) byKey[data.key] = n;
     if (data.raw) knByName[data.raw] = n;
     el.addEventListener('mousedown', (e) => {
       e.preventDefault(); e.stopPropagation();          // no arrastra el fondo
       knDrag = n; n.moved = false; n._sx = e.clientX; n._sy = e.clientY;
+      // AGARRAR = clavar el nodo al cursor y RECALENTAR la simulación. Es el
+      // gesto de d3/Obsidian: mientras lo llevas, sus vecinos van detrás como si
+      // colgaran de una goma, en vez de quedarse plantados.
+      n.fx = n.x; n.fy = n.y;
+      knAgita(0.3);
+    });
+    // Señalar un nodo lo enciende a él, a sus enlaces y a sus vecinos, y apaga
+    // el resto. Es lo que hace legible un grafo con muchas líneas cruzadas.
+    el.addEventListener('mouseenter', () => {
+      n.hl = 1; el.classList.add('hl');
+      for (const [a, b] of edges) {
+        if (a === n) b.vecino = 1;
+        if (b === n) a.vecino = 1;
+      }
+    });
+    el.addEventListener('mouseleave', () => {
+      n.hl = 0; el.classList.remove('hl');
+      for (const m of nodes) m.vecino = 0;
     });
     el.addEventListener('click', () => {
       if (n.moved) return;
@@ -174,7 +293,11 @@ export function mountKnowledge() {
   // lee de la configuración.
   const core = place({ core: 1, key: 'nexus', label: sysName(), color: '#22d3ee',
     x0: cx, y0: cy });
-  core.fixed = true;
+  // El núcleo va CLAVADO en el centro (fx/fy), que es lo que se pidió. Obsidian
+  // no ancla nada, pero aquí el sistema es el ancla de todo el conocimiento y
+  // dejarlo flotar haría que el grafo se fuera paseando solo.
+  core.fx = cx; core.fy = cy;
+  knCargaFuerzas();
   // Aquí NO van las skills. Tenían su propia órbita de 32 nodos y no aportaban
   // nada: para eso está la sección «Habilidades», que las lista con su
   // descripción y sus acciones. Esta pantalla es la del CONOCIMIENTO.
@@ -224,31 +347,46 @@ export function mountKnowledge() {
     (porCarpeta[''] || []).forEach((nm) => {
       const n = byKey['note:' + nm]; if (n) edges.push([core, n]);
     });
+    // El GRADO de cada nodo: cuántas aristas le llegan. La fuerza del muelle se
+    // reparte con él, para que una hoja siga al racimo y no al revés.
+    edges.forEach(([a, b]) => { a.grado++; b.grado++; });
     knPintaArbol(raices, porCarpeta, carpetas);
     knAjustar();
+    // Y a rodar: la simulación coloca el grafo ella sola desde aquí.
+    SIM.alpha = 1; SIM.alphaTarget = 0;
+    setTimeout(knAjustar, 2200);        // cuando se ha asentado, se reencuadra
   });
   // Nodos QUIETOS: se quedan donde están; solo se mueven si los arrastras.
   function frame() {
+    // LA FÍSICA CORRE SIEMPRE. Mientras haya energía el grafo se reacomoda solo;
+    // cuando se enfría, se queda quieto sin gastar nada.
+    if (SIM.alpha > SIM.alphaMin || SIM.alphaTarget > 0) knPaso(nodes, edges, cx, cy);
     ctx.clearRect(0, 0, W, H);
-    // El núcleo se queda quieto en el centro: es el ancla de todo lo demás.
-    const coreN = nodes.find((n) => n.core); if (coreN) { coreN.x = cx; coreN.y = cy; }
-    ctx.lineWidth = 1.2;
+    // Las aristas del nodo señalado se encienden y las demás se apagan: es lo que
+    // deja ver de un vistazo con qué está conectado.
+    const hayFoco = nodes.some((n) => n.hl);
     for (const [a, b] of edges) {
-      ctx.strokeStyle = (a.color || '#7cf6c0') + (a.hl || b.hl ? 'cc' : '55');
+      const activa = a.hl || b.hl;
+      ctx.lineWidth = activa ? 2 : 1.2;
+      ctx.strokeStyle = (activa ? (a.hl ? a.color : b.color) : (a.color || '#7cf6c0'))
+        + (activa ? 'ee' : (hayFoco ? '18' : '55'));
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
     for (const n of nodes) {
       n.el.style.left = (n.x - n.sz / 2) + 'px';
       n.el.style.top = (n.y - n.sz / 2) + 'px';
+      // Los que no tienen nada que ver con el señalado se atenúan, como en Obsidian.
+      n.el.style.opacity = (!hayFoco || n.hl || n.vecino) ? '' : '.25';
     }
     knRaf = requestAnimationFrame(frame);
   }
   frame();
   knAplicaVista();
 
-  // ---- zoom con Ctrl + rueda, y con los botones ----
+  // ---- zoom con la rueda (y con Ctrl, que es lo que pidió Adrián) ----
+  // En Obsidian la rueda a secas hace zoom. Aquí valen las dos: esta pantalla ya
+  // no scrollea, así que la rueda no le hace falta a la página.
   stage.addEventListener('wheel', (e) => {
-    if (!e.ctrlKey) return;                    // sin Ctrl, la rueda es de la página
     e.preventDefault();
     const r = stage.getBoundingClientRect();
     knZoom(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX - r.left, e.clientY - r.top);
@@ -265,6 +403,39 @@ export function mountKnowledge() {
     stage.classList.add('panning');
   });
   knCableaTirador();
+  knCableaFuerzas();
+}
+
+/** El panel de las cuatro fuerzas, como el engranaje de Obsidian. */
+function knCableaFuerzas() {
+  const cog = $('#kn-cog'), panel = $('#kn-fuerzas');
+  if (!cog || !panel) return;
+  const pinta = () => {
+    panel.querySelectorAll('input[data-f]').forEach((i) => { i.value = knF[i.dataset.f]; });
+    panel.querySelectorAll('b[data-v]').forEach((b) => {
+      const v = knF[b.dataset.v];
+      b.textContent = v >= 30 ? Math.round(v) : (Math.round(v * 100) / 100);
+    });
+  };
+  pinta();
+  if (cog._listo) return;
+  cog._listo = true;
+  cog.addEventListener('click', () => panel.classList.toggle('hidden'));
+  panel.addEventListener('input', (e) => {
+    const i = e.target.closest('input[data-f]');
+    if (!i) return;
+    knF[i.dataset.f] = Number(i.value);
+    pinta(); knGuardaFuerzas();
+    // Tocar una fuerza recalienta: el grafo se recoloca a la vista, que es lo
+    // que hace entender qué hace cada palanca.
+    knAgita(0.35);
+    clearTimeout(panel._t);
+    panel._t = setTimeout(knEnfria, 1200);
+  });
+  $('#kn-reset')?.addEventListener('click', () => {
+    knF = { ...FUERZAS_DEF }; pinta(); knGuardaFuerzas();
+    knAgita(0.5); setTimeout(knEnfria, 1500);
+  });
 }
 
 /**
@@ -395,12 +566,20 @@ document.addEventListener('mousemove', (e) => {
   const ny = (e.clientY - r.top + knView.y) / knView.z;
   // Y acotado al mundo: soltar un nodo fuera era lo que descuadraba el grafo.
   const m = knDrag.sz / 2 + 4;
-  knDrag.x = Math.min(WORLD.w - m, Math.max(m, nx));
-  knDrag.y = Math.min(WORLD.h - m, Math.max(m, ny));
-  knDrag.x0 = knDrag.x; knDrag.y0 = knDrag.y;
+  // Se escribe en fx/fy, no en x/y: es la forma de decirle a la simulación
+  // «este lo llevo yo». Los demás siguen calculándose y reaccionan al tirón.
+  knDrag.fx = Math.min(WORLD.w - m, Math.max(m, nx));
+  knDrag.fy = Math.min(WORLD.h - m, Math.max(m, ny));
+  knAgita(0.3);                                  // mientras arrastras, no se enfría
 });
 document.addEventListener('mouseup', () => {
-  if (knDrag) { knDrag.x0 = knDrag.x; knDrag.y0 = knDrag.y; }   // se queda donde lo sueltas
+  if (knDrag) {
+    // SE SUELTA DE VERDAD, como en Obsidian: el nodo vuelve a la física y el
+    // grafo se recoloca solo hasta encontrar su sitio. Dejarlo clavado donde lo
+    // sueltas es justo lo que hacía que esto pareciera un dibujo y no un grafo.
+    knDrag.fx = null; knDrag.fy = null;
+    knEnfria();
+  }
   knDrag = null;
   if (knPan) { knPan = null; $('#kn-stage')?.classList.remove('panning'); }
 });

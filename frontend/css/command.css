@@ -1661,3 +1661,20 @@ textarea.ha-in{resize:vertical;min-height:40px;font-family:ui-monospace,monospac
   .cal-split{flex-direction:column}
   .cal-detalle{flex:0 0 auto;max-height:280px}
 }
+
+/* engranaje de fuerzas del grafo, al modo de Obsidian */
+#kn-cog{position:absolute;right:10px;top:10px;width:28px;height:28px;border-radius:8px;
+  border:1px solid var(--line);background:rgba(6,14,24,.8);color:var(--txt-dim);
+  cursor:pointer;font-size:14px;line-height:1;z-index:6}
+#kn-cog:hover{color:var(--cy);border-color:var(--cy)}
+#kn-fuerzas{position:absolute;right:10px;top:44px;width:210px;z-index:7;
+  background:rgba(6,14,24,.94);border:1px solid var(--line);border-radius:10px;padding:10px}
+#kn-fuerzas h4{font-size:10px;letter-spacing:1.5px;color:var(--txt-dim);margin-bottom:8px}
+#kn-fuerzas label{display:block;font-size:11px;color:var(--txt-dim);margin-bottom:9px}
+#kn-fuerzas label b{color:var(--cy);float:right;font-weight:400}
+#kn-fuerzas input[type=range]{width:100%;margin-top:4px;accent-color:var(--cy)}
+#kn-reset{width:100%;background:transparent;border:1px solid var(--line);color:var(--txt-dim);
+  font-family:inherit;font-size:11px;padding:5px;border-radius:6px;cursor:pointer}
+#kn-reset:hover{border-color:var(--cy);color:var(--cy)}
+/* al arrastrar un nodo el cursor lo dice, como en Obsidian */
+.knode:active{cursor:grabbing}

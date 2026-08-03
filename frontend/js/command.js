@@ -1170,9 +1170,23 @@ window.orbHTML = orbHTML;
               <button class="kn-zbtn" data-z="in" title="Acercar">+</button>
               <span id="kn-zlabel">100%</span>
             </div>
+            <!-- Las mismas cuatro fuerzas que ajusta Obsidian, con sus rangos -->
+            <button id="kn-cog" title="Fuerzas del grafo">⚙</button>
+            <div id="kn-fuerzas" class="hidden">
+              <h4>Fuerzas</h4>
+              <label>Centro <b data-v="centro"></b>
+                <input type="range" data-f="centro" min="0" max="1" step="0.01"></label>
+              <label>Repulsión <b data-v="repulsion"></b>
+                <input type="range" data-f="repulsion" min="0" max="20" step="0.1"></label>
+              <label>Enlace <b data-v="enlace"></b>
+                <input type="range" data-f="enlace" min="0" max="1" step="0.01"></label>
+              <label>Distancia <b data-v="distancia"></b>
+                <input type="range" data-f="distancia" min="30" max="500" step="1"></label>
+              <button id="kn-reset">Restaurar</button>
+            </div>
           </div>
         </div>
-        <div class="mem-ayuda"><b>Ctrl + rueda</b> para acercar y alejar · arrastra el fondo para moverte · arrastra un nodo para colocarlo · pulsa uno y se abre su ventanita</div>
+        <div class="mem-ayuda"><b>Rueda</b> (o Ctrl + rueda) para acercar y alejar · arrastra el fondo para moverte · arrastra un nodo y el resto le sigue · pasa el ratón para ver sus conexiones · ⚙ ajusta las fuerzas</div>
       </div>`;
   };
 
