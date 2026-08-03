@@ -179,6 +179,15 @@ def _extract_due(text: str) -> tuple[str, str | None]:
             delta = (wd - today.weekday()) % 7 or 7
             return re.sub(rf"\bel\s+{name}\b", "", text, flags=re.I).strip(), \
                 (today + dt.timedelta(days=delta)).isoformat()
+    # «llamar al fontanero mañana»: el día va SOLO, sin «para» y sin «el». Va al
+    # final para que «el lunes por la mañana» lo resuelva antes el bucle de días.
+    # El (?<!la\s) deja fuera «de la mañana» y «por la mañana», que son la FRANJA
+    # horaria, no el día de mañana.
+    if re.search(r"(?<!la\s)\bma[ñn]ana\b", low):
+        return re.sub(r"(?<!la\s)\bma[ñn]ana\b", "", text, flags=re.I).strip(), \
+            (today + dt.timedelta(days=1)).isoformat()
+    if re.search(r"\bhoy\b", low):
+        return re.sub(r"\bhoy\b", "", text, flags=re.I).strip(), today.isoformat()
     return text, None
 
 
@@ -207,9 +216,147 @@ def _extract_time(text: str) -> tuple[str, str | None]:
     return re.sub(r"\s{2,}", " ", clean), f"{h:02d}:{mnt:02d}"
 
 
-def _maybe_gcal_event(title: str, due: str, hora: str) -> str:
-    """EVENTO con fecha+hora → también a Google Calendar, SOLO si ya hay token
-    autorizado (jamás dispara el OAuth desde aquí). Devuelve '' o ' + Google Calendar'."""
+# ══════════ EVENTOS DE VARIOS DÍAS: «del miércoles al domingo» ══════════
+# Un extremo del rango: día de la semana, número de día, «5 de agosto», «25/07»,
+# «mañana» u «hoy». El orden de las alternativas importa: las largas primero o
+# «5 de agosto» se partiría en «5».
+_DIA_TOKEN = (r"(?:\d{1,2}[/-]\d{1,2}|\d{1,2}\s+de\s+\w+|\d{1,2}|"
+              r"lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|"
+              r"ma[ñn]ana|hoy)")
+# Coletillas que se cuelan entre el día y el conector: «del miércoles DE ESTA
+# SEMANA hasta el domingo».
+_COLETILLA_DIA = (r"(?:\s+(?:de\s+esta\s+semana|de\s+la\s+semana\s+que\s+viene|"
+                  r"que\s+viene|pr[oó]xim[oa]))?")
+_RANGO_RX = re.compile(
+    r"\b(?:del|desde\s+el|desde|entre\s+el|entre)\s+(?P<ini>" + _DIA_TOKEN + r")"
+    + _COLETILLA_DIA
+    + r"\s+(?:al|hasta\s+el|hasta)\s+(?P<fin>" + _DIA_TOKEN + r")"
+    + _COLETILLA_DIA, re.IGNORECASE)
+
+
+def _fecha_token(tok: str, today: dt.date, mes_ref: int | None = None) -> dt.date | None:
+    """Convierte un extremo del rango («miércoles», «5», «5 de agosto», «25/07»,
+    «mañana», «hoy») en fecha. Siempre hacia adelante: nunca devuelve pasado."""
+    t = " ".join((tok or "").lower().split())
+    if t == "hoy":
+        return today
+    if re.fullmatch(r"ma[ñn]ana", t):
+        return today + dt.timedelta(days=1)
+    if t in DIAS:
+        return today + dt.timedelta(days=(DIAS[t] - today.weekday()) % 7 or 7)
+    solo_dia = False
+    m = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})", t)
+    if m:
+        d, mo = int(m.group(1)), int(m.group(2))
+    else:
+        m = re.fullmatch(r"(\d{1,2})(?:\s+de\s+(\w+))?", t)
+        if not m:
+            return None
+        d = int(m.group(1))
+        if m.group(2) and m.group(2) in MESES:
+            mo = MESES[m.group(2)]
+        elif m.group(2):
+            return None                      # «5 de esta» no es una fecha
+        else:
+            mo, solo_dia = mes_ref or today.month, mes_ref is None
+    y = today.year
+    for _ in range(13):
+        try:
+            f = dt.date(y, mo, d)
+        except ValueError:
+            return None
+        if f >= today:
+            return f
+        if solo_dia:                         # solo el día: se busca en el mes siguiente
+            mo += 1
+            if mo > 12:
+                mo, y = 1, y + 1
+        else:                                # con mes explícito: el año que viene
+            y += 1
+    return None
+
+
+def _extract_range(text: str) -> tuple[str, str | None, str | None]:
+    """Saca un rango de VARIOS DÍAS («del miércoles al domingo», «desde el 5
+    hasta el 9 de agosto») y lo quita del título. Devuelve (texto_limpio,
+    inicio, fin) en ISO, o (texto, None, None) si no hay rango."""
+    m = _RANGO_RX.search(text or "")
+    if not m:
+        return text, None, None
+    today = dt.date.today()
+    fin_tok = " ".join(m.group("fin").lower().split())
+    # «del 5 al 9 de agosto»: el mes lo dice el segundo extremo y vale para los dos.
+    mm = re.fullmatch(r"\d{1,2}\s+de\s+(\w+)", fin_tok)
+    mes_ref = MESES.get(mm.group(1)) if mm else None
+    ini = _fecha_token(m.group("ini"), today, mes_ref)
+    fin = _fecha_token(fin_tok, today)
+    if not ini or not fin:
+        return text, None, None
+    if fin < ini and fin_tok in DIAS:        # «del domingo al miércoles» cruza semana
+        fin += dt.timedelta(days=7)
+    if fin < ini:
+        return text, None, None
+    limpio = text[:m.start()] + " " + text[m.end():]
+    return re.sub(r"\s{2,}", " ", limpio).strip(" ,."), ini.isoformat(), fin.isoformat()
+
+
+# ══════════ EL TÍTULO ES EL ASUNTO, NO LA FRASE ENTERA ══════════
+# Dónde se apunta no es de qué va: «como una entrada de google calendar» es el
+# destino, no el título del evento.
+_DESTINO_RX = re.compile(
+    r"\bcomo\s+(?:una?\s+)?(?:entrada|evento|cita|apunte)\s+(?:de|en)\s+"
+    r"(?:el\s+|mi\s+)?(?:google\s+)?calendari[oa]\b"
+    r"|\bcomo\s+(?:una?\s+)?(?:entrada|evento|cita|apunte)\s+(?:de|en)\s+google\s+calendar\b"
+    r"|\ben\s+(?:el\s+|mi\s+)?(?:google\s+)?calendari[oa]\b"
+    r"|\ben\s+google\s+calendar\b"
+    r"|\bcomo\s+(?:una?\s+)?(?:entrada|evento)\b"
+    r"|\ben\s+(?:la\s+|mi\s+)?agenda\b", re.IGNORECASE)
+
+# El asunto puede venir DETRÁS de las fechas: «…hasta el domingo QUE SEA Festival
+# Sonorama». Lo que va después del marcador es el título entero.
+_ASUNTO_RX = re.compile(
+    r"\b(?:que\s+se\s+(?:llama|titula)|que\s+sea|que\s+es|y\s+es|"
+    r"llamad[oa]|titulad[oa])\b\s*[:,]?\s*"
+    r"|\s*:\s*", re.IGNORECASE)
+
+# Relleno de duración: no aporta nada al título.
+_DURACION_RX = re.compile(
+    r"\bque\s+(?:dure|dura|durar[aá]|vaya|va)\b(?:\s+desde)?", re.IGNORECASE)
+
+# Conectores que quedan colgando al arrancar la fecha del medio de la frase.
+_COLGADOS_RX = re.compile(
+    r"^(?:\s*(?:desde|hasta|del|al|de|entre|y|a)\b)+"
+    r"|(?:\b(?:desde|hasta|del|al|de|entre|y|a)\s*)+$", re.IGNORECASE)
+
+# Determinante de arranque, SOLO en minúscula: así «La Vuelta a España» conserva
+# su nombre y «la reunión con Ana» se queda en «reunión con Ana».
+_DETERMINANTE_RX = re.compile(r"^(?:el|la|los|las|un|una|unos|unas)\s+")
+
+
+def _limpia_titulo(text: str) -> str:
+    """Deja SOLO el asunto. Quita el destino («como una entrada de google
+    calendar»), el relleno de duración («que dure») y los conectores que quedan
+    sueltos al sacar las fechas. Si el asunto va detrás de «que sea», «que es»,
+    «y es», «llamada/titulada» o «:», el título es lo que viene después."""
+    t = _DESTINO_RX.sub(" ", text or "")
+    m = _ASUNTO_RX.search(t)
+    if m and t[m.end():].strip(" ,.:;-"):
+        t = t[m.end():]
+    else:
+        t = _DURACION_RX.sub(" ", t)
+    t = re.sub(r"\s{2,}", " ", t).strip(" ,.:;-")
+    previo = None
+    while previo != t:                       # el relleno se apila: «que dure desde»
+        previo = t
+        t = _COLGADOS_RX.sub("", t).strip(" ,.:;-")
+    t = _DETERMINANTE_RX.sub("", t, count=1)
+    return re.sub(r"\s{2,}", " ", t).strip(" ,.:;-")
+
+
+def _maybe_gcal_event(title: str, due: str, hora: str, due_end: str = "") -> str:
+    """EVENTO a Google Calendar, SOLO si ya hay token autorizado (jamás dispara
+    el OAuth desde aquí). Con `due_end` el evento ABARCA todos los días del rango.
+    Devuelve '' o ' + Google Calendar'."""
     try:
         import importlib.util
         from backend.core.config import SKILLS_DIR
@@ -219,13 +366,28 @@ def _maybe_gcal_event(title: str, due: str, hora: str) -> str:
         spec.loader.exec_module(gws)
         if not gws.TOKEN_FILE.exists():
             return ""
-        start = f"{due}T{hora}:00"
-        end_dt = dt.datetime.fromisoformat(start) + dt.timedelta(hours=1)
-        gws._create_event(title, start, end_dt.isoformat(timespec="seconds"),
-                          "Creado por nexus desde el tablero", all_day=False)
+        start, end, todo_el_dia = _cuerpo_evento(due, hora, due_end)
+        gws._create_event(title, start, end, "Creado por nexus desde el tablero",
+                          all_day=todo_el_dia)
         return " + Google Calendar"
     except Exception:
         return ""
+
+
+def _cuerpo_evento(due: str, hora: str, due_end: str = "") -> tuple[str, str, bool]:
+    """Fechas que se le mandan a Google: (start, end, all_day).
+
+    Con hora, el rango arranca a esa hora y termina al acabar el último día.
+    Sin hora es de día completo, y ahí Google trata `end.date` como EXCLUSIVO:
+    hay que sumarle un día o el evento se queda corto y no pinta el último."""
+    if hora:
+        start = f"{due}T{hora}:00"
+        if due_end and due_end > due:
+            return start, f"{due_end}T23:59:00", False
+        fin = dt.datetime.fromisoformat(start) + dt.timedelta(hours=1)
+        return start, fin.isoformat(timespec="seconds"), False
+    ultimo = dt.date.fromisoformat(due_end or due) + dt.timedelta(days=1)
+    return due, ultimo.isoformat(), True
 
 
 # ══════════ v23: ÁMBITO DE UN BORRADO MASIVO (TAREA 2) ══════════
@@ -342,20 +504,45 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             prio = "alta"
             body = re.sub(r"(con )?prioridad alta|urgente", "", body, flags=re.I).strip()
         body, hora = _extract_time(body)
-        body, due = _extract_due(body)
-        body = body.strip(" ,.")
-        kind = "evento" if (hora or _EVENT_RX.search(text)) else "accion"
-        t = board.add_task(body, due=due, priority=prio, time_at=hora or "", kind=kind)
-        fecha = f" · {due}" if due else ""
+        # El rango («del miércoles al domingo») se prueba ANTES que la fecha
+        # suelta: si no, se quedaba solo con el último día y un festival de cinco
+        # días se pintaba como un punto en el calendario.
+        body, due, due_fin = _extract_range(body)
+        if not due:
+            body, due = _extract_due(body)
+        body = _limpia_titulo(body)
+        # Segundo filtro de asunto: al quitar fechas y relleno puede no quedar
+        # nada («anótame la tarea como una entrada de calendar del X al Y»).
+        # Se pregunta, y se dice qué fechas SÍ se han entendido para no perderlas.
+        if not body or _SIN_ASUNTO_RX.match(body):
+            cuando = ""
+            if due and due_fin and due_fin != due:
+                cuando = f" Las fechas ya las tengo: del {due} al {due_fin}."
+            elif due:
+                cuando = f" La fecha ya la tengo: {due}."
+            return {"reply": "Me falta el asunto: no sé de qué va." + cuando
+                             + " Dímelo con el nombre, por ejemplo: «crea una tarea "
+                               "del miércoles al domingo que sea Festival Sonorama».",
+                    "speak": True}
+        kind = "evento" if (hora or due_fin or _EVENT_RX.search(text)) else "accion"
+        t = board.add_task(body, due=due, priority=prio, time_at=hora or "",
+                           kind=kind, due_end=due_fin or "")
+        rango = f" → {due_fin}" if due_fin and due_fin != due else ""
+        fecha = f" · {due}{rango}" if due else ""
         hh = f" · a las {hora}" if hora else ""
         if kind == "evento":
             import asyncio as _a
             gcal = ""
-            if due and hora:
-                gcal = await _a.to_thread(_maybe_gcal_event, t["title"], due, hora)
+            if due and (hora or due_fin):
+                gcal = await _a.to_thread(_maybe_gcal_event, t["title"], due,
+                                          hora or "", due_fin or "")
+            dias = ""
+            if due_fin and due_fin != due:
+                n = (dt.date.fromisoformat(due_fin) - dt.date.fromisoformat(due)).days + 1
+                dias = f" Ocupa {n} días seguidos."
             return {"reply": f"📅 Evento apuntado: «{t['title']}»{fecha}{hh} "
-                             f"(tablero{gcal}, id {t['id']}). Te lo recordaré."}
-        extra = f" con fecha límite {due}" if due else ""
+                             f"(tablero{gcal}, id {t['id']}).{dias} Te lo recordaré."}
+        extra = f" con fecha límite {due}{rango}" if due else ""
         return {"reply": f"🛠 Tarea creada en PENDIENTES: «{t['title']}»{extra}{hh} "
                          f"(prioridad {prio}, id {t['id']}). "
                          "Muévela con «mueve … a en progreso»."}

@@ -17,6 +17,18 @@ tareas por voz/texto, avisa de retrasos y prioriza con la matriz de Eisenhower.
   ya está autorizado, se apunta también allí (nunca dispara el OAuth desde
   aquí). Ojo: «apunta la reunión/cita/evento...» lo captura antes la skill de
   Google Calendar (va antes en el router) — mismo resultado para el operador.
+- "crea una tarea del miércoles al domingo que sea Festival Sonorama" /
+  "crea una tarea del 5 al 9 de agosto que sea Feria del libro" → 📅 evento de
+  VARIOS DÍAS: se guardan las dos fechas y en Google Calendar ocupa la franja
+  entera, no un punto suelto. La agenda del HUD lo pinta en todos sus días.
+- "crea una tarea desde el miércoles a las 15 hasta el domingo que sea Sonorama"
+  → el rango con hora arranca a esa hora y termina al acabar el último día; un
+  rango de días pelados es evento de día completo.
+- El asunto puede ir DETRÁS de las fechas, con «que sea», «que es», «y es»,
+  «llamada/titulada» o dos puntos: el título es lo que va después. El relleno
+  («que dure», «como una entrada de google calendar», «en el calendario») no
+  entra en el título. Si al quitarlo no queda asunto, PREGUNTA en vez de
+  inventarse uno — y te dice qué fechas ya ha entendido.
 - "mueve diseñar calcetines a en progreso" / "pasa el informe a review" /
   "cambia la web a completadas" — acepta también «en curso», «doing», «done».
 - "me pongo con la web del cliente" / "arranco con el logo" → atajo directo
@@ -67,8 +79,15 @@ tareas del tablero (completadas Y pendientes) y no hubo forma de recuperarlas.
 ## Notas técnicas
 
 - Fechas entendidas: «para el 25/07», «antes del viernes», «fecha límite 30 de
-  julio», «para mañana»; en eventos también «el jueves» sin «para». Horas:
-  «a las 18», «a las 9:30», «a la 1 y media de la tarde».
+  julio», «para mañana»; en eventos también «el jueves» sin «para», y «mañana»
+  u «hoy» sueltos («llamar al fontanero mañana»). «de la mañana» / «por la
+  mañana» siguen siendo la franja horaria, no el día. Horas: «a las 18»,
+  «a las 9:30», «a la 1 y media de la tarde».
+- RANGOS de varios días: «del miércoles al domingo», «desde el miércoles hasta
+  el domingo», «del 5 al 9», «del 5 al 9 de agosto». Se guardan `due` (primer
+  día) y `dueEnd` (último, inclusive). Al mandarlo a Google, los eventos de día
+  completo llevan el fin +1 día porque Google trata `end.date` como EXCLUSIVO:
+  sin ese ajuste el último día del festival no se pintaba.
 - El estado vive en backend.core.board; el volcado a Google Calendar reutiliza
   la skill google_workspace y solo actúa si su token OAuth ya existe.
 - Toques de atención automáticos: el scheduler revisa el tablero y avisa por el

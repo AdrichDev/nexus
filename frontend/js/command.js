@@ -1006,15 +1006,27 @@ window.orbHTML = orbHTML;
       </div>
     </div>`;
 
+  /** ¿Cae `iso` dentro del tramo [ini, fin]? Un evento de varios días tiene que
+     salir en TODOS sus días, no solo en el primero. Ojo al final EXCLUSIVO: en
+     los eventos de día completo Google manda como fin el día SIGUIENTE al
+     último, así que ahí el último día se compara con «<» y no con «<=». */
+  function calAbarca(ini, fin, iso, finExclusivo) {
+    if (!ini || iso < ini) return false;
+    if (!fin || fin <= ini) return iso === ini;
+    return finExclusivo ? iso < fin : iso <= fin;
+  }
+
   /** Todo lo que cae un día: eventos de Google + tareas del tablero con fecha. */
   function calDelDia(iso) {
     const d = calDatos || {};
-    const evs = (d.google || []).filter((e) => (e.fecha || e.when || '').slice(0, 10) === iso)
+    const evs = (d.google || []).filter((e) => calAbarca(
+      (e.fecha || e.when || '').slice(0, 10), (e.fecha_fin || '').slice(0, 10),
+      iso, !!e.todo_el_dia))
       .map((e) => ({ tipo: 'evento', hora: e.hora || '', fin: e.hora_fin || '',
         titulo: e.what, desc: e.desc || '', lugar: e.lugar || '', dia: !!e.todo_el_dia }));
-    const tks = (d.tasks || []).filter((t) => t.due === iso)
+    const tks = (d.tasks || []).filter((t) => calAbarca(t.due, t.dueEnd || '', iso, false))
       .map((t) => ({ tipo: 'tarea', hora: t.time || '', fin: '', titulo: t.title,
-        desc: t.notes || '', lugar: '', dia: false,
+        desc: t.notes || '', lugar: '', dia: !!t.dueEnd,
         hecha: t.state === 'completada', prio: t.priority }));
     // Lo que tiene hora, en orden; lo de todo el día no la tiene y sube arriba.
     return [...evs, ...tks].sort((a, b) => (a.hora || '').localeCompare(b.hora || ''));

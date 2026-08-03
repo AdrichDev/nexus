@@ -273,15 +273,21 @@ def purge_trash(batch: str = "") -> int:
 def add_task(title: str, due: str | None = None, priority: str = "media",
              tag: str = "", time_at: str = "", kind: str = "accion",
              description: str = "", reminder_at: str = "",
-             source_conversation_id: str = "") -> dict:
+             source_conversation_id: str = "", due_end: str = "") -> dict:
     """kind: 'accion' (trabajo a realizar: crear una web) | 'evento' (cita de
     calendario: reunión, mentoría — normalmente con HORA en time_at 'HH:MM').
-    No es lo mismo hacer que asistir: se guardan y se muestran distinto."""
+    No es lo mismo hacer que asistir: se guardan y se muestran distinto.
+
+    `due_end` (AAAA-MM-DD) es el ÚLTIMO día de un evento de varios días («del
+    miércoles al domingo»). Va al final de la firma a propósito: hay llamadas
+    posicionales y añadirlo antes les cambiaría el significado."""
     tasks = _load()
     task = {"id": uuid.uuid4().hex[:8], "title": title.strip(),
             "state": "pendiente", "due": due, "priority": priority, "tag": tag,
             "time": time_at or None, "kind": kind if kind in ("accion", "evento") else "accion",
             "created": dt.date.today().isoformat(), "nudged": None,
+            # Último día del rango, inclusive. None = la tarea ocupa un solo día.
+            "dueEnd": due_end or None,
             # v23 (T14): ficha completa y estructurada, no dependiente de la
             # conversación. `state` es la columna; `status` la nomenclatura de
             # las specs (pending/in_progress/completed…).
