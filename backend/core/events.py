@@ -25,6 +25,22 @@ _transient_guard: contextvars.ContextVar[Callable[[], bool] | None] = (
 _TRANSIENT_TYPES = frozenset({"audio", "state", "chat"})
 
 
+# ¿Hay algún trabajo en marcha? Lo sabe el gestor de trabajos, que está POR
+# ENCIMA de esta capa. Así que aquí solo queda el hueco y él lo rellena al
+# cargarse: la dependencia sigue yendo hacia abajo. Es el mismo truco que usan
+# `nav`, `log` y `orders` en el HUD.
+#
+# Por defecto contesta que SÍ hay trabajo: mientras nadie diga lo contrario, no
+# se toca lo que nexus iba a decir. Un candado que se equivoca callando es peor
+# que no tenerlo.
+_hay_trabajo = [lambda: True]
+
+
+def registrar_hay_trabajo(fn) -> None:
+    """Quien sabe si hay trabajos vivos deja aquí su respuesta."""
+    _hay_trabajo[0] = fn
+
+
 class EventBus:
     def __init__(self):
         self._clients: set = set()          # WebSockets conectados
@@ -82,6 +98,18 @@ class EventBus:
                     data["list"] = [limpia_trabajo(j) for j in data["list"]]
             except Exception:
                 pass
+        # Y NADIE PROMETE TRABAJO QUE NO EXISTE. «Estoy en ello», «dame un
+        # segundo», «en cuanto lo tenga te digo»: dicho sin ningún trabajo en
+        # marcha, es mentira, y de la que deja al operador esperando. Solo puede
+        # decirlo quien tiene algo encolado de verdad.
+        if type_ == "chat" and isinstance(data, dict) and data.get("reply"):
+            try:
+                from .publicvoice import sin_progreso_inventado
+                data = dict(data)
+                data["reply"] = sin_progreso_inventado(str(data["reply"]),
+                                                       _hay_trabajo[0]())
+            except Exception:
+                pass                    # ante la duda no se toca lo que iba a decir
         evt = {"type": type_, "data": data, "ts": time.time()}
         if type_ != "audio":
             self.history.append(evt)

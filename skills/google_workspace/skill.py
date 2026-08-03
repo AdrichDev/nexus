@@ -153,7 +153,17 @@ SKILL = {
                         r"(?:eventos?|citas?|reuni(?:[oó]n|ones)|recordatorios?|mentor[ií]as?)\b(?P<what>.+)?"
                         r"|(?:b[oó]rra(?:me)?|borres|borrar|elimin(?:a(?:me)?|es|en|ar)|"
                         r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar)|an[uú]l(?:a(?:me)?|es|ar))\b"
-                        r"[^.\n]{0,45}\b(?:del|de\s+mi|en\s+el|en\s+mi)\s+(?:google\s+)?calendario\b(?P<whatcal>.+)?",
+                        r"[^.\n]{0,45}\b(?:del|de\s+mi|en\s+el|en\s+mi)\s+(?:google\s+)?calendario\b(?P<whatcal>.+)?"
+                        # Sin repetir el sustantivo. Al insistir nadie dice «los
+                        # EVENTOS del día 5» otra vez: dice «borra los del día 5».
+                        # La fecha es el ancla, y sin ella esta rama no casa.
+                        r"|(?:b[oó]rra(?:me)?|borres|borrar|elimin(?:a(?:me)?|es|en|ar)|"
+                        r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar))\b\s*"
+                        r"(?:el|la|los|las|todo|todos|todas)?\s*"
+                        r"(?P<whatdia>(?:de[l]?\s+)?(?:d[ií]a\s+\d{1,2}|\d{1,2}\s+de\s+[a-záéíóú]+|"
+                        r"(?<=del\s)\d{1,2}\b|"
+                        r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
+                        r"lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|ma[ñn]ana|hoy)\b.*)",
         # MOVER / REPROGRAMAR un evento (CRUD Calendar)
         "edit_event": r"(?:mu[eé]ve(?:me)?|cambia(?:me)?|reprograma(?:me)?|aplaza|adelanta|retrasa|atrasa|edita|posp[oó]n)\b"
                       r"[^.\n]{0,25}\b(?:el\s+|la\s+|mi\s+)?(?:evento|cita|reuni[oó]n|mentor[ií]a)\b(?P<what2>.+)?",

@@ -278,6 +278,49 @@ def frase_inicio(orden: str, activas: int = 0) -> str:
     return frase
 
 
+# ── PROGRESO INVENTADO ────────────────────────────────────────────────────────
+# Lo que dice alguien que está trabajando: «estoy en ello», «dame un segundo»,
+# «ahora mismo lo hago», «en cuanto lo tenga te digo». Dicho por el modelo cuando
+# NO hay ningún trabajo en marcha, es mentira, y de la peor clase: el operador
+# espera. En una sesión real esto tuvo a Adrián diez minutos esperando algo que
+# nadie estaba haciendo, con la respuesta cambiando de excusa cada vez.
+#
+# Prometer trabajo es un acto, no una forma de hablar: solo puede decirlo quien
+# tiene un trabajo encolado de verdad.
+_PROMESA_DE_TRABAJO = re.compile(
+    r"\b(?:estoy\s+en\s+ello|estoy\s+(?:recopilando|reuniendo|revisando|repasando|"
+    r"buscando|localizando|mirando|preparando|comprobando)\b|"
+    r"dame\s+un\s+(?:segundo|momento|instante|minuto|nanosegundo)|"
+    r"ahora\s+mismo\s+(?:lo\s+|los\s+|las\s+|te\s+)?(?:hago|busco|miro|reviso|lo\s+veo)|"
+    r"en\s+cuanto\s+(?:\w+\s+){0,2}tenga\b|"
+    r"enseguida\s+te\s+(?:lo|los|las|la)\s+(?:digo|paso|cuento)|"
+    r"voy\s+a\s+(?:ir\s+)?(?:mirar|buscar|revisar|repasar)(?:lo|los|las)?\b|"
+    r"te\s+(?:lo|los|las)\s+digo\s+en\s+(?:un|nada))",
+    re.IGNORECASE)
+
+_NO_LO_ESTOY_HACIENDO = ("No lo estoy haciendo: esa orden no me ha llegado a "
+                         "nada que sepa ejecutar. Dímelo de otra forma.")
+
+
+def promete_trabajo(texto: str) -> bool:
+    """¿El texto dice que está trabajando en algo?"""
+    return bool(_PROMESA_DE_TRABAJO.search(texto or ""))
+
+
+def sin_progreso_inventado(texto: str, hay_trabajo: bool) -> str:
+    """Deja el texto tal cual si hay un trabajo de verdad; si no lo hay, quita la
+    promesa y dice la verdad.
+
+    Se recortan las FRASES que prometen, no el mensaje entero: lo que el modelo
+    haya contestado además puede ser útil. Si al quitarlas no queda nada, se
+    contesta que no lo está haciendo."""
+    if hay_trabajo or not texto or not promete_trabajo(texto):
+        return texto
+    frases = re.split(r"(?<=[.!?\n])\s+", texto)
+    limpio = " ".join(f for f in frases if not promete_trabajo(f)).strip()
+    return limpio or _NO_LO_ESTOY_HACIENDO
+
+
 def reset_frases() -> None:
     _ultimas.clear()
 

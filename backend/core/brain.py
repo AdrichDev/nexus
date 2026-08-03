@@ -911,7 +911,14 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # ¿Es una QUEJA/NEGACIÓN sobre una acción? («no te he dicho que leas correos»).
     # Si lo es, NADA de skills: va derecho a conversación (nexus se disculpa/aclara,
     # no vuelve a ejecutar). Mata el bucle de lectura de correos.
-    _no_accion = bool(_NO_ACCION_RX.search(text) or _META_QUEJA_RX.search(text)) \
+    # OJO a la diferencia, que costó diez minutos de espera a Adrián: «NO te he
+    # dicho que leas correos» prohíbe, pero «TE HE DICHO que borres los del día
+    # 5» pide. Quejarse de que algo no se ha hecho es pedirlo otra vez, no
+    # prohibirlo. Así que solo la NEGACIÓN corta la ejecución; la insistencia
+    # ejecuta, siempre que la frase llegue a alguien.
+    _niega = bool(_NO_ACCION_RX.search(text))
+    _se_queja = bool(_META_QUEJA_RX.search(text))
+    _no_accion = (_niega or (_se_queja and route(text) is None)) \
         and source in ("text", "voice")
     if _no_accion:
         await bus.emit("log", {"level": "info",

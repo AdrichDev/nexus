@@ -57,9 +57,14 @@ SKILL = {
                    r"|qu[ií]ta" + _CL + r"\s+el\s+(?:sonido|ruido|volumen)|sin\s+sonido)"
                    r"\b[^.\n]{0,20}\b(?:de\s+)?(?:la\s+)?" + _TV + r"\b"
                    r"|\b" + _TV + r"\b[^.\n]{0,15}\ben\s+silencio\b",
-        "tv_off": r"(?:ap[aá]ga" + _CL + r"|desconecta|qu[ií]ta" + _CL + r"|corta)"
+        # El SUBJUNTIVO cuenta: al repetir una orden nadie dice «apaga la tele»
+        # otra vez, dice «te he dicho que APAGUES la tele». Sin él, insistir se
+        # quedaba sin dueño y acababa en el planificador.
+        "tv_off": r"(?:ap[aá]ga" + _CL + r"|ap[aá]gues|apagar|desconecta|desconectes|"
+                  r"qu[ií]ta" + _CL + r"|quites|corta|cortes)"
                   r"\b[^.\n]{0,18}\b(?:la\s+)?" + _TV + r"\b",
-        "tv_on": r"(?:enci[eé]nde" + _CL + r"|arranca|pr[eé]nde" + _CL + r"|activa|pon\s+en\s+marcha)"
+        "tv_on": r"(?:enci[eé]nde" + _CL + r"|enciendas|encender|arranca|arranques|"
+                 r"pr[eé]nde" + _CL + r"|prendas|activa|actives|pon\s+en\s+marcha)"
                  r"\b[^.\n]{0,18}\b(?:la\s+)?" + _TV + r"\b"
                  r"|(?:p[oó]n" + _CL + r"|quiero\s+ver|dale\s+a)\s+(?:la\s+)?" + _TV + r"\b",
         # OJO: exige mención de «tele/tv» para NO robarle a la skill de MÚSICA

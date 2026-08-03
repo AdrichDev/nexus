@@ -34,6 +34,7 @@ import unicodedata
 import uuid
 
 from .config import DATA_DIR
+from . import events
 from .events import bus
 
 JOBS_FILE = DATA_DIR / "jobs.json"
@@ -393,3 +394,8 @@ class JobManager:
 
 
 jobs = JobManager(max_concurrent=4)
+
+# El bus necesita saber si hay algo en marcha para no dejar pasar un «estoy en
+# ello» cuando no lo hay. Lo sabe este módulo, así que es este el que se ofrece;
+# el bus está por debajo y no puede preguntárselo.
+events.registrar_hay_trabajo(lambda: bool(jobs.active()))
