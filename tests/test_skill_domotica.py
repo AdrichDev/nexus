@@ -421,9 +421,16 @@ def test_apagar_nunca_puede_acabar_encendiendo():
           "apagar lee el estado antes y no pulsa si ya está apagada")
     check('antes != "on"' in bloque and "_TECLA_APAGADO_SEGURA" in bloque,
           "y sin confirmación de que está encendida manda la tecla que no enciende")
-    # y ninguna ruta de apagado manda la tecla a pelo, saltándose la comprobación
-    check(SRC.count('"KEY_POWER"') == 1,
-          "el interruptor solo aparece en el mapa de teclas, no suelto por el código")
+    # El interruptor aparece en DOS sitios y ninguno lo manda a pelo: el mapa de
+    # teclas (apagar, tras confirmar «encendida») y el encendido (tras confirmar
+    # «en reposo»). Los dos van atados a saber el estado, que es lo que lo hace
+    # seguro; lo prohibido es pulsarlo sin haberlo mirado.
+    check(SRC.count('"KEY_POWER"') == 2,
+          "el interruptor aparece en más sitios de los dos que lo comprueban")
+    i_on = SRC.find("async def _tv_power_on")
+    b_on = SRC[i_on:SRC.find("\nasync def", i_on + 10)]
+    check('"KEY_POWER" if en_reposo' in b_on,
+          "encender usa el interruptor sin confirmar antes el reposo")
 
 
 # ================= 7. COMPORTAMIENTO CON DOBLES (sin tocar nada) ============

@@ -961,19 +961,70 @@ async def _samsung_power_state(ip: str) -> str:
     return str((data.get("device") or {}).get("PowerState") or "").strip().lower()
 
 
-async def _tv_estado(ip: str) -> str:
+async def _samsung_mute_upnp(ip: str) -> str:
+    """`CurrentMute` del RenderingControl UPnP de una Samsung (puerto 9197):
+    '0' | '1', o '' si no contesta.
+
+    Es la única señal de encendido que dan los modelos que NO publican
+    `PowerState`. Medido contra una UE32N4300 con el estado conocido: encendida
+    responde 0; en reposo con la red viva, 1, estable en lecturas seguidas.
+
+    Solo se usa el 0. El 1 es ambiguo —reposo, o encendida y silenciada— y
+    confundirlos al revés significaría encender la tele al pedir que se apague."""
+    if not ip:
+        return ""
+    try:
+        import httpx
+    except Exception:
+        return ""
+    svc = "urn:schemas-upnp-org:service:RenderingControl:1"
+    cuerpo = ('<?xml version="1.0"?>'
+              '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+              's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>'
+              f'<u:GetMute xmlns:u="{svc}"><InstanceID>0</InstanceID>'
+              '<Channel>Master</Channel></u:GetMute></s:Body></s:Envelope>')
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as cli:
+            r = await cli.post(f"http://{ip}:9197/upnp/control/RenderingControl1",
+                               content=cuerpo.encode(),
+                               headers={"Content-Type": 'text/xml; charset="utf-8"',
+                                        "SOAPACTION": f'"{svc}#GetMute"'})
+        m = re.search(r"<CurrentMute>(\d)</CurrentMute>", r.text)
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
+async def _tv_estado(ip: str, tras_apagar: bool = False) -> str:
     """Estado REAL de la TV, preguntándoselo a ella:
 
       'off'  no contesta, o dice que está en reposo.
       'on'   dice que está encendida.
       'on?'  contesta pero no publica su estado: está encendida O en reposo con
              la red aún viva, y por esa vía no se pueden distinguir.
+
+    `tras_apagar` es el contexto: acabamos de mandar el apagado a una TV que se
+    sabía encendida, así que la señal ambigua deja de serlo. Toda lectura de
+    estado pasa por aquí a propósito — con dos sitios que preguntan por su cuenta,
+    acaban contestando cosas distintas.
     """
     if not ip:
         return "off"
     ps = await _samsung_power_state(ip)
     if ps:
         return "on" if ps == "on" else "off"
+    # Los modelos que no publican `PowerState` sí delatan el encendido por UPnP.
+    # Solo cuenta el 0: prueba que está encendida y con eso el interruptor es
+    # seguro. El 1 no distingue reposo de encendida-y-silenciada, así que sigue
+    # siendo «no lo sé» y se trata como tal.
+    mute = await _samsung_mute_upnp(ip)
+    if mute == "0":
+        return "on"
+    # Silenciada es ambiguo EN FRÍO: puede ser reposo o encendida sin volumen.
+    # Justo después de mandar el apagado a una TV que estaba sonando, no: ahí
+    # significa que ha obedecido.
+    if mute == "1" and tras_apagar:
+        return "off"
     if await _tv_esta_viva(ip):
         return "on?"
     return "off"
@@ -988,7 +1039,7 @@ _ESPERA_APAGADO = 3.0
 # tecla, esperar y releerlo. Cada uno falla por agotamiento y sin un tope común
 # se suman: una TV desenchufada dejaba «apaga la tele» pensando medio minuto.
 # Agotarlo no es un error, es dejar de esperar: la respuesta lo dice.
-_LIMITE_APAGADO = 15.0
+_LIMITE_APAGADO = 25.0
 
 
 async def _o_agota(coro, segundos: float, por_defecto):
@@ -997,6 +1048,26 @@ async def _o_agota(coro, segundos: float, por_defecto):
         return await asyncio.wait_for(coro, timeout=max(0.2, segundos))
     except asyncio.TimeoutError:
         return por_defecto
+
+
+async def _confirma_apagado(ip: str, segundos: float) -> bool:
+    """¿Se ha apagado? Se pregunta hasta que conteste o se acabe el tiempo.
+
+    Una lectura única a los 3 s no vale: al pulsar el apagado la TV se cae de la
+    red entera unos diez segundos y vuelve luego, ya en reposo. Preguntando una
+    sola vez se cae justo en ese hueco y no se puede confirmar nada.
+
+    Cuenta como apagada de dos formas: que deje de contestar, o que conteste
+    diciendo que está silenciada. Lo segundo es ambiguo en frío —reposo, o
+    encendida y sin volumen— pero aquí no: se acaba de mandar el apagado a una
+    TV que se sabía encendida y sonando."""
+    fin = time.monotonic() + max(2.0, segundos)
+    while True:
+        if await _tv_estado(ip, tras_apagar=True) == "off":
+            return True
+        if time.monotonic() >= fin:
+            return False
+        await asyncio.sleep(1.5)
 
 
 async def _tv_apagar(ctx, tv: dict) -> dict:
@@ -1038,6 +1109,11 @@ async def _tv_apagar(ctx, tv: dict) -> dict:
         return {"ok": False, "reply": _tv_fail(tv)}
 
     await asyncio.sleep(_ESPERA_APAGADO)
+    # Sabiendo que estaba encendida se puede insistir hasta que conteste; a
+    # ciegas no, porque no se sabe ni de qué se parte.
+    if not a_ciegas and await _confirma_apagado(ip, _queda()):
+        _save_estado(ctx, tv, False)
+        return {"ok": True, "state": "off", "reply": f"{name} apagada."}
     despues = await _o_agota(_tv_estado(ip), _queda(), "")
     if despues == "off":
         _save_estado(ctx, tv, False)
@@ -1071,11 +1147,19 @@ async def _tv_power_on(ctx, tv: dict) -> dict:
     ip, viva = await _tv_ip_actual(ctx, dict(tv, ip=ip, mac=mac))
     tv = dict(tv, ip=ip)
 
+    # Hay un estado intermedio que engaña: EN REPOSO PERO CON LA RED VIVA. La TV
+    # contesta, así que parece encendida, pero está apagada — y KEY_POWERON no la
+    # despierta de ahí (medido contra la UE32N4300). Con el reposo CONFIRMADO el
+    # interruptor sí es seguro para encender: no puede apagar lo que ya está
+    # apagado. Es la misma regla que al apagar, en el otro sentido.
+    en_reposo = viva and await _samsung_mute_upnp(ip) == "1"
+
     async def _key():
         try:
             # KEY_POWERON es «enciende», no «cambia»: jamás apaga una TV encendida.
+            samsung = "KEY_POWER" if en_reposo else "KEY_POWERON"
             return await asyncio.wait_for(
-                _tv_key(ctx, tv, "keypress/PowerOn", "KEY_POWERON"), timeout=4.5)
+                _tv_key(ctx, tv, "keypress/PowerOn", samsung), timeout=4.5)
         except Exception:
             return False
 

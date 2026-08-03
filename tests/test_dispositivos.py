@@ -75,14 +75,26 @@ def _ctx(known=None):
 # ══════════════ 1. Nunca un toggle ══════════════
 
 def test_encender_es_una_orden_absoluta():
-    """ENCENDER nunca puede ser un interruptor: no hay estado que lo haga seguro
-    (la TV dormida no contesta), así que solo vale la tecla absoluta."""
+    """ENCENDER es KEY_POWERON, la orden absoluta, SALVO con el reposo confirmado.
+
+    Esto decía antes «nunca un interruptor», y era lo correcto mientras no se
+    supiera el estado. Ahora se sabe: los modelos que no publican `PowerState`
+    delatan el reposo por UPnP. Y sabiéndolo, el interruptor no puede apagar lo
+    que ya está apagado — que es la misma regla del apagado, del revés.
+
+    Hace falta porque hay un estado intermedio que engaña: EN REPOSO PERO CON LA
+    RED VIVA. Ahí la TV contesta y KEY_POWERON no la despierta.
+
+    Lo que este test fija es que el interruptor SOLO aparece atado a esa
+    confirmación, nunca suelto."""
     src = (ROOT / "skills" / "domotica" / "skill.py").read_text(encoding="utf-8")
     check('"KEY_POWERON"' in src, "encender usa KEY_POWERON")
     i_on = src.find("async def _tv_power_on")
     bloque = src[i_on:src.find("\nasync def", i_on + 10)]
-    check('"KEY_POWER"' not in bloque,
-          "encender no puede usar el interruptor KEY_POWER")
+    check("en_reposo" in bloque and "_samsung_mute_upnp" in bloque,
+          "encender comprueba el reposo antes de elegir tecla")
+    check('"KEY_POWER" if en_reposo else "KEY_POWERON"' in bloque,
+          "el interruptor SOLO se usa con el reposo confirmado")
 
 
 def test_apagar_usa_el_interruptor_solo_tras_leer_el_estado():
@@ -205,8 +217,15 @@ def _apagado(estados, teclas=None, guardado=None):
     async def _ip(ctx, tv):
         return tv.get("ip", ""), True
 
-    async def _estado(ip):
-        return secuencia.pop(0) if secuencia else "off"
+    # Al agotarse la secuencia se REPITE lo último, no se cae a «off». Una TV que
+    # sigue encendida sigue diciéndolo cada vez que le preguntas; con el «off» de
+    # antes, insistir acababa confirmando un apagado que no había ocurrido.
+    ultimo = ["off"]
+
+    async def _estado(ip, *a, **k):
+        if secuencia:
+            ultimo[0] = secuencia.pop(0)
+        return ultimo[0]
 
     async def _key(ctx, tv, roku, samsung):
         if teclas is not None:
