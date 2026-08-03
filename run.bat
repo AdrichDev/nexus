@@ -17,12 +17,18 @@ if not exist ".venv\Scripts\python.exe" (
     )
 )
 call .venv\Scripts\activate.bat
+REM Activar NO basta. Si la carpeta del proyecto se renombra, el activate.bat del
+REM venv sigue apuntando a la ruta VIEJA: PATH se rellena con un directorio que no
+REM existe, «python» cae al del sistema y nexus arranca con otra version y otras
+REM dependencias sin avisar. Por eso a partir de aqui se usa el ejecutable del
+REM venv POR RUTA, que es inmune a eso.
+set "PY=%~dp0.venv\Scripts\python.exe"
 
 .venv\Scripts\python.exe -c "import fastapi, uvicorn, webview, googleapiclient" 2>nul
 if errorlevel 1 (
     echo [nexus] Instalando dependencias principales...
-    pip install --upgrade pip >nul
-    pip install -r requirements.txt || (echo [nexus] ERROR instalando el nucleo & pause & exit /b 1)
+    "%PY%" -m pip install --upgrade pip >nul
+    "%PY%" -m pip install -r requirements.txt || (echo [nexus] ERROR instalando el nucleo & pause & exit /b 1)
 )
 
 REM Voz TTS (edge-tts neuronal GRATIS + pyttsx3 offline). Es lo que faltaba cuando
@@ -30,7 +36,7 @@ REM salia "TTS sin motor disponible". Se instala aparte y NO aborta el arranque.
 .venv\Scripts\python.exe -c "import edge_tts, pyttsx3" 2>nul
 if errorlevel 1 (
     echo [nexus] Instalando voz TTS ^(edge-tts + pyttsx3^)...
-    pip install edge-tts pyttsx3 >nul 2>&1 && (
+    "%PY%" -m pip install edge-tts pyttsx3 >nul 2>&1 && (
         echo [nexus] Voz TTS lista ✔
     ) || (
         echo [nexus] AVISO: no se pudo instalar la voz TTS ^(revisa tu conexion^).
@@ -42,7 +48,7 @@ REM archivos de Word en el escritorio. No aborta el arranque si falla.
 .venv\Scripts\python.exe -c "import pypdf, docx" 2>nul
 if errorlevel 1 (
     echo [nexus] Instalando soporte de documentos ^(pypdf + python-docx^)...
-    pip install pypdf python-docx >nul 2>&1 && (
+    "%PY%" -m pip install pypdf python-docx >nul 2>&1 && (
         echo [nexus] Documentos PDF/Word listos ✔
     ) || (
         echo [nexus] AVISO: no se pudo instalar pypdf/python-docx.
@@ -55,7 +61,7 @@ REM tener abierto LibreHardwareMonitor). No aborta el arranque si falla.
 .venv\Scripts\python.exe -c "import wmi" 2>nul
 if errorlevel 1 (
     echo [nexus] Instalando sensores de temperatura ^(wmi^)...
-    pip install wmi pywin32 >nul 2>&1 && (
+    "%PY%" -m pip install wmi pywin32 >nul 2>&1 && (
         echo [nexus] Sensores de temperatura listos ✔
     ) || (
         echo [nexus] AVISO: no se pudo instalar wmi ^(la temperatura de CPU saldra n/d^).
@@ -80,7 +86,7 @@ REM Voz real: se intenta APARTE; si falla (Python 3.13/3.14) no rompe nada
 .venv\Scripts\python.exe -c "import faster_whisper, sounddevice" 2>nul
 if errorlevel 1 (
     echo [nexus] Intentando instalar la voz real...
-    pip install -r requirements-voice.txt && (
+    "%PY%" -m pip install -r requirements-voice.txt && (
         echo [nexus] Voz real instalada ✔
     ) || (
         echo.
@@ -106,7 +112,7 @@ REM 2) ¿El nucleo importa? Si no, reinstala pydantic; si sigue roto, recrear.
 .venv\Scripts\python.exe -c "import fastapi" 2>nul
 if errorlevel 1 (
     echo [nexus] El nucleo no arranca; reparando pydantic_core...
-    pip install --force-reinstall --no-cache-dir pydantic pydantic-core >nul 2>&1
+    "%PY%" -m pip install --force-reinstall --no-cache-dir pydantic pydantic-core >nul 2>&1
     .venv\Scripts\python.exe -c "import fastapi" 2>nul
     if errorlevel 1 set "NEXUS_FIX=1"
 )
@@ -118,8 +124,8 @@ REM A veces no queda instalado (o lo borra el antivirus). Lo comprobamos y repon
 .venv\Scripts\python.exe -c "import clr" 2>nul
 if errorlevel 1 (
     echo [nexus] Reparando la ventana de escritorio ^(cffi/pythonnet^)...
-    python -m pip install --force-reinstall --no-cache-dir cffi pycparser >nul 2>&1
-    python -m pip install --force-reinstall --no-cache-dir pywin32 clr-loader pythonnet >nul 2>&1
+    "%PY%" -m pip install --force-reinstall --no-cache-dir cffi pycparser >nul 2>&1
+    "%PY%" -m pip install --force-reinstall --no-cache-dir pywin32 clr-loader pythonnet >nul 2>&1
     .venv\Scripts\python.exe -c "import clr" 2>nul
     if errorlevel 1 (
         echo [nexus] AVISO: la ventana nativa sigue sin cargar. Si usas antivirus, puede
@@ -149,7 +155,7 @@ if defined WBK_KILLED (
 )
 
 echo [nexus] Iniciando...
-python -m backend.desktop
+"%PY%" -m backend.desktop
 if errorlevel 1 pause
 exit /b 0
 
@@ -169,9 +175,10 @@ if not exist ".venv\Scripts\python.exe" (
     pause & exit /b 1
 )
 call .venv\Scripts\activate.bat
-python -m pip install --upgrade pip >nul
-python -m pip install -r requirements.txt || (echo [nexus] ERROR instalando el nucleo & pause & exit /b 1)
-python -m pip install edge-tts pyttsx3 pypdf python-docx wmi pywin32 >nul 2>&1
-python -m pip install -r requirements-voice.txt >nul 2>&1
+set "PY=%~dp0.venv\Scripts\python.exe"
+"%PY%" -m pip install --upgrade pip >nul
+"%PY%" -m pip install -r requirements.txt || (echo [nexus] ERROR instalando el nucleo & pause & exit /b 1)
+"%PY%" -m pip install edge-tts pyttsx3 pypdf python-docx wmi pywin32 >nul 2>&1
+"%PY%" -m pip install -r requirements-voice.txt >nul 2>&1
 echo [nexus] Entorno recreado con Python 3.12 ^(limpio^). Voz y ventana listas.
 goto :eof
