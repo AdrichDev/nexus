@@ -44,6 +44,13 @@ Calendar:
 - «mueve la reunión al viernes a las 17» / «reprograma la cita del médico»
 - «cancela la reunión con el CTO» / «borra el evento del jueves» /
   «anúlame la cita del dentista»
+- «borra los eventos del día 5» / «cancela las citas del 5 y del 9» → por FECHA
+- «elimina las tareas del calendario del miércoles» / «borra las citas de mañana»
+- Antes de borrar te enseña la lista exacta y espera un «sí». Si no hay nada ese
+  día lo dice y para: nunca te lee la agenda entera sin que la pidas.
+
+Las fechas se MUESTRAN en **dd/mm/aaaa** (`05/08/2026`). Por dentro y en las
+llamadas a Google siguen en ISO (`2026-08-05`), que es lo que la API entiende.
 
 Tasks (To-Do):
 - «tareas de google» / «qué tengo en el to-do» → lista de pendientes

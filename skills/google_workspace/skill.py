@@ -135,10 +135,25 @@ SKILL = {
         "delete_email": r"(?:b[oó]rra(?:me)?|elimina(?:me)?|qu[ií]ta(?:me)?|suprime|archiva(?:me)?|tira|manda\s+a\s+la\s+papelera|echa\s+a\s+la\s+papelera)\b"
                         r"[^.\n]{0,20}\b(?:el\s+|los\s+|ese\s+|este\s+|mis\s+|todos?\s+los\s+)?"
                         r"(?:correos?|mails?|e-?mails?)\b(?:[^.\n]{0,20}?(?P<n>\d+))?(?P<rest>.+)?",
-        # BORRAR / CANCELAR un evento del calendario (CRUD Calendar)
-        "delete_event": r"(?:b[oó]rra(?:me)?|elimina(?:me)?|qu[ií]ta(?:me)?|cancela(?:me)?|an[uú]la(?:me)?|desconvoca)\b"
-                        r"[^.\n]{0,25}\b(?:el\s+|la\s+|mi\s+|ese\s+|esa\s+)?"
-                        r"(?:evento|cita|reuni[oó]n|recordatorio|mentor[ií]a)\b(?P<what>.+)?",
+        # BORRAR / CANCELAR eventos del calendario (CRUD Calendar).
+        # 03/08/2026, DOS AGUJEROS MEDIDOS:
+        #  1) el sustantivo iba en SINGULAR con \b detrás, así que «borra los
+        #     EVENTOS del día 5» o «cancela las CITAS del miércoles» no casaban
+        #     con nada y acababan en el planificador del cerebro — que respondió
+        #     listando la agenda entera.
+        #  2) hablando se dice «quiero que ELIMINES», no «elimina»: el subjuntivo
+        #     tampoco casaba. Y a los eventos se les llama «tareas del calendario».
+        # Por eso hay una segunda alternativa anclada a la palabra «calendario»:
+        # cubre «elimina las dos tareas del calendario» sin robarle nada al
+        # tablero interno (que nunca dice «calendario»).
+        "delete_event": r"(?:b[oó]rra(?:me)?|borres|borrar|elimin(?:a(?:me)?|es|en|ar)|"
+                        r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar)|"
+                        r"an[uú]l(?:a(?:me)?|es|ar)|desconvoca)\b"
+                        r"[^.\n]{0,25}\b(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+|ese\s+|esa\s+|esos\s+|esas\s+)?"
+                        r"(?:eventos?|citas?|reuni(?:[oó]n|ones)|recordatorios?|mentor[ií]as?)\b(?P<what>.+)?"
+                        r"|(?:b[oó]rra(?:me)?|borres|borrar|elimin(?:a(?:me)?|es|en|ar)|"
+                        r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar)|an[uú]l(?:a(?:me)?|es|ar))\b"
+                        r"[^.\n]{0,45}\b(?:del|de\s+mi|en\s+el|en\s+mi)\s+(?:google\s+)?calendario\b(?P<whatcal>.+)?",
         # MOVER / REPROGRAMAR un evento (CRUD Calendar)
         "edit_event": r"(?:mu[eé]ve(?:me)?|cambia(?:me)?|reprograma(?:me)?|aplaza|adelanta|retrasa|atrasa|edita|posp[oó]n)\b"
                       r"[^.\n]{0,25}\b(?:el\s+|la\s+|mi\s+)?(?:evento|cita|reuni[oó]n|mentor[ií]a)\b(?P<what2>.+)?",
@@ -550,6 +565,163 @@ def _find_events(query: str = "", limit: int = 10) -> list[dict]:
         start = st.get("dateTime") or st.get("date") or ""
         out.append({"id": ev.get("id", ""), "summary": ev.get("summary", "(sin título)"),
                     "start": start, "when": start[:16].replace("T", " ")})
+    return out
+
+
+_DIAS_SEMANA = {"lunes": 0, "martes": 1, "miercoles": 2, "jueves": 3,
+                "viernes": 4, "sabado": 5, "domingo": 6}
+# Números de evento («cancela el evento 2») — NO son fechas. Se quitan del texto
+# antes de buscar días sueltos o «el 2» se leería como el día 2 del mes.
+_ORDINAL_EVENTO_RX = re.compile(
+    r"\b(?:eventos?|citas?|reuni(?:on|ones)|recordatorios?)\s+(?:numero\s+)?\d{1,2}\b")
+# Verbos de BORRAR. Sirven de candado en el listado del calendario: una orden de
+# borrar no puede acabar leyendo la agenda (ver la rama `gcal` de handle()).
+_PIDE_BORRAR_RX = re.compile(
+    r"\b(?:b[oó]rra\w*|borres|borrar|elimin\w+|qu[ií]t(?:a\w*|es|ar)|"
+    r"cancel(?:a\w*|es|ar)|an[uú]l(?:a\w*|es|ar)|desconvoca)\b", re.IGNORECASE)
+
+
+def _sin_tildes(texto: str) -> str:
+    """Minúsculas sin tildes: «miércoles»/«miercoles» y «día»/«dia» son lo mismo."""
+    t = (texto or "").lower()
+    for a, b in (("á", "a"), ("é", "e"), ("í", "i"), ("ó", "o"), ("ú", "u"), ("ü", "u")):
+        t = t.replace(a, b)
+    return t
+
+
+def _fmt_cuando(iso: str) -> str:
+    """Fecha ISO (YYYY-MM-DD, con o sin hora) → dd/mm/aaaa [hh:mm].
+
+    SOLO para MOSTRAR. Los datos que viajan al frontend y todo lo que se le manda
+    a Google siguen en ISO: aquí se cambia el escaparate, no el almacén."""
+    s = (iso or "").strip().replace("T", " ")
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}:\d{2}))?", s)
+    if not m:
+        return (iso or "").strip()
+    fecha = f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    return f"{fecha} {m.group(4)}" if m.group(4) else fecha
+
+
+def _proximo_dia_mes(dia: int, hoy: dt.date) -> dt.date | None:
+    """«el día 5» a secas = el 5 más cercano que NO haya pasado (este mes o el
+    siguiente). Se prueban tres meses porque el 31 no existe en todos."""
+    for salto in (0, 1, 2, 3):
+        mes = hoy.month + salto
+        anio = hoy.year + (mes - 1) // 12
+        try:
+            cand = dt.date(anio, (mes - 1) % 12 + 1, dia)
+        except ValueError:
+            continue
+        if cand >= hoy:
+            return cand
+    return None
+
+
+def _fechas_pedidas(text: str) -> list[dt.date]:
+    """Las fechas que la orden usa como SELECTOR de eventos.
+
+    Entiende «del día 5», «el 5 y el 9», «del 5 de agosto», «05/08», «el
+    miércoles», «de mañana», «hoy». Devuelve la lista ordenada y sin repetidos, o
+    vacía si la orden no nombra ninguna fecha.
+
+    Si hay algún número de día, los nombres de día de la semana se IGNORAN: en
+    «el miércoles día 5 y el domingo día 9» el número manda, y mezclarlos con el
+    próximo miércoles borraría eventos que nadie ha pedido borrar."""
+    low = _ORDINAL_EVENTO_RX.sub(" ", _sin_tildes(text))
+    hoy = dt.date.today()
+    fechas: list[dt.date] = []
+
+    def _anota(f: dt.date | None) -> None:
+        if f and f not in fechas:
+            fechas.append(f)
+
+    # 1) dd/mm[/aaaa]
+    for m in re.finditer(r"\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b", low):
+        d, mo = int(m.group(1)), int(m.group(2))
+        anio = int(m.group(3)) if m.group(3) else hoy.year
+        anio = anio + 2000 if anio < 100 else anio
+        try:
+            _anota(dt.date(anio, mo, d))
+        except ValueError:
+            pass
+    resto = re.sub(r"\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b", " ", low)
+
+    # 2) «5 de agosto» (con año explícito o el próximo que llegue)
+    meses = "|".join(_MES_NUM)
+    for m in re.finditer(rf"\b(\d{{1,2}})\s+de\s+({meses})\b(?:\s+de\s+(\d{{4}}))?", resto):
+        d, mo = int(m.group(1)), _MES_NUM[m.group(2)]
+        if m.group(3):
+            anio = int(m.group(3))
+        else:
+            anio = hoy.year if (mo, d) >= (hoy.month, hoy.day) else hoy.year + 1
+        try:
+            _anota(dt.date(anio, mo, d))
+        except ValueError:
+            pass
+    resto = re.sub(rf"\b\d{{1,2}}\s+de\s+(?:{meses})\b(?:\s+de\s+\d{{4}})?", " ", resto)
+
+    # 3) día suelto del mes: «día 5», «el 5», «del 9»
+    for m in re.finditer(r"\b(?:dia\s+|del\s+|el\s+)(\d{1,2})\b", resto):
+        d = int(m.group(1))
+        if 1 <= d <= 31:
+            _anota(_proximo_dia_mes(d, hoy))
+
+    hay_numero = bool(fechas)
+
+    # 4) hoy / mañana / pasado mañana. «de la mañana» y «por la mañana» son la
+    #    HORA del día, no el día siguiente: se descartan con el lookbehind.
+    if re.search(r"\bpasado\s+manana\b", low):
+        _anota(hoy + dt.timedelta(days=2))
+    elif re.search(r"(?<!de la )(?<!por la )\bmanana\b", low):
+        _anota(hoy + dt.timedelta(days=1))
+    if re.search(r"\bhoy\b", low):
+        _anota(hoy)
+
+    # 5) día de la semana → la próxima vez que caiga (solo si no había números)
+    if not hay_numero:
+        for nombre, wd in _DIAS_SEMANA.items():
+            if re.search(rf"\b{nombre}\b", low):
+                _anota(hoy + dt.timedelta(days=((wd - hoy.weekday()) % 7) or 7))
+
+    return sorted(fechas)
+
+
+def _eventos_en(fechas: list[dt.date], limit: int = 100) -> list[dict]:
+    """Los eventos del calendario que caen en esas fechas.
+
+    A Google se le pide el rango que las cubre, ensanchado un día por cada lado:
+    sin tzdata en el sistema no se puede construir un instante exacto de
+    Europe/Madrid, y el filtro fino se hace después comparando la fecha LOCAL que
+    devuelve la propia API (`start.date`/`start.dateTime`, ya con su desfase)."""
+    if not fechas:
+        return []
+    tmin = (min(fechas) - dt.timedelta(days=1)).isoformat() + "T00:00:00Z"
+    tmax = (max(fechas) + dt.timedelta(days=2)).isoformat() + "T00:00:00Z"
+    objetivo = {f.isoformat() for f in fechas}
+    out = []
+    for e in _fetch_events(limit, tmin, tmax):
+        ini = (e.get("fecha") or "")[:10]
+        if not ini:
+            continue
+        if not e.get("todo_el_dia"):
+            if ini in objetivo:
+                out.append(e)
+            continue
+        # De día completo: Google da el final EXCLUSIVO, así que el evento ocupa
+        # [inicio, fin) y hay que mirar todos los días que abarca.
+        try:
+            d0 = dt.date.fromisoformat(ini)
+            d1 = dt.date.fromisoformat((e.get("fecha_fin") or "")[:10] or ini)
+        except ValueError:
+            continue
+        if d1 <= d0:
+            d1 = d0 + dt.timedelta(days=1)
+        d = d0
+        while d < d1:
+            if d.isoformat() in objetivo:
+                out.append(e)
+                break
+            d += dt.timedelta(days=1)
     return out
 
 
@@ -1708,23 +1880,67 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"🗑 {n} correo(s) a la papelera ({q}). Recuperables 30 días."}
 
         if intent == "delete_event":
+            # DOS SELECTORES: por FECHA («los eventos del día 5», «las citas del
+            # miércoles», «el 5 y el 9») y, si no hay fecha, por TÍTULO como antes.
+            # Y nada se borra sin enseñar antes QUÉ se va a borrar y esperar un sí:
+            # mismo cinturón que la papelera del tablero y el borrado de Drive.
+            from backend.core import confirm
+            canal = ctx.get("channel", "pc")
             what = ""
-            try:
-                what = (match.group("what") or "").strip(" .,;:")
-            except Exception:
-                what = ""
-            evs = await asyncio.to_thread(_find_events, what, 10)
-            if not evs:
-                return {"reply": f"No encuentro ningún evento próximo{(' de «' + what + '»') if what else ''} "
-                                 "en tu calendario para borrar."}
-            if what and len(evs) > 1:
-                # varios candidatos → los enseño para que precise
-                lines = [f"{i+1}. {e['summary']} ({e['when']})" for i, e in enumerate(evs[:6])]
-                return {"reply": "Hay varios que encajan; dime el número: cancela el evento N.\n"
-                                 + "\n".join(lines), "data": {"events": evs}}
-            ev = evs[0]
-            await asyncio.to_thread(_delete_event, ev["id"])
-            return {"reply": f"🗑 Cancelado en tu calendario: «{ev['summary']}» ({ev['when']})."}
+            for grupo in ("what", "whatcal"):
+                try:
+                    what = (match.group(grupo) or "").strip(" .,;:") or what
+                except Exception:                                  # noqa: BLE001
+                    pass
+            fechas = _fechas_pedidas(text)
+
+            if fechas:
+                evs = await asyncio.to_thread(_eventos_en, fechas, 100)
+                dias = " y ".join(_fmt_cuando(f.isoformat()) for f in fechas)
+                if not evs:
+                    return {"reply": f"No hay nada en tu calendario el {dias}."}
+                victimas = [{"id": e["id"], "title": e["what"],
+                             "when": _fmt_cuando(f"{e['fecha']}T{e['hora']}" if e.get("hora")
+                                                 else e["fecha"])} for e in evs]
+            else:
+                evs = await asyncio.to_thread(_find_events, what, 10)
+                if not evs:
+                    return {"reply": f"No encuentro ningún evento de «{what}»." if what
+                            else "No encuentro ningún evento próximo que borrar."}
+                if what:
+                    evs = evs[:6]
+                else:
+                    evs = evs[:1]
+                victimas = [{"id": e["id"], "title": e["summary"],
+                             "when": _fmt_cuando(e["start"])} for e in evs]
+
+            ids = [v["id"] for v in victimas]
+
+            def _borrar() -> str:
+                n = 0
+                for eid in ids:
+                    try:
+                        _delete_event(eid)
+                        n += 1
+                    except Exception:                              # noqa: BLE001, PERF203
+                        pass
+                if n == len(ids) == 1:
+                    return f"🗑 Borrado: «{victimas[0]['title']}»."
+                if n == len(ids):
+                    return f"🗑 Borrados {n} eventos."
+                return f"🗑 Borrados {n} de {len(ids)}. El resto ha fallado."
+
+            if len(victimas) == 1:
+                v = victimas[0]
+                pregunta = f"Voy a borrar «{v['title']}» ({v['when']}). ¿Lo borro?"
+            else:
+                lineas = "\n".join(f"• {v['when']} — {v['title']}" for v in victimas)
+                pregunta = f"Voy a borrar {len(victimas)} eventos:\n{lineas}\n¿Los borro?"
+            return {"reply": confirm.request(
+                channel=canal, kind="borrar_eventos", summary=pregunta,
+                request_text=text, targets=victimas,
+                action=lambda: asyncio.to_thread(_borrar),
+                cancel_reply="Vale, no borro nada.")}
 
         if intent == "edit_event":
             what = ""
@@ -1746,7 +1962,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             start, end, all_day = when
             await asyncio.to_thread(_patch_event, ev["id"], None if all_day else start,
                                     None if all_day else end)
-            return {"reply": f"📅 Movido: «{ev['summary']}» → {start[:16].replace('T', ' ')}."}
+            return {"reply": f"📅 Movido: «{ev['summary']}» → {_fmt_cuando(start)}."}
 
         if intent == "email_urgent":
             # EN SEGUNDO PLANO (orden de Adri): acuse ya, análisis por detrás y
@@ -1809,8 +2025,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                                         start[:10], "media", "agenda")
             except Exception:
                 pass
-            cuando = (f"el {start[:10]} a las {start[11:16]}" if not all_day
-                      else f"el {start} (todo el día)")
+            cuando = (f"el {_fmt_cuando(start)}" if not all_day
+                      else f"el {_fmt_cuando(start)} (todo el día)")
             return {"reply": f"📅 Evento creado en tu Google Calendar: «{titulo}» {cuando}. "
                              "Lo he reflejado también en tu tablero. Si te arrepientes, "
                              "di «cancela ese evento» y desaparece."}
@@ -1839,7 +2055,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 await asyncio.to_thread(board.add_task, titulo, fecha, "media", "to-do")
             except Exception:
                 pass
-            extra = f" (para el {fecha})" if fecha else ""
+            extra = f" (para el {_fmt_cuando(fecha)})" if fecha else ""
             return {"reply": f"✔ Tarea añadida a tu Google To-Do: «{titulo}»{extra}. "
                              "También la tienes en tu tablero interno. Di «tareas de "
                              "google» cuando quieras repasar la lista."}
@@ -1918,23 +2134,27 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"Correo de {m['from']} — «{m['subject']}»:\n{body[:900]}"}
 
         if intent == "gcal":
+            # UN BORRADO QUE FALLA NO SE CONVIERTE EN UN LISTADO (03/08/2026).
+            # Cuando ninguna regex casaba, el planificador del cerebro mandaba
+            # «elimina las tareas del calendario del día 5» aquí y nexus soltaba
+            # la agenda entera. Adri: «Por qué lees las citas del calendario si no
+            # lo he pedido». Si la frase pide BORRAR, aquí no se lista nada.
+            if _PIDE_BORRAR_RX.search(text):
+                return {"reply": "Eso es un borrado, no una consulta. Dime qué día: "
+                                 "«borra los eventos del día 5»."}
             rango = _month_range(text)
             if rango:                                # «todas las citas de julio»
                 tmin, tmax, nombre = rango
                 events = await asyncio.to_thread(_fetch_events, 50, tmin, tmax)
                 if not events:
                     return {"reply": f"No tienes ninguna cita en {nombre}."}
-                lines = [f"• {e['when']} — {e['what']}" for e in events]
+                lines = [f"• {_fmt_cuando(e['when'])} — {e['what']}" for e in events]
                 return {"reply": f"Tienes {len(events)} citas en {nombre}:\n" + "\n".join(lines)}
             events = await asyncio.to_thread(_fetch_events, 6)
             if not events:
-                return {"reply": "Calendario despejado: nada en el horizonte. Si quieres "
-                                 "estrenarlo, di «crea un evento reunión con Ana el "
-                                 "viernes a las 17» y te lo agendo."}
-            lines = [f"• {e['when']} — {e['what']}" for e in events]
-            return {"reply": "📅 Próximos eventos (Google Calendar):\n" + "\n".join(lines) +
-                             "\n\nDi «mueve la reunión al viernes a las 17» o «cancela el "
-                             "evento X» y lo dejo hecho."}
+                return {"reply": "No tienes nada en el calendario."}
+            lines = [f"• {_fmt_cuando(e['when'])} — {e['what']}" for e in events]
+            return {"reply": "📅 Próximos eventos:\n" + "\n".join(lines)}
 
         if intent == "gtasks":
             tasks = await asyncio.to_thread(_fetch_tasks, 10)
