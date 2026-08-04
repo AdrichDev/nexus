@@ -1,6 +1,6 @@
 # Las capas de `backend/core/`
 
-`core/` son 42 módulos y unas 15.000 líneas. Estaban en **una sola carpeta
+`core/` son 43 módulos y unas 15.000 líneas. Estaban en **una sola carpeta
 plana**, donde nada impedía que el módulo que habla con la API de Google llamara
 a las reglas del tablero, ni al revés.
 
@@ -41,7 +41,7 @@ detalle de estilo.
 | --- | --- |
 | **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice` |
 | **infraestructura** | `llm`, `llm_runtime`, `tts`, `stt`, `remote`, `files_io`, `engram_bridge`, `websearch`, `telegram_bridge`, `spotify`, `hardware`, `app_index` |
-| **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `briefing`, `profile`, `review`, `ingesta`, `pm` |
+| **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `briefing`, `profile`, `review`, `ingesta`, `pm`, `reglas` |
 | **aplicación** | `brain`, `skills_loader`, `scheduler`, `background`, `jobs`, `wake`, `hotkey`, `voice_cycle` |
 
 Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
@@ -58,6 +58,11 @@ Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
   orquestación. Lo mismo con `wake` y `hotkey`, que son puntos de entrada.
 - **`pm` en dominio**, no en infraestructura. Detecta compromisos en lo que
   hablas y los convierte en tareas: eso son reglas del negocio.
+- **`reglas` en dominio**, aunque lo que aprende sea enrutado. Guarda el almacén
+  de reglas aprendidas y la tabla de listas y umbrales que han salido del código.
+  Quien sabe enrutar (`brain`) y quién sabe qué destinos existen
+  (`skills_loader`) están en aplicación, así que no se importan: se registran
+  desde arriba, como hace `events`. Sin ese registro no se activa nada.
 
 ## Deuda aceptada, con nombre y apellidos
 

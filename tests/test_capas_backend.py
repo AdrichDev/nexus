@@ -58,6 +58,7 @@ CAPAS: list[tuple[str, set[str]]] = [
     ("dominio", {
         "board", "purga", "contentos", "contentos_demo", "rag", "memory",
         "selflearn", "opmem", "briefing", "profile", "review", "ingesta", "pm",
+        "reglas",
     }),
     ("aplicacion", {
         "brain", "skills_loader", "scheduler", "background", "jobs",
@@ -181,6 +182,14 @@ for nombre, _ms in CAPAS:
 for a, b in sorted(EXCEPCIONES):
     check(a in doc and b in doc,
           f"la excepcion {a} → {b} no esta explicada en backend/core/CAPAS.md")
+# Y la TABLA de CAPAS.md nombra los mismos modulos que la lista de aqui. Sin
+# esto, dar de alta un modulo solo en el test dejaba la suite en verde y el
+# documento desactualizado: la capa se leia distinta segun donde se mirase.
+for nombre, mods in CAPAS:
+    for m in sorted(mods):
+        check(f"`{m}`" in doc,
+              f"«{m}» esta en la capa «{nombre}» del test pero no en la tabla de "
+              "backend/core/CAPAS.md")
 
 print("== 6) el modulo que ya vive en su capa esta en la carpeta que le toca ==")
 

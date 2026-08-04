@@ -503,15 +503,16 @@ def _mdns_discover(timeout: float = 3.0) -> dict:
 
 
 # ---------------------------------------------------- sondeo de puertos → tipo
-_PORT_HINTS = {
-    8060: "TV Roku", 8001: "TV Samsung", 8002: "TV Samsung", 55000: "TV Samsung",
-    8008: "Chromecast", 8009: "Chromecast", 7000: "AirPlay",
-    32400: "Servidor Plex", 8123: "Home Assistant", 1883: "IoT (MQTT)",
-    9100: "Impresora", 631: "Impresora (IPP)", 554: "Cámara IP (RTSP)",
-    445: "PC/servidor (SMB)", 3389: "PC Windows (escritorio remoto)",
-    22: "Linux/servidor (SSH)", 62078: "iPhone/iPad", 5353: "mDNS",
-    53: "Router/DNS", 8080: "Web/panel",
-}
+def _port_hints() -> dict:
+    """Puerto → etiqueta del aparato. La tabla ya no está aquí: sale de
+    `reglas.valor()`, que resuelve reserva del código → `config/umbrales.json` →
+    superposición aprendida.
+
+    Devuelve las claves como `int` y EN EL ORDEN de la tabla, que es la prioridad
+    del sondeo (ver `_probe_ports`). En JSON toda clave es una cadena, así que
+    `reglas` las reconvierte; sin eso el sondeo no se cae, devuelve otra etiqueta."""
+    from backend.core.dominio import reglas
+    return reglas.valor("domotica.port_hints")
 
 
 async def _try_port(ip: str, port: int) -> bool:
@@ -531,13 +532,14 @@ async def _try_port(ip: str, port: int) -> bool:
 async def _probe_ports(ip: str, sem: asyncio.Semaphore) -> str:
     """Toca los puertos característicos EN PARALELO (≈0.4 s por host, no por puerto)
     y devuelve la etiqueta del más significativo que esté abierto. '' si ninguno."""
+    hints = _port_hints()
     async with sem:
-        ports = list(_PORT_HINTS.keys())
+        ports = list(hints.keys())
         oks = await asyncio.gather(*[_try_port(ip, p) for p in ports],
                                    return_exceptions=True)
-    for port, ok in zip(ports, oks):        # orden de _PORT_HINTS = prioridad
+    for port, ok in zip(ports, oks):        # orden de _port_hints() = prioridad
         if ok is True:
-            return _PORT_HINTS[port]
+            return hints[port]
     return ""
 
 
@@ -1673,10 +1675,12 @@ def _norm_txt(s: str) -> str:
 _NUM_PALABRA = {"uno": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5",
                 "seis": "6", "siete": "7", "ocho": "8", "nueve": "9", "diez": "10"}
 
-# palabras de estancia/tipo que por sí solas NO identifican un aparato concreto
-_ROOM_WORDS = {"habitacion", "salon", "cocina", "cuarto", "bano", "pasillo", "entrada",
-               "dormitorio", "comedor", "garaje", "jardin", "terraza", "oficina",
-               "despacho", "tv", "tele", "television", "smart", "casa", "sala"}
+def _room_words() -> set:
+    """Palabras de estancia/tipo que por sí solas NO identifican un aparato
+    concreto. La lista ya no está aquí: sale de `reglas.valor()`, que resuelve
+    reserva del código → `config/umbrales.json` → superposición aprendida."""
+    from backend.core.dominio import reglas
+    return reglas.valor("domotica.room_words")
 
 
 def _resolve_named_device(ctx, text: str):
@@ -1692,6 +1696,7 @@ def _resolve_named_device(ctx, text: str):
     for d in _known(ctx):
         saved.append(d)
     best, best_len = None, 0
+    room_words = _room_words()
     for d in saved:
         name = (d.get("name") or "").strip()
         if not name or _is_generic_name(name, d.get("brand", "")):
@@ -1700,7 +1705,7 @@ def _resolve_named_device(ctx, text: str):
         # tokens DISTINTIVOS del nombre (no palabras de estancia): sin al menos uno,
         # el nombre no permite desambiguar por voz (p.ej. «Salón» a secas) → se ignora
         # para no robarle una orden a Home Assistant («enciende la luz del salón»).
-        toks = [w for w in re.findall(r"[a-z0-9]+", nn) if len(w) >= 4 and w not in _ROOM_WORDS]
+        toks = [w for w in re.findall(r"[a-z0-9]+", nn) if len(w) >= 4 and w not in room_words]
         if not toks:
             continue
         matched = (nn in tn) or any(re.search(rf"\b{re.escape(w)}\b", tn) for w in toks)

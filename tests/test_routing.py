@@ -498,10 +498,12 @@ def test_domotica_por_nombre():
     import unicodedata
     path = os.path.join(ROOT, "skills", "domotica", "skill.py")
     tree = ast.parse(open(path, encoding="utf-8").read())
+    # `_room_words` entra en la lista porque las palabras de estancia ya no son
+    # una constante del modulo: se leen de reglas.valor("domotica.room_words").
     want = {"_norm_txt", "_resolve_named_device", "_is_tv_device", "_wants_on",
-            "_is_generic_name", "_known"}
+            "_is_generic_name", "_known", "_room_words"}
     keep = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in want)
-            or (isinstance(n, ast.Assign) and any(getattr(t, "id", "") in ("_ROOM_WORDS", "_GENERIC_NAMES") for t in n.targets))]
+            or (isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "_GENERIC_NAMES" for t in n.targets))]
     ns = {"re": re, "unicodedata": unicodedata}
     exec(compile(ast.Module(body=keep, type_ignores=[]), path, "exec"), ns)
     resolve, istv, won = ns["_resolve_named_device"], ns["_is_tv_device"], ns["_wants_on"]

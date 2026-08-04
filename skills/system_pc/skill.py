@@ -10,6 +10,18 @@ import sys
 import webbrowser
 from pathlib import Path
 
+# Import A NIVEL DE MÓDULO, y aquí está la razón: `_NO_ES_PROGRAMA` se concatena
+# dentro de SKILL["patterns"], que se construye AL IMPORTAR este fichero. Un
+# import dentro de una función —la forma habitual en las demás skills— llegaría
+# tarde: el patrón «kill» ya se habría montado. La alternativa era compilar los
+# patrones de «kill» perezosamente en el primer uso, y eso significa un nivel de
+# indirección y una caché para ahorrar una línea.
+#
+# No estrena nada en el proyecto: `chrome`, `files` y `tasks_board` ya importan
+# `backend.core` a nivel de módulo. Y no cierra ningún ciclo: `reglas` solo
+# importa `comun/config` y `comun/audit`, nunca skills ni `skills_loader`.
+from backend.core.dominio import reglas as _reglas
+
 try:
     import psutil
 except ImportError:
@@ -38,24 +50,11 @@ _CERRADO_FRASES = (
 
 # Lo que NO es un programa que se pueda cerrar. Va como lookahead negativo en el
 # patrón «kill» para que «cierra X» a secas siga siendo una orden de PC sin
-# robarle la frase a las skills que van detrás por orden alfabético. Cada bloque
-# dice de quién es lo que protege.
-_NO_ES_PROGRAMA = (
-    r"(?!(?:"
-    r"la|los|las|una|unos|unas|"                                   # artículos sueltos
-    r"procesos?|aplicaci[oó]n|app|programa|"                        # ancla, ya tratada arriba
-    r"pesta[ñn]as?|marcadores?|historial|navegaci[oó]n|"            # chrome
-    r"tablero|tareas?|notas?|listas?|proyectos?|"                   # tasks_board / coach
-    r"facturas?|presupuestos?|"                                     # billing
-    r"correos?|mails?|e-?mails?|bandeja|calendario|"                # google_workspace
-    r"tele|televisi[oó]n|persianas?|cortinas?|puertas?|garaje|"     # domotica
-    r"luz|luces|gas|grifo|calefacci[oó]n|"                          # domotica
-    r"chats?|conversaci[oó]n|hilos?|mensajes?|"                     # comms / telefono
-    r"sesi[oó]n|ventanas?|pantallas?|di[aá]logos?|men[uú]s?|"       # no son programas
-    r"paneles?|modal|pico|boca|ojos?|puertos?|"
-    r"trato|acuerdo|caso|tema|asunto|debate|discusi[oó]n"           # metáforas
-    r")\b)"
-)
+# robarle la frase a las skills que van detrás por orden alfabético. La lista
+# —con lo que protege cada bloque— ya no está aquí: sale de `reglas.valor()`,
+# que resuelve reserva del código → `config/umbrales.json` → superposición
+# aprendida. Se lee al importar porque el patrón «kill» se monta al importar.
+_NO_ES_PROGRAMA = _reglas.valor("system_pc.no_es_programa")
 
 # Palabras con las que se nombra a ESTE equipo cuando se pide volumen.
 _ESTE_PC = r"(?:pc|ordenador|ordenata|equipo|sistema|windows|m[aá]quina|torre|sobremesa|port[aá]til)"

@@ -90,19 +90,19 @@ bien es que nada cambia.
 
 ### A1. `dominio/reglas.py` — el almacén, sin contrato todavía
 
-- [ ] A1.1 Crear `backend/core/dominio/reglas.py` con `ESQUEMA = 1`, `cargar()` y
+- [x] A1.1 Crear `backend/core/dominio/reglas.py` con `ESQUEMA = 1`, `cargar()` y
       `guardar()`. Lectura: principal → `.bak` → fábrica (`{"esquema":1,"reglas":[]}`),
       **nunca lanza**. Escritura: `.bak` + `.tmp` + `os.replace` calcando
       `comun/config._write_json_atomic()`. `threading.Lock` de módulo alrededor de
       la lectura-modificación-escritura entera. Importa **solo** `comun/config` y
       `comun/audit`. — *Cubre*: aprendizaje-contrato, req. «Almacén único y
       restablecimiento de fábrica» — *Test*: `test_reglas_valores.py::test_almacen_corrupto_degrada_a_fabrica`
-- [ ] A1.2 Huecos de inversión de dependencia, con el valor por defecto **al revés
+- [x] A1.2 Huecos de inversión de dependencia, con el valor por defecto **al revés
       que `events`**: `registrar_arbitro(fn)` y `registrar_catalogo(fn)`; sin
       rellenar, `existe_destino()` devuelve `False` y el barrido devuelve «no lo
       sé». Sin árbitro no hay activación. — *Cubre*: enrutado-aprendido, req. «El
       módulo del aprendizaje respeta las capas» — *Test*: `test_reglas_valores.py::test_sin_arbitro_no_activa_nada`
-- [ ] A1.3 Dar de alta `reglas` en el bloque `dominio` de la lista `CAPAS` de
+- [x] A1.3 Dar de alta `reglas` en el bloque `dominio` de la lista `CAPAS` de
       `tests/test_capas_backend.py` **y** en la tabla de `backend/core/CAPAS.md`.
       Cero entradas nuevas en `EXCEPCIONES`. — *Cubre*: enrutado-aprendido, escenario
       «Suite de capas tras añadir el módulo» — *Verificación*:
@@ -114,23 +114,23 @@ bien es que nada cambia.
 
 ### A2. La tabla `VALORES` y el accesor
 
-- [ ] A2.1 `VALORES: dict[str, tuple[type, tuple, object]]` — `clave → (tipo, rango,
+- [x] A2.1 `VALORES: dict[str, tuple[type, tuple, object]]` — `clave → (tipo, rango,
       reserva)`. Es **código**, así que viaja siempre y en una instalación limpia
       funciona sin `umbrales.json`. Tres claves iniciales, y ninguna más:
       `domotica.room_words`, `domotica.port_hints`, `system_pc.no_es_programa`. —
       *Cubre*: aprendizaje-contrato, req. «Dos tipos de regla, y solo dos» (rama `valor`)
-- [ ] A2.2 `reglas.valor(clave)` resuelve en tres tiempos: **reserva de `VALORES` →
+- [x] A2.2 `reglas.valor(clave)` resuelve en tres tiempos: **reserva de `VALORES` →
       `config/umbrales.json` si existe → capa de superposición activa**. Clave
       desconocida: lanza, no devuelve `None` en silencio. — *Cubre*:
       aprendizaje-validacion, req. «Puerta de existencia» — *Test*:
       `test_reglas_valores.py::test_valor_resuelve_en_tres_tiempos`
-- [ ] A2.3 **`umbrales.json` NO se escribe nunca.** Prueba de invariante: `sha256`
+- [x] A2.3 **`umbrales.json` NO se escribe nunca.** Prueba de invariante: `sha256`
       del fichero antes y después de un ciclo completo de `valor()` + superposición
       + reversión. — *Cubre*: aprendizaje-contrato, req. «nexus escribe datos, nunca
       código» — *Test*: `test_reglas_valores.py::test_umbrales_json_no_se_toca`
       **Cómo probar que puede fallar**: mete un `_write_json_atomic(CONFIG_DIR/"umbrales.json", …)`
       temporal dentro de `valor()`; el test tiene que ponerse rojo. Quítalo.
-- [ ] A2.4 Bloque `aprendizaje` en `config/umbrales.json` (`umbral_observada: 3`,
+- [x] A2.4 Bloque `aprendizaje` en `config/umbrales.json` (`umbral_observada: 3`,
       `tope_frases_arrastradas: 2`, `dias_caducidad_propuesta`,
       `presupuesto_ms_barrido`), sin tocar ninguna clave existente. **No** se toca
       `config/settings.json` ni `config/secrets.json`. — *Cubre*:
@@ -138,14 +138,14 @@ bien es que nada cambia.
 
 ### A3. Los tres lectores migrados (uno por tarea: cada uno tiene su trampa)
 
-- [ ] A3.1 `skills/domotica/skill.py:1677` — `_ROOM_WORDS` pasa a
+- [x] A3.1 `skills/domotica/skill.py:1677` — `_ROOM_WORDS` pasa a
       `reglas.valor("domotica.room_words")`, reserva = el `set` literal de hoy. Es
       el caso fácil: se lee dentro de `_resolve_named_device()`, así que el import
       va dentro de la función, como hace el resto de skills. — *Cubre*:
       enrutado-aprendido, req. «Las listas salen del código antes que las reglas de
       valor» — *Test*: `test_reglas_valores.py::test_room_words_sale_de_reglas`
       **⚠ Reinicio**: `cmd /c start "" run.bat` antes de probar comportamiento.
-- [ ] A3.2 `skills/domotica/skill.py:506` — `_PORT_HINTS` pasa a
+- [x] A3.2 `skills/domotica/skill.py:506` — `_PORT_HINTS` pasa a
       `reglas.valor("domotica.port_hints")` **conservando el orden** (es la
       prioridad del sondeo, `skill.py:538`) y **reconvirtiendo las claves a `int`**
       al leerlas de JSON. — *Cubre*: enrutado-aprendido, mismo requisito — *Test*:
@@ -155,7 +155,7 @@ bien es que nada cambia.
       Rómpelo a propósito envolviendo el resultado en `dict(sorted(...))` y en
       claves `str`: tiene que dar rojo por las dos razones, por separado.
       **⚠ Reinicio**.
-- [ ] A3.3 `skills/system_pc/skill.py:43` — `_NO_ES_PROGRAMA` es un fragmento de
+- [x] A3.3 `skills/system_pc/skill.py:43` — `_NO_ES_PROGRAMA` es un fragmento de
       regex usado **al importar el módulo** (líneas 170 y 173). Decidir y dejar
       escrito en un comentario cuál de las dos: (a) import de
       `backend.core.dominio.reglas` a nivel de módulo —nuevo en este proyecto, hoy
@@ -164,7 +164,7 @@ bien es que nada cambia.
       código, con la comprobación de A3.4 como red. — *Cubre*: enrutado-aprendido,
       mismo requisito — *Test*: `test_reglas_valores.py::test_no_es_programa_sale_de_reglas`
       **⚠ Reinicio**.
-- [ ] A3.4 Comprobar que ninguna skill se queda en `status: error` al arrancar por
+- [x] A3.4 Comprobar que ninguna skill se queda en `status: error` al arrancar por
       un import circular o un import de módulo nuevo: `load_skills()` y afirmar que
       las 32 cargan. — *Verificación*:
       `.venv\Scripts\python.exe tests\run_all.py` bloque «2) contrato de cada skill»
@@ -175,15 +175,15 @@ bien es que nada cambia.
 
 ### A4. Que nada haya cambiado — la única prueba que importa en A
 
-- [ ] A4.1 Crear `tests/test_reglas_valores.py` (patrón `check(cond, msg)`, sin
+- [x] A4.1 Crear `tests/test_reglas_valores.py` (patrón `check(cond, msg)`, sin
       pytest, `NEXUS_DATA_DIR` a carpeta temporal como hace `test_lo_prometido.py`)
       con todos los casos de A1-A3.
-- [ ] A4.2 Añadir `"test_reglas_valores.py"` a la tupla de suites de
+- [x] A4.2 Añadir `"test_reglas_valores.py"` a la tupla de suites de
       `tests/run_all.py`. Una suite sin dar de alta **no se ejecuta nunca**. —
       *Cubre*: enrutado-aprendido, escenario «Suites nuevas registradas»
       **Cómo probar que puede fallar**: rompe una comprobación de la suite a
       propósito y ejecuta `run_all.py`; si sale verde, no la diste de alta.
-- [ ] A4.3 **Equivalencia antes/después, ejecutada**: guardar la salida de
+- [x] A4.3 **Equivalencia antes/después, ejecutada**: guardar la salida de
       `quien_atiende()` sobre las 255 frases prometidas **antes** de tocar nada
       (`git stash` incluido si hace falta), repetir después, y comparar frase a
       frase. Cero diferencias. — *Cubre*: enrutado-aprendido, req. «Sin reglas
@@ -191,7 +191,7 @@ bien es que nada cambia.
       `.venv\Scripts\python.exe tests\test_lo_prometido.py` y
       `tests\test_regresion_conversacion.py`, los dos en 0, más el diff de las dos
       salidas vacío.
-- [ ] A4.4 **⚠ Reinicio + barrido a mano** contra nexus en marcha: «apaga la tele
+- [x] A4.4 **⚠ Reinicio + barrido a mano** contra nexus en marcha: «apaga la tele
       del salón», «cierra chrome», «cierra la sesión», «quítale el silencio al pc» y
       un descubrimiento de red que llegue a `_probe_ports`. Un `run_all.py` verde
       **no** prueba el sondeo de puertos: ahí no hay red.

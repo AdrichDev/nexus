@@ -428,6 +428,31 @@
       }
     }
   },
+  "aprendizaje": {
+    "_que_es": [
+      "Los numeros del mecanismo que aprende de las correcciones (cambio 004).",
+      "",
+      "OJO A LO QUE NO ESTA AQUI: las tres listas que salieron del codigo",
+      "(domotica.room_words, domotica.port_hints, system_pc.no_es_programa) NO",
+      "se declaran en este fichero. Su reserva vive en la tabla VALORES de",
+      "backend/core/dominio/reglas.py, que es codigo y por tanto viaja siempre:",
+      "en una instalacion limpia este umbrales.json ni siquiera existe. Si",
+      "quieres pisar una, escribe aqui un bloque con el nombre de la skill",
+      "('domotica', 'system_pc') y la clave dentro.",
+      "",
+      "Este fichero NUNCA lo escribe nexus. Lo aprendido va a",
+      "data/reglas_aprendidas.json, y borrar ese fichero devuelve el",
+      "comportamiento de fabrica sin tocar nada de aqui."
+    ],
+    "umbral_observada": 3,
+    "_umbral_observada": "Cuantas veces DISTINTAS (contadas por dia y frase normalizada) hace falta observar una correccion que nadie ordeno para que llegue a proponerse. Una correccion ORDENADA -la que casa el patron de ensenanza del cerebro- entra con una sola vez. Repetir la misma queja tres veces seguidas de rabia cuenta una, no tres.",
+    "tope_frases_arrastradas": 2,
+    "_tope_frases_arrastradas": "Cuantas frases del corpus, ademas de la que origino la regla, puede llevarse un patron antes de considerarse una red de arrastre y descartarse. Por encima de esto la regla no es una forma nueva de decir algo: es demasiado ancha.",
+    "dias_caducidad_propuesta": 30,
+    "_dias_caducidad_propuesta": "Cuanto vive una PROPUESTA sin aprobar antes de caducar. Las reglas ACTIVAS no caducan ni se podan: un tope seria un borrado automatico, y aqui no hay ninguno. Valor elegido, no medido: subelo si revisas la lista con menos frecuencia.",
+    "presupuesto_ms_barrido": 1500,
+    "_presupuesto_ms_barrido": "Milisegundos que puede tardar el barrido del corpus con una regla candidata antes de descartarla. Es la unica defensa en EJECUCION contra un retroceso catastrofico de la regex: en el proyecto no hay modulo 'regex' con timeout. Valor elegido, no medido: el barrido de referencia son ~255 frases."
+  },
   "saludo": {
     "_que_es": "Cada vez que se abre nexus, saluda. Si abres y cierras la ventana —o hay otra abierta, o el movil, o una prueba— saludaba OTRA VEZ, en voz alta y a todas las pantallas a la vez. Estos minutos son el descanso minimo entre saludos. Subirlo = saluda menos.",
     "minutos_entre_saludos": 45
