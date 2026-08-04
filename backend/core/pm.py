@@ -22,7 +22,8 @@ import datetime as dt
 import json
 import re
 
-from . import board, llm
+from . import board
+from .infraestructura import llm
 from .comun.config import DATA_DIR, settings
 from .comun.events import bus
 

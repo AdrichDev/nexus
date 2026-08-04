@@ -288,7 +288,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             # Ya no hay forma de darle más material por aquí: no se ofrece.
             return {"reply": "No tengo ninguna transcripción de la que sacar patrones.\n\n"
                              + _VIA_LEGITIMA}
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         corpus = "\n\n".join(f"[@{i['creator']}] {i['transcript'][:800]}" for i in insp[:12])
         analysis, _ = await ask_llm(
             "Eres analista de contenido viral. De estas transcripciones de reels detecta "
@@ -313,7 +313,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                                  "pídeme antes «dame ideas» y escribo el guion de la que elijas."}
             aviso_tema = ("No me has dicho el tema, así que he cogido lo primero que "
                           f"tienes en el plan: «{topic}».\n\n")
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         insp = _load_inspirations()
         pat_note = graph.search("patrones", 3)
         ctx_txt = "\n".join(n["line"] for n in pat_note)
@@ -337,7 +337,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                                               f"(data/scripts/{out.name}):\n\n{script[:1000]}"}
 
     if intent == "ideas":
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         insp = _load_inspirations()
         base = ("Basándote en estos patrones aprendidos:\n" +
                 "\n".join(f"- @{i['creator']}: {i['transcript'][:150]}" for i in insp[:6])) \

@@ -264,7 +264,7 @@ def test_has_mcp_engram():
 
 def test_provision_engram_mcp():
     hsk = load_skill_module("hermes")
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
 
     tmp = Path(tempfile.mkdtemp())
     cfg_path = tmp / "config.yaml"
@@ -321,7 +321,7 @@ def test_provision_no_sobrescribe_si_no_puede_leer():
     ciegas — perdería la config real de Hermes. Debe abortar sin tocar el fichero."""
     import io as _io
     hsk = load_skill_module("hermes")
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
 
     tmp = Path(tempfile.mkdtemp())
     cfg_path = tmp / "config.yaml"
@@ -362,7 +362,7 @@ def test_provision_no_sobrescribe_si_no_puede_leer():
 def test_provision_nunca_lanza():
     """Contrato: provision_engram_mcp NUNCA propaga una excepción (best-effort)."""
     hsk = load_skill_module("hermes")
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_installed = eng.installed
     try:
         # installed revienta -> provision debe tragárselo y devolver (False, str)
@@ -418,7 +418,7 @@ def test_diagnose_reporta_engram():
     """diagnose() debe incluir engram_installed / engram_mcp para que «diagnostica
     hermes» diga si Hermes está enganchado a Engram."""
     hsk = load_skill_module("hermes")
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
 
     tmp = Path(tempfile.mkdtemp())
     cfg_path = tmp / "config.yaml"

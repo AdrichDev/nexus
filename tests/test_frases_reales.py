@@ -194,7 +194,7 @@ def test_no_inventarse_cifras_es_regla_del_prompt():
     # 31/07/2026: le pidió analizar una cuenta de Instagram abierta en Chrome y
     # devolvió un perfil ENTERO inventado — 1,2M seguidores, 15,4K seguidos,
     # 15,2M interacciones, +2,1% mensual. Los reales: 78.500, 716 y 327.
-    from backend.core.llm import _build_messages
+    from backend.core.infraestructura.llm import _build_messages
     sysmsg = _build_messages("hola")[0]["content"]
     check("REGLA INVIOLABLE" in sysmsg, "la regla está en el prompt del sistema")
     check("NUNCA des un número" in sysmsg, "prohíbe dar cifras sin dato detrás")

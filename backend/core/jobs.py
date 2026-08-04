@@ -328,7 +328,7 @@ class JobManager:
                                 "channel": job.get("channel", "pc")})
         if job.get("channel") == "telegram":
             try:
-                from .telegram_bridge import send_telegram
+                from .infraestructura.telegram_bridge import send_telegram
                 await send_telegram(texto)
             except Exception:
                 pass

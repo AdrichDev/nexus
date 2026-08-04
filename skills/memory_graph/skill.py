@@ -286,7 +286,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         # Y se cuenta HABLANDO, no en fichas. Un listado con secciones y emojis
         # es un volcado de base de datos, no una respuesta: el modelo lo redacta
         # usando SOLO esto, sin añadir nada de su cosecha.
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         material = ""
         if maneras:
             material += "CÓMO LE GUSTA QUE TRABAJES:\n" + maneras + "\n\n"

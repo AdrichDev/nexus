@@ -20,7 +20,8 @@ import json
 import re
 import uuid
 
-from . import llm, opmem, rag, websearch
+from . import opmem, rag
+from .infraestructura import llm, websearch
 from .comun.config import DATA_DIR, settings
 from .comun.config import assistant_name as _aname
 from .jobs import jobs as job_mgr
@@ -79,7 +80,7 @@ def _is_echo(text: str) -> bool:
     Se compara con lo dicho por nexus en los últimos 45 s: si ≥75% de las palabras
     de la transcripción están en una locución reciente, es eco y se descarta."""
     try:
-        from . import tts
+        from .infraestructura import tts
         toks = _echo_tokens(text)
         if len(toks) < 3:
             return False
@@ -633,7 +634,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # NUNCA se lo lea en voz alta (solo se reproducen respuestas de nexus).
     if source in ("text", "voice"):
         try:
-            from . import tts as _tts_guard
+            from .infraestructura import tts as _tts_guard
             _tts_guard.note_user_text(text)
         except Exception:
             pass
@@ -656,7 +657,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # NO sigue ninguna otra ruta (prioridad absoluta sobre todo lo demás).
     if source in ("text", "voice") and _STOP_RX.match(text):
         try:
-            from . import tts as _tts_stop
+            from .infraestructura import tts as _tts_stop
             await _tts_stop.stop()
         except Exception:
             pass
@@ -845,7 +846,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                     # el puente de Telegram solo reenvía la respuesta directa; el
                     # resultado del trabajo en 2º plano se le manda aparte al chat
                     try:
-                        from .telegram_bridge import send_telegram
+                        from .infraestructura.telegram_bridge import send_telegram
                         await send_telegram(res.get("reply", "") or "Hecho.")
                     except Exception:
                         pass
@@ -944,7 +945,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                                         "channel": ch})
                 if ch == "telegram":
                     try:
-                        from .telegram_bridge import send_telegram
+                        from .infraestructura.telegram_bridge import send_telegram
                         await send_telegram(resumen)
                     except Exception:
                         pass
@@ -1309,7 +1310,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             # VOZ FLUIDA (como la app de Claude): el modelo se STREAMEA y nexus va
             # DICIENDO cada frase mientras el resto aún se escribe → empieza a
             # hablar en ~1-2 s aunque la respuesta sea larga.
-            from . import tts as _tts
+            from .infraestructura import tts as _tts
             agen, provider = await llm.ask_llm_stream(text, context)
             reply, _stream_left = await _tts.speak_stream(agen)
             _stream_spoken = True

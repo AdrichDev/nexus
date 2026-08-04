@@ -284,7 +284,7 @@ def install(ctx=None, *, log=None) -> str:
 
 def install_cli() -> int:
     """Punto de entrada del INSTALADOR de nexus (run.bat lo llama con
-    «python -m backend.core.engram_bridge»): Engram es un paquete más que el
+    «python -m backend.core.infraestructura.engram_bridge»): Engram es un paquete más que el
     instalador deja listo, como edge-tts o pypdf. Instala el binario imprimiendo
     el progreso. Devuelve 0 si quedó instalado (o si el usuario lo desactivó)."""
     # ctx con settings REALES: así se respeta una ruta ⚙ engram_exe personalizada
@@ -523,7 +523,7 @@ def status_sync(ctx) -> dict:
             "alive_cached": _ALIVE["ok"]}
 
 
-# El bloque __main__ va AL FINAL: run.bat llama «python -m backend.core.engram_bridge»,
+# El bloque __main__ va AL FINAL: run.bat llama «python -m backend.core.infraestructura.engram_bridge»,
 # que ejecuta el módulo entero; si estuviera a mitad, install_cli() correría con las
 # funciones de más abajo (p.ej. _win_hidden_kw, que usa _go_install) aún sin definir.
 if __name__ == "__main__":

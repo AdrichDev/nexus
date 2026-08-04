@@ -45,7 +45,7 @@ def check(cond, msg):
 
 
 def main() -> int:
-    from backend.core import llm
+    from backend.core.infraestructura import llm
     from backend.core.comun.config import settings
 
     original = settings.get("cloud_base_url")
@@ -87,7 +87,7 @@ def main() -> int:
         print("· si umbrales.json falta o está roto, la política NO se relaja")
         # Una política de privacidad que se abre sola cuando algo falla no es una
         # política. Se apunta a una carpeta vacía para simular el archivo ausente.
-        import backend.core.llm as _llm
+        import backend.core.infraestructura.llm as _llm
         cfg_orig = _llm.CONFIG_DIR
         try:
             _llm.CONFIG_DIR = ROOT / "no-existe-esta-carpeta"

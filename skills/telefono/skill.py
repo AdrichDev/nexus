@@ -116,7 +116,7 @@ def resolve_contact(who: str) -> tuple[str, str]:
 # ─────────────────────────────────── handler ───────────────────────────────────
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     from backend.core.comun.events import bus
 
     if intent == "info":

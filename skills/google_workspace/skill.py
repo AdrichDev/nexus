@@ -1081,13 +1081,13 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
                             "skill": "google_workspace", "channel": channel})
     if channel == "pc":
         try:
-            from backend.core import tts
+            from backend.core.infraestructura import tts
             await tts.speak(corto)
         except Exception:
             pass
     if channel == "telegram":
         try:
-            from backend.core.telegram_bridge import send_telegram
+            from backend.core.infraestructura.telegram_bridge import send_telegram
             await send_telegram(reply)
         except Exception:
             pass
@@ -1154,13 +1154,13 @@ async def _email_actions_job(ctx, channel: str) -> dict:
     # AVISO al terminar (regla de Adri: todo lo de 2º plano avisa). Voz en el PC.
     if channel == "pc":
         try:
-            from backend.core import tts
+            from backend.core.infraestructura import tts
             await tts.speak("Análisis de correos terminado.")
         except Exception:
             pass
     if channel == "telegram":
         try:
-            from backend.core.telegram_bridge import send_telegram
+            from backend.core.infraestructura.telegram_bridge import send_telegram
             await send_telegram(reply)
         except Exception:
             pass
@@ -1320,7 +1320,7 @@ async def _analyze_emails(msgs: list[dict]) -> tuple[list[dict], list[int]]:
 
 async def _analyze_batch(msgs: list[dict]) -> list[dict]:
     """Una sola llamada al modelo con UN LOTE. Índices LOCALES al lote."""
-    from backend.core import llm
+    from backend.core.infraestructura import llm
     partes = []
     for i, m in enumerate(msgs):
         cuerpo = (m.get("body") or m.get("snippet") or "")[:700]
@@ -1391,7 +1391,7 @@ def _parse_send(text: str) -> tuple[str, str, str]:
 async def _llm_text(order: str) -> str:
     """Pide texto al cerebro de nexus; '' si solo está el mock."""
     try:
-        from backend.core import llm
+        from backend.core.infraestructura import llm
         reply, prov = await llm.ask_llm(order)
         if prov != "mock" and reply:
             return reply.strip()

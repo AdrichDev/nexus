@@ -368,7 +368,7 @@ def test_consolidacion():
         check(prof.consolidation_pending(dt.datetime(2026, 7, 24, 2, 0)) is False,
               "consolidación: antes de las 4h → no")
         # LLM falso
-        import backend.core.llm as llm
+        import backend.core.infraestructura.llm as llm
 
         async def fake_ask(prompt, context=None, system=None):
             return "- decisión A\n- pendiente B", "mock"

@@ -113,7 +113,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                              "la orden — el resto ya está listo."}
 
         def _run():
-            from backend.core.stt import _get_model
+            from backend.core.infraestructura.stt import _get_model
             segments, info = _get_model().transcribe(str(path), language="es",
                                                      vad_filter=True)
             return " ".join(s.text.strip() for s in segments)
@@ -123,7 +123,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"El audio {path.name} no contiene voz reconocible. Si es música "
                              "o ruido, ahí no hay nada que transcribir."}
 
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         analysis, _ = await ask_llm(
             "De esta transcripción extrae en español: **Ideas principales** (3-5 puntos), "
             "**Tareas detectadas** (si las hay) y **Lluvia de ideas** (2-3 ideas que se "
@@ -142,13 +142,13 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "web_search":
         q = match.group("q").strip().rstrip("?¿.")
-        from backend.core import websearch
+        from backend.core.infraestructura import websearch
         results = await websearch.search(q, 6)
         if not results:
             return {"reply": f"✖ No he podido buscar «{q}»: o no hay conexión o los tres "
                              "buscadores que pruebo (Google News, DDG Lite, DDG HTML) no han "
                              "respondido. Reintenta en un momento; si persiste, revisa la red."}
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         answer, _prov = await ask_llm(
             "Con estos RESULTADOS DE BÚSQUEDA WEB responde de forma concreta y ACTUAL a la "
             f"pregunta: «{q}». Da nombres, fechas y datos si los hay; no digas que no se sabe "

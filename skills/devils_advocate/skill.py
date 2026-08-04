@@ -44,7 +44,7 @@ Responde EXACTAMENTE con esta estructura, en español, conciso:
 
 async def critique(idea: str) -> str:
     """Usada también por la skill coach para validar sus specs internas."""
-    from backend.core.llm import ask_llm
+    from backend.core.infraestructura.llm import ask_llm
     reply, _ = await ask_llm(CRITIQUE_PROMPT.format(idea=idea[:3000]))
     return reply
 

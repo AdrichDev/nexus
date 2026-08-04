@@ -406,7 +406,7 @@ def test_el_sentimiento_no_infla_la_muestra():
     tiene que ser la de lo que ha leído, no la del total: extrapolar la banda
     al total es anunciar una precisión que no se ha medido."""
     print("· el intervalo de Wilson se calcula sobre lo que el modelo ha leído")
-    import backend.core.llm as _llm
+    import backend.core.infraestructura.llm as _llm
     original = _llm.ask_llm
 
     async def _falso(prompt, *a, **k):

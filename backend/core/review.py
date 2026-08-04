@@ -151,7 +151,7 @@ async def maybe_send() -> bool:
     await bus.emit("notification", {"title": "📋 Revisión semanal",
                                     "body": "El balance de tu semana está en el chat."})
     try:
-        from .telegram_bridge import send_telegram
+        from .infraestructura.telegram_bridge import send_telegram
         await send_telegram(txt)
     except Exception:
         pass

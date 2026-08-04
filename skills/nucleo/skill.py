@@ -74,7 +74,7 @@ def datos(ctx=None) -> dict:
          "modelo": modelo, "campo_modelo": campo,
          "verificado": False, "latencia_ms": 0, "error": "", "modelo_probado": ""}
     try:
-        from backend.core import llm_runtime
+        from backend.core.infraestructura import llm_runtime
         st = llm_runtime.status()
         d["verificado"] = bool(st.active and st.verified)
         d["latencia_ms"] = int(st.latency_ms or 0)

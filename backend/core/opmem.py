@@ -227,7 +227,7 @@ async def mirror_to_engram(ctx, rec: dict) -> None:
     if not rec:
         return
     try:
-        from . import engram_bridge as eng
+        from .infraestructura import engram_bridge as eng
         tipo = "decision" if rec["kind"] in ("decision", "regla", "preferencia",
                                              "correccion", "restriccion",
                                              "delegacion", "convencion",

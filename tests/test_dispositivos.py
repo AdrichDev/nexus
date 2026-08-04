@@ -587,7 +587,7 @@ def test_el_hud_usa_el_estado_del_backend():
 def test_ollama_no_acusa_sin_comprobar():
     """Bug de Adri (25/07/2026): «el modelo qwen3:8b no está en Ollama»
     teniéndolo instalado. Un 404 no basta para afirmar eso."""
-    import backend.core.llm as L
+    import backend.core.infraestructura.llm as L
     L._ollama_instalados = lambda: ["qwen3:8b", "llama3.1:latest"]
     r = L._diagnostico_ollama_404("qwen3:8b")
     check("SÍ está instalado" in r, f"si el modelo ESTÁ, no dice que falte ({r[:60]}…)")
@@ -611,7 +611,7 @@ def test_ollama_no_acusa_sin_comprobar():
 def test_ollama_reintenta_por_la_via_antigua():
     """«Pasa lo mismo con el resto de modelos» → el 404 no era del modelo, era de
     la RUTA. Ahora prueba /api/chat y, si esa ruta no existe, /api/generate."""
-    import backend.core.llm as L
+    import backend.core.infraestructura.llm as L
 
     class _Resp:
         def __init__(self, code, texto="", data=None):
@@ -652,7 +652,7 @@ def test_ollama_reintenta_por_la_via_antigua():
 
 
 def test_ollama_distingue_ruta_de_modelo():
-    import backend.core.llm as L
+    import backend.core.infraestructura.llm as L
     r = L._diagnostico_ollama_404("qwen3:8b", "404 page not found")
     check("no por culpa del modelo" in r,
           f"un 404 de RUTA no se echa al modelo ({r[:60]}…)")
@@ -664,7 +664,7 @@ def test_ollama_distingue_ruta_de_modelo():
 def test_mensajes_coherentes_cuando_no_hay_cerebro():
     """Queja de Adri (25/07): la pantalla decía «5 modelos detectados · EN USO» y
     el chat «no he podido hablar con Ollama». Dos mensajes que se contradicen."""
-    import backend.core.llm as L
+    import backend.core.infraestructura.llm as L
     # NO se escribe en los ajustes de verdad. Esta línea ponía
     # llm_provider=ollama en el config/settings.json REAL y no lo devolvía, así
     # que CADA pasada de la suite le cambiaba el cerebro a Adrián: elegía Gemini
@@ -701,7 +701,7 @@ def test_el_selector_distingue_disponible_de_en_disco():
     el navegador solo los pinta. La comprobación de comportamiento real —con un
     Ollama simulado— está en tests/test_llm_runtime.py::test_catalogo."""
     js = js_hud()
-    rt = (ROOT / "backend" / "core" / "llm_runtime.py").read_text(encoding="utf-8")
+    rt = (ROOT / "backend" / "core" / "infraestructura" / "llm_runtime.py").read_text(encoding="utf-8")
     check("Ollama no lo está sirviendo" in rt,
           "se marcan los modelos que están solo en el disco")
     check("no sirve de cerebro" in rt,
@@ -715,7 +715,7 @@ def test_el_selector_distingue_disponible_de_en_disco():
 
 
 def test_ollama_usa_el_modelo_de_la_peticion():
-    src = (ROOT / "backend" / "core" / "llm.py").read_text(encoding="utf-8")
+    src = (ROOT / "backend" / "core" / "infraestructura" / "llm.py").read_text(encoding="utf-8")
     check('getattr(prov, "model", "")' in src,
           "se nombra el modelo de la petición, no el que hubiera en ⚙ hace un rato")
     check("_diagnostico_ollama_404(model, cuerpo)" in src,

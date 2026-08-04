@@ -102,7 +102,7 @@ def main():
 
     print("· NADA de scraping propio: solo el motor central")
     src = (ROOT / "skills" / "research" / "skill.py").read_text(encoding="utf-8")
-    check("websearch" in src, "usa backend.core.websearch")
+    check("websearch" in src, "usa backend.core.infraestructura.websearch")
     for lib in ("BeautifulSoup", "selenium", "playwright", "lxml.html",
                 "httpx.get", "requests.get", "urlopen"):
         check(lib not in src, f"no usa {lib} por su cuenta")
@@ -117,7 +117,7 @@ def main():
         return ("Segun mi conocimiento general el mercado crece.", None)
 
     orig_search, orig_fetch = mod._ddg_search, mod._fetch_text
-    import backend.core.llm as _llm
+    import backend.core.infraestructura.llm as _llm
     orig_ask = _llm.ask_llm
     tmpdir = Path(tempfile.mkdtemp())
     orig_reports = mod.REPORTS_DIR

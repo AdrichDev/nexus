@@ -28,7 +28,8 @@ import json
 import re
 from pathlib import Path
 
-from . import files_io, rag
+from . import rag
+from .infraestructura import files_io
 from .comun import permissions
 from .comun.config import CONFIG_DIR, DATA_DIR
 

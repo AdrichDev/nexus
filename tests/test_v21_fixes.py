@@ -80,7 +80,7 @@ class _FakeGraph:
 # ══════════════ 2) WhatsApp: n8n configurado pero CAÍDO -> cae al móvil ══════════════
 
 def test_whatsapp_n8n_falla_cae_a_movil():
-    import backend.core.remote as remote
+    import backend.core.infraestructura.remote as remote
     n8n = load_skill_module("n8n_flows")
 
     old_post, old_devices = n8n._post, remote.devices
@@ -245,7 +245,7 @@ def test_recent_context_helper():
 
 
 def test_plan_action_recibe_contexto():
-    import backend.core.llm as llm
+    import backend.core.infraestructura.llm as llm
 
     captured = {}
 
@@ -288,7 +288,7 @@ def test_plan_action_recibe_contexto():
 
 
 def test_interpret_command_recibe_contexto():
-    import backend.core.llm as llm
+    import backend.core.infraestructura.llm as llm
 
     captured = {}
 

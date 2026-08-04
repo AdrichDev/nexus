@@ -14,7 +14,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from . import brain, stt, tts
+from . import brain
+from .infraestructura import stt, tts
 from .comun.config import settings
 from .comun.events import bus
 

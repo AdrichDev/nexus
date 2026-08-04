@@ -95,7 +95,7 @@ async def _open_launcher(ctx, name: str) -> str:
             pass
     # Plan B: índice de aplicaciones instaladas de nexus
     try:
-        from backend.core.app_index import build_index, find_app, get_index, launch
+        from backend.core.infraestructura.app_index import build_index, find_app, get_index, launch
         if not get_index() and sys.platform == "win32":
             await asyncio.to_thread(build_index)
         hit = find_app(name)

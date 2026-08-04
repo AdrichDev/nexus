@@ -172,7 +172,7 @@ async def _sec_noticias() -> str:
     if not topics:
         return ""
     try:
-        from . import websearch
+        from .infraestructura import websearch
         heads: list[str] = []
         for topic in topics[:2]:
             res = await websearch.search(f"noticias {topic} hoy", 3)
@@ -274,7 +274,7 @@ async def maybe_send() -> bool:
     await bus.emit("notification", {"title": f"☀ Briefing de {_aname()}",
                                     "body": "Tu parte del día está en el chat."})
     try:
-        from .telegram_bridge import send_telegram
+        from .infraestructura.telegram_bridge import send_telegram
         await send_telegram(txt)
     except Exception:
         pass

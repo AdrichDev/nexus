@@ -35,12 +35,12 @@ SKILL = {
 # TTL y extracción del contenido. Aquí no hay scraping propio.
 
 async def _ddg_search(query: str, n: int = 6) -> list[dict]:
-    from backend.core import websearch
+    from backend.core.infraestructura import websearch
     return await websearch.search(query, n)
 
 
 async def _fetch_text(url: str, limit: int = 4000) -> str:
-    from backend.core import websearch
+    from backend.core.infraestructura import websearch
     return await websearch.fetch_page(url, max_chars=limit)
 
 
@@ -89,7 +89,7 @@ def _save_report(title: str, body_md: str) -> Path:
 
 
 async def _full_report(topic: str, angle: str) -> dict:
-    from backend.core.llm import ask_llm
+    from backend.core.infraestructura.llm import ask_llm
     results = await _ddg_search(f"{topic} 2026", 6)
     sources_txt, cited = "", []
     for res in results[:4]:
@@ -141,7 +141,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                                   "Redacta un informe de TENDENCIAS actuales")
 
     if intent == "economy":
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         pg = ctx["pg"]
         facts = []
         db_falla = False

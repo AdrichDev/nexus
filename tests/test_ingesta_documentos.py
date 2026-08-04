@@ -55,7 +55,7 @@ def skip(msg):
     print("  SALTADO (sin BD/proveedor):", msg)
 
 
-files_io = importlib.import_module("backend.core.files_io")
+files_io = importlib.import_module("backend.core.infraestructura.files_io")
 rag = importlib.import_module("backend.core.rag")
 mem = importlib.import_module("backend.core.memory")
 scheduler = importlib.import_module("backend.core.scheduler")

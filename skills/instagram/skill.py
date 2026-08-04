@@ -727,7 +727,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         import shutil
         import tempfile
         from datetime import datetime
-        from backend.core import websearch
+        from backend.core.infraestructura import websearch
         A = _hermano("analisis")
         D = _hermano("descubrimiento")
 
@@ -839,7 +839,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         import shutil
         import tempfile
         from datetime import datetime
-        from backend.core.files_io import formato_pedido
+        from backend.core.infraestructura.files_io import formato_pedido
         A = _hermano("analisis")
 
         gd = match.groupdict() if match else {}
@@ -996,7 +996,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         import shutil
         import tempfile
         from datetime import datetime
-        from backend.core.files_io import formato_pedido
+        from backend.core.infraestructura.files_io import formato_pedido
         A = _hermano("analisis")                      # motor determinista
 
         gd = match.groupdict() if match else {}
@@ -1122,7 +1122,7 @@ async def _busca_la_cuenta(nombre: str, maximo: int = 3) -> list[str]:
     Así que se busca el nombre en la web, se sacan los enlaces a instagram.com
     que aparezcan y se devuelven ordenados por en cuántas páginas salen — que es
     la señal de cuál es la cuenta buena y cuál un reel donde la mencionan."""
-    from backend.core import websearch
+    from backend.core.infraestructura import websearch
     D = _hermano("descubrimiento")
     n = (nombre or "").strip().lstrip("@")
     if not n:
@@ -1151,7 +1151,7 @@ async def _quisiste_decir(fallidas: list[dict]) -> dict:
     cuenta es «@unamarcaco». La API contesta «no se puede consultar» y parece que
     la herramienta está rota, cuando solo falta un sufijo. Se busca el nombre por
     internet y se ofrecen las cuentas parecidas que aparezcan."""
-    from backend.core import websearch
+    from backend.core.infraestructura import websearch
     D = _hermano("descubrimiento")
     sugerencias: dict[str, list[str]] = {}
     for f in fallidas[:3]:
@@ -1337,7 +1337,7 @@ async def _cualitativo(perfil: dict, sustantivos: list, dudas: list, media: dict
     sobre el total sería anunciar una precisión que no se ha medido."""
     if not sustantivos:
         return {}, "", 0
-    from backend.core.llm import ask_llm
+    from backend.core.infraestructura.llm import ask_llm
     muestra = [f"- {(c.get('text') or '').strip()[:160]}" for c in sustantivos[:120]]
     n = len(muestra)
     contexto = perfil_como_texto(perfil) or "(sin perfil configurado)"

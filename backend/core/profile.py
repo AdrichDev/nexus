@@ -155,7 +155,7 @@ async def _consolidate(now: dt.datetime) -> bool:
         return False
     try:
         import asyncio as _a
-        from .llm import ask_llm
+        from .infraestructura.llm import ask_llm
         summary, _prov = await _a.wait_for(ask_llm(
             "Resume este registro diario del operador en 4-6 viñetas CONCRETAS "
             "(decisiones, datos, personas, pendientes que sigan vivos). Sin relleno, "

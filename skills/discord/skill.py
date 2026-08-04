@@ -44,7 +44,7 @@ async def _open_discord() -> str:
         except Exception:
             pass
     try:
-        from backend.core.app_index import build_index, find_app, get_index, launch
+        from backend.core.infraestructura.app_index import build_index, find_app, get_index, launch
         if not get_index() and sys.platform == "win32":
             await asyncio.to_thread(build_index)
         hit = find_app("discord")

@@ -150,9 +150,9 @@ def main():
 
     # ══════════════════ devils_advocate: la promesa es cierta ══════════════
     print("· devils_advocate va SIEMPRE puesto de verdad (no es una promesa vacía)")
-    from backend.core import llm
+    from backend.core.infraestructura import llm
     check("DEVIL_INSTRUCTION" in llm.__dict__, "existe la instrucción")
-    lsrc = (ROOT / "backend" / "core" / "llm.py").read_text(encoding="utf-8")
+    lsrc = (ROOT / "backend" / "core" / "infraestructura" / "llm.py").read_text(encoding="utf-8")
     check("base += DEVIL_INSTRUCTION" in lsrc,
           "la instrucción se CONCATENA al prompt de sistema, no se queda de adorno")
     diablo = carga("devils_advocate")

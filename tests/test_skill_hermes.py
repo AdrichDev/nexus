@@ -78,7 +78,7 @@ for name in sorted(_modulos):
         check(False, f"import diferido roto: {name} -> {type(exc).__name__}: {exc}")
 # los símbolos concretos que la skill saca de esos módulos
 try:
-    from backend.core import engram_bridge as _eng
+    from backend.core.infraestructura import engram_bridge as _eng
     from backend.core.comun import publicvoice as _pv
     from backend.core.jobs import jobs as _jobs
     from backend.core.memory import pg as _pg

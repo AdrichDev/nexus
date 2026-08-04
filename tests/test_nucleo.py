@@ -132,11 +132,11 @@ def main():
           "el intent está descrito para el cerebro")
 
     print("· la regla del prompt le prohíbe inventarse lo que es")
-    src = (ROOT / "backend" / "core" / "llm.py").read_text(encoding="utf-8")
+    src = (ROOT / "backend" / "core" / "infraestructura" / "llm.py").read_text(encoding="utf-8")
     check("TAMPOCO TE INVENTAS LO QUE ERES" in src, "la regla está en el prompt")
     check("Núcleo IA" in src and "SECCIONES Y PIEZAS DE ESTA APLICACIÓN" in src,
           "y nombra las secciones como lo que son")
-    from backend.core import llm
+    from backend.core.infraestructura import llm
     sp = llm._build_messages([{"role": "user", "content": "hola"}])[0]["content"]
     check("TAMPOCO TE INVENTAS LO QUE ERES" in sp, "y llega de verdad al system prompt")
     check("LAS CIFRAS NO SE INVENTAN" in sp, "sin haberse cargado la regla anterior")

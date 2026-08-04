@@ -134,7 +134,7 @@ def _prepara(tmp: Path):
     # token no se usa para nada — pero el control de credenciales sí lo mira.
     sk.credenciales = lambda ctx: ("token-de-prueba", "1234567890")
     sk.ejecutar_ig = falso_ig
-    from backend.core import websearch
+    from backend.core.infraestructura import websearch
     websearch.search = falso_buscador
     return sk, llamadas
 
@@ -230,7 +230,7 @@ def test_sin_resultados_lo_dice():
     tmp = Path(tempfile.mkdtemp())
     try:
         sk, llamadas = _prepara(tmp)
-        from backend.core import websearch
+        from backend.core.infraestructura import websearch
 
         async def sin_nada(query, n=6):
             return []
@@ -329,7 +329,7 @@ def test_de_un_nombre_suelto_a_la_cuenta_real():
     tmp = Path(tempfile.mkdtemp())
     try:
         sk, llamadas = _prepara(tmp)
-        from backend.core import websearch
+        from backend.core.infraestructura import websearch
 
         async def busca(query, n=6):
             llamadas["web"].append(query)
@@ -357,7 +357,7 @@ def test_reintenta_solo_con_la_cuenta_que_encuentra():
     tmp = Path(tempfile.mkdtemp())
     try:
         sk, llamadas = _prepara(tmp)
-        from backend.core import websearch
+        from backend.core.infraestructura import websearch
 
         async def busca(query, n=6):
             return [{"title": "LaMarca (@lamarcaco) • Instagram", "snippet": "oficial",
@@ -418,7 +418,7 @@ def test_quisiste_decir():
     tmp = Path(tempfile.mkdtemp())
     try:
         sk, _ = _prepara(tmp)
-        from backend.core import websearch
+        from backend.core.infraestructura import websearch
 
         async def busca_wabiks(query, n=6):
             return [{"title": "Wabiks · Calcetines deportivos (@wabiksco) • Instagram",

@@ -259,7 +259,7 @@ def test_board_kind_time_fields():
 
 # ============ TEST 3i: TTS nunca lee rutas ni separadores ============
 def test_tts_rutas_separadores():
-    path = os.path.join(ROOT, "backend", "core", "tts.py")
+    path = os.path.join(ROOT, "backend", "core", "infraestructura", "tts.py")
     tree = ast.parse(open(path, encoding="utf-8").read())
     fn = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_speak_norm"]
     ns = {"re": re}
@@ -368,12 +368,12 @@ def test_white_label_nombre():
     fake._json.pop("assistant_pron", None)
 
     # prompts: el system prompt usa {assistant}
-    llm = open(os.path.join(ROOT, "backend", "core", "llm.py"), encoding="utf-8").read()
+    llm = open(os.path.join(ROOT, "backend", "core", "infraestructura", "llm.py"), encoding="utf-8").read()
     check("Eres {assistant}" in llm and "assistant=_aname()" in llm, "white-label: SYSTEM_PROMPT usa el nombre")
     check("ENRUTADOR de {_aname()}" in llm and "PLANIFICADOR de {_aname()}" in llm,
           "white-label: enrutador y planificador usan el nombre")
     # voz
-    tts = open(os.path.join(ROOT, "backend", "core", "tts.py"), encoding="utf-8").read()
+    tts = open(os.path.join(ROOT, "backend", "core", "infraestructura", "tts.py"), encoding="utf-8").read()
     check("assistant_pron" in tts and "assistant_name" in tts, "white-label: _pron usa el nombre/pron configurados")
     # docker/BD por slug (sin literales de marca antigua)
     app = open(os.path.join(ROOT, "backend", "app.py"), encoding="utf-8").read()
@@ -418,7 +418,7 @@ def test_setup_perfil_identidad():
 def test_barge_in_voz():
     """En micro abierto, cortar a la IA SOLO con voz humana (pitch), no con ruido de
     calle (banda ancha), tono grave (rumor) ni tecleo (transitorios). Valida el DSP real."""
-    stt = os.path.join(ROOT, "backend", "core", "stt.py")
+    stt = os.path.join(ROOT, "backend", "core", "infraestructura", "stt.py")
     src = open(stt, encoding="utf-8").read()
     check("_voiced_ac(block, _rate)" in src and "VOICE_AC" in src,
           "barge-in: watch_barge_in exige VOZ (pitch) además de energía")
@@ -469,7 +469,7 @@ def test_genero_voz():
     fake._json["tts_voice"] = "Álvaro (España)"; check(vg() == "m", "género: voz Álvaro → masculino")
     fake._json["tts_voice"] = "Jorge (México)"; check(vg() == "m", "género: voz Jorge → masculino")
     fake._json["tts_voice"] = ""; check(vg() == "f", "género: sin voz → femenino por defecto (Elvira)")
-    llm = open(os.path.join(ROOT, "backend", "core", "llm.py"), encoding="utf-8").read()
+    llm = open(os.path.join(ROOT, "backend", "core", "infraestructura", "llm.py"), encoding="utf-8").read()
     check("refiérete a ti {refl}" in llm and "voice_gender as _vg" in llm,
           "género: SYSTEM_PROMPT gendered y se rellena en _build_messages")
 
@@ -651,7 +651,7 @@ def test_movil_no_se_desvincula():
     src = open(os.path.join(ROOT, "backend", "app.py"), encoding="utf-8").read()
     check("remote.mark_offline" in src, "app: WS cortado -> móvil «en espera», no desvinculado")
     check("_grace_forget" in src, "app: solo se olvida tras el periodo de gracia")
-    rsrc = open(os.path.join(ROOT, "backend", "core", "remote.py"), encoding="utf-8").read()
+    rsrc = open(os.path.join(ROOT, "backend", "core", "infraestructura", "remote.py"), encoding="utf-8").read()
     check("def mark_offline" in rsrc and "def is_online" in rsrc,
           "remote: presencia con gracia implementada")
 
@@ -689,7 +689,7 @@ def test_llmmatch():
 # ================== TEST 6: parseo JSON de plan_action REAL (llm.py) ==================
 def test_plan_parse():
     # replicamos SOLO el parseo que hace plan_action (mismo código), leído del fichero
-    src = open(os.path.join(ROOT, "backend", "core", "llm.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "infraestructura", "llm.py"), encoding="utf-8").read()
     assert "async def plan_action" in src, "plan_action debe existir en llm.py"
 
     def parse(out):

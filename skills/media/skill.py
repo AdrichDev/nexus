@@ -203,7 +203,7 @@ async def _pick_random_song(ctx, seed: str = "") -> str:
     Si el LLM no está disponible o falla, tira del pool interno."""
     recent = _hist_load()
     try:
-        from backend.core.llm import get_provider_safe
+        from backend.core.infraestructura.llm import get_provider_safe
         prov = await get_provider_safe()
         if prov is not None and prov.name != "mock":
             vibe = seed or random.choice(
@@ -251,7 +251,7 @@ async def _youtube_play(query: str, ctx) -> str:
 
 async def _spotify_play(query: str, ctx) -> str:
     """Spotify con AUTOPLAY REAL vía Web API (si está configurada en ⚙)."""
-    from backend.core import spotify
+    from backend.core.infraestructura import spotify
     if spotify.is_configured() and spotify.is_authorized():
         try:
             ok, detail = await spotify.play_query(query)

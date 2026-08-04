@@ -860,7 +860,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         #    (sin listas fijas). Si acierta, la memoriza para la próxima vez.
         url = ""
         try:
-            from backend.core.llm import get_provider_safe
+            from backend.core.infraestructura.llm import get_provider_safe
             prov = await get_provider_safe()
             if prov is not None and prov.name != "mock":
                 out = await prov.chat([
@@ -911,14 +911,14 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 if ok else "No he podido enviar el paquete (¿MAC válida? ¿red disponible?)."}
 
     if intent == "reindex":
-        from backend.core.app_index import build_index
+        from backend.core.infraestructura.app_index import build_index
         import asyncio
         apps = await asyncio.to_thread(build_index)
         return {"reply": f"Índice reconstruido: conozco {len(apps)} aplicaciones instaladas."
                 if apps else "Índice vacío (esto solo funciona en Windows)."}
 
     if intent == "list_apps":
-        from backend.core.app_index import get_index
+        from backend.core.infraestructura.app_index import get_index
         apps = get_index()
         if not apps:
             return {"reply": "Aún no tengo índice de aplicaciones (¿estamos en Windows? "
@@ -944,7 +944,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         #    Si el índice está vacío (primer uso / arranque incompleto),
         #    lo construimos AHORA en vez de decir que no se puede.
         import asyncio
-        from backend.core.app_index import build_index, find_app, get_index, launch
+        from backend.core.infraestructura.app_index import build_index, find_app, get_index, launch
         if not get_index() and sys.platform == "win32":
             await ctx["bus"].emit("log", {"level": "info",
                                           "msg": "Índice de apps vacío — escaneando ahora..."})

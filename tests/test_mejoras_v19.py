@@ -74,7 +74,7 @@ def _tmp_datadir():
 def test_websearch_cache():
     cfg, tmp, old = _tmp_datadir()
     try:
-        import backend.core.websearch as ws
+        import backend.core.infraestructura.websearch as ws
         ws.cache_put("q::prueba::6", [{"title": "T", "snippet": "S", "url": "u"}])
         hit = ws.cache_get("q::prueba::6", ttl=60)
         check(hit and hit[0]["title"] == "T", "caché: put/get devuelve lo guardado")
@@ -97,7 +97,7 @@ def test_websearch_cache():
 
 
 def test_websearch_extract():
-    import backend.core.websearch as ws
+    import backend.core.infraestructura.websearch as ws
     html = """
     <html><head><script>var x=1;</script><style>.a{}</style></head><body>
     <nav><li>Menú uno de navegación que no interesa</li></nav>
@@ -123,7 +123,7 @@ def test_websearch_extract():
 def test_research_usa_motor_central():
     src = open(os.path.join(ROOT, "skills", "research", "skill.py"), encoding="utf-8").read()
     check("websearch.search" in src and "websearch.fetch_page" in src,
-          "research: delega en backend.core.websearch")
+          "research: delega en backend.core.infraestructura.websearch")
     check("html.duckduckgo.com" not in src, "research: sin scraping duplicado de DDG")
 
 
@@ -192,7 +192,7 @@ def test_vigilancias_ciclo():
     # stub del motor web: contenido controlado que CAMBIA entre pasadas
     state = {"page": "contenido inicial estable con su precio de 100 euros aquí"}
 
-    fake_ws = types.ModuleType("backend.core.websearch")
+    fake_ws = types.ModuleType("backend.core.infraestructura.websearch")
 
     async def fake_fetch(url, max_chars=6000):
         return state["page"]
@@ -201,11 +201,14 @@ def test_vigilancias_ciclo():
         return [{"title": t} for t in state.get("titulares", [])]
     fake_ws.fetch_page = fake_fetch
     fake_ws.search = fake_search
-    old_ws = sys.modules.get("backend.core.websearch")
-    sys.modules["backend.core.websearch"] = fake_ws
-    import backend.core as _bc
+    old_ws = sys.modules.get("backend.core.infraestructura.websearch")
+    sys.modules["backend.core.infraestructura.websearch"] = fake_ws
+    # El doble hay que colgarlo del PAQUETE que hace el import, y websearch bajo
+    # a backend/core/infraestructura/ con la Fase 3. Colgarlo del paquete viejo
+    # dejaba el doble sin efecto y la prueba veia el motor de verdad.
+    import backend.core.infraestructura as _bc
     _old_attr = getattr(_bc, "websearch", None)
-    _bc.websearch = fake_ws          # «from backend.core import websearch» mira el atributo
+    _bc.websearch = fake_ws
     try:
         w1 = v._add("web", "https://ejemplo.com")
         w2 = v._add("precio", "https://tienda.com/p")
@@ -230,7 +233,7 @@ def test_vigilancias_ciclo():
         check(len(v._load()) == 2, "quedan 2 vigilancias tras borrar")
     finally:
         if old_ws is not None:
-            sys.modules["backend.core.websearch"] = old_ws
+            sys.modules["backend.core.infraestructura.websearch"] = old_ws
         if _old_attr is not None:
             _bc.websearch = _old_attr
         cfg.DATA_DIR = old

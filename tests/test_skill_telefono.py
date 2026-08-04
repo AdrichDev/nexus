@@ -33,7 +33,7 @@ def check(c, m):
 
 def main():
     from backend.core.comun import config as cfg
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     from backend.core.comun import events
     from backend.core import skills_loader as sl
     sl.load_skills()

@@ -23,22 +23,23 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend.core import brain, contentos, stt, tts
-from backend.core.app_index import start_background_index
+from backend.core import brain, contentos
+from backend.core.infraestructura import stt, tts
+from backend.core.infraestructura.app_index import start_background_index
 from backend.core.comun.config import FRONTEND_DIR, settings
 from backend.core.comun.events import bus
 from backend.core.hotkey import start_hotkey
 from backend.core.memory import graph, memory_status
 from backend.core.scheduler import scheduler_loop, system_metrics
 from backend.core.skills_loader import load_skills, skills_summary
-from backend.core.telegram_bridge import telegram_loop
+from backend.core.infraestructura.telegram_bridge import telegram_loop
 from backend.core.voice_cycle import open_mic_loop, voice_cycle
 
 async def _arranca_runtime_llm() -> None:
     """Verificación inicial del cerebro, tolerante a fallos: si Ollama tarda o
     no está, el arranque sigue igual y el estado queda anotado."""
     try:
-        from backend.core import llm_runtime
+        from backend.core.infraestructura import llm_runtime
         await llm_runtime.initialize_llm_runtime()
     except Exception:
         pass
@@ -56,7 +57,7 @@ async def _adopta_tunel_superviviente() -> None:
     segundo plano y tragándose los fallos: esto no puede retrasar ni tumbar el
     arranque del HUD."""
     try:
-        from backend.core import remote
+        from backend.core.infraestructura import remote
         await remote.adopta_tunel_al_arrancar()
     except Exception:
         pass
@@ -73,7 +74,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(asyncio.to_thread(stt.preload_model))  # precarga el modelo de voz
     from backend.core.wake import wake_loop
     from backend.core.background import cycle_loop, proactive_loop
-    from backend.core import engram_bridge
+    from backend.core.infraestructura import engram_bridge
     tasks = [asyncio.create_task(scheduler_loop()),
              asyncio.create_task(telegram_loop()),   # solo activo con TELEGRAM_BOT_TOKEN
              asyncio.create_task(open_mic_loop()),   # solo activo con open_mic=true
@@ -155,7 +156,7 @@ async def remote_auth(request, call_next):
     if _es_este_equipo(request) or ruta.startswith(_RUTAS_PUBLICAS):
         return await call_next(request)
 
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     tok = (request.query_params.get("token")
            or request.headers.get("x-nexus-token", "")
            or request.cookies.get("nexus_token", ""))
@@ -188,7 +189,7 @@ class SayText(BaseModel):
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     # Mismo criterio que el middleware HTTP: este equipo pasa; cualquier otro
     # origen (túnel, WiFi, lo que sea) necesita el token del QR.
     _local = (not ws.headers.get("cf-connecting-ip")
@@ -447,7 +448,7 @@ async def api_note(name: str = ""):
 @app.get("/api/local_models")
 async def api_local_models():
     """Modelos LLM locales detectados (Ollama, LM Studio) para el selector de ⚙."""
-    from backend.core.llm import scan_local_models
+    from backend.core.infraestructura.llm import scan_local_models
     return await scan_local_models()
 
 
@@ -458,7 +459,7 @@ async def api_local_models():
 @app.get("/api/llm/status")
 async def api_llm_status(verify: bool = False):
     """Estado REAL del cerebro. `?verify=1` fuerza una comprobación nueva."""
-    from backend.core import llm_runtime as rt
+    from backend.core.infraestructura import llm_runtime as rt
     st = await rt.verify_current(force=True) if verify else rt.status()
     if verify or st.checked_at:
         return st.publico()
@@ -468,7 +469,7 @@ async def api_llm_status(verify: bool = False):
 @app.get("/api/llm/status_full")
 async def api_llm_status_full():
     """Igual pero con el detalle técnico: para el panel de diagnóstico."""
-    from backend.core import llm_runtime as rt
+    from backend.core.infraestructura import llm_runtime as rt
     return (await rt.verify_current()).tecnico()
 
 
@@ -476,7 +477,7 @@ async def api_llm_status_full():
 async def api_llm_models():
     """Catálogo YA CLASIFICADO: qué sirve Ollama, qué está solo en disco y qué
     es de embeddings. La interfaz solo pinta."""
-    from backend.core import llm_runtime as rt
+    from backend.core.infraestructura import llm_runtime as rt
     return await rt.catalog()
 
 
@@ -489,7 +490,7 @@ class LLMActivate(BaseModel):
 async def api_llm_activate(payload: LLMActivate):
     """Activa un cerebro. Solo se guarda si RESPONDE a una inferencia real:
     si falla, la configuración se queda como estaba y se devuelve el motivo."""
-    from backend.core import llm_runtime as rt
+    from backend.core.infraestructura import llm_runtime as rt
     st = await rt.activate(payload.provider, payload.model)
     await bus.emit("log", {"level": "ok" if st.active else "warn", "msg": st.resumen()})
     return st.publico()
@@ -542,7 +543,7 @@ async def api_greet():
     import random
     import time as _t
 
-    from backend.core import llm as _llm
+    from backend.core.infraestructura import llm as _llm
     from backend.core.comun.config import CONFIG_DIR
     minutos = 45.0
     try:                                    # el umbral vive en config/umbrales.json
@@ -648,7 +649,7 @@ async def api_stt_audio(request: Request):
 @app.get("/api/tts_audio/{name}")
 async def api_tts_audio(name: str):
     """Sirve el audio TTS para que el HUD lo reproduzca DENTRO de la app."""
-    from backend.core.tts import TTS_DIR
+    from backend.core.infraestructura.tts import TTS_DIR
     f = TTS_DIR / name
     if not f.exists() or "/" in name or "\\" in name:
         return {"error": "not found"}
@@ -689,7 +690,7 @@ async def api_hardware():
     from backend.core.comun import permissions
     if not permissions.hardware_allowed():
         return {"denied": True, "error": permissions.HW_DENIED}
-    from backend.core.hardware import hardware_report
+    from backend.core.infraestructura.hardware import hardware_report
     return await asyncio.to_thread(hardware_report)
 
 
@@ -734,7 +735,7 @@ async def api_calendar(desde: str = "", hasta: str = ""):
 @app.get("/api/spotify/callback")
 async def api_spotify_callback(code: str = "", error: str = ""):
     """Callback OAuth de Spotify (autorización de una sola vez)."""
-    from backend.core import spotify
+    from backend.core.infraestructura import spotify
     from fastapi.responses import HTMLResponse
     page = ("<html><body style='background:#020a06;color:#7fe9f7;"
             "font-family:monospace;text-align:center;padding-top:120px'>"
@@ -758,7 +759,7 @@ async def api_spotify_callback(code: str = "", error: str = ""):
 
 @app.get("/api/spotify/status")
 async def api_spotify_status():
-    from backend.core import spotify
+    from backend.core.infraestructura import spotify
     return {"configured": spotify.is_configured(),
             "authorized": spotify.is_authorized()}
 
@@ -1138,11 +1139,11 @@ async def api_config_set(payload: dict):
             settings.set(k, v)
     # si has cambiado el cerebro, invalida la caché del proveedor (efecto inmediato)
     if any(k in payload for k in ("llm_provider", "llm_local", "ollama_model")):
-        from backend.core.llm import invalidate_provider
+        from backend.core.infraestructura.llm import invalidate_provider
         invalidate_provider()
         # y el runtime deja de dar por bueno lo anterior: se volverá a PROBAR.
         try:
-            from backend.core import llm_runtime as _rt
+            from backend.core.infraestructura import llm_runtime as _rt
             _rt._STATUS = _rt.LLMRuntimeStatus()
         except Exception:
             pass
@@ -1369,7 +1370,7 @@ async def setup_page():
 # ---------------------- API del asistente de instalación ----------------------
 @app.get("/api/personalities")
 async def api_personalities():
-    from backend.core.llm import PERSONALITIES
+    from backend.core.infraestructura.llm import PERSONALITIES
     return {k: {"name": v["name"], "desc": v["desc"]} for k, v in PERSONALITIES.items()}
 
 
@@ -1385,7 +1386,7 @@ async def api_setup_state():
                                      text=True, timeout=6).stdout.strip()
         except Exception:
             docker = None
-    from backend.core.llm import PERSONALITIES
+    from backend.core.infraestructura.llm import PERSONALITIES
     return {"setup_done": bool(settings.get("setup_done", False)),
             "docker": bool(docker), "docker_version": version,
             "config": settings.as_dict(),
@@ -1474,7 +1475,7 @@ async def api_setup_scan_models(payload: dict):
         if folder not in paths:
             paths.append(folder)
             settings.set("model_scan_paths", paths)
-    from backend.core.llm import scan_local_models
+    from backend.core.infraestructura.llm import scan_local_models
     return await scan_local_models()
 
 
@@ -1490,7 +1491,7 @@ async def api_llm_check():
     """DIAGNÓSTICO LLM: prueba CADA proveedor con un ping mínimo y devuelve su estado
     real (clave, modelo y el error EXACTO). Abrir en el navegador:
     http://localhost:8177/api/llm_check — y todo queda también en data/nexus.log."""
-    from backend.core import llm as _llm
+    from backend.core.infraestructura import llm as _llm
     out = {"_activo": settings.get("llm_provider", "?")}
     msgs = [{"role": "user", "content": "Responde solo: OK"}]
     for name, prov in _llm.PROVIDERS.items():
@@ -1523,7 +1524,7 @@ async def api_llm_check():
 
 @app.post("/api/link/start")
 async def api_link_start():
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     return await remote.start_tunnel()
 
 
@@ -1536,13 +1537,13 @@ async def api_link_status():
     esos 4 s y NINGUNA petición respondía: el HUD entero se congelaba cada 45 s
     (que es cada cuánto refresca los dispositivos). Con `to_thread` el bloqueo se
     queda en un hilo del pool y el bucle sigue atendiendo."""
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     return await asyncio.to_thread(remote.status)
 
 
 @app.get("/api/link/qr")
 async def api_link_qr():
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     from fastapi.responses import Response
     try:
         # status() bloquea (DNS/socket): fuera del bucle, como en /api/link/status.
@@ -1559,7 +1560,7 @@ async def api_link_tailscale():
 
     El túnel de Cloudflare cambia de dirección en cada arranque y obliga a
     revincular el móvil; una IP de Tailscale (100.x.y.z) no cambia nunca."""
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     # `tailscale status --json` es un SUBPROCESO (hasta 10 s de timeout): igual
     # que status(), fuera del bucle o se congela el HUD entero.
     ts = await asyncio.to_thread(remote.tailscale_status)
@@ -1576,7 +1577,7 @@ async def api_link_tailscale():
 async def api_link_reset():
     """DESVINCULAR: rota el token (QRs y enlaces viejos DEJAN de valer) y olvida los
     móviles registrados. Cada móvil tendrá que escanear el QR nuevo para volver."""
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     remote.rotate_token()
     for d in list(remote.devices()):
         try:
@@ -1591,7 +1592,7 @@ async def api_link_reset():
 
 @app.post("/api/link/stop")
 async def api_link_stop():
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     # stop_tunnel() puede lanzar un taskkill (túnel adoptado): también bloquea.
     await asyncio.to_thread(remote.stop_tunnel)
     return await asyncio.to_thread(remote.status)

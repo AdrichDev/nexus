@@ -275,7 +275,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                                  f"({total:,} documentos). Archivo: data/reports/{out.name}"}
             kpis, cards, summary = _profile_table(table)
             out = _build_dashboard(table, kpis, cards)
-            from backend.core.llm import ask_llm
+            from backend.core.infraestructura.llm import ask_llm
             insight, _ = await ask_llm(
                 f"Datos de la tabla «{table}»: {summary}. KPIs medidos: {kpis}. "
                 "Da 2 observaciones en 2 frases usando SOLO esas cifras. "

@@ -68,8 +68,27 @@ def load_skill(folder):
     return _import_retry(_do)
 
 
+# Las capas de backend/core/ (Fase 3). Durante la mudanza conviven los modulos
+# ya bajados y los que siguen sueltos, asi que se prueban ambos sitios.
+_CAPAS = ("", "comun", "infraestructura", "dominio", "aplicacion")
+
+
 def load_core(name):
-    return _import_retry(lambda: importlib.import_module(f"backend.core.{name}"))
+    """Importa un modulo de backend/core esté en la capa que esté.
+
+    El nombre llega en una variable, asi que no lo arregla ninguna reescritura
+    de imports: si esto diera por hecho la carpeta plana, al mover una capa las
+    pruebas fallarian con «no such module» sin decir nada de lo que comprobaban."""
+    def _do():
+        ultimo = None
+        for capa in _CAPAS:
+            ruta = f"backend.core.{capa}.{name}" if capa else f"backend.core.{name}"
+            try:
+                return importlib.import_module(ruta)
+            except ModuleNotFoundError as exc:              # noqa: PERF203
+                ultimo = exc
+        raise ultimo
+    return _import_retry(_do)
 
 
 def patterns(mod):
@@ -187,7 +206,7 @@ def test_llmmatch_and_gate():
 def test_anti_echo():
     brain = load_core("brain")
     # inyectamos lo que "dijo" nexus en el módulo tts que usa _is_echo
-    import backend.core.tts as tts
+    import backend.core.infraestructura.tts as tts
     tts._SPOKEN.clear()
     import time
     dicho = "De 8 sin leer, 2 urgentes: Google Alerta de seguridad y aviso de facturación"

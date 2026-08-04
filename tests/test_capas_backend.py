@@ -105,8 +105,19 @@ def modulos() -> list[str]:
     return sorted(f.stem for f in CORE.rglob("*.py") if f.stem != "__init__")
 
 
+_NOMBRES_CAPA = "|".join(c for c, _m in CAPAS)
+
+
 def importa(modulo: str) -> set[str]:
-    """Modulos de core que importa este, en cualquiera de las cinco formas."""
+    """Modulos de core que importa este, en cualquiera de las formas que se usan.
+
+    OJO A LAS FORMAS RELATIVAS. Al bajar un modulo a su carpeta, sus imports
+    ganan un punto (`from ..memory`) y pueden llevar la capa por delante
+    (`from ..comun.config`). Un patron que solo conozca `from .memory` deja de
+    ver esos imports — y entonces esta prueba no falla: dice que todo esta
+    limpio, que es mucho peor. Paso justo eso al mover `infraestructura`: tres
+    excepciones aparecieron como «ya no hacen falta» cuando lo unico que habia
+    cambiado era la profundidad del import."""
     txt = ruta(modulo).read_text(encoding="utf-8")
     txt = re.sub(r'"""(?:.|\n)*?"""', " ", txt)            # fuera los docstrings
     txt = re.sub(r"#[^\n]*", " ", txt)                     # y los comentarios
@@ -115,10 +126,13 @@ def importa(modulo: str) -> set[str]:
         if otro == modulo:
             continue
         if (re.search(rf"from backend\.core import [^\n]*\b{otro}\b", txt)
-                or re.search(rf"from backend\.core\.{otro}\b", txt)
-                or re.search(rf"import backend\.core\.{otro}\b", txt)
-                or re.search(rf"from \.{otro}\b", txt)
-                or re.search(rf"from \. import [^\n]*\b{otro}\b", txt)):
+                or re.search(rf"from backend\.core(?:\.(?:{_NOMBRES_CAPA}))?\.{otro}\b", txt)
+                or re.search(rf"from backend\.core\.(?:{_NOMBRES_CAPA}) import [^\n]*\b{otro}\b",
+                             txt)
+                or re.search(rf"import backend\.core(?:\.(?:{_NOMBRES_CAPA}))?\.{otro}\b", txt)
+                # relativos: uno o dos puntos, con o sin la capa delante
+                or re.search(rf"from \.{{1,2}}(?:(?:{_NOMBRES_CAPA})\.)?{otro}\b", txt)
+                or re.search(rf"from \.{{1,2}}(?:{_NOMBRES_CAPA})? import [^\n]*\b{otro}\b", txt)):
             fuera.add(otro)
     return fuera
 

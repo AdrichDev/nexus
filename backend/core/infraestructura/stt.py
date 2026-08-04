@@ -18,8 +18,8 @@ import time
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
-from .comun.config import settings
-from .comun.events import bus
+from ..comun.config import settings
+from ..comun.events import bus
 
 try:
     from faster_whisper import WhisperModel

@@ -160,7 +160,7 @@ def main():
         check(prohibido not in doc, f"SKILL.md no lleva «{prohibido}»")
 
     print("· no hay scraping propio: todo pasa por el motor central")
-    check("websearch" in src, "usa backend.core.websearch")
+    check("websearch" in src, "usa backend.core.infraestructura.websearch")
     for lib in ("BeautifulSoup", "selenium", "playwright", "requests.get"):
         check(lib not in src, f"no usa {lib} por su cuenta")
 

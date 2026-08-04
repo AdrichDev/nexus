@@ -55,7 +55,8 @@ async def _ingest_inbox():
         este bloque. Ahora usa rag.trocear() (o trocear_xlsx_estructurado()
         si es un .xlsx) sobre el texto ENTERO."""
     from .comun.config import DATA_DIR
-    from . import files_io, rag
+    from . import rag
+    from .infraestructura import files_io
     inbox = DATA_DIR / "memory" / "inbox"
     done = DATA_DIR / "memory" / "ingested"
     inbox.mkdir(parents=True, exist_ok=True)
@@ -144,7 +145,7 @@ async def scheduler_loop():
             # 4) Toques de atención del tablero (cada ~1 min)
             if tick % 12 == 0:
                 from . import board
-                from .telegram_bridge import send_telegram
+                from .infraestructura.telegram_bridge import send_telegram
                 for msg in board.nudges():
                     await bus.emit("notification", {"title": "Tablero", "body": msg})
                     await bus.emit("log", {"level": "alert", "msg": msg})

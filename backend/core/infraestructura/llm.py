@@ -23,8 +23,8 @@ from pathlib import Path
 
 import httpx
 
-from .comun import net
-from .comun.config import CONFIG_DIR, settings
+from ..comun import net
+from ..comun.config import CONFIG_DIR, settings
 
 _DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 _MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -665,7 +665,7 @@ async def get_provider() -> BaseProvider:
                    "darte una respuesta de verdad. Elige un cerebro en ⚙ (o arranca "
                    "Ollama) y lo pruebo al instante.")
         try:                                    # el runtime sabe el porqué exacto
-            from backend.core.llm_runtime import status as _rt_status
+            from backend.core.infraestructura.llm_runtime import status as _rt_status
             if _rt_status().error_public:
                 publico = _rt_status().error_public
         except Exception:
@@ -674,7 +674,7 @@ async def get_provider() -> BaseProvider:
 
     if desde:
         try:                                    # cambio de proveedor: queda anotado
-            from backend.core.llm_runtime import _STATUS
+            from backend.core.infraestructura.llm_runtime import _STATUS
             _STATUS.fallback_from = desde
         except Exception:
             pass
@@ -830,7 +830,7 @@ def _build_messages(user_text: str, context: list[dict] | None = None,
     respuesta normal y la respuesta en STREAMING."""
     pkey = settings.get("personality", "jarvis")
     pers = PERSONALITIES.get(pkey, PERSONALITIES["jarvis"])
-    from .comun.config import assistant_name as _aname, voice_gender as _vg
+    from ..comun.config import assistant_name as _aname, voice_gender as _vg
     _fem = _vg() != "m"                        # género de la VOZ (fem por defecto)
     base = system or SYSTEM_PROMPT.format(
         assistant=_aname(),
@@ -901,7 +901,7 @@ def _build_messages(user_text: str, context: list[dict] | None = None,
     # PERFIL DEL OPERADOR (auto-reentrenamiento): lo destilado de sus interacciones,
     # para responder a su medida. Se inyecta si existe.
     try:
-        from . import selflearn
+        from .. import selflearn
         prof = selflearn.operator_profile()
         if prof:
             base += ("\n\nPERFIL DEL OPERADOR (aprendido de vuestras conversaciones, "
@@ -922,7 +922,7 @@ def _anotar_caida(prov: "BaseProvider", exc: Exception, detalle: str) -> None:
     «cerebro activo» mientras el chat contestaba que no podía. Un solo sitio
     manda: el runtime."""
     try:
-        from backend.core import llm_runtime as rt
+        from backend.core.infraestructura import llm_runtime as rt
         rt._STATUS = rt.LLMRuntimeStatus(
             active=False, verified=False, provider=prov.name,
             model=str(settings.get("ollama_model", "")) if prov.name == "ollama" else "",
@@ -1010,7 +1010,7 @@ async def interpret_command(user_text: str, catalog: str, examples: str = "",
     prov = await get_provider()
     if prov.name == "mock":
         return ""                     # sin LLM real no hay interpretación fiable
-    from .comun.config import assistant_name as _aname
+    from ..comun.config import assistant_name as _aname
     sys = (
         f"Eres el ENRUTADOR de {_aname()}. Recibes una petición del usuario y una lista de "
         "capacidades (skills) con sus intents. Si la petición es una ORDEN que encaja con "
@@ -1072,7 +1072,7 @@ async def plan_action(user_text, catalog, examples="", recent_context=""):
     prov = await get_provider()
     if prov.name == "mock":
         return None
-    from .comun.config import assistant_name as _aname
+    from ..comun.config import assistant_name as _aname
     sys = (
         f"Eres el PLANIFICADOR de {_aname()} y un MODELO DE RAZONAMIENTO. Recibes una "
         "peticion del usuario y un CATALOGO de skills (cada intent con sus argumentos). "

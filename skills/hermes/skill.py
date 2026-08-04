@@ -676,7 +676,7 @@ def provision_engram_mcp(ctx) -> tuple:
     import io
     import os
     try:
-        from backend.core import engram_bridge as eng
+        from backend.core.infraestructura import engram_bridge as eng
     except Exception as exc:                                   # noqa: BLE001
         return False, f"no pude importar engram_bridge: {exc}"
     try:
@@ -750,7 +750,7 @@ async def diagnose(ctx) -> dict:
     # enganchado a Hermes por MCP en su config.yaml?
     engram_installed, engram_mcp = False, False
     try:
-        from backend.core import engram_bridge as _eng
+        from backend.core.infraestructura import engram_bridge as _eng
         engram_installed = _eng.installed(ctx)
         cfg_path = _hermes_config_path()
 

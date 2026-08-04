@@ -108,7 +108,7 @@ def _parse_date(raw: str) -> dt.datetime | None:
 
 
 async def _llm(prompt: str) -> str:
-    from backend.core.llm import ask_llm
+    from backend.core.infraestructura.llm import ask_llm
     reply, _ = await ask_llm(prompt)
     return reply
 

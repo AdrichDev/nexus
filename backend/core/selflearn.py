@@ -116,7 +116,7 @@ async def retrain(force: bool = False) -> str:
         return ""
     _retraining = True
     try:
-        from . import llm
+        from .infraestructura import llm
         op = settings.get("operator_name", "el operador")
         muestras = "\n".join(
             f'- «{d.get("t", "")[:120]}»' + (f' → [{d["skill"]}]' if d.get("skill") else "")

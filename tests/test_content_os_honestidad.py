@@ -223,7 +223,7 @@ def test_validador():
 # ══════════════ 5. La regla inviolable llega al generador ══════════════
 def test_regla():
     print("· la REGLA INVIOLABLE sigue viajando aunque se pase un system a medida")
-    from backend.core import llm
+    from backend.core.infraestructura import llm
 
     check(isinstance(getattr(llm, "REGLA_CONTENT_OS", None), str)
           and "DATOS" in llm.REGLA_CONTENT_OS,
@@ -245,7 +245,7 @@ def test_regla():
 def test_generate_real():
     print("· generate() no publica una cifra que el modelo se haya inventado")
     from backend.core import contentos
-    import backend.core.llm as llm
+    import backend.core.infraestructura.llm as llm
 
     visto = {}
     original = llm.ask_llm
@@ -365,7 +365,7 @@ def _match(intent, texto):
 # ══════════════ 8. El material heredado se avisa, no se borra ══════════════
 def test_aviso_heredado():
     print("· lo ya transcrito se puede seguir leyendo, pero avisando de su origen")
-    import backend.core.llm as llm
+    import backend.core.infraestructura.llm as llm
 
     aviso = co._aviso_origen()
     check(isinstance(aviso, str) and len(aviso) > 20, "existe _aviso_origen()")
@@ -399,7 +399,7 @@ def test_aviso_heredado():
 # ══════ 8 bis. Y NADA lo borra: el material heredado no se purga de tapadillo ══════
 def test_no_borra_heredado():
     print("· ningún intent de Content OS borra lo que hay en data/inspiration/")
-    import backend.core.llm as llm
+    import backend.core.infraestructura.llm as llm
 
     # Aquí vivía un `check(not path.exists() or True, …)`: `X or True` es cierto
     # pase lo que pase, o sea que la ÚNICA comprobación que amparaba «no borrar

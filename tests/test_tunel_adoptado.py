@@ -116,7 +116,7 @@ PAGINA_DE_OTRO = ("<!doctype html><html><head><title>Cloudflare Tunnel error</ti
 # ══════════════════════════════════════════════════════════════════════════════
 async def _prueba_no_bloquea():
     from backend import app as appmod
-    from backend.core import remote
+    from backend.core.infraestructura import remote
 
     BLOQUEO = 1.2                       # lo que «tarda el mDNS» en esta prueba
     original = remote.status
@@ -168,7 +168,7 @@ async def _prueba_no_bloquea():
 # 2) LA ADOPCIÓN DEL TÚNEL
 # ══════════════════════════════════════════════════════════════════════════════
 async def _prueba_adopcion():
-    from backend.core import remote
+    from backend.core.infraestructura import remote
 
     # ── la comprobación de «¿sigue siendo nuestro?», contra servidores REALES ──
     nuestro = _Servidorcillo(PAGINA_NUESTRA)
@@ -331,7 +331,7 @@ async def _prueba_adopcion():
 #   cosa muy distinta. Si alguien «mejora» esto haciendo que levante un túnel
 #   cuando no encuentra ninguno, el check del Popen prohibido tiene que saltar.
 async def _prueba_adopcion_al_arrancar():
-    from backend.core import remote
+    from backend.core.infraestructura import remote
 
     print("· al arrancar: se recupera el túnel superviviente, sin abrir nada")
 
@@ -443,7 +443,7 @@ def _prueba_enganchado_al_arranque():
 # 3) LA CACHÉ DEL SONDEO TIENE QUE DURAR MÁS QUE EL INTERVALO DE SONDEO
 # ══════════════════════════════════════════════════════════════════════════════
 def _prueba_umbral_cache():
-    from backend.core import remote
+    from backend.core.infraestructura import remote
 
     umbrales = json.loads((ROOT / "config" / "umbrales.json").read_text(encoding="utf-8"))
     check("red" in umbrales, "config/umbrales.json tiene la sección «red»")
@@ -468,7 +468,7 @@ def _prueba_umbral_cache():
           "y el valor que usa el código es el del archivo, no uno escrito a mano")
 
     # la firma ya no lleva el 30.0 clavado
-    src = (ROOT / "backend" / "core" / "remote.py").read_text(encoding="utf-8")
+    src = (ROOT / "backend" / "core" / "infraestructura" / "remote.py").read_text(encoding="utf-8")
     check("cache_seg: float | None = None" in src,
           "responde() ya no trae el umbral clavado en la firma")
 

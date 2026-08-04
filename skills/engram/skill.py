@@ -64,7 +64,7 @@ def _map_tipo(tipo_raw: str) -> str:
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
-    from backend.core import engram_bridge as eng
+    from backend.core.infraestructura import engram_bridge as eng
 
     if intent == "status":
         info = eng.status_sync(ctx)

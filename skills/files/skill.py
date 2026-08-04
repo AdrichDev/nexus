@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from backend.core import files_io as FIO
+from backend.core.infraestructura import files_io as FIO
 
 SKILL = {
     "name": "Archivos",
@@ -182,7 +182,7 @@ def _parse_loc_name(rest: str, default_base: Path):
 
 
 async def _ai_summary(text: str, prompt: str) -> str:
-    from backend.core.llm import ask_llm
+    from backend.core.infraestructura.llm import ask_llm
     reply, _prov = await ask_llm(f"{prompt}\n\n---\n{text[:6000]}")
     return reply
 
@@ -245,7 +245,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             desc = (md.group("d").strip() if md else "")
             if desc and "escritorio" not in desc.lower():
                 try:
-                    from backend.core.llm import ask_llm
+                    from backend.core.infraestructura.llm import ask_llm
                     content, _p = await ask_llm(
                         f"Redacta en español el CONTENIDO de un documento pedido así: «{desc}». "
                         "Devuelve solo el texto del documento, bien escrito, con calidez si procede, "
@@ -258,7 +258,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         # en backend/core/files_io.formato_pedido para que lo compartan todas las
         # skills que escriben ficheros.
         KNOWN = ("docx", "txt", "md", "csv", "json", "html", "py", "log", "xml", "ini", "yaml", "yml")
-        from backend.core.files_io import formato_pedido
+        from backend.core.infraestructura.files_io import formato_pedido
         ext = formato_pedido(low)
         me = _re.search(r"\.(py|log|xml|ini|yaml|yml)\b", low)
         if me:

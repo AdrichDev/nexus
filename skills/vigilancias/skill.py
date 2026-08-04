@@ -130,7 +130,7 @@ async def _notify(msg: str) -> None:
     await bus.emit("chat", {"user": "[vigilancia]", "reply": "👁 " + msg,
                             "provider": "nexus", "skill": "vigilancias", "channel": "pc"})
     try:
-        from backend.core.telegram_bridge import send_telegram
+        from backend.core.infraestructura.telegram_bridge import send_telegram
         await send_telegram("👁 " + msg)
     except Exception:
         pass
@@ -138,7 +138,7 @@ async def _notify(msg: str) -> None:
 
 async def _check_one(w: dict) -> str | None:
     """Comprueba UNA vigilancia. Devuelve el aviso si algo saltó, o None."""
-    from backend.core import websearch
+    from backend.core.infraestructura import websearch
     est = w.setdefault("estado", {})
     if w["tipo"] == "web":
         text = await websearch.fetch_page(w["objetivo"], max_chars=6000)

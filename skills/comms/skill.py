@@ -32,7 +32,7 @@ SKILL = {
 
 def _estado_telegram() -> dict:
     """Lee si hay token del bot y si alguien lo ha reclamado como propietario."""
-    from backend.core import telegram_bridge as tg
+    from backend.core.infraestructura import telegram_bridge as tg
     from backend.core.comun.config import settings
     try:
         propietario = bool(tg.OWNER_FILE.is_file()

@@ -56,7 +56,7 @@ async def _say(text: str, kind: str = "notification", title: str = "nexus") -> N
     await bus.emit("log", {"level": "info", "msg": f"🔔 {text[:120]}"})
     if settings.get("proactive_speak", True):
         try:
-            from . import tts
+            from .infraestructura import tts
             asyncio.create_task(tts.speak(text))
         except Exception:
             pass
@@ -159,7 +159,7 @@ async def _daily_nudge() -> None:
     # Modo normal (o sin tareas): empujón genérico con el LLM (como antes).
     if not text:
         try:
-            from . import llm
+            from .infraestructura import llm
             pending = _pending_hint()
             msg = await llm.ask_llm(
                 "Eres mi Project Manager. Dame UN empujón corto (2-3 frases, tono cercano) "

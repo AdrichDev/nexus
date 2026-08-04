@@ -38,7 +38,7 @@ async def _whatsapp_via_movil(to: str, body: str, ctx) -> dict | None:
     se abre WhatsApp con el chat y el texto ya escritos (solo le das a enviar).
     El número se resuelve con la agenda de nexus (skill teléfono). Devuelve la
     respuesta, o None si no hay móvil vinculado."""
-    from backend.core import remote
+    from backend.core.infraestructura import remote
     from backend.core.comun.events import bus
     if not remote.devices():
         return None

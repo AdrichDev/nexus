@@ -421,7 +421,7 @@ async def activate_cloud_model(provider: str, model: str = "",
     """Igual que el local pero con un proveedor de la nube: se PRUEBA con una
     llamada real antes de decir que está activo (specs v24, T13). Si no pasa la
     prueba, la configuración vuelve a como estaba."""
-    from backend.core import llm as _llm
+    from backend.core.infraestructura import llm as _llm
 
     prov = _llm.PROVIDERS.get(provider)
     if prov is None:
@@ -496,7 +496,7 @@ async def activate(provider: str, model: str = "", *, persistir: bool = True) ->
 
 def _invalidar_proveedor() -> None:
     try:
-        from backend.core.llm import invalidate_provider
+        from backend.core.infraestructura.llm import invalidate_provider
         invalidate_provider()
     except Exception:
         pass
@@ -552,7 +552,7 @@ async def catalog() -> dict:
       * cuáles son de embeddings (no valen de cerebro)
       * y cuál está activo DE VERDAD
     """
-    from backend.core.llm import scan_local_models
+    from backend.core.infraestructura.llm import scan_local_models
 
     cli = OllamaClient()
     servidos: dict[str, dict] = {}

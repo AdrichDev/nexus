@@ -34,7 +34,7 @@ def check(cond, msg):
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import backend.core.files_io as FIO       # noqa: E402
+import backend.core.infraestructura.files_io as FIO       # noqa: E402
 import backend.core.comun.audit as audit        # noqa: E402
 import backend.core.comun.confirm as confirm    # noqa: E402
 
@@ -273,7 +273,7 @@ def test_skill_lectura_no_miente():
 # ══════════════ T7: voz ══════════════
 
 def test_tts_solo_habla_respuestas():
-    import backend.core.tts as tts
+    import backend.core.infraestructura.tts as tts
     check(hasattr(tts, "note_user_text") and hasattr(tts, "is_user_echo"),
           "el TTS sabe qué escribió el operador")
     tts.note_user_text("borra las tareas completadas del tablero")
@@ -281,7 +281,7 @@ def test_tts_solo_habla_respuestas():
           "reconoce su propio texto")
     check(tts.is_user_echo("He borrado 4 tareas completadas") is False,
           "la respuesta de nexus sí se puede decir")
-    src = Path(ROOT, "backend", "core", "tts.py").read_text(encoding="utf-8")
+    src = Path(ROOT, "backend", "core", "infraestructura", "tts.py").read_text(encoding="utf-8")
     check('async def speak(text: str, role: str = "assistant")' in src,
           "speak() exige el rol del mensaje")
     check('if role != "assistant":' in src,
@@ -310,7 +310,7 @@ def test_brain_y_hud_no_mandan_al_tts_lo_del_operador():
 # Petición de Adri (30/07/2026): «todos los informes por defecto han de crearlos
 # en archivos .md salvo que se pida expresamente otra cosa».
 def test_los_informes_salen_en_markdown():
-    from backend.core.files_io import formato_pedido, pidio_formato
+    from backend.core.infraestructura.files_io import formato_pedido, pidio_formato
     # sin pedir formato → Markdown
     for orden in ("hazme un informe de ventas", "crea un documento sobre el proyecto",
                   "escríbeme un resumen de la reunión", "redáctame un informe",

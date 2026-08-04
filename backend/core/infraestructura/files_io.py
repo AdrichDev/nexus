@@ -21,7 +21,7 @@ import os
 import shutil
 from pathlib import Path
 
-from .comun.config import DATA_DIR, CONFIG_DIR
+from ..comun.config import DATA_DIR, CONFIG_DIR
 
 VERSIONS_DIR = DATA_DIR / "file_versions"
 VERSIONS_INDEX = VERSIONS_DIR / "index.json"
@@ -44,7 +44,7 @@ def _now_tag() -> str:
 
 def _audit(**kw) -> None:
     try:
-        from .comun import audit as _a
+        from ..comun import audit as _a
         _a.log(**kw)
     except Exception:
         pass

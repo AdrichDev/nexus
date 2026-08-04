@@ -88,7 +88,7 @@ class _FakeResp:
 # ══════════════════════ backend/core/engram_bridge.py ══════════════════════
 
 def test_engram_exe_deteccion():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
 
     # 1) ⚙ engram_exe apuntando a un ejecutable real -> se usa esa ruta
     tmp = Path(tempfile.mkdtemp())
@@ -122,7 +122,7 @@ def test_engram_exe_deteccion():
 
 
 def test_base_url_y_puerto():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     check(eng._base_url({"settings": _FakeSettings({})}) == "http://127.0.0.1:7437",
           "base_url: puerto por defecto 7437")
     check(eng._base_url({"settings": _FakeSettings({"engram_port": 9001})}) == "http://127.0.0.1:9001",
@@ -133,7 +133,7 @@ def test_base_url_y_puerto():
 
 
 def test_alive_cached():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_alive, old_ts = eng._ALIVE["ok"], eng._ALIVE["ts"]
     old_fn = eng._alive
     calls = {"n": 0}
@@ -159,7 +159,7 @@ def test_alive_cached():
 
 
 def test_ensure_up_ya_vivo_no_lanza_nada():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_ts = eng._ALIVE["ts"]
     old_popen = eng.subprocess.Popen
 
@@ -181,7 +181,7 @@ def test_ensure_up_ya_vivo_no_lanza_nada():
 
 
 def test_ensure_up_no_instalado():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_ts, old_which, old_alive = eng._ALIVE["ts"], eng.shutil.which, eng._alive
     old_home = os.path.expanduser
 
@@ -211,7 +211,7 @@ def test_ensure_up_no_instalado():
 
 
 def test_ensure_up_autostart_desactivado():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_ts, old_alive = eng._ALIVE["ts"], eng._alive
     tmp = Path(tempfile.mkdtemp())
     exe = tmp / "engram"
@@ -237,7 +237,7 @@ def test_ensure_up_autostart_desactivado():
 
 
 def test_ensure_up_lanza_y_espera_y_no_relanza_en_rafaga():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_ts, old_launch_ts = eng._ALIVE["ts"], eng._LAUNCH["ts"]
     old_popen, old_sleep, old_alive = eng.subprocess.Popen, eng.asyncio.sleep, eng._alive
     tmp = Path(tempfile.mkdtemp())
@@ -308,7 +308,7 @@ def test_ensure_up_lanza_y_espera_y_no_relanza_en_rafaga():
 
 
 def test_save():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_ensure = eng.ensure_up
     old_post = eng._http_post
     old_ensure_session = eng._ensure_session
@@ -377,7 +377,7 @@ def test_save():
 
 
 def test_search():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_ensure, old_get = eng.ensure_up, eng._http_get
 
     async def ensure_ok(_ctx):
@@ -431,7 +431,7 @@ def test_search():
 
 
 def test_context():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_ensure, old_get = eng.ensure_up, eng._http_get
 
     async def ensure_ok(_ctx):
@@ -466,7 +466,7 @@ def test_context():
 
 
 def test_count_no_arranca_el_servidor_solo_para_contar():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_alive_cached, old_get, old_ensure = eng.alive_cached, eng._http_get, eng.ensure_up
 
     async def run():
@@ -499,7 +499,7 @@ def test_count_no_arranca_el_servidor_solo_para_contar():
 
 
 def test_status_sync_puro():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     ctx = {"settings": _FakeSettings({"engram_exe": "/no/existe"})}
     old_which, old_home = eng.shutil.which, os.path.expanduser
     eng.shutil.which = lambda *_a, **_k: None
@@ -641,7 +641,7 @@ def test_engram_no_colisiona_con_memoria_personal():
 
 def test_engram_handle_status():
     mod = load_skill_module("engram")
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_status, old_alive, old_ensure, old_count, old_installed = (
         eng.status_sync, eng.alive_cached, eng.ensure_up, eng.count, eng.installed)
 
@@ -708,7 +708,7 @@ class _FakeMatch:
 
 def test_engram_handle_save():
     mod = load_skill_module("engram")
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_save = eng.save
 
     async def run():
@@ -753,7 +753,7 @@ def test_engram_handle_save():
 
 def test_engram_handle_search_y_context():
     mod = load_skill_module("engram")
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_search, old_context, old_installed = eng.search, eng.context, eng.installed
 
     async def run():
@@ -854,7 +854,7 @@ def _make_zip(names_and_data):
 
 
 def test_engram_plat_asset():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old = eng.sys.platform
     try:
         eng.sys.platform = "win32"
@@ -873,7 +873,7 @@ def test_engram_plat_asset():
 
 def test_engram_sha256_ok():
     import hashlib
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     blob = b"contenido del binario"
     good = hashlib.sha256(blob).hexdigest()
     asset = "engram_1.20.0_linux_amd64.tar.gz"
@@ -886,7 +886,7 @@ def test_engram_sha256_ok():
 
 def test_engram_extract():
     import os
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     tmp = Path(tempfile.mkdtemp())
     # tar.gz (linux/mac): trae el binario + basura que NO debe extraerse como binario
     tgz = _make_targz([("engram", b"BINARIO"), ("README.md", b"x"), ("LICENSE", b"y")])
@@ -903,7 +903,7 @@ def test_engram_extract():
 def test_engram_install_flow():
     import hashlib
     import os
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_exe, old_go, old_dl, old_ver = (eng._engram_exe, eng._go_install,
                                         eng._http_download, eng._latest_version)
     tmp = Path(tempfile.mkdtemp())
@@ -984,7 +984,7 @@ def test_engram_install_flow():
 
 
 def test_engram_install_cli_respeta_autoinstall():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     import backend.core.comun.config as cfg
     old_install, old_installed = eng.install, eng.installed
     old_get = cfg.settings.get
@@ -1036,7 +1036,7 @@ def test_engram_install_cli_respeta_autoinstall():
 
 
 def test_engram_maybe_install_background():
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     old_install, old_installed = eng.install, eng.installed
 
     async def run():
@@ -1071,7 +1071,7 @@ def test_engram_maybe_install_background():
 def test_engram_exe_encuentra_managed_dir():
     """El binario instalado por nexus en ~/.engram/bin debe detectarse."""
     import os
-    import backend.core.engram_bridge as eng
+    import backend.core.infraestructura.engram_bridge as eng
     tmp = Path(tempfile.mkdtemp())
     mbd = tmp / ".engram" / "bin"
     mbd.mkdir(parents=True)

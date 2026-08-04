@@ -72,8 +72,8 @@ _SANDBOX = Path(tempfile.mkdtemp(prefix="nexus_rt_"))
 os.environ["NEXUS_DATA_DIR"] = str(_SANDBOX / "data")
 os.environ["NEXUS_CONFIG_DIR"] = str(_SANDBOX / "config")
 
-from backend.core import llm as _llm                      # noqa: E402
-from backend.core import llm_runtime as rt                # noqa: E402
+from backend.core.infraestructura import llm as _llm  # noqa: E402
+from backend.core.infraestructura import llm_runtime as rt  # noqa: E402
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 from backend.core.comun import publicvoice as pv  # noqa: E402
 from backend.core.comun.config import settings                  # noqa: E402
@@ -466,7 +466,7 @@ def test_codigo_entregado():
     print("· la interfaz y el servidor están conectados al runtime")
     js = js_hud()
     app = (Path(ROOT) / "backend" / "app.py").read_text(encoding="utf-8")
-    llmsrc = (Path(ROOT) / "backend" / "core" / "llm.py").read_text(encoding="utf-8")
+    llmsrc = (Path(ROOT) / "backend" / "core" / "infraestructura" / "llm.py").read_text(encoding="utf-8")
 
     check("/api/llm/activate" in js, "el botón del HUD activa a través del runtime")
     check("/api/llm/status" in js, "y el HUD pregunta el estado real")

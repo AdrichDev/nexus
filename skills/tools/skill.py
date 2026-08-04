@@ -189,7 +189,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         except Exception:
             # No es una expresión matemática parseable → que responda el LLM
             # («cuánto es el IVA en España» no es para SymPy)
-            from backend.core.llm import ask_llm
+            from backend.core.infraestructura.llm import ask_llm
             reply, _ = await ask_llm(text)
             return {"reply": reply}
 

@@ -82,7 +82,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          "Di «aplica la skill <una de esas> a <tu encargo>»."}
 
     guide = cat[name].read_text(encoding="utf-8", errors="replace")[:6000]
-    from backend.core.llm import ask_llm
+    from backend.core.infraestructura.llm import ask_llm
     reply, _ = await ask_llm(
         f"Aplica esta metodología/skill al encargo del operador.\n\n"
         f"=== SKILL: {name} ===\n{guide}\n\n=== ENCARGO ===\n{task}\n\n"

@@ -395,7 +395,7 @@ async def generate(kind: str, topic: str = "") -> str:
     bloque DATOS): se le PIDE que no invente cifras. El segundo es
     `procedencia.sin_cifras_inventadas()`: se COMPRUEBA. Hace falta el segundo
     porque el primero es una petición, y una petición se incumple sin avisar."""
-    from . import llm
+    from .infraestructura import llm
     from .comun import procedencia
     topic = (topic or "").strip()
     datos, permitidas = _bloque_datos()

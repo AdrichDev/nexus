@@ -258,7 +258,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if not page or not page.get("text", "").strip():
             return {"reply": f"No he podido extraer el texto de «{tab.get('title')}» "
                              "(¿página protegida o aún cargando?). Prueba otra vez en unos segundos."}
-        from backend.core.llm import ask_llm
+        from backend.core.infraestructura.llm import ask_llm
         contenido = page["text"][:MAX_PAGE_CHARS]
         prompt = (f"El operador ha pedido: «{text}».\n"
                   f"Página abierta en su navegador: «{page.get('title')}» ({page.get('url')}).\n"

@@ -17,14 +17,14 @@ import os
 import httpx
 
 
-from .comun.config import DATA_DIR
-from .comun.events import bus
+from ..comun.config import DATA_DIR
+from ..comun.events import bus
 
 OWNER_FILE = DATA_DIR / "telegram_owner.txt"
 
 
 def _token() -> str:
-    from .comun.config import settings
+    from ..comun.config import settings
     return settings.secret("telegram_bot_token") or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 
@@ -104,7 +104,7 @@ async def telegram_loop():
                             continue
                         await cli.post(f"{api}/sendMessage", json={"chat_id": chat_id,
                             "text": f"🎙 Te he entendido: «{text}»"})
-                    from . import brain
+                    from .. import brain
                     await bus.emit("log", {"level": "cmd", "msg": f"[TELEGRAM] {text}"})
                     # source="text" (NO "telegram"): con un source raro medio cerebro
                     # se apagaba (enrutador inteligente, PM, persistencia solo actúan
