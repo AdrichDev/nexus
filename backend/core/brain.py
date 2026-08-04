@@ -344,6 +344,64 @@ _REMEMBER_RX = re.compile(
     r"(?P<fact>.{4,}?)\s*\.?\s*$", re.IGNORECASE)
 
 # Historial corto en RAM para la conversación (la persistencia va a DB/grafo)
+def pega_respuesta_a_pregunta(text: str, channel: str = "pc") -> str:
+    """Si esto es la RESPUESTA a un «¿cuál?» anterior, devuelve la orden completa;
+    si no, el texto tal cual.
+
+    Contestar «la de arriba» no es una orden por sí solo, pero pegado a la
+    pregunta sí. Quién es «la de arriba» lo resuelve después la skill, que es la
+    única que conoce sus opciones.
+
+    La pregunta CADUCA con el mensaje siguiente, se aproveche o no: dejarla viva
+    contaminaba todo lo que llegara después, y un «hola» acababa contestando a
+    una pregunta de hace tres mensajes. Y solo se aprovecha si esto parece una
+    respuesta: cortísima, que por sí sola no llegue a nadie, y que no sea un
+    saludo. Contestar a «¿cuál?» son dos o tres palabras, no una frase."""
+    from . import context as _ctxt
+    pendiente = _ctxt.pregunta_pendiente(channel)
+    if not pendiente:
+        return text
+    _ctxt.olvida_pregunta(channel)
+    if (len(text.split()) <= 5 and not _SMALLTALK_RX.match(text)
+            and route(text) is None and route(f"{pendiente} {text}") is not None):
+        return f"{pendiente} {text}"
+    return text
+
+
+def quien_atiende(text: str, channel: str = "pc") -> str:
+    """QUIÉN se va a quedar esta frase, sin ejecutar nada.
+
+    Entre que llega un mensaje y se consulta el router hay varios atajos —charla,
+    queja, memoria— y cada uno puede quedársela antes. Preguntar solo al router
+    dice a quién LLEGARÍA, no a quién LLEGA: por eso `test_lo_prometido` daba por
+    buenas frases que en una conversación real nunca salían del primer atajo.
+
+    Devuelve: 'charla' | 'queja' | 'memoria' | 'skill:carpeta/intent' |
+    'planificador'. Es de solo lectura, no toca nada, y existe para que las
+    pruebas puedan mirar donde de verdad se decide.
+
+    Refleja el orden de `process`; si se añade un atajo nuevo antes del router,
+    va aquí también — y `test_regresion_conversacion` lo comprueba."""
+    t = (text or "").strip()
+    if not t:
+        return "charla"
+    if _SMALLTALK_RX.match(t):
+        return "charla"
+    # Una respuesta a un «¿cuál?» anterior cambia lo que se enruta, así que
+    # forma parte de la decisión y tiene que verse desde aquí.
+    t = pega_respuesta_a_pregunta(t, channel)
+    if _NO_ACCION_RX.search(t):
+        return "queja"
+    if es_memoria_explicita(t):
+        return "memoria"
+    r = route(t)
+    if r is not None:
+        return f"skill:{r[0].folder}/{r[1]}"
+    if _META_QUEJA_RX.search(t):
+        return "queja"
+    return "planificador"
+
+
 def es_memoria_explicita(text: str) -> bool:
     """¿«apunta esto» es GUARDAR UN HECHO, o una orden para una skill?
 
@@ -677,14 +735,11 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         # Solo cuando la frase suelta NO llega a nadie: un mensaje que ya es una
         # orden por su cuenta manda sobre cualquier pregunta anterior.
         try:
-            _pend = _mturn.pregunta_pendiente(channel)
-            if _pend and len(text.split()) <= 8 and route(text) is None:
-                _junto = f"{_pend} {text}"
-                if route(_junto) is not None:
-                    await bus.emit("log", {"level": "info",
-                                           "msg": f"🧭 Respondes a «{_pend}»: «{text}»"})
-                    text = _junto
-                    _mturn.olvida_pregunta(channel)
+            _junto = pega_respuesta_a_pregunta(text, channel)
+            if _junto != text:
+                await bus.emit("log", {"level": "info",
+                                       "msg": f"🧭 Interpreto «{text}» como «{_junto}»"})
+                text = _junto
         except Exception:                                   # noqa: BLE001
             pass
 

@@ -9,10 +9,18 @@ from __future__ import annotations
 # gente escribe el pronombre sin ella; ahí decide la gramática: el posesivo
 # SIEMPRE lleva un sustantivo detrás, el pronombre no lleva nada.
 #
-# Lo que queda fuera: «de mi ahora», sin tilde y con palabra detrás. Es
-# genuinamente indistinguible de «de mi coche» sin un diccionario, y se prefiere
-# no atender la frase antes que robársela a otra skill.
-_YO = r"(?:mí\b|mi\b(?!\s+\w))"
+# Sin tilde y con palabra detrás («de mi ahora») haría falta un diccionario para
+# saber si esa palabra es un sustantivo poseído. Pero hay un puñado que NUNCA lo
+# son —adverbios y conjunciones— y son justo las que aparecen aquí: escribiendo
+# deprisa se pierde la tilde, y «que sabes de mi ahora» acababa contestando con
+# la base de datos entera sobre un tema llamado «mi ahora».
+#
+# La lista es cerrada a propósito: cubre lo que se dice de verdad sin tener que
+# adivinar. Cualquier otra palabra detrás sigue tratándose como posesivo.
+_NO_ES_SUSTANTIVO = (r"ahora|ya|hoy|todav[ií]a|a[uú]n|exactamente|realmente|"
+                     r"en\s+concreto|de\s+verdad|y\b|o\b|pero\b|porfa|"
+                     r"por\s+favor|eh\b|no\b|s[ií]\b")
+_YO = r"(?:mí\b|mi\b(?!\s+\w)|mi\b(?=\s+(?:" + _NO_ES_SUSTANTIVO + r")))"
 
 SKILL = {
     "name": "Memoria",
