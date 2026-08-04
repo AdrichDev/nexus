@@ -26,5 +26,5 @@ if "%NSIS%"=="" (
 if errorlevel 1 ( echo [nexus] ERROR generando el instalador & pause & exit /b 1 )
 echo.
 echo [nexus] Instalador creado: nexus-Setup.exe
-echo          Ese archivo es el que le pasas a Ruben: doble clic e instalar.
+echo          Ese archivo es el que se entrega al usuario: doble clic e instalar.
 pause
