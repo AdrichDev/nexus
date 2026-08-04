@@ -329,6 +329,43 @@ ninguno lo habrían visto los tests:
 largas las había escrito yo el mismo día «por honestidad»: explicar el mecanismo
 no es ser honesto, es no callarse.
 
+### La segunda tanda, y el fallo que explica a los demás
+
+Siguió probando y salieron seis más. Uno enseña más que el resto:
+
+- **«apunta» se lo comía la memoria.** El cerebro tiene un atajo para guardar
+  hechos («recuerda que…», «apunta que…») que corre **antes del router**, y su
+  «que» era opcional. Así que «apunta la mentoría el jueves» nunca llegaba al
+  tablero, ni «apunta el evento X» al calendario.
+
+  **Y `test_lo_prometido` decía que sí llegaban.** Era verdad… del **router**.
+  El router ni se ejecutaba.
+
+  > Una prueba que mira un escalón por debajo de donde está el fallo
+  > lo declara arreglado.
+
+  Por eso ahora existe `brain.quien_atiende()`: responde **quién se queda** una
+  frase, con los atajos por delante y en su orden, sin ejecutar nada. Y
+  `tests/test_regresion_conversacion.py` comprueba **esa** decisión con las
+  frases reales de estas dos tandas. Vigila además que no aparezca un atajo
+  nuevo antes del router sin declararlo, que es como se coló este.
+
+- **Borrar el día 5 es borrar lo que se VE ese día.** La agenda pinta el
+  calendario de Google **y** las tareas del tablero; el borrado solo entendía
+  uno. «No hay nada en tu calendario» era cierto y a la vez inútil.
+- **El dictado no escribe los nombres propios.** Ahora se comparan los
+  **sonidos**, no las letras. De regalo, deja de importar que un nombre guardado
+  tenga una errata.
+- **Contestar a «¿cuál?» es una orden.** Suelto no significa nada; pegado a la
+  pregunta, sí. Ojo: **caduca con el mensaje siguiente**, o contamina todo lo que
+  venga detrás — regresión propia, cazada en un barrido contra nexus real.
+- `create_event` tenía los mismos dos fallos ya curados en el tablero: títulos
+  con paja y sin rangos de varios días.
+
+**Cómo se prueba esto de ahora en adelante**: suite (`run_all.py`), e2e
+(`run_e2e.py`) **y un barrido de frases reales contra nexus en marcha**. Las dos
+primeras estaban verdes mientras todo esto fallaba; la tercera es la que lo cazó.
+
 ## Dudas y pendientes anotados, no tocados
 
 - **«dámelas»** a secas no llega a ningún sitio. El pronombre enclítico sin
