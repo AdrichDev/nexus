@@ -1,6 +1,8 @@
 """Minion Memoria — recordar, consultar y visualizar el grafo de notas."""
 from __future__ import annotations
 
+import re
+
 # El usuario hablando de SÍ MISMO, distinguido del posesivo «mi <algo>».
 #
 # Son dos palabras distintas y las separa la tilde: «mí» solo puede ser el
@@ -99,6 +101,45 @@ def _extract_text(path) -> str:
     except Exception:
         return ""
     return ""
+
+
+# ── QUÉ ES «SABER DE TI» Y QUÉ NO ────────────────────────────────────────────
+# La memoria guarda tres cosas muy distintas en el mismo cajón:
+#
+#   1. lo que sabe DE TI          — «me gusta el café solo», «el wifi va lento»
+#   2. su propia DOCUMENTACIÓN    — los SKILL.md indexados para poder decidir
+#   3. REGISTROS de trabajo       — «[Trabajo] X => RuntimeError: …»
+#
+# Preguntar «qué sabes de mí» y recibir los tres es lo que hacía hasta ahora, y
+# de 200 entradas 60 eran documentación suya y unas cuantas trazas de error.
+#
+# Lo que distingue una cosa de otra NO hay que adivinarlo: ya está escrito al
+# guardarlo. `fact` y `procedure` es lo que TÚ has mandado recordar; `knowledge`
+# es documentación indexada para poder decidir, y `hermes` el registro de los
+# encargos. Intentar reconocerlo por la forma del texto no funciona: los
+# fragmentos de un manual partido por la mitad parecen frases sueltas.
+_TUYO = ("fact", "procedure", "preference")
+
+# Red para lo que se guardó mal etiquetado antes de que esto existiera.
+_NO_ES_SOBRE_TI = re.compile(
+    r"^\s*\[Trabajo\]|^\s*\[[^\]]*›[^\]]*\]|^\s*#{1,3}\s|\bSkill:\s"
+    r"|=>\s*(?:RuntimeError|Traceback|Exception|Error)", re.IGNORECASE)
+
+
+def es_sobre_el_usuario(entrada) -> bool:
+    """¿Esta entrada es un dato SOBRE EL OPERADOR, o fontanería del sistema?
+
+    Acepta la fila entera (con su `kind`) o solo el texto. Con la fila decide el
+    `kind`, que es la verdad; con el texto suelto solo puede aplicar la red de
+    las mal etiquetadas."""
+    if isinstance(entrada, dict):
+        if (entrada.get("kind") or "") not in _TUYO:
+            return False
+        texto = entrada.get("content") or entrada.get("text") or ""
+    else:
+        texto = entrada or ""
+    t = texto.strip()
+    return len(t) >= 8 and not _NO_ES_SOBRE_TI.search(t)
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
@@ -215,60 +256,58 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "list_knowledge":
         import asyncio as _a
-        secciones = []
-        # 1) PERFIL destilado
-        try:
-            from backend.core import selflearn
-            prof = selflearn.operator_profile()
-            if prof:
-                secciones.append("👤 PERFIL (lo que he destilado de ti):\n" + prof[:1200])
-        except Exception:
-            pass
-        # 2) HECHOS en Postgres
+        # Se reúne SOLO lo que es sobre el operador: sus datos y cómo le gusta
+        # que se hagan las cosas. La documentación del sistema y los registros de
+        # trabajo se quedan fuera — no son suyos, son míos.
+        datos: list[str] = []
         try:
             if pg.online:
-                facts = await _a.to_thread(pg.all_knowledge, 60)
-                fl = [f"• {r['content'][:180]}" for r in facts if r.get('content')]
-                if fl:
-                    secciones.append(f"🧠 MEMORIA (Postgres, {len(fl)} entradas):\n" + "\n".join(fl[:30]))
+                for r in await _a.to_thread(pg.all_knowledge, 300):
+                    if es_sobre_el_usuario(r):
+                        c = (r.get("content") or "").strip()[:200]
+                        if c not in datos:
+                            datos.append(c)
         except Exception:
             pass
-        # 3) CONOCIMIENTO RAG
+
+        # Cómo le gusta que se le hable y que se trabaje: eso también es «de él»,
+        # y es lo que más se nota si se olvida.
+        maneras = ""
         try:
-            from backend.core import rag
-            kn = rag.list_knowledge(60)
-            kl = [f"• {r['text'][:180]}" for r in kn if r.get('text')]
-            if kl:
-                secciones.append(f"📚 CONOCIMIENTO (RAG, {len(kl)}):\n" + "\n".join(kl[:30]))
+            from backend.core import selflearn
+            maneras = (selflearn.operator_profile() or "")[:1500]
         except Exception:
             pass
-        # 4) NOTAS del grafo (títulos)
-        try:
-            from backend.core.config import DATA_DIR
-            notas = sorted((DATA_DIR / "memory").rglob("*.md"))
-            if notas:
-                secciones.append(f"🗂️ NOTAS del grafo ({len(notas)}):\n" +
-                                 "\n".join("• " + n.stem for n in notas[:40]))
-        except Exception:
-            pass
-        wab = "\n\n".join(secciones) if secciones else "De momento no tengo conocimiento guardado sobre ti."
-        # 5) lo que sabe HERMES
-        her = ""
-        try:
-            from backend.core.skills_loader import get_skills
-            hsk = get_skills().get("hermes")
-            if hsk:
-                kb = hsk.module.known_about_user()
-                if kb:
-                    her = "\n\n" + "═" * 3 + " 🪽 Y esto es lo que HERMES sabe de ti " + "═" * 3
-                    for fname, txt in kb:
-                        her += f"\n\n[{fname}]\n{txt[:900]}"
-                else:
-                    her = "\n\n🪽 Hermes: no tiene aún ficheros de memoria sobre ti (o no está instalado en la ruta habitual)."
-        except Exception:
-            pass
-        return {"reply": "Esto es TODO lo que sé de ti:\n\n" + wab + her +
-                         "\n\n(Di «olvida que…» o edítalo cuando quieras.)"}
+
+        if not datos and not maneras:
+            return {"reply": "Todavía no sé gran cosa de ti. Cuéntame cosas con "
+                             "«recuerda que…» y las voy guardando."}
+
+        # Y se cuenta HABLANDO, no en fichas. Un listado con secciones y emojis
+        # es un volcado de base de datos, no una respuesta: el modelo lo redacta
+        # usando SOLO esto, sin añadir nada de su cosecha.
+        from backend.core.llm import ask_llm
+        material = ""
+        if maneras:
+            material += "CÓMO LE GUSTA QUE TRABAJES:\n" + maneras + "\n\n"
+        if datos:
+            material += "LO QUE SÉ DE ÉL:\n" + "\n".join(f"- {d}" for d in datos[:40])
+        # Se le habla de TÚ, sin nombre: el nombre del operador es un dato suyo,
+        # no una constante del programa. Esto se instala en el equipo de otra
+        # gente.
+        texto, _ = await ask_llm(
+            "Cuéntale lo que sabes de él, hablándole de tú, como en una "
+            "conversación. Sin secciones, sin títulos, sin viñetas y sin emojis: "
+            "párrafos cortos y naturales, como se lo contarías de viva voz. "
+            "Agrupa lo que vaya junto y ve a lo concreto.\n\n"
+            "REGLA QUE NO SE SALTA: usa ÚNICAMENTE lo que hay aquí abajo. No "
+            "añadas, no supongas y no rellenes. Si algo no está, no está.\n\n"
+            + material)
+        if not (texto or "").strip():
+            # Sin modelo no se calla: se enseña lo que hay, tal cual.
+            texto = "Esto es lo que tengo tuyo:\n" + "\n".join(f"· {d}" for d in datos[:25])
+        return {"reply": texto.strip() +
+                         "\n\nSi algo no cuadra, dime «olvida que…» y lo quito."}
 
     if intent == "recall":
         topic = (match.group("topic") or match.group("topic2") or "").strip().rstrip("?¿.")
