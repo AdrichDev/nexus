@@ -18,6 +18,13 @@ problema hoy:
 1. **Desinstalar borra la memoria del usuario.** `nexus_installer.nsi:103` hace
    `RMDir /r "$INSTDIR"`, y `data/` vive dentro de `$INSTDIR`. Todo lo que ese
    nexus aprendió de su dueño se va sin preguntar.
+
+   **Decisión del dueño (03/08/2026)**: al desinstalar se **pregunta** si borrar
+   también los datos o conservarlos, como hace cualquier programa serio. No se
+   elige por él en ninguna de las dos direcciones: ni arrasar sin avisar, ni
+   dejar carpetas huérfanas en un equipo del que se quiso ir. Y lo que se
+   conserve tiene que ser encontrable si reinstala — datos que sobreviven pero
+   que nadie vuelve a leer son basura con otro nombre.
 2. **La superficie de actualización ya está abierta, y es código.**
    `build_exe.bat` copia `knowledge/`, `frontend/` y `skills/` **al lado** del
    exe y lo llama, literalmente, «recursos ACTUALIZABLES sin recompilar»

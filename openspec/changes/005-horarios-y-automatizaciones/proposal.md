@@ -32,12 +32,39 @@ existen.
 | **Reloj de verdad** | Horas, minutos y días de la semana, sin romper los `tick % N` |
 | **Conversación** | «todos los días a las 8», «los lunes y jueves», «qué tienes programado», «quítalo» |
 | **Equipo apagado** | Declarado por horario, dicho en claro, nunca fingido |
-| **n8n como ejecutor opcional** | Un horario puede disparar un flujo que **ya existe** |
+| **n8n como ejecutor opcional** | Un horario dispara un flujo: uno que ya exista, o uno que nexus cree a peticion |
+
+### Corrección del dueño (03/08/2026)
+
+Esta propuesta dejaba fuera **crear automatizaciones de n8n**, razonando que un
+grafo de nodos generado es «código con otro nombre» y que 004 lo prohíbe.
+
+**Es un error, y el dueño lo ha corregido**: lo que quiere es exactamente que
+nexus **cree el flujo de n8n o el cron que se le pida**, sea el que sea. El
+informe diario a las 8 era un ejemplo, no un requisito.
+
+Y al mirarlo de cerca, la razón que se daba tampoco se sostiene. 004 prohíbe que
+nexus escriba **código que nexus ejecuta**: su propio `.py`, en su propio
+proceso, sin repositorio ni pruebas para recuperarse. Un workflow de n8n no es
+eso. Es **un JSON que ejecuta n8n**, un servicio aparte, en su contenedor, con su
+propia interfaz para ver, editar y desactivar lo que haya. Está en la misma
+categoría que una regla aprendida: **dato**, no código. Lo mismo vale para un
+horario, que es lo que esta propuesta ya aceptaba.
+
+Lo que sí hereda de 004 es la disciplina, y aquí importa más aún porque un flujo
+puede llamar al mundo exterior:
+
+- **Nada se activa sin enseñar antes qué va a hacer.** Igual que el borrado por
+  fecha enseña qué borra.
+- **Deshacer es borrar el flujo**, y nexus tiene que saber cuáles ha creado él.
+- **Un flujo que necesite confirmación humana no puede programarse**, porque a
+  las 8 de la mañana no hay nadie para confirmarlo. Se rechaza al crearlo, no al
+  dispararlo — que ya era la decisión de esta propuesta y sigue valiendo.
+- **Sin n8n no se finge**: el usuario que eligió `local` no tiene contenedores, y
+  hay que decírselo, no dejar el horario en el aire.
 
 ### Fuera
 
-- **Crear automatizaciones n8n arbitrarias.** Un grafo de nodos generado es
-  ejecutable: código con otro nombre. 004 lo prohíbe y esto lo respeta.
 - Mover n8n a un VPS: se diseña para que quepa, no se hace aquí.
 - Segundos, expresiones cron completas, festivos.
 - Personalidades (→ `006`). Instalador y actualizaciones (→ `007`).
@@ -57,7 +84,7 @@ Ninguna. Ninguna spec de `openspec/specs/` habla del scheduler.
 
 ## Enfoque
 
-**El reloj es de nexus; n8n solo ejecuta lo que ya existe.** Es la decisión que
+**El reloj es de nexus; n8n ejecuta los flujos, incluidos los que nexus cree.** Es la decisión que
 sostiene el resto, y va contra la tentación de delegarlo todo en n8n.
 
 El motivo es de instalación, no de gusto. `frontend/setup.html` (paso 4) deja
