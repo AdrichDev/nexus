@@ -38,6 +38,7 @@ os.environ.setdefault("NEXUS_DATA_DIR", tempfile.mkdtemp(prefix="nexus_regresion
 
 from backend.core.aplicacion import brain  # noqa: E402
 from backend.core.aplicacion.skills_loader import load_skills               # noqa: E402
+from backend.core.dominio import reglas                                     # noqa: E402
 
 load_skills()
 
@@ -59,78 +60,36 @@ def atiende(frase: str) -> str:
     return brain.quien_atiende(frase)
 
 
-# ═══════════ 1) LAS FRASES DE AQUELLA TARDE ═══════════
-# Cada línea es algo que Adrián escribió o dictó, con quién TIENE que quedárselo.
-# Se comprueba la decisión del cerebro entero, no la del router.
-print("== 1) las frases que fallaron aquel día llegan a su sitio ==")
+# ═══════════ 1 y 2) LAS FRASES DE AQUELLA TARDE ═══════════
+# Cada línea es algo que el dueño escribió o dictó, con quién TIENE que
+# quedárselo. Se comprueba la decisión del cerebro entero, no la del router.
+#
+# LA LISTA YA NO VIVE AQUÍ (004, bloque B). Está en
+# `config/corpus_regresion.json`, que sí viaja en el instalador: la puerta de
+# «no robo» del aprendizaje mide contra estas frases y se ejecuta en la máquina
+# del usuario, donde no hay `tests/`. Con la lista dentro de la suite, esa
+# puerta validaría contra menos frases de las que cree.
+print("== 1 y 2) las frases que fallaron aquel día llegan a su sitio ==")
 
-REALES = [
-    # — la tele: actuaba sobre la que no era, o preguntaba dos veces —
-    ("apaga la tele",                              "skill:domotica/tv_off"),
-    ("enciende la tv de la habitación",            "skill:domotica/tv_on"),
-    ("apaga la tv del salón",                      "skill:domotica/tv_off"),
-    ("te he dicho que apagues la tele del salón",  "skill:domotica/tv_off"),
+CORPUS = reglas.corpus_regresion()
+check(len(CORPUS) >= 30,
+      f"config/corpus_regresion.json trae solo {len(CORPUS)} frases: "
+      "¿se ha quedado sin instalar o ha cambiado el formato?")
+check({e.get("bloque") for e in CORPUS} == {1, 2},
+      "el corpus de regresión ha perdido uno de los dos bloques")
 
-    # — el volumen: adivinaba destino, y «quitar el silencio» silenciaba —
-    ("sube el volumen",                            "skill:system_pc/volume_ask"),
-    ("sube el volumen del pc",                     "skill:system_pc/volume"),
-    ("sube el volumen de spotify",                 "skill:system_pc/volume_app"),
-    ("sube el volumen de la tele",                 "skill:domotica/tv_volume"),
-    ("quítale el silencio",                        "skill:system_pc/volume_ask"),
-    ("quítale el silencio al pc",                  "skill:system_pc/volume"),
-    ("silencia",                                   "skill:system_pc/volume_ask"),
-
-    # — el calendario: no borraba por fecha, y «apunta» se lo comía la memoria —
-    ("borra los eventos del día 5",                "skill:google_workspace/delete_event"),
-    ("borra los del día 5",                        "skill:google_workspace/delete_event"),
-    ("borra lo que haya el día 5 y día 9",         "skill:google_workspace/delete_event"),
-    ("borra también la del día nueve",             "skill:google_workspace/delete_event"),
-    ("te he dicho que borres los del día 5",       "skill:google_workspace/delete_event"),
-    ("apunta la mentoría el jueves a las 18",      "skill:tasks_board/create"),
-    ("apunta el evento Feria del libro del 5 al 9", "skill:google_workspace/create_event"),
-
-    # — las órdenes que no llegaban a nadie —
-    ("busca información sobre python",             "skill:ai_media/web_search"),
-    ("crea una tarea",                             "skill:tasks_board/create"),
-
-    # — y lo que NO debe cambiar de dueño —
-    ("apunta que me gusta el café solo",           "memoria"),
-    ("recuerda que el wifi de casa es lento",      "memoria"),
-    ("no te he dicho que leas los correos",        "queja"),
-    ("hola",                                       "charla"),
-    ("gracias",                                    "charla"),
-]
-
-for frase, esperado in REALES:
-    real = atiende(frase)
-    check(real == esperado,
-          f"«{frase}» la atiende {real}, y tiene que atenderla {esperado}")
-
-
-# ═══════════ 2) LO QUE NO PUEDE ROBARSE ═══════════
-print("== 2) los arreglos no le han quitado el trabajo a nadie ==")
-
-INTOCABLES = [
-    ("borra la tarea 3",              "skill:tasks_board/delete"),
-    ("borra las tareas completadas",  "skill:tasks_board/clear"),
-    ("borra el archivo tmp.txt",      "skill:files/trash"),
-    ("dame ideas para el regalo de mi madre", None),      # NO memory_graph
-    ("qué sabes de mí",               "skill:memory_graph/list_knowledge"),
-    ("qué sabes de mí ahora",         "skill:memory_graph/list_knowledge"),
-    # Escribiendo deprisa se pierde la tilde, y sin ella «de mi ahora» acababa
-    # en `recall`, que contestaba con la base de datos entera sobre un tema
-    # llamado «mi ahora». Un puñado de palabras nunca son sustantivo poseído.
-    ("que sabes de mi ahora",         "skill:memory_graph/list_knowledge"),
-    ("que sabes de mi exactamente",   "skill:memory_graph/list_knowledge"),
-    ("que sabes de mi y de mi familia", "skill:memory_graph/list_knowledge"),
-]
-for frase, esperado in INTOCABLES:
+for entrada in CORPUS:
+    frase = entrada["frase"]
+    esperado = entrada.get("dueno")
     real = atiende(frase)
     if esperado is None:
-        check(real != "skill:memory_graph/list_knowledge",
-              f"«{frase}» vuelve a caer en memory_graph ({real})")
+        # Un solo caso: «dame ideas…» no tiene dueño fijo, pero NO puede volver
+        # a caer en memory_graph.
+        prohibido = entrada.get("no_dueno")
+        check(real != prohibido, f"«{frase}» vuelve a caer en {prohibido} ({real})")
     else:
-        check(real == esperado, f"«{frase}» la atiende {real}, esperaba {esperado}")
+        check(real == esperado,
+              f"«{frase}» la atiende {real}, y tiene que atenderla {esperado}")
 
 
 # ═══════════ 3) UNA PREGUNTA ABIERTA NO CONTAMINA LO SIGUIENTE ═══════════
@@ -172,8 +131,18 @@ print("== 3) si aparece un atajo nuevo antes del router, esta prueba se entera =
 SRC = (ROOT / "backend" / "core" / "aplicacion" / "brain.py").read_text(encoding="utf-8")
 cuerpo = SRC[SRC.find("def quien_atiende"):SRC.find("\ndef ", SRC.find("def quien_atiende") + 10)]
 for guarda in ("_SMALLTALK_RX", "_NO_ACCION_RX", "es_memoria_explicita",
-               "_META_QUEJA_RX", "route("):
+               "_META_QUEJA_RX", "route(", "_regla_que_casa"):
     check(guarda in cuerpo, f"quien_atiende ya no consulta {guarda}")
+
+# Y el escalón de las reglas aprendidas (004) va DESPUÉS del router y de la
+# meta-queja. No es un detalle de estilo: ahí está la garantía de que una regla
+# aprendida no puede quitarle una frase a una skill. Si alguien lo sube por
+# encima del `route(t)`, el robo pasa de imposible a posible y solo esta línea
+# se entera.
+check(cuerpo.find("r = route(t)") < cuerpo.find("_regla_que_casa"),
+      "las reglas aprendidas se consultan ANTES del router: pueden robar")
+check(cuerpo.find("_META_QUEJA_RX") < cuerpo.find("_regla_que_casa"),
+      "las reglas aprendidas se consultan antes de la meta-queja")
 
 # Y los atajos que `process` aplica ANTES de enrutar están todos nombrados aquí.
 antes_del_router = SRC[:SRC.find("routed = None if _no_accion else route(text)")]

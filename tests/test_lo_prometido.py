@@ -10,6 +10,13 @@ Esta suite recorre los 32 SKILL.md, saca las ordenes de sus listas de
 activacion (las viñetas que empiezan por «) y comprueba que TODAS caen en
 alguna skill.
 
+EL EXTRACTOR YA NO VIVE AQUI (004, bloque B). Bajo a produccion como
+`reglas.corpus_prometido()`, porque la puerta de «no robo» del aprendizaje mide
+contra ese mismo corpus y se ejecuta en la maquina del usuario, donde no hay
+`tests/`. Un extractor aqui y otro alli podrian discrepar sin que nadie se
+enterase; con uno solo, el corpus que valida las reglas sale de los mismos bytes
+que se distribuyen.
+
 Asi aparecio el brillo: `media/SKILL.md` llevaba tiempo diciendo «pon el brillo
 al 80 → Sistema/PC» y Sistema/PC no tenia nada de brillo.
 
@@ -21,7 +28,6 @@ Ejecutar:  .venv\\Scripts\\python.exe tests\\test_lo_prometido.py
 from __future__ import annotations
 
 import os
-import re
 import sys
 import tempfile
 from pathlib import Path
@@ -49,37 +55,19 @@ def check(cond, msg: str) -> bool:
     return bool(cond)
 
 
-# Frases que aparecen entrecomilladas en una viñeta pero NO son ordenes: son
-# trozos de prosa explicando como se resuelve algo. Se listan a mano porque
-# distinguirlas automaticamente no es fiable.
-NO_SON_ORDENES = {
-    "escritorio", "documentos", "descargas", "imágenes", "imagenes",
-    "actualizar", "forzar update",
-}
-
-
-def ordenes_prometidas() -> list[tuple[str, str]]:
-    """[(skill, orden)] sacadas de las listas de activacion de cada SKILL.md."""
-    out = []
-    for md in sorted((ROOT / "skills").glob("*/SKILL.md")):
-        for linea in md.read_text(encoding="utf-8").splitlines():
-            if not re.match(r"^\s*[-*]\s*«", linea):       # solo las viñetas de activacion
-                continue
-            for f in re.findall(r"«([^»]{6,70})»", linea):
-                f = f.strip()
-                if "…" in f or "..." in f or "<" in f:     # plantillas con hueco
-                    continue
-                if re.search(r"\b[A-ZÁÉÍÓÚÑ]{3,}\b", f):   # marcadores tipo «pon CANCION»
-                    continue
-                if f.lower() in NO_SON_ORDENES:
-                    continue
-                out.append((md.parent.name, f))
-    return out
-
-
 print("== lo que los SKILL.md prometen, llega a una skill ==")
 
 from backend.core.aplicacion import skills_loader as sl  # noqa: E402
+from backend.core.dominio import reglas                  # noqa: E402
+
+
+def ordenes_prometidas() -> list[tuple[str, str]]:
+    """[(skill, orden)] sacadas de las listas de activacion de cada SKILL.md.
+
+    Un envoltorio del extractor de produccion, no una copia: si el de produccion
+    dejara de ver una vinneta, esta suite lo diria en la misma pasada."""
+    return reglas.corpus_prometido(con_origen=True)
+
 
 sl.load_skills()
 PROMETIDAS = ordenes_prometidas()

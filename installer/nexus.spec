@@ -24,6 +24,13 @@ a = Analysis(
         (str(ROOT / 'skills'), 'skills'),
         (str(ROOT / 'config' / 'settings.example.json'), 'config'),
         (str(ROOT / 'config' / 'n8n_flujo_ejemplo.json'), 'config'),
+        # El catálogo de frases contra el que se valida una regla aprendida
+        # (004). Se ejecuta EN LA MÁQUINA DEL USUARIO, donde no hay tests/: si
+        # este fichero no viaja, la puerta de «no robo» mide contra menos frases
+        # de las que cree y una regla puede robar justo lo que no se mira.
+        # Las frases prometidas por los SKILL.md no necesitan línea propia:
+        # skills/ entero ya va arriba.
+        (str(ROOT / 'config' / 'corpus_regresion.json'), 'config'),
         (str(ROOT / '.env.example'), '.'),
     ],
     hiddenimports=[

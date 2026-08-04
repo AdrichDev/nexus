@@ -42,7 +42,7 @@ detalle de estilo.
 | **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice` |
 | **infraestructura** | `llm`, `llm_runtime`, `tts`, `stt`, `remote`, `files_io`, `engram_bridge`, `websearch`, `telegram_bridge`, `spotify`, `hardware`, `app_index` |
 | **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `briefing`, `profile`, `review`, `ingesta`, `pm`, `reglas` |
-| **aplicación** | `brain`, `skills_loader`, `scheduler`, `background`, `jobs`, `wake`, `hotkey`, `voice_cycle` |
+| **aplicación** | `brain`, `skills_loader`, `scheduler`, `background`, `jobs`, `wake`, `hotkey`, `voice_cycle`, `aprendizaje` |
 
 Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
 
@@ -63,6 +63,12 @@ Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
   Quien sabe enrutar (`brain`) y quién sabe qué destinos existen
   (`skills_loader`) están en aplicación, así que no se importan: se registran
   desde arriba, como hace `events`. Sin ese registro no se activa nada.
+- **`aprendizaje` en aplicación**, partido de `reglas` a propósito. Es la mitad
+  del mecanismo que necesita saber **quién enruta**: consulta `skills_loader`
+  para decir si un `carpeta/intent` existe de verdad, y ejecuta el barrido de la
+  puerta de «no robo». Meterlo en `dominio` junto a `reglas` habría exigido una
+  excepción nueva el primer día. **No importa `brain`**: es `brain` quien se
+  registra como árbitro, para no añadir un quinto ciclo a los cuatro de abajo.
 
 ## Deuda aceptada, con nombre y apellidos
 

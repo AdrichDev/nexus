@@ -1,0 +1,66 @@
+{
+  "_lee_esto": [
+    "Las frases que fallaron usando nexus de verdad la tarde del 03/08/2026, con",
+    "quien tiene que quedarselas. Vivian escritas dentro de",
+    "tests/test_regresion_conversacion.py, que no viaja en el instalador.",
+    "",
+    "POR QUE SALEN DE AHI (cambio 004): la puerta de 'no robo' compara quien",
+    "atiende cada frase antes y despues de aplicar una regla aprendida, y se",
+    "ejecuta EN LA MAQUINA DEL USUARIO, donde no hay repositorio ni suite. Si el",
+    "catalogo no viaja, esa puerta mide contra menos frases de las que deberia y",
+    "una regla puede robar justo lo que no se esta mirando.",
+    "",
+    "Las frases prometidas por los SKILL.md NO estan aqui: salen de skills/*/",
+    "SKILL.md, que el instalador ya empaqueta entero. Duplicarlas seria crear un",
+    "artefacto que se queda obsoleto en silencio.",
+    "",
+    "'dueno' es lo que tiene que devolver brain.quien_atiende(). null significa",
+    "'cualquiera menos el que dice no_dueno': hay un caso, 'dame ideas...', donde",
+    "lo que se comprueba es que NO vuelva a caer en memory_graph.",
+    "",
+    "Este fichero no lo escribe nexus nunca. Anadir una frase aqui es anadir una",
+    "regresion vigilada, y tests/test_regresion_conversacion.py la lee de aqui."
+  ],
+  "frases": [
+    {"frase": "apaga la tele", "dueno": "skill:domotica/tv_off", "bloque": 1},
+    {"frase": "enciende la tv de la habitación", "dueno": "skill:domotica/tv_on", "bloque": 1},
+    {"frase": "apaga la tv del salón", "dueno": "skill:domotica/tv_off", "bloque": 1},
+    {"frase": "te he dicho que apagues la tele del salón", "dueno": "skill:domotica/tv_off", "bloque": 1},
+
+    {"frase": "sube el volumen", "dueno": "skill:system_pc/volume_ask", "bloque": 1},
+    {"frase": "sube el volumen del pc", "dueno": "skill:system_pc/volume", "bloque": 1},
+    {"frase": "sube el volumen de spotify", "dueno": "skill:system_pc/volume_app", "bloque": 1},
+    {"frase": "sube el volumen de la tele", "dueno": "skill:domotica/tv_volume", "bloque": 1},
+    {"frase": "quítale el silencio", "dueno": "skill:system_pc/volume_ask", "bloque": 1},
+    {"frase": "quítale el silencio al pc", "dueno": "skill:system_pc/volume", "bloque": 1},
+    {"frase": "silencia", "dueno": "skill:system_pc/volume_ask", "bloque": 1},
+
+    {"frase": "borra los eventos del día 5", "dueno": "skill:google_workspace/delete_event", "bloque": 1},
+    {"frase": "borra los del día 5", "dueno": "skill:google_workspace/delete_event", "bloque": 1},
+    {"frase": "borra lo que haya el día 5 y día 9", "dueno": "skill:google_workspace/delete_event", "bloque": 1},
+    {"frase": "borra también la del día nueve", "dueno": "skill:google_workspace/delete_event", "bloque": 1},
+    {"frase": "te he dicho que borres los del día 5", "dueno": "skill:google_workspace/delete_event", "bloque": 1},
+    {"frase": "apunta la mentoría el jueves a las 18", "dueno": "skill:tasks_board/create", "bloque": 1},
+    {"frase": "apunta el evento Feria del libro del 5 al 9", "dueno": "skill:google_workspace/create_event", "bloque": 1},
+
+    {"frase": "busca información sobre python", "dueno": "skill:ai_media/web_search", "bloque": 1},
+    {"frase": "crea una tarea", "dueno": "skill:tasks_board/create", "bloque": 1},
+
+    {"frase": "apunta que me gusta el café solo", "dueno": "memoria", "bloque": 1},
+    {"frase": "recuerda que el wifi de casa es lento", "dueno": "memoria", "bloque": 1},
+    {"frase": "no te he dicho que leas los correos", "dueno": "queja", "bloque": 1},
+    {"frase": "hola", "dueno": "charla", "bloque": 1},
+    {"frase": "gracias", "dueno": "charla", "bloque": 1},
+
+    {"frase": "borra la tarea 3", "dueno": "skill:tasks_board/delete", "bloque": 2},
+    {"frase": "borra las tareas completadas", "dueno": "skill:tasks_board/clear", "bloque": 2},
+    {"frase": "borra el archivo tmp.txt", "dueno": "skill:files/trash", "bloque": 2},
+    {"frase": "dame ideas para el regalo de mi madre", "dueno": null,
+     "no_dueno": "skill:memory_graph/list_knowledge", "bloque": 2},
+    {"frase": "qué sabes de mí", "dueno": "skill:memory_graph/list_knowledge", "bloque": 2},
+    {"frase": "qué sabes de mí ahora", "dueno": "skill:memory_graph/list_knowledge", "bloque": 2},
+    {"frase": "que sabes de mi ahora", "dueno": "skill:memory_graph/list_knowledge", "bloque": 2},
+    {"frase": "que sabes de mi exactamente", "dueno": "skill:memory_graph/list_knowledge", "bloque": 2},
+    {"frase": "que sabes de mi y de mi familia", "dueno": "skill:memory_graph/list_knowledge", "bloque": 2}
+  ]
+}

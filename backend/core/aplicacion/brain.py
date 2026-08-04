@@ -369,7 +369,32 @@ def pega_respuesta_a_pregunta(text: str, channel: str = "pc") -> str:
     return text
 
 
-def quien_atiende(text: str, channel: str = "pc") -> str:
+def _regla_que_casa(text: str, reglas_activas) -> str:
+    """El id de la primera regla aprendida que casa, o cadena vacía.
+
+    `reglas_activas` llega SIEMPRE por argumento, nunca se lee de un global: así
+    el barrido de la puerta de «no robo» es la misma función llamada dos veces
+    —con `()` y con `(r,)`— en vez de dos funciones parecidas o de un módulo
+    parcheado. Una prueba que parchea mide otra cosa.
+
+    `None` significa «las activas del almacén», y ahí el almacén ya ha vuelto a
+    pasar las cuatro puertas: el `estado` escrito en el fichero no otorga
+    permiso. Cualquier fallo devuelve cadena vacía, o sea `planificador`: una
+    regla que revienta no puede quedarse una frase."""
+    try:
+        if reglas_activas is None:
+            from ..dominio import reglas as _reglas
+            reglas_activas = _reglas.activas()
+        for r in reglas_activas:
+            patron = str(r.get("patron") or "")
+            if patron and re.search(patron, text, re.IGNORECASE):
+                return str(r.get("id") or "")
+    except Exception:                                          # noqa: BLE001
+        return ""
+    return ""
+
+
+def quien_atiende(text: str, channel: str = "pc", reglas=None) -> str:
     """QUIÉN se va a quedar esta frase, sin ejecutar nada.
 
     Entre que llega un mensaje y se consulta el router hay varios atajos —charla,
@@ -378,8 +403,19 @@ def quien_atiende(text: str, channel: str = "pc") -> str:
     buenas frases que en una conversación real nunca salían del primer atajo.
 
     Devuelve: 'charla' | 'queja' | 'memoria' | 'skill:carpeta/intent' |
-    'planificador'. Es de solo lectura, no toca nada, y existe para que las
+    'regla:<id>' | 'planificador'. No ejecuta la orden, y existe para que las
     pruebas puedan mirar donde de verdad se decide.
+
+    OJO: «no ejecuta» NO es «no escribe». Con `reglas=None` pregunta por las
+    activas, y esa consulta puede revalidar y dejar constancia en disco. Para
+    una lectura de verdad inerte hay que pasar `reglas=()`, que es lo que hacen
+    el barrido y las pruebas. Aqui ponia «es de solo lectura, no toca nada», y
+    era mentira por el camino que se usa por defecto.
+
+    `reglas` es el conjunto de reglas aprendidas con el que se decide: `()`
+    significa «ninguna» y `None` «las activas del almacén». Se recibe por
+    argumento para que la función sea PURA y el barrido antes/después sea esta
+    misma función llamada dos veces.
 
     Refleja el orden de `process`; si se añade un atajo nuevo antes del router,
     va aquí también — y `test_regresion_conversacion` lo comprueba."""
@@ -397,9 +433,23 @@ def quien_atiende(text: str, channel: str = "pc") -> str:
         return "memoria"
     r = route(t)
     if r is not None:
-        return f"skill:{r[0].folder}/{r[1]}"
+        return f"skill:{r[0].folder}/{r[1]}"      # ← SALIDA. Lo de abajo no se ejecuta.
     if _META_QUEJA_RX.search(t):
         return "queja"
+    # ÚLTIMO ESCALÓN, Y ESTE ORDEN ES LA GARANTÍA ENTERA DEL CAMBIO 004.
+    #
+    # Solo se llega hasta aquí si ningún atajo se quedó la frase Y el router no
+    # casó: exactamente el hueco que hoy cae al planificador. Que una regla
+    # aprendida no pueda quitarle una frase a una skill no es algo que se
+    # compruebe después y se rechace — es que el `return` de arriba ya salió y
+    # esta línea NO LLEGA A EJECUTARSE. El robo es inalcanzable, no improbable.
+    #
+    # Se devuelve `regla:<id>` y no `skill:carpeta/intent` a propósito: una regla
+    # aprendida no puede ser indistinguible del enrutado nativo. El destino real
+    # se recupera con `reglas.destino_de(id)`.
+    rid = _regla_que_casa(t, reglas)
+    if rid:
+        return f"regla:{rid}"
     return "planificador"
 
 

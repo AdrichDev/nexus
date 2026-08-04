@@ -206,40 +206,40 @@ revisar entero sin skill nueva y sin cambiar el comportamiento en marcha.
 
 ### B1. El contrato y las puertas 1-3, en `dominio/reglas.py`
 
-- [ ] B1.1 `ESTADOS = ("propuesta","activa","revertida","descartada","invalida")`,
+- [x] B1.1 `ESTADOS = ("propuesta","activa","revertida","descartada","invalida")`,
       `TIPOS = ("enrutado","valor","aviso")`, y `transitar(rid, estado, motivo)` que
       **rechaza** `revertida → activa`. Nada se borra. — *Cubre*:
       aprendizaje-contrato, req. «Estados y transiciones permitidas» — *Test*:
       `test_reglas_contrato.py::test_revertida_no_vuelve_a_activa`
-- [ ] B1.2 **Puerta 1 (campos)**: los ocho campos, `origen.frase` literal y no
+- [x] B1.2 **Puerta 1 (campos)**: los ocho campos, `origen.frase` literal y no
       vacía, `origen` con canal y fecha. Falla nombrando el campo que falta. —
       *Cubre*: aprendizaje-validacion, req. «Puerta de campos» — *Test*:
       `test_reglas_contrato.py::test_puerta_campos_nombra_el_que_falta`
-- [ ] B1.3 **Puerta 2 (existencia)**: `enrutado` → `destino` ∈ `get_skills()` con el
+- [x] B1.3 **Puerta 2 (existencia)**: `enrutado` → `destino` ∈ `get_skills()` con el
       intent presente y la skill no en `error`; `valor` → clave en `VALORES`, con
       tipo y rango. Usa el hueco `registrar_catalogo`, así que sin árbitro deniega.
       — *Cubre*: aprendizaje-validacion, req. «Puerta de existencia» — *Test*:
       `test_reglas_contrato.py::test_destino_inexistente_y_rango_fuera`
-- [ ] B1.4 **RED — ReDoS**: `test_reglas_contrato.py::test_puerta_forma_rechaza_cuantificador_anidado`
+- [x] B1.4 **RED — ReDoS**: `test_reglas_contrato.py::test_puerta_forma_rechaza_cuantificador_anidado`
       con `^(a+)+$` y con `^.*$`. Escribir el test **antes**; contra el código de
       hoy no existe `valida()` y tiene que fallar por eso. — *Cubre*: matriz de
       amenazas, «ReDoS»
-- [ ] B1.5 **GREEN — Puerta 3 (forma)**: `re.compile`, anclaje `^…$` **obligatorio**,
+- [x] B1.5 **GREEN — Puerta 3 (forma)**: `re.compile`, anclaje `^…$` **obligatorio**,
       longitud mínima y máxima, prohibidos `.*` libre y los cuantificadores
       anidados. Hace pasar B1.4. — *Cubre*: aprendizaje-validacion, req. «Puerta de forma»
-- [ ] B1.6 **RED — regla inyectada a mano**:
+- [x] B1.6 **RED — regla inyectada a mano**:
       `test_reglas_contrato.py::test_estado_activa_escrito_a_mano_no_activa` —
       fabricar `data/reglas_aprendidas.json` con una regla podrida en
       `estado: "activa"` y comprobar que `activas()` no la devuelve. — *Cubre*:
       matriz de amenazas, «Regla inyectada»
-- [ ] B1.7 **GREEN — revalidación en cada carga**: `activas()` vuelve a pasar 1-4
+- [x] B1.7 **GREEN — revalidación en cada carga**: `activas()` vuelve a pasar 1-4
       sobre cada regla; la que falla queda aislada como `invalida` con `motivo` y
       **no tumba a las sanas**. `esquema` mayor que `ESQUEMA` → almacén en solo
       lectura, cero activas, motivo visible. — *Cubre*: aprendizaje-contrato, req.
       «`revision` ata la regla al catálogo» y matriz de amenazas, «Destino que
       desaparece» — *Test*: `test_reglas_contrato.py::test_una_regla_podrida_no_invalida_las_sanas`,
       `::test_esquema_futuro_no_activa_nada`
-- [ ] B1.8 Huella de revalidación perezosa: `huella_corpus` (nº de `SKILL.md`,
+- [x] B1.8 Huella de revalidación perezosa: `huella_corpus` (nº de `SKILL.md`,
       `mtime` máximo, nº de frases) + `huella_reglas` (sha256 del conjunto activo).
       Si coinciden, se salta el barrido; si cambia cualquiera, se rehace. **En la
       primera consulta, nunca al importar**: si las skills no cargan, nexus arranca
@@ -251,28 +251,28 @@ revisar entero sin skill nueva y sin cambiar el comportamiento en marcha.
 
 ### B2. El corpus, sin artefacto nuevo que mantener
 
-- [ ] B2.1 `reglas.corpus_prometido() -> list[str]` — el extractor de
+- [x] B2.1 `reglas.corpus_prometido() -> list[str]` — el extractor de
       `test_lo_prometido.ordenes_prometidas()` baja a producción leyendo
       `config.SKILLS_DIR`, que ya resuelve bien empaquetado y sin empaquetar.
       Devuelve las **255 frases distintas** medidas hoy. — *Cubre*:
       aprendizaje-validacion, req. «Puerta de no robo» (el corpus) — *Test*:
       `test_aprendizaje_no_robo.py::test_corpus_prometido_255_distintas`
-- [ ] B2.2 `tests/test_lo_prometido.py` **importa** `reglas.corpus_prometido()` en
+- [x] B2.2 `tests/test_lo_prometido.py` **importa** `reglas.corpus_prometido()` en
       vez de su extractor propio. Un solo extractor, y el corpus no puede quedarse
       obsoleto porque sale de los mismos bytes que se distribuyen. — *Verificación*:
       la suite sigue en 0 y sigue diciendo «255 ordenes distintas».
-- [ ] B2.3 Crear `config/corpus_regresion.json` con las frases de
+- [x] B2.3 Crear `config/corpus_regresion.json` con las frases de
       `test_regresion_conversacion.py` (bloques 1 y 2) y su dueño esperado.
       `test_regresion_conversacion.py` lee ese fichero en vez de su lista literal. —
       *Cubre*: aprendizaje-validacion, req. «Puerta de no robo» (el catálogo viaja)
-- [ ] B2.4 Añadir `config/corpus_regresion.json` a `datas` en
+- [x] B2.4 Añadir `config/corpus_regresion.json` a `datas` en
       `installer/nexus.spec` (hoy de `config/` solo van `settings.example.json` y
       `n8n_flujo_ejemplo.json`). — *Cubre*: decisión 1 del dueño — *Test*:
       `test_aprendizaje_no_robo.py::test_corpus_regresion_esta_en_el_spec`
       **Cómo probar que puede fallar**: el test lee `installer/nexus.spec` y busca
       la ruta. Quita la línea del spec: rojo. Y `data/` **no** puede aparecer en
       `datas` — el mismo test lo afirma.
-- [ ] B2.5 **RED — catálogo ausente**:
+- [x] B2.5 **RED — catálogo ausente**:
       `test_aprendizaje_no_robo.py::test_sin_catalogo_ninguna_regla_activa` — con
       `SKILLS_DIR` apuntando a una carpeta vacía, la puerta 4 falla y **ninguna**
       regla se activa. Validar a ciegas es peor que no aprender. — *Cubre*:
@@ -280,34 +280,34 @@ revisar entero sin skill nueva y sin cambiar el comportamiento en marcha.
 
 ### B3. `aplicacion/aprendizaje.py` — la puerta 4 y nada más
 
-- [ ] B3.1 Crear `backend/core/aplicacion/aprendizaje.py`. Importa
+- [x] B3.1 Crear `backend/core/aplicacion/aprendizaje.py`. Importa
       `dominio/reglas` (abajo) y `aplicacion/skills_loader` (misma capa). **No
       importa `brain`**: es `brain` quien se registra al final de su módulo con
       `aprendizaje.registrar_arbitro(quien_atiende)`. Cero ciclos nuevos. — *Cubre*:
       enrutado-aprendido, req. «El módulo del aprendizaje respeta las capas»
-- [ ] B3.2 Dar de alta `aprendizaje` en el bloque `aplicacion` de `CAPAS` en
+- [x] B3.2 Dar de alta `aprendizaje` en el bloque `aplicacion` de `CAPAS` en
       `tests/test_capas_backend.py` y en la tabla de `backend/core/CAPAS.md`. **Cero
       entradas nuevas en `EXCEPCIONES`.** — *Verificación*:
       `.venv\Scripts\python.exe tests\test_capas_backend.py` en 0, y `EXCEPCIONES`
       con las cuatro de siempre, ni una más.
-- [ ] B3.3 `aprendizaje.barrido(regla) -> {"robadas": [...], "arrastradas": [...]}`:
+- [x] B3.3 `aprendizaje.barrido(regla) -> {"robadas": [...], "arrastradas": [...]}`:
       `quien_atiende(f, reglas=())` vs `quien_atiende(f, reglas=(r,))` sobre el
       corpus entero. Tabla de veredictos del diseño §3: cualquier transición que no
       sea `planificador → regla:<id>` es **robo**. — *Cubre*: aprendizaje-validacion,
       req. «Puerta de no robo» — *Test*: `test_aprendizaje_no_robo.py::test_regla_ladrona_se_descarta_nombrando_la_frase`
-- [ ] B3.4 **RED — regla ancha**:
+- [x] B3.4 **RED — regla ancha**:
       `test_aprendizaje_no_robo.py::test_arrastre_por_encima_del_tope_se_descarta` —
       regla que arrastra más frases que `tope_frases_arrastradas`; se descarta **con
       el listado del arrastre**, no con un booleano. — *Cubre*: matriz de amenazas,
       «Regla ancha»
-- [ ] B3.5 **RED — presupuesto de tiempo**:
+- [x] B3.5 **RED — presupuesto de tiempo**:
       `test_aprendizaje_no_robo.py::test_barrido_lento_descarta_la_regla` — el
       barrido se mide y, por encima de `presupuesto_ms_barrido`, la regla se
       descarta. No hay módulo `regex` con timeout en el proyecto, así que esta es
       la única defensa en ejecución contra un retroceso catastrófico. — *Cubre*:
       matriz de amenazas, «ReDoS» (segunda mitad)
-- [ ] B3.6 **GREEN** implementar el tope y la medida de B3.4/B3.5.
-- [ ] B3.7 **La puerta 5 no se ejecuta aquí y no se marca como superada.** En
+- [x] B3.6 **GREEN** implementar el tope y la medida de B3.4/B3.5.
+- [x] B3.7 **La puerta 5 no se ejecuta aquí y no se marca como superada.** En
       instalación de usuario se registra `no_aplicable` en la auditoría; en
       desarrollo la ejecuta el humano sobre la **tanda entera**, no regla a regla. —
       *Cubre*: aprendizaje-validacion, req. «Puerta de suite» — *Test*:
@@ -319,28 +319,28 @@ revisar entero sin skill nueva y sin cambiar el comportamiento en marcha.
 
 ### B4. `quien_atiende(reglas=)` y la hermeticidad que ya estaba
 
-- [ ] B4.1 `brain.quien_atiende(text, channel="pc", reglas=None)`. `reglas=()`
+- [x] B4.1 `brain.quien_atiende(text, channel="pc", reglas=None)`. `reglas=()`
       significa «ninguna» y `reglas=None` «las activas del almacén». Función
       **pura**: sin mutar globales ni parchear módulos, para que el barrido sea la
       misma función llamada dos veces. — *Cubre*: enrutado-aprendido, req.
       «`quien_atiende()` declara el atajo nuevo»
-- [ ] B4.2 El escalón nuevo va **después de `r = route(t)`** y después de
+- [x] B4.2 El escalón nuevo va **después de `r = route(t)`** y después de
       `_META_QUEJA_RX`, justo antes de devolver `planificador`. Devuelve
       `regla:<id>`. — *Cubre*: enrutado-aprendido, req. «Invariante de posición» —
       *Test*: `test_aprendizaje_no_robo.py::test_solo_transicion_planificador_a_regla`
-- [ ] B4.3 Añadir el atajo nuevo a la lista de guardas que vigila
+- [x] B4.3 Añadir el atajo nuevo a la lista de guardas que vigila
       `test_regresion_conversacion.py:174` (`_SMALLTALK_RX`, `_NO_ACCION_RX`,
       `es_memoria_explicita`, `_META_QUEJA_RX`, `route(`). Si aparece un atajo y no
       se declara ahí, esa prueba vuelve a mirar un escalón por debajo — que es
       exactamente cómo se coló el de «apunta». — *Cubre*: enrutado-aprendido, req.
       «`quien_atiende()` declara el atajo nuevo»
-- [ ] B4.4 **Comprobar, no rehacer**: `test_regresion_conversacion.py` **ya aísla**
+- [x] B4.4 **Comprobar, no rehacer**: `test_regresion_conversacion.py` **ya aísla**
       `NEXUS_DATA_DIR` (línea 37, commit `247d517`); el diseño lo daba como
       pendiente. Añadir una comprobación que afirme que el aislamiento sigue ahí,
       para que quitarlo ponga la suite en rojo. — *Test*:
       `test_aprendizaje_no_robo.py::test_las_suites_de_enrutado_aislan_data_dir`
       **Cómo probar que puede fallar**: quita la línea 37 y ejecuta; rojo. Devuélvela.
-- [ ] B4.5 **Divergencia declarada y escrita en la propia suite**: el barrido no
+- [x] B4.5 **Divergencia declarada y escrita en la propia suite**: el barrido no
       modela `_learn_lookup()` ni `rag.find_task()` (`brain.py:1036-1049`), así que
       una frase puede cambiar de destino por ahí sin que la puerta 4 lo vea. Es
       literalmente «una prueba que mira un escalón por debajo». Se deja fuera —
@@ -348,7 +348,7 @@ revisar entero sin skill nueva y sin cambiar el comportamiento en marcha.
       seguir siendo síncrona y sin red— y se documenta en el docstring de
       `test_aprendizaje_no_robo.py`, no en un fichero aparte que nadie abra. —
       *Cubre*: design, «Preguntas abiertas» (riesgo residual, confirmado aquí)
-- [ ] B4.6 **RED — datos personales**:
+- [x] B4.6 **RED — datos personales**:
       `test_aprendizaje_puertas.py::test_ficheros_nuevos_sin_datos_personales` —
       extiende la guarda de `test_skill_domotica.py:372` («adri», «maqueda»,
       «achoz», IPs completas, MACs) a `reglas.py`, `aprendizaje.py`,
@@ -357,12 +357,12 @@ revisar entero sin skill nueva y sin cambiar el comportamiento en marcha.
 
 ### B5. Suites de B y alta en `run_all.py`
 
-- [ ] B5.1 Crear `tests/test_reglas_contrato.py`, `tests/test_aprendizaje_puertas.py`
+- [x] B5.1 Crear `tests/test_reglas_contrato.py`, `tests/test_aprendizaje_puertas.py`
       y `tests/test_aprendizaje_no_robo.py`, las tres con `NEXUS_DATA_DIR` a carpeta
       temporal.
-- [ ] B5.2 Añadir las tres a la tupla de suites de `tests/run_all.py`. — *Cubre*:
+- [x] B5.2 Añadir las tres a la tupla de suites de `tests/run_all.py`. — *Cubre*:
       enrutado-aprendido, escenario «Suites nuevas registradas»
-- [ ] B5.3 `.venv\Scripts\python.exe tests\run_all.py` → `RESULTADO GLOBAL: TODO
+- [x] B5.3 `.venv\Scripts\python.exe tests\run_all.py` → `RESULTADO GLOBAL: TODO
       VERDE`. **Sin reinicio**: B no toca ninguna skill y nada cambia en marcha.
 
 ---

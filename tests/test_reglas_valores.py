@@ -75,6 +75,17 @@ PUERTOS_EN_ORDEN = [8060, 8001, 8002, 55000, 8008, 8009, 7000, 32400, 8123,
                     1883, 9100, 631, 554, 445, 3389, 22, 62078, 5353, 53, 8080]
 
 
+def _escribe_almacen(lista) -> None:
+    """Escribe el almacen A PELO, sin pasar por `guardar()`.
+
+    Es el camino que toma quien edita el fichero a mano, y el unico que prueba
+    de verdad que la superposicion no se fia del «estado» escrito alli."""
+    import json
+    reglas.ruta_almacen().write_text(
+        json.dumps({"esquema": reglas.ESQUEMA, "reglas": lista}, ensure_ascii=False),
+        encoding="utf-8")
+
+
 def _limpia_almacen() -> None:
     """Deja el almacen y los huecos como recien instalados."""
     p = reglas.ruta_almacen()
@@ -144,17 +155,17 @@ def test_sin_arbitro_no_activa_nada():
     check(reglas.hay_arbitro() is False, "hay_arbitro() miente sin arbitro registrado")
 
     # Una regla ACTIVA escrita a mano en el fichero.
-    reglas.guardar(_regla_valor("domotica.room_words", ["inventada"]))
+    reglas.guardar(_regla_valor("domotica.room_words", ["inventada", "otra", "tercera", "cuarta", "quinta"]))
     check(reglas.valor("domotica.room_words") == reglas.VALORES["domotica.room_words"][2],
           "una regla «activa» del fichero cambia el valor SIN catalogo registrado")
 
     # Con catalogo, esa misma regla si manda.
     reglas.registrar_catalogo(lambda clave: clave in reglas.VALORES)
-    check(reglas.valor("domotica.room_words") == {"inventada"},
+    check(reglas.valor("domotica.room_words") == {"inventada", "otra", "tercera", "cuarta", "quinta"},
           "con catalogo registrado, la regla activa no se aplica")
 
     # Y una regla que NO esta activa nunca manda, aunque haya catalogo.
-    reglas.guardar(_regla_valor("domotica.room_words", ["inventada"], "revertida"))
+    reglas.guardar(_regla_valor("domotica.room_words", ["inventada", "otra", "tercera", "cuarta", "quinta"], "revertida"))
     check(reglas.valor("domotica.room_words") == reglas.VALORES["domotica.room_words"][2],
           "una regla revertida sigue mandando")
     _limpia_almacen()
@@ -177,16 +188,16 @@ def test_valor_resuelve_en_tres_tiempos():
 
     tmp = Path(tempfile.mkdtemp(prefix="nexus_cfg_"))
     (tmp / "umbrales.json").write_text(
-        json.dumps({"domotica": {"room_words": ["del", "fichero"]}}), encoding="utf-8")
+        json.dumps({"domotica": {"room_words": ["del", "fichero", "tres", "cuatro", "cinco"]}}), encoding="utf-8")
     cfg_real = reglas.config.CONFIG_DIR
     try:
         reglas.config.CONFIG_DIR = tmp
-        check(reglas.valor("domotica.room_words") == {"del", "fichero"},
+        check(reglas.valor("domotica.room_words") == {"del", "fichero", "tres", "cuatro", "cinco"},
               "2o tiempo: umbrales.json no pisa la reserva del codigo")
 
         reglas.registrar_catalogo(lambda clave: clave in reglas.VALORES)
-        reglas.guardar(_regla_valor("domotica.room_words", ["de", "la", "regla"]))
-        check(reglas.valor("domotica.room_words") == {"de", "la", "regla"},
+        reglas.guardar(_regla_valor("domotica.room_words", ["de", "la", "regla", "cuatro", "cinco"]))
+        check(reglas.valor("domotica.room_words") == {"de", "la", "regla", "cuatro", "cinco"},
               "3er tiempo: la superposicion activa no pisa a umbrales.json")
 
         # Un umbrales.json roto no rompe nada: se vuelve a la reserva.
@@ -249,7 +260,10 @@ def test_room_words_sale_de_reglas():
     # Y si esas dos palabras pasan a ser «de estancia», el mismo handler deja de
     # resolverlo. Eso solo puede pasar si de verdad lee la lista de reglas.
     reglas.registrar_catalogo(lambda clave: clave in reglas.VALORES)
-    reglas.guardar(_regla_valor("domotica.room_words", ["zona", "alfa"]))
+    # Cinco palabras porque el rango declarado exige un minimo: la regla tiene
+    # que pasar las puertas para aplicarse, y aqui se comprueba justo eso.
+    reglas.guardar(_regla_valor(
+        "domotica.room_words", ["zona", "alfa", "sector", "area", "recinto"]))
     check(DOM._resolve_named_device(ctx, "enciende zona alfa") is None,
           "cambiar domotica.room_words no cambia lo que hace _resolve_named_device()")
     _limpia_almacen()
@@ -371,6 +385,53 @@ def test_no_es_programa_sale_de_reglas():
 
 
 # ══════════ A3.4 · las 32 skills cargan ══════════
+def test_un_valor_escrito_a_mano_no_se_salta_las_puertas():
+    """«estado: activa» en el fichero NO es una autorizacion.
+
+    EL AGUJERO (encontrado revisando el bloque B, antes de que llegara a
+    revision). La superposicion filtraba solo por «el destino existe», asi que un
+    valor escrito a mano en `data/reglas_aprendidas.json` entraba en el programa
+    SIN pasar por la puerta de tipo ni por la de rango. Y una de estas claves,
+    `system_pc.no_es_programa`, es un FRAGMENTO DE REGEX que se concatena al
+    patron de una skill: por ahi se cuela lo que se quiera.
+
+    Que solo pueda escribirlo el dueño de la maquina no lo arregla. La promesa de
+    este cambio son las puertas; un camino que las rodea las convierte en
+    decorado. La unica autorizacion son las puertas, y se vuelven a pasar en el
+    punto donde el valor entra de verdad.
+
+    PARA VERLO ROJO: en `reglas._superposicion()`, quitar las dos llamadas a
+    `_puerta_campos` y `_puerta_existencia`."""
+    print("== B·extra) un valor a mano no se salta las puertas ==")
+    _limpia_almacen()
+    reglas.registrar_catalogo(lambda clave: clave in reglas.VALORES)
+    reserva = reglas.VALORES["domotica.room_words"][2]
+
+    # 1) FUERA DE RANGO. El minimo declarado son 5; se cuela una sola palabra.
+    _escribe_almacen([_regla_valor("domotica.room_words", ["unica"])])
+    check(reglas.valor("domotica.room_words") == reserva,
+          "un valor fuera del rango declarado se aplica igual")
+
+    # 2) TIPO EQUIVOCADO. Se espera un conjunto y llega una cadena; sin mirar el
+    #    tipo en crudo, `set("...")` la convierte en letras sueltas y pasa.
+    _escribe_almacen([_regla_valor("domotica.room_words", "esto no es una lista")])
+    check(reglas.valor("domotica.room_words") == reserva,
+          "un valor del tipo equivocado se aplica igual")
+
+    # 3) EL CASO QUE MAS DUELE: un fragmento de regex arbitrario en la clave que
+    #    se concatena al patron de una skill.
+    reserva_np = reglas.VALORES["system_pc.no_es_programa"][2]
+    _escribe_almacen([_regla_valor("system_pc.no_es_programa", "x")])   # 1 < minimo 10
+    check(reglas.valor("system_pc.no_es_programa") == reserva_np,
+          "un fragmento de regex fuera de contrato entra en el patron de una skill")
+
+    # 4) Y lo que SI cumple el contrato sigue entrando: la puerta no es un muro.
+    buena = ["zona", "alfa", "sector", "area", "recinto"]
+    _escribe_almacen([_regla_valor("domotica.room_words", buena)])
+    check(reglas.valor("domotica.room_words") == set(buena),
+          "una regla que cumple el contrato ha dejado de aplicarse")
+
+
 def test_las_skills_siguen_cargando():
     print("== A3.4) ninguna skill se queda en error por el import nuevo ==")
     reg = sl.load_skills()
@@ -406,6 +467,7 @@ def main() -> int:
               test_room_words_sale_de_reglas,
               test_port_hints_conserva_orden_y_claves_int,
               test_no_es_programa_sale_de_reglas,
+              test_un_valor_escrito_a_mano_no_se_salta_las_puertas,
               test_las_skills_siguen_cargando,
               test_los_ficheros_nuevos_no_llevan_datos_personales):
         try:

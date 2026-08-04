@@ -62,7 +62,7 @@ CAPAS: list[tuple[str, set[str]]] = [
     }),
     ("aplicacion", {
         "brain", "skills_loader", "scheduler", "background", "jobs",
-        "wake", "hotkey", "voice_cycle",
+        "wake", "hotkey", "voice_cycle", "aprendizaje",
     }),
 ]
 
