@@ -41,7 +41,7 @@ SKILL_PY = os.path.join(ROOT, "skills", "hermes", "skill.py")
 
 # ---------------------------------------------------------------- 1) cargador real
 print("== 1) la skill carga como la carga nexus (skills_loader) ==")
-from backend.core import skills_loader as sl              # noqa: E402
+from backend.core.aplicacion import skills_loader as sl  # noqa: E402
 
 REG = sl.load_skills()
 hsk = REG.get("hermes")
@@ -80,7 +80,7 @@ for name in sorted(_modulos):
 try:
     from backend.core.infraestructura import engram_bridge as _eng
     from backend.core.comun import publicvoice as _pv
-    from backend.core.jobs import jobs as _jobs
+    from backend.core.aplicacion.jobs import jobs as _jobs
     from backend.core.dominio.memory import pg as _pg
     check(hasattr(_pv, "frase_inicio") and hasattr(_pv, "mensaje_fallo"),
           "publicvoice no tiene frase_inicio/mensaje_fallo")

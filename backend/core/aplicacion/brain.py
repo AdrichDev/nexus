@@ -20,13 +20,13 @@ import json
 import re
 import uuid
 
-from .dominio import opmem, rag
-from .infraestructura import llm, websearch
-from .comun.config import DATA_DIR, settings
-from .comun.config import assistant_name as _aname
+from ..dominio import opmem, rag
+from ..infraestructura import llm, websearch
+from ..comun.config import DATA_DIR, settings
+from ..comun.config import assistant_name as _aname
 from .jobs import jobs as job_mgr
-from .comun.events import bus
-from .dominio.memory import graph, pg
+from ..comun.events import bus
+from ..dominio.memory import graph, pg
 from .skills_loader import get_skills, route
 
 # Preguntas que casi seguro necesitan datos ACTUALES → buscamos en la web antes
@@ -80,7 +80,7 @@ def _is_echo(text: str) -> bool:
     Se compara con lo dicho por nexus en los últimos 45 s: si ≥75% de las palabras
     de la transcripción están en una locución reciente, es eco y se descarta."""
     try:
-        from .infraestructura import tts
+        from ..infraestructura import tts
         toks = _echo_tokens(text)
         if len(toks) < 3:
             return False
@@ -358,7 +358,7 @@ def pega_respuesta_a_pregunta(text: str, channel: str = "pc") -> str:
     una pregunta de hace tres mensajes. Y solo se aprovecha si esto parece una
     respuesta: cortísima, que por sí sola no llegue a nadie, y que no sea un
     saludo. Contestar a «¿cuál?» son dos o tres palabras, no una frase."""
-    from .comun import context as _ctxt
+    from ..comun import context as _ctxt
     pendiente = _ctxt.pregunta_pendiente(channel)
     if not pendiente:
         return text
@@ -634,7 +634,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # NUNCA se lo lea en voz alta (solo se reproducen respuestas de nexus).
     if source in ("text", "voice"):
         try:
-            from .infraestructura import tts as _tts_guard
+            from ..infraestructura import tts as _tts_guard
             _tts_guard.note_user_text(text)
         except Exception:
             pass
@@ -657,7 +657,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # NO sigue ninguna otra ruta (prioridad absoluta sobre todo lo demás).
     if source in ("text", "voice") and _STOP_RX.match(text):
         try:
-            from .infraestructura import tts as _tts_stop
+            from ..infraestructura import tts as _tts_stop
             await _tts_stop.stop()
         except Exception:
             pass
@@ -673,7 +673,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     if _RETRAIN_RX.match(text):
         await bus.emit("log", {"level": "info", "msg": "🧠 Reentrenándome con Fable…"})
         try:
-            from .dominio import selflearn
+            from ..dominio import selflearn
             prof = await selflearn.retrain(force=True)
         except Exception:
             prof = ""
@@ -695,7 +695,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # camino normal.
     if source in ("text", "voice"):
         try:
-            from .comun import confirm as _cf
+            from ..comun import confirm as _cf
             _conf_reply = await _cf.answer(text, channel)
         except Exception as _exc:                       # noqa: BLE001
             _conf_reply = None
@@ -719,7 +719,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # completa ANTES del router (y se explica en el log).
     if source in ("text", "voice"):
         try:
-            from .comun import context as _mturn
+            from ..comun import context as _mturn
             _resolved = _mturn.resolve(text, channel)
         except Exception:
             _resolved = None
@@ -746,7 +746,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
     # AUDITORÍA (v23 T24): «qué has hecho hoy», «qué has borrado», «por qué se borró».
     if source in ("text", "voice") and _AUDIT_RX.search(text):
-        from .comun import audit as _aud
+        from ..comun import audit as _aud
         solo_destructivas = bool(re.search(r"borrad|eliminad|modificad|borr[oó]|elimin[oó]",
                                            text, re.I))
         regs = _aud.tail(12, destructive_only=solo_destructivas)
@@ -846,7 +846,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                     # el puente de Telegram solo reenvía la respuesta directa; el
                     # resultado del trabajo en 2º plano se le manda aparte al chat
                     try:
-                        from .infraestructura.telegram_bridge import send_telegram
+                        from ..infraestructura.telegram_bridge import send_telegram
                         await send_telegram(res.get("reply", "") or "Hecho.")
                     except Exception:
                         pass
@@ -904,7 +904,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # de verdad es una respuesta de avance; si no, el mensaje sigue su curso normal.
     if source in ("text", "voice"):
         try:
-            from .dominio import pm
+            from ..dominio import pm
             fu_reply = await pm.apply_followup(text)
         except Exception:
             fu_reply = None
@@ -945,7 +945,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                                         "channel": ch})
                 if ch == "telegram":
                     try:
-                        from .infraestructura.telegram_bridge import send_telegram
+                        from ..infraestructura.telegram_bridge import send_telegram
                         await send_telegram(resumen)
                     except Exception:
                         pass
@@ -1188,7 +1188,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         data = result.get("data")
         _admin = bool(result.get("admin"))     # v24 T18: diagnóstico sin sanear
         try:
-            from .comun import context as _mturn
+            from ..comun import context as _mturn
             _mturn.note_reply(skill.folder, intent, reply, channel)
         except Exception:
             pass
@@ -1310,7 +1310,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             # VOZ FLUIDA (como la app de Claude): el modelo se STREAMEA y nexus va
             # DICIENDO cada frase mientras el resto aún se escribe → empieza a
             # hablar en ~1-2 s aunque la respuesta sea larga.
-            from .infraestructura import tts as _tts
+            from ..infraestructura import tts as _tts
             agen, provider = await llm.ask_llm_stream(text, context)
             reply, _stream_left = await _tts.speak_stream(agen)
             _stream_spoken = True
@@ -1329,7 +1329,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # si ya estabas gestionando el tablero (para no duplicar).
     if source in ("text", "voice") and not (routed and routed[0].folder == "tasks_board"):
         try:
-            from .dominio import pm
+            from ..dominio import pm
             note = await pm.capture_commitment(text)
         except Exception:
             note = None
@@ -1355,7 +1355,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # segundo plano (con Fable) SIN retrasar la respuesta.
     try:
         if settings.get("self_learning", True):
-            from .dominio import selflearn
+            from ..dominio import selflearn
             if selflearn.record_interaction(text, reply, routed[0].folder if routed else None,
                                             ok=not (isinstance(data, dict) and data.get("error"))):
                 asyncio.create_task(selflearn.retrain())
@@ -1372,7 +1372,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
 
 def boot_report() -> list[str]:
-    from .comun.config import assistant_name
+    from ..comun.config import assistant_name
     skills = get_skills()
     ok = [s for s in skills.values() if s.status != "error"]
     return [

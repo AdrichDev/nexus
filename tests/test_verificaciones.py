@@ -403,7 +403,7 @@ def test_tv_conectada_persiste():
 def test_planner_deja_rastro_en_log():
     """brain.py debe registrar el resultado del planificador SIEMPRE (acierto, plan sin
     ruta y sin acción) para poder AUDITAR en nexus.log que deduce las órdenes."""
-    src = open(os.path.join(ROOT, "backend", "core", "brain.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
     blk = src.split("plan = await llm.plan_action(", 1)[-1].split("# RESPALDO", 1)[0]
     check("plan_action error" in blk, "planif: se loguea el ERROR de plan_action")
     check("plan sin ruta valida" in blk, "planif: se loguea el plan SIN ruta válida")

@@ -53,7 +53,7 @@ def check(cond, msg: str) -> bool:
 
 
 TMP = Path(tempfile.mkdtemp(prefix="nexus_rangos_"))
-from backend.core import skills_loader as sl
+from backend.core.aplicacion import skills_loader as sl
 from backend.core.dominio import board
 from backend.core.comun import config  # noqa: E402
 

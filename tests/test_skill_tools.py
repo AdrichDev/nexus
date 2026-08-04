@@ -45,7 +45,7 @@ class GrafoDoble:
 
 
 def main():
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     print("· la skill carga con el cargador REAL")
@@ -96,7 +96,7 @@ def main():
     check(f"{now.day}/{now.month}/{now.year}" in r["reply"], f"la fecha es la de hoy: {r['reply']}")
 
     print("· temporizador y alarma dejan un aviso REAL en el scheduler")
-    from backend.core.scheduler import timers
+    from backend.core.aplicacion.scheduler import timers
     timers.clear()
     f = "temporizador de 10 minutos"
     r = asyncio.run(mod.handle("timer", f, sl.route(f)[2], ctx))

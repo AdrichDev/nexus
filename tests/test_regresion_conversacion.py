@@ -28,8 +28,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend.core import brain                                   # noqa: E402
-from backend.core.skills_loader import load_skills               # noqa: E402
+from backend.core.aplicacion import brain  # noqa: E402
+from backend.core.aplicacion.skills_loader import load_skills               # noqa: E402
 
 load_skills()
 
@@ -145,7 +145,7 @@ ctxt.olvida_pregunta("pc")
 
 # Y el pegado sigue existiendo para lo que SÍ es una respuesta: corto, sin dueño
 # propio y sin ser un saludo.
-SRC_B = (ROOT / "backend" / "core" / "brain.py").read_text(encoding="utf-8")
+SRC_B = (ROOT / "backend" / "core" / "aplicacion" / "brain.py").read_text(encoding="utf-8")
 i = SRC_B.find("pregunta_pendiente(channel)")
 bloque = SRC_B[max(0, i - 400):i + 900]
 check("olvida_pregunta" in bloque,
@@ -161,7 +161,7 @@ print("== 3) si aparece un atajo nuevo antes del router, esta prueba se entera =
 # `quien_atiende` refleja el orden de `process`. Si alguien mete otro atajo antes
 # del router y no lo añade aquí, esta prueba vuelve a mirar un escalón por debajo
 # del fallo — que es exactamente cómo se coló el de «apunta».
-SRC = (ROOT / "backend" / "core" / "brain.py").read_text(encoding="utf-8")
+SRC = (ROOT / "backend" / "core" / "aplicacion" / "brain.py").read_text(encoding="utf-8")
 cuerpo = SRC[SRC.find("def quien_atiende"):SRC.find("\ndef ", SRC.find("def quien_atiende") + 10)]
 for guarda in ("_SMALLTALK_RX", "_NO_ACCION_RX", "es_memoria_explicita",
                "_META_QUEJA_RX", "route("):

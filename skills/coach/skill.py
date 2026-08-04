@@ -222,7 +222,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"Anotado: «{what}» para el {when:%d/%m}. "
                              f"Te avisaré {n} veces (semana antes, 2 días antes y el día D). "
                              "No dejaré que se te pase."}
-        from backend.core.scheduler import timers
+        from backend.core.aplicacion.scheduler import timers
         timers.append({"at": when.replace(tzinfo=None), "label": f"Recordatorio: {what}"})
         return {"reply": f"Anotado «{what}» para el {when:%d/%m}. ⚠ Ahora mismo vive en "
                          "memoria local (se pierde al reiniciar): levanta el Docker de "

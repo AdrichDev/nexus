@@ -19,8 +19,8 @@ import asyncio
 import datetime as dt
 import json
 
-from .comun.config import DATA_DIR, settings
-from .comun.events import bus
+from ..comun.config import DATA_DIR, settings
+from ..comun.events import bus
 
 _STATE = DATA_DIR / "proactive.json"
 
@@ -56,7 +56,7 @@ async def _say(text: str, kind: str = "notification", title: str = "nexus") -> N
     await bus.emit("log", {"level": "info", "msg": f"🔔 {text[:120]}"})
     if settings.get("proactive_speak", True):
         try:
-            from .infraestructura import tts
+            from ..infraestructura import tts
             asyncio.create_task(tts.speak(text))
         except Exception:
             pass
@@ -68,7 +68,7 @@ async def cycle_loop() -> None:
     while True:
         try:
             if settings.get("self_learning", True):
-                from .dominio import rag, selflearn
+                from ..dominio import rag, selflearn
                 n = await rag.reindex(limit=40)
                 if n:
                     await bus.emit("log", {"level": "info",
@@ -100,7 +100,7 @@ async def proactive_loop() -> None:
 async def _check_reminders() -> None:
     """Dispara los recordatorios (de citas/tareas) que ya toca avisar."""
     try:
-        from .dominio.memory import pg
+        from ..dominio.memory import pg
         online = await asyncio.to_thread(lambda: pg.online)
         if not online:
             return
@@ -134,7 +134,7 @@ async def _daily_nudge() -> None:
     # MODO PM FUERTE: pregunta por una tarea concreta y arma el seguimiento.
     if settings.get("pm_strong", True):
         try:
-            from .dominio import pm
+            from ..dominio import pm
             task = pm.pick_task_for_followup()
         except Exception:
             task = None
@@ -159,7 +159,7 @@ async def _daily_nudge() -> None:
     # Modo normal (o sin tareas): empujón genérico con el LLM (como antes).
     if not text:
         try:
-            from .infraestructura import llm
+            from ..infraestructura import llm
             pending = _pending_hint()
             msg = await llm.ask_llm(
                 "Eres mi Project Manager. Dame UN empujón corto (2-3 frases, tono cercano) "
@@ -180,7 +180,7 @@ async def _daily_nudge() -> None:
 def _pending_hint() -> str:
     """Pistas de lo pendiente (recordatorios/objetivos) para el empujón, si la DB va."""
     try:
-        from .dominio.memory import pg
+        from ..dominio.memory import pg
         if not pg.online:
             return ""
         goals = pg.goals()

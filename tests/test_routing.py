@@ -321,7 +321,7 @@ def test_correos_crud_y_no_bucle():
 
 # ====== TEST 3m: guard de NEGACIÓN en brain.py (no re-dispara la acción) ======
 def test_negacion_guard():
-    src = open(os.path.join(ROOT, "backend", "core", "brain.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
     m = re.search(r"_NO_ACCION_RX = re\.compile\(\s*(.*?)\s*,\s*re\.IGNORECASE\)", src, re.S)
     assert m, "_NO_ACCION_RX no encontrado en brain.py"
     rx = re.compile(eval("(" + m.group(1) + ")"), re.IGNORECASE)
@@ -619,7 +619,7 @@ def test_devices_ui_no_doblefuego():
 
 # ============ TEST 3e: STOP de primera clase + candado del aprendizaje ============
 def test_stop_y_guardas():
-    src = open(os.path.join(ROOT, "backend", "core", "brain.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
     m = re.search(r"_STOP_RX = re\.compile\(\s*(.*?)\s*,\s*re\.IGNORECASE\)", src, re.S)
     assert m, "_STOP_RX no encontrado en brain.py"
     rx = re.compile(eval("(" + m.group(1) + ")"), re.IGNORECASE)
@@ -674,7 +674,7 @@ def test_memory_listing():
 
 # ================== TEST 5: _LLMMatch REAL (brain.py) ==================
 def test_llmmatch():
-    ns = extract_real_object(os.path.join(ROOT, "backend", "core", "brain.py"), {"_LLMMatch"})
+    ns = extract_real_object(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), {"_LLMMatch"})
     M = ns["_LLMMatch"]
     m = M("ponme algo tranqui", {"q3": "Quevedo", "svc3": "spotify"})
     check(m.group("q3") == "Quevedo", "_LLMMatch: group('q3')")
@@ -717,7 +717,7 @@ def test_plan_parse():
 
 def test_no_regression_smalltalk():
     # el gate del planificador NO debe dispararse con charla pura (se testea el regex real)
-    src = open(os.path.join(ROOT, "backend", "core", "brain.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
     m = re.search(r"_SMALLTALK_RX = re\.compile\(\s*(.*?)\s*,\s*re\.IGNORECASE\)", src, re.S)
     assert m, "_SMALLTALK_RX no encontrado en brain.py"
     rx = re.compile(eval("(" + m.group(1) + ")"), re.IGNORECASE)

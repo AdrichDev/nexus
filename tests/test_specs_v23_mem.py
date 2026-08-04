@@ -99,7 +99,7 @@ def test_no_convierte_recuerdos_en_tareas():
     src = Path(ROOT, "backend", "core", "dominio", "opmem.py").read_text(encoding="utf-8")
     check("board" not in src and "add_task" not in src,
           "la memoria operativa no toca el tablero de tareas")
-    brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     i_rem = brain.find("opmem.remember(fact")
     i_ret = brain.find("provider\": \"memoria\"", i_rem)
     check(i_rem > 0 and i_ret > i_rem,
@@ -130,7 +130,7 @@ def test_separacion_engram_rag():
           "un hecho del mundo NO es memoria operativa (va al RAG)")
     check(om.es_comportamiento("el presupuesto de la obra son 12.000 euros") is False,
           "un dato tampoco")
-    brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     check("if opmem.es_comportamiento(fact):" in brain,
           "el brain decide a qué memoria va cada cosa")
     check("CONOCIMIENTO DOCUMENTAL" in brain and "REGLAS Y PREFERENCIAS" in om.as_prompt(
@@ -146,7 +146,7 @@ def test_separacion_engram_rag():
 
 def test_no_guarda_respuestas_completas_como_reglas():
     _reset()
-    brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     check("opmem.remember(reply" not in brain and "opmem.remember(result" not in brain,
           "nunca se guarda una respuesta de nexus como regla")
     check(brain.count("opmem.remember(") <= 3,
@@ -226,7 +226,7 @@ def test_sobrevive_al_reinicio():
 # ══════════════ Integración: brain y skill ══════════════
 
 def test_brain_consulta_memoria_antes_de_actuar():
-    brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     i_rel = brain.find("opmem.relevant(cmd_text")
     i_handle = brain.find("await skill.module.handle(intent, cmd_text, match, ctx)")
     check(0 < i_rel < i_handle, "consulta las reglas ANTES de ejecutar la skill")

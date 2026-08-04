@@ -33,7 +33,7 @@ try:
 except Exception:
     pass
 
-from backend.core import skills_loader          # noqa: E402
+from backend.core.aplicacion import skills_loader  # noqa: E402
 
 _fail, _pass = [], 0
 

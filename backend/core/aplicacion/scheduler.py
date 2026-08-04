@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from .comun.events import bus
-from .dominio.memory import pg
+from ..comun.events import bus
+from ..dominio.memory import pg
 
 try:
     import psutil
@@ -28,7 +28,7 @@ def _umbral_ingesta() -> dict:
     """Lee memoria.ingesta de config/umbrales.json, con reserva si falta."""
     reserva = {"max_bytes": 5_000_000}
     try:
-        from .comun.config import CONFIG_DIR
+        from ..comun.config import CONFIG_DIR
         import json
         f = CONFIG_DIR / "umbrales.json"
         if f.is_file():
@@ -54,9 +54,9 @@ async def _ingest_inbox():
         `text[i:i+900]` (Postgres) -- el 4º y último de los truncados de
         este bloque. Ahora usa rag.trocear() (o trocear_xlsx_estructurado()
         si es un .xlsx) sobre el texto ENTERO."""
-    from .comun.config import DATA_DIR
-    from .dominio import rag
-    from .infraestructura import files_io
+    from ..comun.config import DATA_DIR
+    from ..dominio import rag
+    from ..infraestructura import files_io
     inbox = DATA_DIR / "memory" / "inbox"
     done = DATA_DIR / "memory" / "ingested"
     inbox.mkdir(parents=True, exist_ok=True)
@@ -68,7 +68,7 @@ async def _ingest_inbox():
         if not ok:
             continue
         try:
-            from .dominio.memory import graph, pg
+            from ..dominio.memory import graph, pg
             leido = files_io.read_any(f, limite=0)
             if not leido.get("ok") or leido.get("meta", {}).get("truncado"):
                 await bus.emit("log", {"level": "warn",
@@ -144,8 +144,8 @@ async def scheduler_loop():
 
             # 4) Toques de atención del tablero (cada ~1 min)
             if tick % 12 == 0:
-                from .dominio import board
-                from .infraestructura.telegram_bridge import send_telegram
+                from ..dominio import board
+                from ..infraestructura.telegram_bridge import send_telegram
                 for msg in board.nudges():
                     await bus.emit("notification", {"title": "Tablero", "body": msg})
                     await bus.emit("log", {"level": "alert", "msg": msg})
@@ -154,7 +154,7 @@ async def scheduler_loop():
             # 5) Briefing matinal proactivo (v19): comprobación cada ~1 min;
             #    él decide si toca (hora configurada, una vez al día).
             if tick % 12 == 3:                   # desfasado del arranque
-                from .dominio import briefing
+                from ..dominio import briefing
                 await briefing.maybe_send()
 
             # 6) Vigilancias (v19): webs, precios y noticias — cada ~5 min el
@@ -171,11 +171,11 @@ async def scheduler_loop():
             # 6.5) Revisión semanal (v20) y consolidación nocturna de memoria:
             #      comprobaciones baratas; ellos deciden si toca.
             if tick % 12 == 9:
-                from .dominio import review
+                from ..dominio import review
                 await review.maybe_send()
             if tick % 120 == 84:
                 try:
-                    from .dominio import profile
+                    from ..dominio import profile
                     # tarea suelta: si el LLM tarda, el scheduler NO se retrasa
                     asyncio.create_task(profile.consolidate_daily())
                 except Exception:

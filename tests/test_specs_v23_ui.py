@@ -228,7 +228,7 @@ def test_auditoria_consultable():
     check(r["confirmed"] is True, "y si hubo confirmación")
     check(audit.tail(10)[-1]["agent"] == "hermes", "se registra qué agente actuó")
 
-    brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     check("_AUDIT_RX" in brain, "se puede preguntar por el registro de actividad")
     mod = {}
     exec(compile(re.search(r"_AUDIT_RX = re\.compile\((?:.|\n)*?\)\n", brain).group(0),

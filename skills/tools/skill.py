@@ -112,7 +112,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         n = int(gd.get("n") or gd.get("n2"))
         unit = gd.get("unit") or gd.get("unit2")
         secs = n * (3600 if unit.startswith("hora") else 60 if unit.startswith("min") else 1)
-        from backend.core.scheduler import timers
+        from backend.core.aplicacion.scheduler import timers
         timers.append({"at": now + dt.timedelta(seconds=secs),
                        "label": f"Temporizador de {n} {unit} cumplido"})
         return {"reply": f"⏱ Temporizador de {n} {unit} armado; te aviso por el HUD. "
@@ -126,7 +126,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         at = now.replace(hour=h, minute=m, second=0)
         if at <= now:
             at += dt.timedelta(days=1)
-        from backend.core.scheduler import timers
+        from backend.core.aplicacion.scheduler import timers
         timers.append({"at": at, "label": f"Alarma de las {h:02d}:{m:02d}"})
         return {"reply": f"⏰ Alarma fijada a las {h:02d}:{m:02d} ({at:%d/%m}). "
                          "Te aviso por el HUD."}

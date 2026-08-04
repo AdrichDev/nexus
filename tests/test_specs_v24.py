@@ -120,7 +120,7 @@ def test_la_skill_ya_nace_limpia():
     check('_ADMIN = ("hermes_estado", "hermes_arranca", "hermes_info")' in src,
           "los intents de diagnóstico están declarados como modo administrador")
     check('r["admin"] = True' in src, "y se marcan para que el bus no los sanee")
-    brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     check('"admin": _admin' in brain, "el brain propaga ese permiso al emitir la respuesta")
     check("pv.frase_inicio(orden" in src, "el acuse usa las frases variadas")
     check("pv.mensaje_fallo(" in src, "el fallo usa el mensaje funcional")

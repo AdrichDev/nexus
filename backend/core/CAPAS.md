@@ -1,9 +1,18 @@
 # Las capas de `backend/core/`
 
-`core/` tiene 43 módulos y 15.000 líneas en una sola carpeta plana. Nada impide
-que el módulo que habla con la API de Google llame a las reglas del tablero, ni
-al revés. Esto pone el orden por escrito y `tests/test_capas_backend.py` lo
-comprueba en cada ejecución de la suite.
+`core/` son 42 módulos y unas 15.000 líneas. Estaban en **una sola carpeta
+plana**, donde nada impedía que el módulo que habla con la API de Google llamara
+a las reglas del tablero, ni al revés.
+
+Ahora cada módulo vive en la carpeta de su capa, así que **la arquitectura se ve
+abriendo `core/`**: cuatro carpetas en vez de cuarenta y dos ficheros. Antes la
+capa de un módulo era una lista dentro de una prueba — se podía leer el fichero
+sin enterarse de dónde estaba.
+
+`tests/test_capas_backend.py` comprueba en cada ejecución que lo escrito aquí, lo
+que hay en disco y lo que importa cada módulo dicen lo mismo. Y que nadie deje un
+módulo suelto en la raíz: volver a la carpeta plana por la puerta de atrás no se
+notaría hasta tener veinte otra vez.
 
 ## La regla
 

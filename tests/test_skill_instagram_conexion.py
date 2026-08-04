@@ -62,7 +62,7 @@ _spec = importlib.util.spec_from_file_location(
 ig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ig)
 from backend.core.comun.config import settings                         # noqa: E402
-from backend.core.skills_loader import load_skills, route        # noqa: E402
+from backend.core.aplicacion.skills_loader import load_skills, route        # noqa: E402
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 CTX = {"settings": settings, "bus": None}
@@ -392,7 +392,7 @@ def test_los_modulos_hermanos_se_importan():
         except Exception as e:                                    # noqa: BLE001
             check(False, f"{nombre}.py no se ha podido cargar: {type(e).__name__}: {e}")
     # y con el cargador de nexus, no solo con el de esta suite
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     mod = get_skills()["instagram"].module
     r = route("apunta la cuenta @unacuenta: 8000 seguidores, 20 comentarios")
     salida = run(mod.handle(r[1], "apunta la cuenta @unacuenta: 8000 seguidores, "

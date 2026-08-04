@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend.core.skills_loader import load_skills, route      # noqa: E402
+from backend.core.aplicacion.skills_loader import load_skills, route      # noqa: E402
 
 MG = load_skills()["memory_graph"].module
 

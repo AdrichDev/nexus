@@ -83,7 +83,7 @@ co = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(co)
 
 from backend.core.comun.config import settings                           # noqa: E402
-from backend.core.skills_loader import load_skills, route          # noqa: E402
+from backend.core.aplicacion.skills_loader import load_skills, route          # noqa: E402
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 CTX = {"settings": settings, "graph": None, "pg": None, "bus": None}

@@ -79,7 +79,7 @@ def ordenes_prometidas() -> list[tuple[str, str]]:
 
 print("== lo que los SKILL.md prometen, llega a una skill ==")
 
-from backend.core import skills_loader as sl                # noqa: E402
+from backend.core.aplicacion import skills_loader as sl  # noqa: E402
 
 sl.load_skills()
 PROMETIDAS = ordenes_prometidas()

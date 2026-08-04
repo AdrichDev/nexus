@@ -296,7 +296,7 @@ def test_tts_solo_habla_respuestas():
 
 
 def test_brain_y_hud_no_mandan_al_tts_lo_del_operador():
-    brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     check("_tts_guard.note_user_text(text)" in brain,
           "el brain apunta cada entrada del operador para el filtro del TTS")
     js = Path(ROOT, "frontend", "js", "command.js").read_text(encoding="utf-8")

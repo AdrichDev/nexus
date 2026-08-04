@@ -2138,7 +2138,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if intent == "email_urgent":
             # EN SEGUNDO PLANO (orden de Adri): acuse ya, análisis por detrás y
             # AVISO por el canal de origen cuando termine — como email_actions.
-            from backend.core.jobs import jobs as job_mgr
+            from backend.core.aplicacion.jobs import jobs as job_mgr
             _chan = ctx.get("channel", "pc")
             await job_mgr.submit("Revisar correos urgentes",
                                  lambda c=_chan: _email_urgent_job(ctx, c), kind="correo")
@@ -2157,7 +2157,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if intent == "email_actions":
             # EN SEGUNDO PLANO (orden de Adri): acuse inmediato, análisis por detrás,
             # resultado por el canal que lo pidió.
-            from backend.core.jobs import jobs as job_mgr
+            from backend.core.aplicacion.jobs import jobs as job_mgr
             _chan = ctx.get("channel", "pc")
             await job_mgr.submit("Correos: análisis y tareas",
                                  lambda c=ctx, ch=_chan: _email_actions_job(c, ch),

@@ -37,7 +37,7 @@ class Ajustes:
 
 def main():
     import asyncio
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     print("· las frases REALES de Adri llegan a la skill (no al cerebro)")

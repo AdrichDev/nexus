@@ -158,7 +158,7 @@ def test_briefing_secciones():
     finally:
         bf.DATA_DIR = old
     # el scheduler llama a maybe_send y coach usa build_briefing
-    sch = open(os.path.join(ROOT, "backend", "core", "scheduler.py"), encoding="utf-8").read()
+    sch = open(os.path.join(ROOT, "backend", "core", "aplicacion", "scheduler.py"), encoding="utf-8").read()
     check("briefing.maybe_send" in sch, "scheduler: engancha el briefing")
     coach = open(os.path.join(ROOT, "skills", "coach", "skill.py"), encoding="utf-8").read()
     check("build_briefing" in coach, "coach: «qué me toca hoy» usa el parte completo")
@@ -320,7 +320,7 @@ def test_backup():
             check(z.testzip() is None and len(z.namelist()) == 2, "baks: zip íntegro con los 2")
     finally:
         cfg.DATA_DIR = old
-    sch = open(os.path.join(ROOT, "backend", "core", "scheduler.py"), encoding="utf-8").read()
+    sch = open(os.path.join(ROOT, "backend", "core", "aplicacion", "scheduler.py"), encoding="utf-8").read()
     check("auto_backup" in sch and "check_watchers" in sch, "scheduler: engancha backup y vigilancias")
 
 

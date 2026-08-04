@@ -33,9 +33,9 @@ import time
 import unicodedata
 import uuid
 
-from .comun.config import DATA_DIR
-from .comun import events
-from .comun.events import bus
+from ..comun.config import DATA_DIR
+from ..comun import events
+from ..comun.events import bus
 
 JOBS_FILE = DATA_DIR / "jobs.json"
 
@@ -55,7 +55,7 @@ def _norm(s: str) -> str:
 
 def _audit(**kw) -> None:
     try:
-        from .comun import audit as _a
+        from ..comun import audit as _a
         _a.log(**kw)
     except Exception:
         pass
@@ -328,7 +328,7 @@ class JobManager:
                                 "channel": job.get("channel", "pc")})
         if job.get("channel") == "telegram":
             try:
-                from .infraestructura.telegram_bridge import send_telegram
+                from ..infraestructura.telegram_bridge import send_telegram
                 await send_telegram(texto)
             except Exception:
                 pass

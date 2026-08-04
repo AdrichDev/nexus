@@ -467,7 +467,7 @@ def test_contestar_a_la_pregunta_de_que_tele_es_una_orden():
     elige la TV correcta. El pegado lo hace el cerebro, y solo cuando la frase
     suelta NO llega a nadie por su cuenta."""
     from backend.core.comun import context as ctxt
-    from backend.core.skills_loader import load_skills, route
+    from backend.core.aplicacion.skills_loader import load_skills, route
     load_skills()
 
     ctxt.olvida_pregunta("pc")

@@ -45,8 +45,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
-import backend.core.brain as brain          # noqa: E402
-import backend.core.jobs as jobsmod         # noqa: E402
+import backend.core.aplicacion.brain as brain          # noqa: E402
+import backend.core.aplicacion.jobs as jobsmod         # noqa: E402
 from test_renovacion import global_route    # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v231_"))
@@ -145,7 +145,7 @@ def test_notificacion_unica_y_automatica():
     check("notify=True" in src, "el encargo pide que se notifique al terminar")
     check('await bus.emit("chat", {"user": f"[hermes]' not in src,
           "y ya NO emite su propio chat (eso duplicaba o se perdía)")
-    jobs = Path(ROOT, "backend", "core", "jobs.py").read_text(encoding="utf-8")
+    jobs = Path(ROOT, "backend", "core", "aplicacion", "jobs.py").read_text(encoding="utf-8")
     check("if job.get(\"notify\"):" in jobs, "el gestor de trabajos es quien avisa")
     check("send_telegram" in jobs, "y también por Telegram si el encargo vino de ahí")
 

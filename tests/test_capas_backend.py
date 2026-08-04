@@ -189,19 +189,21 @@ print("== 6) el modulo que ya vive en su capa esta en la carpeta que le toca =="
 # enterarse. Al bajarlo a `backend/core/<capa>/`, la capa se ve abriendo la
 # carpeta — y aqui se comprueba que las dos versiones no puedan discrepar.
 #
-# Fase 3 mueve un grupo cada vez, asi que durante la mudanza hay modulos que
-# siguen sueltos en `core/`. Esos no fallan: solo se exige coherencia a los que
-# ya se han movido.
-_movidos = 0
+# La mudanza TERMINO: los 42 modulos estan en su capa. Asi que ya no se tolera
+# ninguno suelto en `core/` — dejar uno seria volver a la carpeta plana por la
+# puerta de atras, y nadie se enteraria hasta tener veinte otra vez.
 for capa, mods in CAPAS:
     for m in sorted(mods):
         real = capa_por_carpeta(m)
-        if not real:
-            continue                       # aun sin mover: no es un fallo
-        _movidos += 1
-        check(real == capa,
+        check(real != "",
+              f"«{m}» sigue suelto en backend/core/: le toca «{capa}/»")
+        check(real in ("", capa),
               f"«{m}» esta declarado en «{capa}» pero vive en «backend/core/{real}/»")
-print(f"   ({_movidos} de {sum(len(m) for _c, m in CAPAS)} modulos ya viven en su capa)")
+
+# Y ningun modulo nuevo puede quedarse en la raiz de core/ sin capa.
+for f in CORE.glob("*.py"):
+    check(f.stem == "__init__",
+          f"«{f.name}» esta en la raiz de backend/core/: clasificalo en una capa")
 
 # Y ningun modulo se queda fuera de las capas al bajar de carpeta.
 for f in CORE.rglob("*.py"):

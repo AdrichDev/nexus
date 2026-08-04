@@ -149,7 +149,7 @@ def test_board_sello_completado():
 
 
 def test_context_integrado_en_brain():
-    src = open(os.path.join(ROOT, "backend", "core", "brain.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
     check("_mturn.resolve" in src, "brain: llama a context.resolve antes del router")
     check("_mturn.note_reply" in src, "brain: registra las listas de las skills")
 
@@ -158,7 +158,7 @@ def test_context_integrado_en_brain():
 
 def _brain_ns(names):
     """Extrae funciones/constantes REALES de brain.py sin importar el módulo."""
-    tree = ast.parse(open(os.path.join(ROOT, "backend", "core", "brain.py"),
+    tree = ast.parse(open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"),
                           encoding="utf-8").read())
     keep = []
     for n in tree.body:
@@ -183,7 +183,7 @@ def test_split_chain():
     check(sc("pon rock y jazz") == [], "'y' a secas NO parte")
     check(sc("investiga el mercado de tela y algodón") == [], "sin conector → no hay cadena")
     check(sc("haz una captura, luego apaga la música") != [], "', luego' sí parte")
-    src = open(os.path.join(ROOT, "backend", "core", "brain.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
     check("_chain_job" in src and 'kind="cadena"' in src,
           "brain: la cadena corre como trabajo numerado en 2º plano")
 
@@ -223,7 +223,7 @@ def test_review():
     finally:
         board.BOARD_FILE = old_bf
         review.DATA_DIR = old_dd
-    sch = open(os.path.join(ROOT, "backend", "core", "scheduler.py"), encoding="utf-8").read()
+    sch = open(os.path.join(ROOT, "backend", "core", "aplicacion", "scheduler.py"), encoding="utf-8").read()
     check("review.maybe_send" in sch, "scheduler: engancha la revisión semanal")
 
 
@@ -389,7 +389,7 @@ def test_consolidacion():
     finally:
         mem.DAILY_DIR = old_daily
         mem.MEMORY_DIR = old_memdir
-    sch = open(os.path.join(ROOT, "backend", "core", "scheduler.py"), encoding="utf-8").read()
+    sch = open(os.path.join(ROOT, "backend", "core", "aplicacion", "scheduler.py"), encoding="utf-8").read()
     check("consolidate_daily" in sch, "scheduler: engancha la consolidación nocturna")
 
 

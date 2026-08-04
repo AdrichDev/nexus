@@ -277,8 +277,8 @@ def test_la_memoria_no_se_cuela():
 # ══════════ 6. EL PLANIFICADOR NO ELIGE A CIEGAS ══════════
 def test_el_planificador_sabe_que_hace_cada_intent():
     print("· el planificador ve QUÉ HACE cada intent, no solo su nombre")
-    import backend.core.brain as B
-    from backend.core.skills_loader import load_skills
+    import backend.core.aplicacion.brain as B
+    from backend.core.aplicacion.skills_loader import load_skills
     load_skills()
     cat = B._skills_plan_catalog()
     check("read(args: sel) = LEER DE VERDAD" in cat,
@@ -431,7 +431,7 @@ def test_cerrar_y_abrir_son_ordenes_de_pc(load_skills=None):
     programa llamado «marca.com». Y «ponme la web del as» se lo llevaba la
     música, porque media va antes por orden alfabético.
     """
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     for frase in ("cierra chrome", "ciérrame chrome", "cierra el chrome",
@@ -474,7 +474,7 @@ def test_pedir_ideas_y_mirar_la_competencia(load_skills=None):
     ideas de cena» no lo es. Por eso el complemento, si lo hay, tiene que ser
     del dominio.
     """
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     def ruta(f):
@@ -523,7 +523,7 @@ def test_crear_tarea_a_secas_y_buscar_informacion(load_skills=None):
     búsqueda web. El lookahead devuelve carpetas, notas y mapas a su dueño.
     """
     import asyncio as _asyncio
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     def ruta(f):
@@ -594,7 +594,7 @@ def test_dame_ideas_no_es_una_pregunta_sobre_mi(load_skills=None):
     Dónde acabe la frase después es otra discusión; lo que este test fija es
     que NO es de memory_graph.
     """
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     def ruta(f):

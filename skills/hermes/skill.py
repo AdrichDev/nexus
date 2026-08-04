@@ -196,7 +196,7 @@ async def delegate(orden: str, ctx, channel: str, request_id: str = "") -> dict:
     v23 (T8/T9): el encargo hereda el requestId de la petición del operador, queda
     registrado que el AGENTE ejecutor es Hermes, y los duplicados vivos se bloquean
     — Hermes no puede acabar haciendo dos veces lo mismo."""
-    from backend.core.jobs import jobs as job_mgr
+    from backend.core.aplicacion.jobs import jobs as job_mgr
     url, hdr = _cfg(ctx)
     dup = job_mgr.active_duplicate(f"hermes::{orden}", channel)
     if dup:

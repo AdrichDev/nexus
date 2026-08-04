@@ -34,7 +34,7 @@ def check(cond, msg):
         print("  ✖ " + msg)
 
 
-from backend.core import skills_loader as sl
+from backend.core.aplicacion import skills_loader as sl
 from backend.core.comun import confirm  # noqa: E402
 
 print("== 1) carga con el cargador real ==")

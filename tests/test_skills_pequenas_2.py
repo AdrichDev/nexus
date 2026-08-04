@@ -252,7 +252,7 @@ def main():
     for nombre, ruta in citados.items():
         check(ruta.exists(), f"«{nombre}» existe (lo cita una de las doce)")
 
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
     print("· las órdenes que las skills sugieren al fallar SÍ se enrutan")
     for sugerida, destino in (("recarga los conectores", "mcp_hands"),

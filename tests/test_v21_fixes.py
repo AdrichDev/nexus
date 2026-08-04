@@ -217,7 +217,7 @@ def test_flow_sigue_exigiendo_n8n():
 # ══════════ 3) contexto reciente para el enrutador LLM de respaldo ══════════
 
 def test_recent_context_helper():
-    import backend.core.brain as brain
+    import backend.core.aplicacion.brain as brain
     old_hist = list(brain._history)
     try:
         brain._history.clear()
@@ -324,7 +324,7 @@ def test_brain_pasa_recent_context_a_llm():
     # Verificación de INTEGRACIÓN (no solo de las funciones sueltas): brain.py
     # de verdad llama a plan_action/interpret_command CON recent_context=... —
     # si alguien quita el argumento en una refactorización futura, esto lo pilla.
-    src = open(os.path.join(ROOT, "backend", "core", "brain.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
     check("plan_action(text, _skills_plan_catalog(), _learn_examples(),\n"
          "                                        recent_context=_recent_context())" in src
          or "recent_context=_recent_context()" in src,

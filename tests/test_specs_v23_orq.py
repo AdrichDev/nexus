@@ -34,7 +34,7 @@ def check(cond, msg):
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import backend.core.jobs as jobsmod            # noqa: E402
+import backend.core.aplicacion.jobs as jobsmod            # noqa: E402
 import backend.core.comun.audit as audit             # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v23j_"))
@@ -339,7 +339,7 @@ def test_sin_notify_no_duplica():
 # ══════════════ Integración: brain, hermes, API y HUD ══════════════
 
 def test_brain_requestid_y_control_de_trabajos():
-    src = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    src = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     check("request_id: str = \"\"" in src, "process acepta un request_id")
     check("req_id = request_id or uuid.uuid4().hex[:8]" in src,
           "cada petición genera su identificador único")

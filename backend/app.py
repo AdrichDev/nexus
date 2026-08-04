@@ -23,18 +23,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend.core import brain
+from backend.core.aplicacion import brain
 from backend.core.dominio import contentos
 from backend.core.infraestructura import stt, tts
 from backend.core.infraestructura.app_index import start_background_index
 from backend.core.comun.config import FRONTEND_DIR, settings
 from backend.core.comun.events import bus
-from backend.core.hotkey import start_hotkey
+from backend.core.aplicacion.hotkey import start_hotkey
 from backend.core.dominio.memory import graph, memory_status
-from backend.core.scheduler import scheduler_loop, system_metrics
-from backend.core.skills_loader import load_skills, skills_summary
+from backend.core.aplicacion.scheduler import scheduler_loop, system_metrics
+from backend.core.aplicacion.skills_loader import load_skills, skills_summary
 from backend.core.infraestructura.telegram_bridge import telegram_loop
-from backend.core.voice_cycle import open_mic_loop, voice_cycle
+from backend.core.aplicacion.voice_cycle import open_mic_loop, voice_cycle
 
 async def _arranca_runtime_llm() -> None:
     """Verificación inicial del cerebro, tolerante a fallos: si Ollama tarda o
@@ -73,8 +73,8 @@ async def lifespan(app: FastAPI):
     start_hotkey(loop)
     start_background_index()   # escanea TODAS las apps instaladas (Windows)
     asyncio.create_task(asyncio.to_thread(stt.preload_model))  # precarga el modelo de voz
-    from backend.core.wake import wake_loop
-    from backend.core.background import cycle_loop, proactive_loop
+    from backend.core.aplicacion.wake import wake_loop
+    from backend.core.aplicacion.background import cycle_loop, proactive_loop
     from backend.core.infraestructura import engram_bridge
     tasks = [asyncio.create_task(scheduler_loop()),
              asyncio.create_task(telegram_loop()),   # solo activo con TELEGRAM_BOT_TOKEN
@@ -299,7 +299,7 @@ async def api_weather():
 
 @app.get("/api/jobs")
 async def api_jobs():
-    from backend.core.jobs import jobs
+    from backend.core.aplicacion.jobs import jobs
     return {"list": jobs.snapshot(), "counts": jobs.counts(), "badge": jobs.badge()}
 
 
@@ -308,7 +308,7 @@ async def api_jobs_submit(payload: dict):
     """Lanza una orden como TRABAJO en segundo plano (multitarea).
     v23 (T9): cada ejecución lleva su requestId y los duplicados vivos se bloquean."""
     import uuid as _uuid
-    from backend.core.jobs import jobs
+    from backend.core.aplicacion.jobs import jobs
     text = str(payload.get("text", "")).strip()
     if not text:
         return {"error": "sin texto"}
@@ -327,21 +327,21 @@ async def api_jobs_submit(payload: dict):
 
 @app.post("/api/jobs/{jid}/cancel")
 async def api_jobs_cancel(jid: str):
-    from backend.core.jobs import jobs
+    from backend.core.aplicacion.jobs import jobs
     return {"ok": await jobs.cancel(jid)}
 
 
 @app.post("/api/jobs/seen")
 async def api_jobs_seen(payload: dict | None = None):
     """Marca los resultados como REVISADOS: limpia el ✓ / ! del sidebar (v23 T10)."""
-    from backend.core.jobs import jobs
+    from backend.core.aplicacion.jobs import jobs
     jid = str((payload or {}).get("id", ""))
     return {"seen": await jobs.mark_seen(jid), "badge": jobs.badge()}
 
 
 @app.post("/api/jobs/clear")
 async def api_jobs_clear():
-    from backend.core.jobs import jobs
+    from backend.core.aplicacion.jobs import jobs
     return {"removed": jobs.clear_done()}
 
 
@@ -354,7 +354,7 @@ if os.environ.get("NEXUS_E2E") == "1":
     async def api_e2e_job(payload: dict):
         """Lanza un trabajo controlado (duerme N segundos) para poder verificar en
         la interfaz real el indicador de Multitarea: En curso → 2 → ✓ / !."""
-        from backend.core.jobs import jobs
+        from backend.core.aplicacion.jobs import jobs
         secs = float(payload.get("seconds", 2))
         fail = bool(payload.get("fail"))
         title = str(payload.get("title", "Trabajo de prueba"))
@@ -378,7 +378,7 @@ async def api_skills():
 @app.get("/api/skill/{folder}")
 async def api_skill_detail(folder: str):
     """Contenido de una skill para la pantalla de nodo: SKILL.md + intents + patrones."""
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     from backend.core.comun.config import SKILLS_DIR
     s = get_skills().get(folder)
     if not s:
@@ -826,7 +826,7 @@ async def api_board_edit(payload: dict):
 @app.post("/api/home/scan")
 async def api_home_scan():
     """Rastrea la red — buscador visual de dispositivos (HUD/movil)."""
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     sk = get_skills().get("domotica")
     if not sk or not getattr(sk, "module", None):
         return {"devices": [], "error": "domotica no disponible"}
@@ -840,7 +840,7 @@ async def api_home_scan():
 @app.post("/api/home/control")
 async def api_home_control(payload: dict):
     """Accion al pinchar/conectar un dispositivo del buscador (TV / Home Assistant)."""
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     sk = get_skills().get("domotica")
     if not sk or not getattr(sk, "module", None):
         return {"ok": False, "reply": "La domotica no esta disponible ahora mismo."}
@@ -855,7 +855,7 @@ async def api_home_ha_status():
     """Estado de Home Assistant para el panel de Dispositivos."""
     import shutil
     import httpx
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     url = (settings.get("homeassistant_url", "") or "").rstrip("/")
     has_token = bool(settings.secret("homeassistant_token"))
     docker = shutil.which("docker") is not None
@@ -956,7 +956,7 @@ async def api_home_install_ha():
 @app.get("/api/hermes/status")
 async def api_hermes_status():
     """Radiografia de la conexion con Hermes (exe, .env, puerto, salud, encargos)."""
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     sk = get_skills().get("hermes")
     if not sk or not getattr(sk, "module", None):
         return {"error": "skill hermes no disponible"}
@@ -969,7 +969,7 @@ async def api_hermes_status():
 @app.post("/api/hermes/start")
 async def api_hermes_start():
     """Arranca (y auto-provisiona) el gateway de Hermes desde el HUD."""
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     sk = get_skills().get("hermes")
     if not sk or not getattr(sk, "module", None):
         return {"ok": False, "error": "skill hermes no disponible"}
@@ -986,7 +986,7 @@ async def api_hermes_configure(payload: dict):
     """Configura el CEREBRO de Hermes desde Núcleo IA: proveedor + modelo + API key.
     Escribe la clave en ~/.hermes/.env y el modelo en config.yaml, y REINICIA su
     gateway para que lo cargue. Así el modelo interno de Hermes deja de dar 401."""
-    from backend.core.skills_loader import get_skills
+    from backend.core.aplicacion.skills_loader import get_skills
     sk = get_skills().get("hermes")
     if not sk or not getattr(sk, "module", None):
         return {"ok": False, "error": "skill hermes no disponible"}

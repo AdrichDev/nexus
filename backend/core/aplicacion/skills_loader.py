@@ -17,7 +17,7 @@ import importlib.util
 import re
 from dataclasses import dataclass, field
 
-from .comun.config import SKILLS_DIR
+from ..comun.config import SKILLS_DIR
 
 
 @dataclass

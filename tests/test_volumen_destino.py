@@ -51,7 +51,7 @@ def check(cond, msg: str) -> bool:
     return bool(cond)
 
 
-from backend.core import skills_loader as sl                # noqa: E402
+from backend.core.aplicacion import skills_loader as sl  # noqa: E402
 
 REG = sl.load_skills()
 SPC = REG["system_pc"].module
@@ -409,7 +409,7 @@ print("== 12) «abre spotify y bájale el volumen»: la 2ª parte no se queda hu
 # órdenes, y la segunda llega sin destino. Preguntar «¿a quién?» es correcto en
 # aislado, pero acababas de decirlo en la primera parte. Ya existía el mismo
 # arreglo para la música (`_carry_music_service`); faltaba para el volumen.
-from backend.core import brain as _brain                                # noqa: E402
+from backend.core.aplicacion import brain as _brain  # noqa: E402
 
 for _partes, _esperado in (
         (["abre spotify", "bájale el volumen al 25%"], "spotify"),

@@ -175,7 +175,7 @@ NO_TOCAR = [
 
 
 def main():
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     reg = sl.load_skills()
 
     print("· las doce cargan con el cargador REAL, sin error de import")

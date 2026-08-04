@@ -30,7 +30,7 @@ def check(c, m):
 
 def main():
     from backend.core.comun import config as cfg
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     print("· la skill carga con el cargador REAL (no con importlib a pelo)")

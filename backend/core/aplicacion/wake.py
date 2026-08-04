@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import asyncio
 
-from .comun.config import settings
-from .comun.events import bus
+from ..comun.config import settings
+from ..comun.events import bus
 
 _tiny_model = None
 WINDOW_S = 2.5
@@ -39,7 +39,7 @@ def _is_wake(text: str) -> bool:
 def _get_tiny():
     global _tiny_model
     if _tiny_model is None:
-        from .infraestructura.stt import make_whisper
+        from ..infraestructura.stt import make_whisper
         _tiny_model = make_whisper("tiny")
     return _tiny_model
 
@@ -49,7 +49,7 @@ def _listen_window() -> str:
     Transcribe el array numpy directamente (sin .wav temporal → sin WinError 32)."""
     import numpy as np
     import sounddevice as sd
-    from .infraestructura.stt import _input_device
+    from ..infraestructura.stt import _input_device
     sr = 16000
     audio = sd.rec(int(WINDOW_S * sr), samplerate=sr, channels=1, dtype="float32",
                    device=_input_device())
@@ -70,7 +70,7 @@ async def wake_loop():
                 announced = False
                 await asyncio.sleep(1.5)
                 continue
-            from .infraestructura.stt import stt_status
+            from ..infraestructura.stt import stt_status
             if stt_status()["engine"] != "whisper":
                 await asyncio.sleep(3)
                 continue

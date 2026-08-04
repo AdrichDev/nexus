@@ -374,7 +374,7 @@ def test_auditoria_de_destructivas():
 # ══════════════ Integración en el brain ══════════════
 
 def test_brain_resuelve_confirmaciones():
-    src = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
+    src = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     # Se comprueba QUE lo importa, no CÓMO: `confirm` bajó a `backend/core/comun/`
     # con la Fase 3 y una prueba atada a la línea exacta se rompe cada vez que un
     # módulo cambia de carpeta, sin que nada haya dejado de funcionar.

@@ -49,7 +49,7 @@ class GrafoDoble:
 
 
 def main():
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     print("· la skill carga con el cargador REAL")

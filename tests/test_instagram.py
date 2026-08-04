@@ -58,7 +58,7 @@ _spec = importlib.util.spec_from_file_location("igskill", ROOT / "skills" / "ins
 ig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ig)
 from backend.core.comun.config import settings                         # noqa: E402
-from backend.core.skills_loader import load_skills, route        # noqa: E402
+from backend.core.aplicacion.skills_loader import load_skills, route        # noqa: E402
 
 CTX = {"settings": settings, "bus": None}
 

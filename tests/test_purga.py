@@ -312,7 +312,7 @@ def test_papelera_sin_tope():
 
 # ============================ B3.4: scheduler ================================
 def test_scheduler_no_toca_papelera():
-    src = Path(ROOT) / "backend" / "core" / "scheduler.py"
+    src = Path(ROOT) / "backend" / "core" / "aplicacion" / "scheduler.py"
     texto = src.read_text(encoding="utf-8").lower()
     check("papelera" not in texto,
           "scheduler.py: CERO referencias a la papelera — nexus nunca la toca por su cuenta")

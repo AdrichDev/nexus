@@ -187,7 +187,7 @@ def test_hermes_encargo_por_numero_routing():
 def test_jobs_numerados():
     if ROOT not in sys.path:
         sys.path.insert(0, ROOT)
-    import backend.core.jobs as jm
+    import backend.core.aplicacion.jobs as jm
 
     class _DummyBus:
         async def emit(self, *a, **k):

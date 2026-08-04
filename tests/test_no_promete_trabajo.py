@@ -113,7 +113,7 @@ check("sin_progreso_inventado" in EV,
 # `test_capas_backend` lo rechaza. Deja un hueco y `jobs` lo rellena al cargarse.
 check("_hay_trabajo" in EV and "registrar_hay_trabajo" in EV,
       "no hay forma de saber si hay trabajos vivos sin romper las capas")
-JB = (ROOT / "backend" / "core" / "jobs.py").read_text(encoding="utf-8")
+JB = (ROOT / "backend" / "core" / "aplicacion" / "jobs.py").read_text(encoding="utf-8")
 check("registrar_hay_trabajo" in JB and ".active()" in JB,
       "jobs no rellena el hueco: el candado se quedaría sin saber la verdad")
 
@@ -131,8 +131,8 @@ print("== 5) «te he dicho que borres» es una orden, no una queja ==")
 # DICHO que borres los del día 5» es una orden — se queja precisamente PORQUE no
 # lo has hecho. Sin skill que ejecutar, la frase caía al modelo, y el modelo
 # prometía trabajo. Los dos fallos encadenados.
-from backend.core import brain                                    # noqa: E402
-from backend.core.skills_loader import load_skills, route         # noqa: E402
+from backend.core.aplicacion import brain  # noqa: E402
+from backend.core.aplicacion.skills_loader import load_skills, route         # noqa: E402
 
 load_skills()
 
@@ -153,7 +153,7 @@ for t in INSISTEN:
           f"la orden repetida no llega a ninguna skill: «{t}»")
 
 # El candado del cerebro tiene que distinguirlos por escrito.
-BR = (ROOT / "backend" / "core" / "brain.py").read_text(encoding="utf-8")
+BR = (ROOT / "backend" / "core" / "aplicacion" / "brain.py").read_text(encoding="utf-8")
 check("_niega" in BR and "_se_queja" in BR,
       "el cerebro no separa negar de insistir: son cosas distintas")
 check(re.search(r"_no_accion\s*=\s*\(_niega\s+or\s+\(_se_queja\s+and\s+route\(text\)\s+is\s+None\)\)", BR)

@@ -32,7 +32,7 @@ def check(c, m):
 def main():
     from backend.core.comun import config as cfg
     from backend.core.comun import confirm
-    from backend.core import skills_loader as sl
+    from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
 
     print("· la skill carga con el cargador REAL")
@@ -163,7 +163,7 @@ def main():
     check("no reconocida" in r["reply"].lower(), "responde con la ayuda, sin traceback")
 
     print("· el scheduler sigue enganchando la copia diaria")
-    sch = (ROOT / "backend" / "core" / "scheduler.py").read_text(encoding="utf-8")
+    sch = (ROOT / "backend" / "core" / "aplicacion" / "scheduler.py").read_text(encoding="utf-8")
     check("auto_backup" in sch, "scheduler llama a auto_backup")
 
     print("· es agnostica")
