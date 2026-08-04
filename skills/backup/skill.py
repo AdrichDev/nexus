@@ -40,7 +40,7 @@ _MAX_FILE = 50 * 1024 * 1024                     # por archivo (los gordos no va
 
 
 def _dirs():
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     root = Path(DATA_DIR)
     dest = root / "backups"
     return root, dest
@@ -90,7 +90,7 @@ def list_backups() -> list[dict]:
 
 
 def project_root(explicit: Path | None = None) -> Path:
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     return Path(explicit) if explicit else Path(DATA_DIR).parent
 
 
@@ -158,7 +158,7 @@ async def auto_backup() -> bool:
     try:
         import asyncio as _aio
         out, n = await _aio.to_thread(make_backup)   # el zip NO congela el HUD
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         await bus.emit("log", {"level": "ok",
                                "msg": f"🛟 Backup diario: {out.name} ({n} archivos)"})
         return True
@@ -188,7 +188,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "baks":
         # Archivar BORRA los originales: no se hace sin un sí explícito.
-        from backend.core import confirm
+        from backend.core.comun import confirm
         root = project_root()
         baks = find_baks(root)
         if not baks:

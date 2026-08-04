@@ -17,14 +17,14 @@ import os
 import httpx
 
 
-from .config import DATA_DIR
-from .events import bus
+from .comun.config import DATA_DIR
+from .comun.events import bus
 
 OWNER_FILE = DATA_DIR / "telegram_owner.txt"
 
 
 def _token() -> str:
-    from .config import settings
+    from .comun.config import settings
     return settings.secret("telegram_bot_token") or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 
 

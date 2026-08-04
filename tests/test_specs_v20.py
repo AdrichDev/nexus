@@ -52,7 +52,7 @@ if ROOT not in sys.path:
 # ══════════════ M8: contexto multi-turno ══════════════
 
 def test_context_note_y_resolve():
-    import backend.core.context as cx
+    import backend.core.comun.context as cx
     cx.clear()
     # sin contexto → no resuelve nada
     check(cx.resolve("abre el segundo") is None, "sin contexto → None")
@@ -96,7 +96,7 @@ def test_context_note_y_resolve():
 
 def test_context_anti_secuestro():
     """Revisión opus: frases cotidianas con ordinal NO deben secuestrarse."""
-    import backend.core.context as cx
+    import backend.core.comun.context as cx
     cx.clear()
     cx.note_reply("chrome", "tabs", "1. YouTube · yt.com\n2. Gmail · mail.com\n3. Marca · marca.com")
     for frase in ["pon la primera de Bad Bunny", "abre el segundo cajón",
@@ -396,7 +396,7 @@ def test_consolidacion():
 # ══════════════ M9: panel HOY ══════════════
 
 def test_today_payload_y_hud():
-    import backend.core.config as cfg
+    import backend.core.comun.config as cfg
     import backend.core.briefing as bf
     tmp = Path(tempfile.mkdtemp())
     old_cfg, old_bf = cfg.DATA_DIR, bf.DATA_DIR

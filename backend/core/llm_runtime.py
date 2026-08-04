@@ -31,8 +31,8 @@ from dataclasses import asdict, dataclass
 
 import httpx
 
-from backend.core import net
-from backend.core.config import settings
+from backend.core.comun import net
+from backend.core.comun.config import settings
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  1. QUÉ TIPO DE MODELO ES
@@ -533,7 +533,7 @@ async def initialize_llm_runtime(*, emitir: bool = True) -> LLMRuntimeStatus:
     st = await verify_current(force=True)
     if emitir:
         try:
-            from backend.core.events import bus
+            from backend.core.comun.events import bus
             await bus.emit("log", {"level": "ok" if st.active else "warn",
                                    "msg": st.resumen()})
         except Exception:

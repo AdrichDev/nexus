@@ -32,7 +32,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import backend.core.opmem as om          # noqa: E402
-import backend.core.audit as audit       # noqa: E402
+import backend.core.comun.audit as audit       # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v23m_"))
 om.OPS_FILE = _TMP / "engram_ops.json"

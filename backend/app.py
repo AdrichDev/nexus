@@ -25,8 +25,8 @@ from pydantic import BaseModel
 
 from backend.core import brain, contentos, stt, tts
 from backend.core.app_index import start_background_index
-from backend.core.config import FRONTEND_DIR, settings
-from backend.core.events import bus
+from backend.core.comun.config import FRONTEND_DIR, settings
+from backend.core.comun.events import bus
 from backend.core.hotkey import start_hotkey
 from backend.core.memory import graph, memory_status
 from backend.core.scheduler import scheduler_loop, system_metrics
@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
     yield
     for t in tasks:
         t.cancel()
-    from backend.core import net
+    from backend.core.comun import net
     await net.aclose()   # cierra el pool de conexiones HTTP compartido
 
 
@@ -377,7 +377,7 @@ async def api_skills():
 async def api_skill_detail(folder: str):
     """Contenido de una skill para la pantalla de nodo: SKILL.md + intents + patrones."""
     from backend.core.skills_loader import get_skills
-    from backend.core.config import SKILLS_DIR
+    from backend.core.comun.config import SKILLS_DIR
     s = get_skills().get(folder)
     if not s:
         return {"error": "not found"}
@@ -395,7 +395,7 @@ async def api_skill_detail(folder: str):
 @app.get("/api/knowledge")
 async def api_knowledge_list():
     """Biblioteca de conocimiento importada (openClaw/Gru): lista de SKILL.md."""
-    from backend.core.config import ROOT
+    from backend.core.comun.config import ROOT
     kdir = ROOT / "knowledge"
     out = []
     if kdir.is_dir():
@@ -543,7 +543,7 @@ async def api_greet():
     import time as _t
 
     from backend.core import llm as _llm
-    from backend.core.config import CONFIG_DIR
+    from backend.core.comun.config import CONFIG_DIR
     minutos = 45.0
     try:                                    # el umbral vive en config/umbrales.json
         _u = json.loads((CONFIG_DIR / "umbrales.json").read_text(encoding="utf-8"))
@@ -686,7 +686,7 @@ async def api_board():
 async def api_hardware():
     """Inventario completo del equipo: CPU, GPU, RAM, disco, placa, audio, red.
     Respeta el permiso de hardware elegido en la instalación / ⚙."""
-    from backend.core import permissions
+    from backend.core.comun import permissions
     if not permissions.hardware_allowed():
         return {"denied": True, "error": permissions.HW_DENIED}
     from backend.core.hardware import hardware_report
@@ -706,7 +706,7 @@ async def api_calendar(desde: str = "", hasta: str = ""):
     google_events, google_status = [], "no conectado"
     try:
         import importlib.util
-        from backend.core.config import SKILLS_DIR
+        from backend.core.comun.config import SKILLS_DIR
         spec = importlib.util.spec_from_file_location(
             "gws", SKILLS_DIR / "google_workspace" / "skill.py")
         gws = importlib.util.module_from_spec(spec)
@@ -926,7 +926,7 @@ async def api_home_install_ha():
     import shutil
     if not shutil.which("docker"):
         return {"ok": False, "error": "No encuentro Docker. Abre Docker Desktop e intentalo otra vez."}
-    from backend.core.config import assistant_slug
+    from backend.core.comun.config import assistant_slug
     slug = assistant_slug()
     ha_vol = f"{slug}_home_assistant_config"
     run_cmd = ["docker", "run", "-d", "--name", "home_assistant", "--restart", "unless-stopped",
@@ -1071,7 +1071,7 @@ async def api_instagram_analisis():
     Se sirve de disco a proposito: mirar el panel NO puede gastar cuota de la
     Graph API ni depender de que Instagram este disponible. Y si nunca se ha
     analizado nada, se dice por que, en vez de devolver un panel vacio."""
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     f = Path(DATA_DIR) / "instagram" / "ultimo_analisis.json"
     if not f.exists():
         hay_token = bool(settings.secret("ig_access_token"))
@@ -1102,7 +1102,7 @@ async def api_instagram_competencia():
     """La ultima comparativa con cuentas ajenas, servida de disco.
 
     Igual que el analisis: mirar la pestana no puede gastar cuota de la API."""
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     f = Path(DATA_DIR) / "instagram" / "competencia.json"
     if not f.exists():
         return {"hay": False, "motivo": "sin_competencia",
@@ -1168,7 +1168,8 @@ async def api_memoria_vector_migrar(payload: dict):
     # A2.5: protegido por confirm.request(), igual que vaciar la papelera
     # (tasks_board/skill.py) — el «sí» llega por chat, resuelto en
     # brain.process() ANTES de cualquier router.
-    from backend.core import memory, confirm
+    from backend.core import memory
+    from backend.core.comun import confirm
     canal = payload.get("channel") or "pc"
     dim = payload.get("dim")
     if dim is None:
@@ -1214,7 +1215,8 @@ async def api_memoria_reindexar(payload: dict):
     # A3.4: con proveedor local, reindexa directo. Con nube, exige
     # confirm.request() nombrando proveedor y nº de llamadas (diseño §3,
     # «cerrojo 2») ANTES de la primera fila — el «sí» llega por chat.
-    from backend.core import memory, confirm
+    from backend.core import memory
+    from backend.core.comun import confirm
     plan_id = payload.get("plan_id", "")
     canal = payload.get("channel") or "pc"
     plan = memory.pg._planes_reindexado.get(plan_id)
@@ -1241,7 +1243,8 @@ async def api_memoria_reindexar(payload: dict):
 async def api_memoria_vector_limpiar_respaldo(payload: dict | None = None):
     # B4.3: cierra la migración A2. Segunda acción EXPLÍCITA — nunca
     # encadenada a migrar_vector(). Irreversible (DROP COLUMN): confirm.request() propio.
-    from backend.core import memory, confirm
+    from backend.core import memory
+    from backend.core.comun import confirm
     canal = (payload or {}).get("channel") or "pc"
 
     def _limpiar():
@@ -1311,7 +1314,8 @@ async def api_memoria_purga_exportar(payload: dict):
 async def api_memoria_purga_borrar_definitivo(payload: dict):
     # B5.1: IRREVERSIBLE (unlink + DELETE FROM memories). El «sí» llega por
     # chat, igual que migrar_vector — nexus nunca lo dispara solo.
-    from backend.core import purga, confirm
+    from backend.core import purga
+    from backend.core.comun import confirm
     canal = payload.get("channel") or "pc"
     lote = payload.get("lote", "")
     if not lote:
@@ -1339,7 +1343,8 @@ async def api_memoria_ingerir_carpeta(payload: dict):
     # aparte, en data/memory/documentos/). No destructivo -> sin
     # confirm.request(). permissions.path_allowed() dentro de
     # ingesta.ingerir_carpeta() corta cualquier intento de traversal (C4.4).
-    from backend.core import ingesta, audit
+    from backend.core import ingesta
+    from backend.core.comun import audit
     ruta = str(payload.get("ruta", "")).strip()
     resultado = ingesta.ingerir_carpeta(ruta)
     audit.log(action="memoria_ingerir_carpeta", destructive=False, confirmed=True,
@@ -1407,7 +1412,7 @@ async def api_setup_docker():
     if not shutil.which("docker"):
         return {"ok": False, "error": "Docker no está instalado",
                 "download": "https://www.docker.com/products/docker-desktop/"}
-    from backend.core.config import ROOT, assistant_slug
+    from backend.core.comun.config import ROOT, assistant_slug
     # WHITE-LABEL: los nombres de proyecto/contenedor/volumen/BD salen del NOMBRE del
     # sistema (slug). Por defecto «nexus» → nexus_*, nexus_core, etc.; para cualquier
     # otro nombre, nombres limpios «<slug>_…».

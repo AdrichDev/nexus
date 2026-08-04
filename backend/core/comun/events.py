@@ -141,7 +141,7 @@ def _persist_log(data) -> None:
     try:
         if _LOGF[0] is None:
             from pathlib import Path
-            f = Path(__file__).resolve().parents[2] / "data" / "nexus.log"
+            f = Path(__file__).resolve().parents[3] / "data" / "nexus.log"
             f.parent.mkdir(parents=True, exist_ok=True)
             _LOGF[0] = f
         f = _LOGF[0]

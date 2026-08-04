@@ -235,7 +235,7 @@ def elige_modelo(disponibles: list[str], preferido: str = "") -> str:
 
 
 async def _descarga(url: str, timeout: float = 20.0) -> bytes:
-    from backend.core import net
+    from backend.core.comun import net
     r = await net.client().get(url, timeout=timeout)
     return r.content if getattr(r, "status_code", 0) == 200 else b""
 
@@ -244,7 +244,7 @@ async def ficha_de_portada(url: str, caption: str, modelo: str,
                            base_ollama: str, timeout: float = 90.0) -> dict:
     """Descarga la portada, se la enseña al modelo y devuelve la ficha."""
     import base64
-    from backend.core import net
+    from backend.core.comun import net
     img = await _descarga(url)
     if not img:
         return {}
@@ -275,7 +275,7 @@ async def mira_portadas(medios: list[dict], settings, maximo: int = 12) -> dict:
     preferido = str(settings.get("vision_model", "") or "").strip()
     disponibles: list[str] = []
     try:
-        from backend.core import net
+        from backend.core.comun import net
         r = await net.client().get(f"{base.rstrip('/')}/api/tags", timeout=5.0)
         if getattr(r, "status_code", 0) == 200:
             disponibles = [m.get("name", "") for m in (r.json() or {}).get("models", [])]

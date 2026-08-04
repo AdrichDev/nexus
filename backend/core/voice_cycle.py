@@ -15,8 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from . import brain, stt, tts
-from .config import settings
-from .events import bus
+from .comun.config import settings
+from .comun.events import bus
 
 _STAGES = (
     "final_transcript",

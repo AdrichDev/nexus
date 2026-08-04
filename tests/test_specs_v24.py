@@ -38,7 +38,7 @@ def check(cond, msg):
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import backend.core.publicvoice as pv      # noqa: E402
+import backend.core.comun.publicvoice as pv      # noqa: E402
 
 
 # ══════════════ T1/T2: nada interno sale al chat ══════════════
@@ -79,7 +79,7 @@ def test_el_caso_real_de_la_captura():
 
 
 def test_el_bus_es_la_ultima_barrera():
-    src = Path(ROOT, "backend", "core", "events.py").read_text(encoding="utf-8")
+    src = Path(ROOT, "backend", "core", "comun", "events.py").read_text(encoding="utf-8")
     check("from .publicvoice import limpia_trabajo, sanitize" in src,
           "el bus de eventos sanea antes de mandar nada al HUD, texto y ejecutor")
     check('"chat", "job_done", "jobs"' in src,
@@ -91,7 +91,7 @@ def test_el_bus_es_la_ultima_barrera():
           "los LOGS conservan el detalle técnico íntegro")
 
     async def _t():
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         vistos = []
 
         class _WS:
@@ -137,7 +137,7 @@ def test_el_ejecutor_no_se_ve_en_la_tarjeta_de_multitarea():
     `agent: "hermes"` y ahí se leía tal cual. Para el operador el ejecutor es
     siempre nexus.
     """
-    import backend.core.publicvoice as pv
+    import backend.core.comun.publicvoice as pv
 
     for interno in ("hermes", "HERMES", "gateway", "worker", "subagente"):
         salida = pv.limpia_trabajo({"agent": interno, "num": 7})
@@ -185,7 +185,7 @@ def test_sanear_no_puede_dejar_la_respuesta_vacia():
 
     Y el suelo NO puede reclamar progreso: el mensaje original podía ser un fallo.
     """
-    import backend.core.publicvoice as pv
+    import backend.core.comun.publicvoice as pv
 
     for crudo in ("Se lo he delegado a Hermes, el gateway responde en http://127.0.0.1:8642",
                   "El worker falló con HTTP 500 en el endpoint /v1/chat.",

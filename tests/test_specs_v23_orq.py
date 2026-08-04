@@ -35,7 +35,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import backend.core.jobs as jobsmod            # noqa: E402
-import backend.core.audit as audit             # noqa: E402
+import backend.core.comun.audit as audit             # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v23j_"))
 jobsmod.JOBS_FILE = _TMP / "jobs.json"
@@ -160,7 +160,7 @@ def test_cancelado_no_publica_resultado():
     async def _t():
         jm = _fresh()
         vistos = []
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         ev = asyncio.Event()
 
         async def _lento():
@@ -290,7 +290,7 @@ def test_notificacion_unica_y_con_estado():
     async def _t():
         jm = _fresh()
         chats = []
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         orig = bus.emit
 
         async def _spy(kind, data=None):
@@ -317,7 +317,7 @@ def test_sin_notify_no_duplica():
     async def _t():
         jm = _fresh()
         chats = []
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         orig = bus.emit
 
         async def _spy(kind, data=None):

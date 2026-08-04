@@ -368,7 +368,7 @@ def _get_creds():
     if not creds or not creds.valid:
         kind = _client_kind()
         try:
-            from backend.core.events import bus
+            from backend.core.comun.events import bus
             if kind == "web":
                 bus.emit_sync("log", {"level": "warn",
                     "msg": "Google: tu cliente OAuth es de tipo «Aplicación web». Si sale "
@@ -1033,7 +1033,7 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
     corren prisa y AVISA al terminar por el canal de origen (chat + voz en el PC,
     Telegram si vino de ahí). Regla de Adri: TODO lo de segundo plano avisa al acabar."""
     global _last_emails
-    from backend.core.events import bus
+    from backend.core.comun.events import bus
     try:
         msgs, unread, total = await _load_unread_bodies(30)
         if not unread:
@@ -1099,7 +1099,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
     detrás y ACTÚA). Lee no-leídos, decide accionables con el LLM, crea tareas
     (Google + tablero) y entrega el resultado por el CANAL de origen."""
     global _last_emails
-    from backend.core.events import bus
+    from backend.core.comun.events import bus
     try:
         msgs, unread, total = await _load_unread_bodies(30)
         if not unread:
@@ -1256,7 +1256,7 @@ def _por_lote() -> int:
     con un modelo desconocido, mejor cinco llamadas de más que una alerta menos."""
     prov = "ollama"
     try:
-        from backend.core.config import settings
+        from backend.core.comun.config import settings
         prov = str(settings.get("llm_provider", "ollama") or "ollama").strip().lower()
     except Exception:
         pass                                   # sin ajustes legibles, el prudente
@@ -2031,7 +2031,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             # miércoles», «el 5 y el 9») y, si no hay fecha, por TÍTULO como antes.
             # Y nada se borra sin enseñar antes QUÉ se va a borrar y esperar un sí:
             # mismo cinturón que la papelera del tablero y el borrado de Drive.
-            from backend.core import confirm
+            from backend.core.comun import confirm
             canal = ctx.get("channel", "pc")
             what = ""
             for grupo in ("what", "whatcal"):
@@ -2439,7 +2439,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             f = await asyncio.to_thread(_drive_uno, svc, nombre)
             es_carpeta = f.get("mimeType") == DRIVE_MIME_CARPETA
             dentro = await asyncio.to_thread(_drive_dentro, svc, f["id"]) if es_carpeta else 0
-            from backend.core import confirm
+            from backend.core.comun import confirm
 
             if definitivo or dentro:
                 que = "carpeta" if es_carpeta else "archivo"

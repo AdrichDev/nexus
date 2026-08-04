@@ -55,7 +55,7 @@ def skip(msg):
 
 purga = importlib.import_module("backend.core.purga")
 mem = importlib.import_module("backend.core.memory")
-audit = importlib.import_module("backend.core.audit")
+audit = importlib.import_module("backend.core.comun.audit")
 
 
 # ------------------------- infraestructura de prueba -------------------------
@@ -420,7 +420,7 @@ def test_indice_huella_solo_se_dispara_tras_confirmar_duplicados():
 # =========================== B4.3: limpiar-respaldo ===========================
 def test_limpiar_respaldo_exige_confirmacion_propia():
     import asyncio
-    from backend.core import confirm
+    from backend.core.comun import confirm
     app = importlib.import_module("backend.app")
     canal = f"test-purga-{uuid.uuid4().hex[:6]}"
     r = asyncio.run(app.api_memoria_vector_limpiar_respaldo({"channel": canal}))
@@ -530,7 +530,7 @@ def test_borrado_sin_traza_falla():
 
 
 def test_exportar_traversal_rechazado():
-    from backend.core import permissions
+    from backend.core.comun import permissions
     with _CorpusTemporal() as c:
         c.nota("apuntes.md", "roadmap de prueba dam.")
         plan = purga.previsualizar()

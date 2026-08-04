@@ -123,7 +123,7 @@ def test_marcar_una_tarea_como_hecha():
 
 def test_el_tablero_no_revienta_sin_grupos():
     print("· y si el cerebro lo llama a medias, contesta en vez de petar")
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
     ctx = {"settings": settings, "bus": None}
     for intent in ("move", "start", "marcar"):
         try:
@@ -141,7 +141,7 @@ def test_marcar_de_punta_a_punta():
     # escribiendo en un tablero y al test leyendo otro, y el test fallaba solo
     # cuando corría dentro de la suite completa.
     from backend.core import board
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
     board.add_task("velada de Ibai")
     frase = "Marca la velada como realizada, fue el sabado pasado"
     m = re.search(TB.SKILL["patterns"]["marcar"], frase, re.IGNORECASE)
@@ -159,7 +159,7 @@ def test_el_id_de_cuenta_vale_lo_pongas_donde_lo_pongas():
     # Fallo real: Adri tenía puesto «ig_user_id» (lo pedía Content OS) y la skill
     # de análisis leía «ig_business_account_id». Resultado: «me falta el ID de la
     # cuenta» teniéndolo puesto desde hacía días.
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
     ctx = {"settings": settings}
     antes = (settings.get("ig_user_id", ""), settings.get("ig_business_account_id", ""))
     try:
@@ -393,7 +393,7 @@ def test_el_analisis_va_por_lotes_y_no_de_una_tirada():
 def test_el_tamano_de_lote_sigue_al_modelo_que_haya_puesto():
     print("· cambiar de modelo cambia el tamaño de lote, sin reiniciar")
     GW = importlib.import_module("skills.google_workspace.skill")
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
 
     # Se finge la LECTURA de los ajustes; NO se llama a settings.set(). Un test que
     # escribe en config/settings.json le cambia la configuración a Adri de verdad

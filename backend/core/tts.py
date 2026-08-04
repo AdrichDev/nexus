@@ -22,9 +22,9 @@ from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 
 
-from . import net
-from .config import settings
-from .events import bus
+from .comun import net
+from .comun.config import settings
+from .comun.events import bus
 
 try:
     import pyttsx3
@@ -57,7 +57,7 @@ ELEVEN_VOICES = {
 }
 
 
-from .config import DATA_DIR
+from .comun.config import DATA_DIR
 
 TTS_DIR = DATA_DIR / "tts"
 FIRST_FLUSH_CHARS = 72
@@ -105,7 +105,7 @@ def _pron(text: str) -> str:
     texto; si no, se lee tal cual («nexus» → «nexus»)."""
     import re
     try:
-        from .config import assistant_name, assistant_pron
+        from .comun.config import assistant_name, assistant_pron
         name, pron = assistant_name(), assistant_pron()
     except Exception:
         name, pron = "nexus", "nexus"

@@ -27,7 +27,7 @@ if getattr(sys, "frozen", False):
     BUNDLE = Path(sys._MEIPASS)               # respaldo de solo lectura dentro del exe
     ROOT = Path(sys.executable).resolve().parent   # carpeta del nexus.exe
 else:
-    BUNDLE = ROOT = Path(__file__).resolve().parents[2]
+    BUNDLE = ROOT = Path(__file__).resolve().parents[3]
 
 
 def _prefer_external(name: str) -> Path:

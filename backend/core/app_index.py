@@ -23,8 +23,8 @@ import threading
 import unicodedata
 from pathlib import Path
 
-from .config import DATA_DIR
-from .events import bus
+from .comun.config import DATA_DIR
+from .comun.events import bus
 
 INDEX_FILE = DATA_DIR / "app_index.json"
 _index: dict[str, str] = {}

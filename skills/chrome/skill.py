@@ -29,8 +29,8 @@ import re
 import subprocess
 from pathlib import Path
 
-from backend.core import net
-from backend.core.config import DATA_DIR
+from backend.core.comun import net
+from backend.core.comun.config import DATA_DIR
 
 try:
     import websockets

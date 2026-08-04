@@ -148,10 +148,10 @@ def test_hermes_numeracion():
     # DATA_DIR temporal para no tocar el registro real
     tmp = tempfile.mkdtemp()
     import pathlib
-    cfg = types.ModuleType("backend.core.config")
+    cfg = types.ModuleType("backend.core.comun.config")
     cfg.DATA_DIR = pathlib.Path(tmp)
-    old = sys.modules.get("backend.core.config")
-    sys.modules["backend.core.config"] = cfg
+    old = sys.modules.get("backend.core.comun.config")
+    sys.modules["backend.core.comun.config"] = cfg
     try:
         j1, n1 = h._reg_add("investiga precios de tela", "pc")
         j2, n2 = h._reg_add("compara proveedores", "pc")
@@ -168,9 +168,9 @@ def test_hermes_numeracion():
         check("#2" in r3["reply"], "listado general: los encargos salen con su número")
     finally:
         if old is not None:
-            sys.modules["backend.core.config"] = old
+            sys.modules["backend.core.comun.config"] = old
         else:
-            sys.modules.pop("backend.core.config", None)
+            sys.modules.pop("backend.core.comun.config", None)
 
 
 def test_hermes_encargo_por_numero_routing():
@@ -271,10 +271,10 @@ def test_telefono_agenda():
     tel = load_skill_module("telefono")
     tmp = tempfile.mkdtemp()
     import pathlib
-    cfg = types.ModuleType("backend.core.config")
+    cfg = types.ModuleType("backend.core.comun.config")
     cfg.DATA_DIR = pathlib.Path(tmp)
-    old = sys.modules.get("backend.core.config")
-    sys.modules["backend.core.config"] = cfg
+    old = sys.modules.get("backend.core.comun.config")
+    sys.modules["backend.core.comun.config"] = cfg
     try:
         check(tel.normalize_number("612 34 56 78") == "+34612345678",
               "normalize: 9 dígitos → +34612345678")
@@ -292,9 +292,9 @@ def test_telefono_agenda():
               "resolve: desconocido devuelve vacío")
     finally:
         if old is not None:
-            sys.modules["backend.core.config"] = old
+            sys.modules["backend.core.comun.config"] = old
         else:
-            sys.modules.pop("backend.core.config", None)
+            sys.modules.pop("backend.core.comun.config", None)
 
 
 def test_telefono_routing():

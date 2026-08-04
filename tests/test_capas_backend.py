@@ -79,13 +79,35 @@ EXCEPCIONES: set[tuple[str, str]] = {
 }
 
 
+def ruta(modulo: str) -> Path:
+    """Donde vive un modulo de core, este suelto o dentro de su capa.
+
+    Fase 3 los va bajando a `backend/core/<capa>/` de grupo en grupo, asi que
+    durante la mudanza conviven los dos sitios. Buscar en vez de dar por hecho
+    permite mover una capa sin tocar esta prueba."""
+    plano = CORE / f"{modulo}.py"
+    if plano.exists():
+        return plano
+    for capa, _mods in CAPAS:
+        p = CORE / capa / f"{modulo}.py"
+        if p.exists():
+            return p
+    raise FileNotFoundError(f"no encuentro {modulo} en backend/core")
+
+
+def capa_por_carpeta(modulo: str) -> str:
+    """La capa que dice la CARPETA, o '' si el modulo sigue suelto en core/."""
+    p = ruta(modulo)
+    return p.parent.name if p.parent != CORE else ""
+
+
 def modulos() -> list[str]:
-    return sorted(f.stem for f in CORE.glob("*.py") if f.stem != "__init__")
+    return sorted(f.stem for f in CORE.rglob("*.py") if f.stem != "__init__")
 
 
 def importa(modulo: str) -> set[str]:
     """Modulos de core que importa este, en cualquiera de las cinco formas."""
-    txt = (CORE / f"{modulo}.py").read_text(encoding="utf-8")
+    txt = ruta(modulo).read_text(encoding="utf-8")
     txt = re.sub(r'"""(?:.|\n)*?"""', " ", txt)            # fuera los docstrings
     txt = re.sub(r"#[^\n]*", " ", txt)                     # y los comentarios
     fuera = set()
@@ -145,6 +167,35 @@ for nombre, _ms in CAPAS:
 for a, b in sorted(EXCEPCIONES):
     check(a in doc and b in doc,
           f"la excepcion {a} → {b} no esta explicada en backend/core/CAPAS.md")
+
+print("== 6) el modulo que ya vive en su capa esta en la carpeta que le toca ==")
+
+# ESTO ES LO QUE HACE QUE MOVER LOS FICHEROS SIRVA DE ALGO. Hasta ahora la capa
+# de un modulo era una lista dentro de esta prueba: se podia leer el fichero sin
+# enterarse. Al bajarlo a `backend/core/<capa>/`, la capa se ve abriendo la
+# carpeta — y aqui se comprueba que las dos versiones no puedan discrepar.
+#
+# Fase 3 mueve un grupo cada vez, asi que durante la mudanza hay modulos que
+# siguen sueltos en `core/`. Esos no fallan: solo se exige coherencia a los que
+# ya se han movido.
+_movidos = 0
+for capa, mods in CAPAS:
+    for m in sorted(mods):
+        real = capa_por_carpeta(m)
+        if not real:
+            continue                       # aun sin mover: no es un fallo
+        _movidos += 1
+        check(real == capa,
+              f"«{m}» esta declarado en «{capa}» pero vive en «backend/core/{real}/»")
+print(f"   ({_movidos} de {sum(len(m) for _c, m in CAPAS)} modulos ya viven en su capa)")
+
+# Y ningun modulo se queda fuera de las capas al bajar de carpeta.
+for f in CORE.rglob("*.py"):
+    if f.stem == "__init__" or f.parent == CORE:
+        continue
+    check(f.parent.name in {c for c, _m in CAPAS},
+          f"«{f.parent.name}/» no es ninguna de las capas declaradas")
+
 
 print(f"\n{'#' * 54}\ntest_capas_backend: {_pass} OK, {len(_fail)} fallos")
 for m in _fail:

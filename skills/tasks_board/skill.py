@@ -28,7 +28,8 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from backend.core import board, confirm
+from backend.core import board
+from backend.core.comun import confirm
 
 SKILL = {
     "name": "Tablero",
@@ -359,7 +360,7 @@ def _maybe_gcal_event(title: str, due: str, hora: str, due_end: str = "") -> str
     Devuelve '' o ' + Google Calendar'."""
     try:
         import importlib.util
-        from backend.core.config import SKILLS_DIR
+        from backend.core.comun.config import SKILLS_DIR
         spec = importlib.util.spec_from_file_location(
             "gws_board", SKILLS_DIR / "google_workspace" / "skill.py")
         gws = importlib.util.module_from_spec(spec)

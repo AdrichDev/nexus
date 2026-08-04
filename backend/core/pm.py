@@ -23,8 +23,8 @@ import json
 import re
 
 from . import board, llm
-from .config import DATA_DIR, settings
-from .events import bus
+from .comun.config import DATA_DIR, settings
+from .comun.events import bus
 
 _FOLLOWUP = DATA_DIR / "pm_followup.json"
 

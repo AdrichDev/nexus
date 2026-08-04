@@ -60,7 +60,7 @@ def _ajustes(ctx):
     s = (ctx or {}).get("settings")
     if s is not None:
         return s
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
     return settings
 
 

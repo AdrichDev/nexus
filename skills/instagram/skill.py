@@ -273,7 +273,7 @@ _CAMPOS_SIMPLES = {           # atajos para «instagram nicho: cocina sin gluten
 
 
 def _dir_datos(ctx) -> Path:
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     d = Path(DATA_DIR) / "instagram"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -461,7 +461,7 @@ def credenciales(ctx) -> tuple[str, str]:
     venir del ajuste o del propio perfil."""
     s = ctx.get("settings") if isinstance(ctx, dict) else None
     if s is None:
-        from backend.core.config import settings as s          # type: ignore
+        from backend.core.comun.config import settings as s          # type: ignore
     token = s.secret("ig_access_token") or ""
     # El MISMO número tenía dos nombres: la skill leía «ig_business_account_id» y
     # Content OS «ig_user_id». Quien rellenaba uno se quedaba sin el otro y la

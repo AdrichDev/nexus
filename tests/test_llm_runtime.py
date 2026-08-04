@@ -75,8 +75,8 @@ os.environ["NEXUS_CONFIG_DIR"] = str(_SANDBOX / "config")
 from backend.core import llm as _llm                      # noqa: E402
 from backend.core import llm_runtime as rt                # noqa: E402
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
-from backend.core import publicvoice as pv                # noqa: E402
-from backend.core.config import settings                  # noqa: E402
+from backend.core.comun import publicvoice as pv  # noqa: E402
+from backend.core.comun.config import settings                  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════════════════════

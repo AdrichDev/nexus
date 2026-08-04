@@ -34,7 +34,8 @@ try:
 except Exception:                                              # noqa: BLE001
     pass
 
-from backend.core import confirm, skills_loader                # noqa: E402
+from backend.core import skills_loader
+from backend.core.comun import confirm  # noqa: E402
 
 _fail, _pass = [], 0
 

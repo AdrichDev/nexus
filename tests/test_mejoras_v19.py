@@ -59,10 +59,10 @@ def load_skill_module(folder):
 
 
 def _tmp_datadir():
-    """Redirige backend.core.config.DATA_DIR a una carpeta temporal."""
+    """Redirige backend.core.comun.config.DATA_DIR a una carpeta temporal."""
     if ROOT not in sys.path:
         sys.path.insert(0, ROOT)
-    import backend.core.config as cfg
+    import backend.core.comun.config as cfg
     tmp = Path(tempfile.mkdtemp())
     old = cfg.DATA_DIR
     cfg.DATA_DIR = tmp

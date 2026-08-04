@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
-from .config import settings
-from .events import bus
+from .comun.config import settings
+from .comun.events import bus
 
 try:
     import keyboard

@@ -132,7 +132,7 @@ print("== 3) una pregunta sin contestar caduca y no se pega a lo que venga ==")
 # funcionara, la pregunta se quedaba viva y se pegaba a TODO lo que llegaba
 # después: «hola» y «dame ideas para el regalo de mi madre» acabaron contestando
 # «¿Cuál? A o B». Lo cazó un barrido contra nexus de verdad, no la suite.
-from backend.core import context as ctxt                          # noqa: E402
+from backend.core.comun import context as ctxt  # noqa: E402
 
 CONTAMINABLES = ["hola", "gracias", "dame ideas para el regalo de mi madre",
                  "qué hora es", "cuántos correos tengo"]

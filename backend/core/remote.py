@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import CONFIG_DIR, DATA_DIR, ROOT, settings
+from .comun.config import CONFIG_DIR, DATA_DIR, ROOT, settings
 
 CLOUDFLARED_URL_WIN = ("https://github.com/cloudflare/cloudflared/releases/"
                        "latest/download/cloudflared-windows-amd64.exe")
@@ -463,7 +463,7 @@ async def _sigue_siendo_nuestro(url: str) -> bool:
 async def _log(nivel: str, msg: str) -> None:
     """Deja constancia en el monitor del HUD. Si el bus no está, no pasa nada."""
     try:
-        from .events import bus
+        from .comun.events import bus
         await bus.emit("log", {"level": nivel, "msg": msg})
     except Exception:
         pass

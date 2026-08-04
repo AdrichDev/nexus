@@ -116,7 +116,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": "\n".join(lines), "data": st}
 
     if intent == "forget_rule":
-        from backend.core import confirm, opmem
+        from backend.core import opmem
+        from backend.core.comun import confirm
         gd = match.groupdict() if match else {}
         q = (gd.get("q") or "").strip().rstrip(".?¿")
         if not q:

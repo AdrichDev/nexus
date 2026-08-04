@@ -23,7 +23,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from .config import DATA_DIR, settings
+from .comun.config import DATA_DIR, settings
 
 _MARK = "<!--consolidado-->"
 
@@ -178,7 +178,7 @@ async def _consolidate(now: dt.datetime) -> bool:
     except Exception:
         return False
     try:
-        from .events import bus
+        from .comun.events import bus
         await bus.emit("log", {"level": "ok",
                                "msg": f"🧠 Memoria consolidada: resumen del {day:%d/%m} guardado"})
     except Exception:

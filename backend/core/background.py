@@ -19,8 +19,8 @@ import asyncio
 import datetime as dt
 import json
 
-from .config import DATA_DIR, settings
-from .events import bus
+from .comun.config import DATA_DIR, settings
+from .comun.events import bus
 
 _STATE = DATA_DIR / "proactive.json"
 

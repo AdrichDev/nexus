@@ -39,13 +39,13 @@ async def _whatsapp_via_movil(to: str, body: str, ctx) -> dict | None:
     El número se resuelve con la agenda de nexus (skill teléfono). Devuelve la
     respuesta, o None si no hay móvil vinculado."""
     from backend.core import remote
-    from backend.core.events import bus
+    from backend.core.comun.events import bus
     if not remote.devices():
         return None
     number = ""
     try:
         import importlib.util
-        from backend.core.config import SKILLS_DIR
+        from backend.core.comun.config import SKILLS_DIR
         spec = importlib.util.spec_from_file_location(
             "tel_agenda", SKILLS_DIR / "telefono" / "skill.py")
         tel = importlib.util.module_from_spec(spec)

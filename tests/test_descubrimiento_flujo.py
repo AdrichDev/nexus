@@ -97,7 +97,7 @@ def _prepara(tmp: Path):
     # relativos («from . import descubrimiento») y cargándola a pelo revientan.
     # Es como la carga el propio nexus, así que aquí se prueba lo mismo que corre.
     for m in [k for k in list(sys.modules)
-              if k.startswith("backend.core.config") or k.startswith("skills.instagram")]:
+              if k.startswith("backend.core.comun.config") or k.startswith("skills.instagram")]:
         del sys.modules[m]
     import importlib as _il
     sk = _il.import_module("skills.instagram.skill")
@@ -140,7 +140,7 @@ def _prepara(tmp: Path):
 
 
 def _ctx():
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
     return {"settings": settings, "bus": None, "pg": None, "graph": None,
             "history": [], "channel": "test", "reglas": {}, "request_id": "t"}
 

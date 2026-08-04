@@ -340,7 +340,7 @@ def test_negacion_guard():
 # ====== TEST 3s: WHITE-LABEL — el nombre del sistema se propaga a todo ======
 def test_white_label_nombre():
     # helpers de config (nombre/slug/pron) — código real
-    cfg = os.path.join(ROOT, "backend", "core", "config.py")
+    cfg = os.path.join(ROOT, "backend", "core", "comun", "config.py")
     ns = extract_real_object(cfg, {"assistant_name", "assistant_slug", "assistant_pron"})
     # simulamos settings con un contenedor mínimo
     import types as _t
@@ -455,7 +455,7 @@ def test_barge_in_voz():
 # ====== TEST 3q-quater: género de autorreferencia según la VOZ ======
 def test_genero_voz():
     """Si la voz es de mujer, nexus se refiere a sí en femenino; si es de hombre, masculino."""
-    cfg = os.path.join(ROOT, "backend", "core", "config.py")
+    cfg = os.path.join(ROOT, "backend", "core", "comun", "config.py")
     import types as _t
     fake = _t.SimpleNamespace(_json={})
     fake.get = lambda k, d=None: fake._json.get(k, d)
@@ -560,7 +560,7 @@ def test_hermes_configure_brain():
           "configure: mapea los 4 proveedores a su env var de Hermes")
     app = open(os.path.join(ROOT, "backend", "app.py"), encoding="utf-8").read()
     check("/api/hermes/configure" in app and "configure_brain" in app, "configure: endpoint en app.py")
-    cfg = open(os.path.join(ROOT, "backend", "core", "config.py"), encoding="utf-8").read()
+    cfg = open(os.path.join(ROOT, "backend", "core", "comun", "config.py"), encoding="utf-8").read()
     check('"hermes_provider"' in cfg and '"hermes_model"' in cfg and '"openrouter_api_key"' in cfg,
           "configure: settings/secrets de Hermes en config.py")
 

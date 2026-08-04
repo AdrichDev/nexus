@@ -1848,7 +1848,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             # Se apunta la orden para que la respuesta («la de arriba») tenga a
             # qué pegarse: suelta no significa nada.
             try:
-                from backend.core import context as _ctxt
+                from backend.core.comun import context as _ctxt
                 _ctxt.note_pregunta(text, ctx.get("channel", "pc"))
             except Exception:                                  # noqa: BLE001
                 pass

@@ -24,8 +24,8 @@ import time
 from urllib.parse import quote, urlencode
 
 
-from . import net
-from .config import ROOT, settings
+from .comun import net
+from .comun.config import ROOT, settings
 
 TOKEN_FILE = ROOT / "config" / "spotify_token.json"
 REDIRECT_URI = "http://127.0.0.1:8177/api/spotify/callback"

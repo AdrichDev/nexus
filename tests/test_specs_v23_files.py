@@ -35,8 +35,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import backend.core.files_io as FIO       # noqa: E402
-import backend.core.audit as audit        # noqa: E402
-import backend.core.confirm as confirm    # noqa: E402
+import backend.core.comun.audit as audit        # noqa: E402
+import backend.core.comun.confirm as confirm    # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v23f_"))
 FIO.VERSIONS_DIR = _TMP / "file_versions"

@@ -44,7 +44,7 @@ _CHECK_MIN = 10          # minutos entre comprobaciones de cada vigilancia
 
 
 def _file():
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     return DATA_DIR / "watchers.json"
 
 
@@ -124,7 +124,7 @@ def diff_lines(old: str, new: str, n: int = 3) -> list[str]:
 # ─────────────────────────── comprobación periódica ───────────────────────────
 
 async def _notify(msg: str) -> None:
-    from backend.core.events import bus
+    from backend.core.comun.events import bus
     await bus.emit("notification", {"title": "👁 Vigilancia", "body": msg[:200]})
     await bus.emit("log", {"level": "alert", "msg": "👁 " + msg})
     await bus.emit("chat", {"user": "[vigilancia]", "reply": "👁 " + msg,

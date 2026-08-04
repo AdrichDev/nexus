@@ -9,7 +9,7 @@ revertir.
 
 Cómo se usa desde una skill:
 
-    from backend.core import confirm
+    from backend.core.comun import confirm
 
     pregunta = confirm.request(
         channel=ctx.get("channel", "pc"),

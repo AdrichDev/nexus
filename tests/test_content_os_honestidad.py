@@ -82,7 +82,7 @@ _spec = importlib.util.spec_from_file_location(
 co = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(co)
 
-from backend.core.config import settings                           # noqa: E402
+from backend.core.comun.config import settings                           # noqa: E402
 from backend.core.skills_loader import load_skills, route          # noqa: E402
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
@@ -110,7 +110,7 @@ class _GrafoFalso:
 # ══════════════ 1. El sobre de procedencia ══════════════
 def test_sobre():
     print("· ninguna cifra viaja suelta: la fábrica exige un origen válido")
-    from backend.core import procedencia as pr
+    from backend.core.comun import procedencia as pr
 
     d = pr.dato(12840, pr.MEDIDO, periodo="30 días", delta=3.2)
     check(d["valor"] == 12840 and d["origen"] == pr.MEDIDO,
@@ -139,7 +139,7 @@ def test_sobre():
 # ══════════════ 2. Umbrales fuera del código ══════════════
 def test_umbrales():
     print("· los números y los textos salen de config/umbrales.json")
-    from backend.core import procedencia as pr
+    from backend.core.comun import procedencia as pr
 
     datos = json.loads((ROOT / "config" / "umbrales.json").read_text(encoding="utf-8"))
     sec = datos.get("content_os") or {}
@@ -162,7 +162,7 @@ def test_umbrales():
           "bajar validador.magnitud_minima cambia el veredicto sin tocar código")
 
     # Una política que se relaja sola cuando falta el archivo no es una política.
-    import backend.core.procedencia as _pr
+    import backend.core.comun.procedencia as _pr
     orig = _pr.CONFIG_DIR
     try:
         _pr.CONFIG_DIR = ROOT / "no-existe-esta-carpeta"
@@ -178,7 +178,8 @@ def test_umbrales():
 # ══════════════ 3. La demo, aparte y etiquetada ══════════════
 def test_demo():
     print("· los datos de demostración viven en su propio módulo y se declaran")
-    from backend.core import contentos_demo, procedencia as pr
+    from backend.core import contentos_demo
+    from backend.core.comun import procedencia as pr
 
     m = contentos_demo.metricas()
     check(m.get("origen") == pr.DEMOSTRACION,
@@ -198,7 +199,7 @@ def test_demo():
 # ══════════════ 4. El validador determinista ══════════════
 def test_validador():
     print("· el validador tumba la cifra inventada y deja trabajar al resto")
-    from backend.core import procedencia as pr
+    from backend.core.comun import procedencia as pr
 
     check(pr.sin_cifras_inventadas("tus reels tienen 48,6 % de retención", ()) is False,
           "«48,6 % de retención» se rechaza (decimal + porcentaje, sin fundamento)")
@@ -516,7 +517,8 @@ def _numeros_sueltos(nodo, ruta="payload"):
 
 def test_dashboard_contrato():
     print("· el payload de /api/contentos: ninguna cifra viaja fuera de un sobre")
-    from backend.core import contentos, procedencia
+    from backend.core import contentos
+    from backend.core.comun import procedencia
 
     d = run(contentos.dashboard())
     k = d.get("kpis") or {}

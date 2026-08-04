@@ -38,7 +38,8 @@ def check(cond, msg):
 
 # El tablero se desvía a un temporal ANTES de que nadie lo lea.
 TMP = tempfile.mkdtemp(prefix="nexus_board_test_")
-from backend.core import board, confirm, skills_loader as sl   # noqa: E402
+from backend.core import board, skills_loader as sl
+from backend.core.comun import confirm  # noqa: E402
 
 board.BOARD_FILE = __import__("pathlib").Path(TMP) / "board.json"
 board.TRASH_FILE = __import__("pathlib").Path(TMP) / "board_trash.json"

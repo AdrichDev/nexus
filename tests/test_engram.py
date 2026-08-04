@@ -274,7 +274,7 @@ def test_ensure_up_lanza_y_espera_y_no_relanza_en_rafaga():
         eng._alive = fake_alive
         cfg_dir = tmp / "data"
         cfg_dir.mkdir(exist_ok=True)
-        import backend.core.config as cfg
+        import backend.core.comun.config as cfg
         old_dd = cfg.DATA_DIR
         cfg.DATA_DIR = cfg_dir
         try:
@@ -813,7 +813,7 @@ def test_engram_handle_search_y_context():
 def test_engram_settings_defaults():
     """Contrato: los ajustes nuevos existen con valores razonables por
     defecto (autostart activado, puerto oficial de la herramienta)."""
-    import backend.core.config as cfg
+    import backend.core.comun.config as cfg
     check(cfg.DEFAULTS.get("engram_autostart") is True, "config: engram_autostart=True por defecto")
     check(cfg.DEFAULTS.get("engram_autoinstall") is True, "config: engram_autoinstall=True por defecto")
     check(cfg.DEFAULTS.get("engram_port") == 7437, "config: engram_port=7437 (puerto oficial) por defecto")
@@ -985,7 +985,7 @@ def test_engram_install_flow():
 
 def test_engram_install_cli_respeta_autoinstall():
     import backend.core.engram_bridge as eng
-    import backend.core.config as cfg
+    import backend.core.comun.config as cfg
     old_install, old_installed = eng.install, eng.installed
     old_get = cfg.settings.get
     try:

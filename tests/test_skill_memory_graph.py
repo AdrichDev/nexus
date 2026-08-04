@@ -159,7 +159,7 @@ def main():
     check("No tengo nada" in rec["reply"], f"dice que no tiene nada: {rec['reply'][:80]}")
 
     print("· rutas fuera de lo permitido: se deniega, no se lee a la brava")
-    check("permissions" in src, "learn_doc/learn_folder pasan por backend.core.permissions")
+    check("permissions" in src, "learn_doc/learn_folder pasan por backend.core.comun.permissions")
     check(src.count("P.path_allowed") >= 2, "las dos ingestas comprueban la ruta")
 
     print("· intent desconocido no revienta")

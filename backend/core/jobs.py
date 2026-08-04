@@ -33,9 +33,9 @@ import time
 import unicodedata
 import uuid
 
-from .config import DATA_DIR
-from . import events
-from .events import bus
+from .comun.config import DATA_DIR
+from .comun import events
+from .comun.events import bus
 
 JOBS_FILE = DATA_DIR / "jobs.json"
 
@@ -55,7 +55,7 @@ def _norm(s: str) -> str:
 
 def _audit(**kw) -> None:
     try:
-        from . import audit as _a
+        from .comun import audit as _a
         _a.log(**kw)
     except Exception:
         pass

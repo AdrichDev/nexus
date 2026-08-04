@@ -134,7 +134,7 @@ _REG_MAX = 20
 
 
 def _reg_file():
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     return DATA_DIR / "hermes_jobs.json"
 
 
@@ -203,7 +203,7 @@ async def delegate(orden: str, ctx, channel: str, request_id: str = "") -> dict:
         return {"reply": "Eso ya lo tengo en marcha, no lo empiezo dos veces. "
                          "Te aviso en cuanto lo tenga."}
     jid, num = _reg_add(orden, channel)
-    from backend.core import publicvoice as pv
+    from backend.core.comun import publicvoice as pv
     await job_mgr.submit(f"#{num}: {orden[:44]}",
                          lambda o=orden, j=jid, n=num: _run_hermes(o, url, hdr, channel, j, n),
                          kind="hermes", agent="hermes", channel=channel,
@@ -717,7 +717,7 @@ def provision_engram_mcp(ctx) -> tuple:
 
 
 def _gateway_log():
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     return DATA_DIR / "hermes_gateway.log"
 
 
@@ -816,7 +816,7 @@ async def ensure_up(ctx, force: bool = False) -> bool:
     try:
         eng_changed, eng_detail = await _a.to_thread(provision_engram_mcp, ctx)
         if eng_changed:
-            from backend.core.events import bus
+            from backend.core.comun.events import bus
             await bus.emit("log", {"level": "info",
                                    "msg": "🧠🪽 Hermes enganchado a Engram: " + eng_detail
                                           + " (activo tras (re)arrancar su gateway)."})
@@ -856,7 +856,7 @@ async def ensure_up(ctx, force: bool = False) -> bool:
                                     stdout=logf, stderr=logf,
                                     stdin=subprocess.DEVNULL, close_fds=True,
                                     env=_clean_env(), **_win_hidden_kw())
-            from backend.core.events import bus
+            from backend.core.comun.events import bus
             await bus.emit("log", {"level": "info",
                                    "msg": "🪽 Arrancando el gateway de Hermes con entorno limpio "
                                           "(log en data/hermes_gateway.log)…"})
@@ -940,7 +940,7 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
       → mensaje claro y accionable; reintentar no sirve, es config del propio Hermes."""
     import asyncio as _a
     import httpx
-    from backend.core.events import bus
+    from backend.core.comun.events import bus
     error = False
     _intentos = [0]
     try:
@@ -996,7 +996,7 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
     tag = f" #{num}" if num else ""
     # v23 (T8): la respuesta final dice SIEMPRE en qué estado acabó — terminado,
     # fallido o incompleto. Nada de dar por bueno lo que no se ha verificado.
-    from backend.core import publicvoice as pv
+    from backend.core.comun import publicvoice as pv
     if error:
         # Un único mensaje FUNCIONAL: el detalle técnico se queda en el log.
         reply = pv.mensaje_fallo(out, intentos=_intentos[0])
@@ -1176,7 +1176,7 @@ async def _arranca(ctx) -> dict:
     if await _alive(url, hdr) and await _auth_ok(url, hdr):
         return {"reply": f"🪽 Hermes ya estaba en marcha y me responde en {url}. "
                          "Encárgale algo: «hermes: investiga X y hazme un informe»."}
-    from backend.core.events import bus
+    from backend.core.comun.events import bus
     await bus.emit("log", {"level": "info", "msg": "🪽 Orden recibida: levantar Hermes"})
     t0 = time.time()
     ok = await ensure_up(ctx)
@@ -1272,7 +1272,7 @@ async def _handle_publico(intent: str, text: str, match, ctx) -> dict:
     if not await _alive(url, hdr) and not installed(ctx):
         # specs v24 (T2): al usuario, mensaje funcional. El detalle de qué falta
         # instalar y dónde va al LOG y al diagnóstico, no al chat.
-        from backend.core.events import bus as _bus
+        from backend.core.comun.events import bus as _bus
         await _bus.emit("log", {"level": "warn",
                                 "msg": f"Ejecutor no disponible en {url} y sin instalación "
                                        "local: instálalo desde hermes-agent.nousresearch.com "

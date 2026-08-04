@@ -188,7 +188,7 @@ async def _ai_summary(text: str, prompt: str) -> str:
 
 
 def _perm():
-    from backend.core import permissions
+    from backend.core.comun import permissions
     return permissions
 
 
@@ -396,7 +396,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         vs = FIO.versions(path)
         if not vs:
             return {"reply": f"No tengo ninguna versión anterior de {path.name} que restaurar."}
-        from backend.core import confirm
+        from backend.core.comun import confirm
         canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
 
         def _restaurar(_p=path):
@@ -434,7 +434,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         # confirmar se guarda antes la versión anterior. Y al crear se VERIFICA.
         res = FIO.write_text(target, content, reason=text)
         if res.get("necesita_confirmacion"):
-            from backend.core import confirm
+            from backend.core.comun import confirm
             canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
             actual = res.get("actual", {})
 
@@ -526,7 +526,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": P.deny_msg(path)}
         if not path.exists():
             return {"reply": f"No existe {path}. No he borrado nada."}
-        from backend.core import confirm
+        from backend.core.comun import confirm
         canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
 
         def _a_la_papelera(_p=path):
@@ -553,7 +553,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             "data": {"confirm": True}}
 
     if intent == "trash_confirm":
-        # el «sí»/«no» lo resuelve backend.core.confirm ANTES del router: si la
+        # el «sí»/«no» lo resuelve backend.core.comun.confirm ANTES del router: si la
         # frase llega hasta aquí es que ya no hay nada armado
         return {"reply": "No hay nada pendiente de mandar a la papelera. "
                          "Dime «borra el archivo <ruta>» y te enseño qué se lleva antes "

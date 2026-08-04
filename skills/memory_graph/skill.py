@@ -173,7 +173,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         from pathlib import Path
         raw = match.group("folder").strip().strip('"').strip("'").rstrip(".")
         base = Path(raw).expanduser()
-        from backend.core import permissions as P
+        from backend.core.comun import permissions as P
         if not P.path_allowed(base):
             return {"reply": P.deny_msg(base)}
         if not base.is_dir():
@@ -219,7 +219,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         from pathlib import Path
         raw = match.group("path").strip().strip('"').strip("'").rstrip(".")
         path = Path(raw).expanduser()
-        from backend.core import permissions as P
+        from backend.core.comun import permissions as P
         if not P.path_allowed(path):
             return {"reply": P.deny_msg(path)}
         if not path.is_file():

@@ -23,8 +23,8 @@ from pathlib import Path
 
 import httpx
 
-from . import net
-from .config import CONFIG_DIR, settings
+from .comun import net
+from .comun.config import CONFIG_DIR, settings
 
 _DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 _MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
@@ -830,7 +830,7 @@ def _build_messages(user_text: str, context: list[dict] | None = None,
     respuesta normal y la respuesta en STREAMING."""
     pkey = settings.get("personality", "jarvis")
     pers = PERSONALITIES.get(pkey, PERSONALITIES["jarvis"])
-    from .config import assistant_name as _aname, voice_gender as _vg
+    from .comun.config import assistant_name as _aname, voice_gender as _vg
     _fem = _vg() != "m"                        # género de la VOZ (fem por defecto)
     base = system or SYSTEM_PROMPT.format(
         assistant=_aname(),
@@ -1010,7 +1010,7 @@ async def interpret_command(user_text: str, catalog: str, examples: str = "",
     prov = await get_provider()
     if prov.name == "mock":
         return ""                     # sin LLM real no hay interpretación fiable
-    from .config import assistant_name as _aname
+    from .comun.config import assistant_name as _aname
     sys = (
         f"Eres el ENRUTADOR de {_aname()}. Recibes una petición del usuario y una lista de "
         "capacidades (skills) con sus intents. Si la petición es una ORDEN que encaja con "
@@ -1072,7 +1072,7 @@ async def plan_action(user_text, catalog, examples="", recent_context=""):
     prov = await get_provider()
     if prov.name == "mock":
         return None
-    from .config import assistant_name as _aname
+    from .comun.config import assistant_name as _aname
     sys = (
         f"Eres el PLANIFICADOR de {_aname()} y un MODELO DE RAZONAMIENTO. Recibes una "
         "peticion del usuario y un CATALOGO de skills (cada intent con sus argumentos). "

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 
-from . import net
+from .comun import net
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -42,7 +42,7 @@ _CACHE_MAX = 300       # entradas máximas (se poda lo más viejo)
 
 
 def _cache_file():
-    from .config import DATA_DIR
+    from .comun.config import DATA_DIR
     return DATA_DIR / "webcache.json"
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from .events import bus
+from .comun.events import bus
 from .memory import pg
 
 try:
@@ -28,7 +28,7 @@ def _umbral_ingesta() -> dict:
     """Lee memoria.ingesta de config/umbrales.json, con reserva si falta."""
     reserva = {"max_bytes": 5_000_000}
     try:
-        from .config import CONFIG_DIR
+        from .comun.config import CONFIG_DIR
         import json
         f = CONFIG_DIR / "umbrales.json"
         if f.is_file():
@@ -54,7 +54,7 @@ async def _ingest_inbox():
         `text[i:i+900]` (Postgres) -- el 4º y último de los truncados de
         este bloque. Ahora usa rag.trocear() (o trocear_xlsx_estructurado()
         si es un .xlsx) sobre el texto ENTERO."""
-    from .config import DATA_DIR
+    from .comun.config import DATA_DIR
     from . import files_io, rag
     inbox = DATA_DIR / "memory" / "inbox"
     done = DATA_DIR / "memory" / "ingested"

@@ -174,7 +174,7 @@ _HISTORY_MAX = 40
 
 
 def _hist_file():
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     return DATA_DIR / "music_history.json"
 
 

@@ -66,7 +66,7 @@ def _correos() -> list[dict]:
 
 
 async def main() -> int:
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
     from skills.google_workspace import skill as GW
 
     prov = settings.get("llm_provider", "ollama")

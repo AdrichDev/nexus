@@ -60,8 +60,8 @@ rag = importlib.import_module("backend.core.rag")
 mem = importlib.import_module("backend.core.memory")
 scheduler = importlib.import_module("backend.core.scheduler")
 ingesta = importlib.import_module("backend.core.ingesta")
-config = importlib.import_module("backend.core.config")
-permissions = importlib.import_module("backend.core.permissions")
+config = importlib.import_module("backend.core.comun.config")
+permissions = importlib.import_module("backend.core.comun.permissions")
 
 
 # ------------------------- infraestructura de prueba -------------------------

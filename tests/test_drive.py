@@ -467,7 +467,7 @@ def test_todos_los_intents_de_drive_tienen_rama_en_handle():
 # Desde el 02/08/2026 estos intents apuntan a documentos REALES de la cuenta
 # entera, y se llega a ellos por una regex. Regla del proyecto, nacida del
 # incidente del tablero: solo lectura por defecto; borrar exige confirmación.
-from backend.core import confirm as _confirm                     # noqa: E402
+from backend.core.comun import confirm as _confirm  # noqa: E402
 
 # Los tests NO escriben en la auditoría real (data/logs/audit.jsonl). Ese fichero
 # es la traza de lo que ha hecho nexus de verdad y lo comparten otras suites

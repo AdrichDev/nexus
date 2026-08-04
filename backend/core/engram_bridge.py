@@ -291,7 +291,7 @@ def install_cli() -> int:
     # y no se reinstala en balde en cada arranque quien tenga el binario en un sitio raro.
     ctx = {}
     try:
-        from backend.core.config import settings as _s
+        from backend.core.comun.config import settings as _s
         ctx = {"settings": _s}
         if not _s.get("engram_autoinstall", True):
             print("[nexus] Engram: 'engram_autoinstall' está desactivado en ⚙; no lo instalo.")
@@ -324,7 +324,7 @@ async def maybe_install_background(ctx) -> None:
         autoinstall = ctx["settings"].get("engram_autoinstall", True) if ctx.get("settings") else True
         if not autoinstall:
             return
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         await bus.emit("log", {"level": "info",
                                "msg": "🧠 Instalando Engram (memoria de proyecto) en segundo plano…"})
         exe = await asyncio.to_thread(install, ctx)
@@ -385,7 +385,7 @@ def _win_hidden_kw() -> dict:
 
 
 def _log_file():
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     return DATA_DIR / "engram_serve.log"
 
 
@@ -413,7 +413,7 @@ async def ensure_up(ctx) -> bool:
         subprocess.Popen([exe, "serve", str(_port(ctx))],
                          stdout=logf, stderr=logf, stdin=subprocess.DEVNULL,
                          close_fds=True, **_win_hidden_kw())
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         await bus.emit("log", {"level": "info",
                                "msg": "🧠 Arrancando el servidor de Engram "
                                       "(log en data/engram_serve.log)…"})

@@ -22,8 +22,8 @@ import datetime as dt
 import json
 import time
 
-from .config import DATA_DIR, settings
-from .config import assistant_name as _aname
+from .comun.config import DATA_DIR, settings
+from .comun.config import assistant_name as _aname
 
 _STATE = DATA_DIR / "briefing_state.json"
 
@@ -70,7 +70,7 @@ async def weather_now() -> dict:
     """Tiempo ACTUAL en datos (specs v23, T15: la temperatura vive en el header).
     Devuelve {} si el servicio falla — un fallo del tiempo NO bloquea nada más."""
     try:
-        from . import net
+        from .comun import net
         city = settings.get("briefing_city", "") or ""
         from urllib.parse import quote
         url = f"https://wttr.in/{quote(city) if city else ''}?format=j1&lang=es"
@@ -107,7 +107,7 @@ def _wx_icon(code: str, desc: str) -> str:
 
 async def _sec_clima() -> str:
     try:
-        from . import net
+        from .comun import net
         city = settings.get("briefing_city", "") or ""
         from urllib.parse import quote
         url = f"https://wttr.in/{quote(city) if city else ''}?format=j1&lang=es"
@@ -268,7 +268,7 @@ async def maybe_send() -> bool:
                         last):
         return False
     txt = await build_briefing()
-    from .events import bus
+    from .comun.events import bus
     await bus.emit("chat", {"user": "[briefing automático]", "reply": txt,
                             "provider": "nexus", "skill": "coach", "channel": "pc"})
     await bus.emit("notification", {"title": f"☀ Briefing de {_aname()}",

@@ -260,7 +260,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             pass
         # Guardar spec + crear tareas en el tablero
         import re as _re
-        from backend.core.config import DATA_DIR
+        from backend.core.comun.config import DATA_DIR
         safe = _re.sub(r"[^\w\- ]", "", proj)[:40].strip() or "proyecto"
         out = DATA_DIR / "specs" / f"{safe}.md"
         out.parent.mkdir(parents=True, exist_ok=True)

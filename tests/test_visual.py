@@ -210,7 +210,7 @@ def test_el_flujo_engancha_lo_visual():
     js = js_hud()
     check("igVisual" in js, "el HUD lo pinta")
     check("vision_model" in js, "y se puede elegir el modelo desde APIS")
-    cfg = (ROOT / "backend" / "core" / "config.py").read_text(encoding="utf-8")
+    cfg = (ROOT / "backend" / "core" / "comun" / "config.py").read_text(encoding="utf-8")
     check('"vision_model"' in cfg, "con su ajuste en la configuración")
 
 

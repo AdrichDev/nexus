@@ -203,7 +203,7 @@ SKILL = {
         "screenshot": r"captura de (?:la\s+)?pantalla|haz(?:me)? una captura|s[aá]ca(?:me)? (?:una\s+)?captura|pantallazo|captura la pantalla|screenshot",
         "webcam": r"foto (?:con|desde) la (webcam|c[aá]mara)|haz(?:me)? una foto|s[aá]ca(?:me)? una foto|[eé]cha(?:me)? una foto",
         # SEGURIDAD: apagar y reiniciar SIEMPRE son dos pasos, armados en
-        # backend.core.confirm. Los *_confirm solo llegan aquí cuando NO hay nada
+        # backend.core.comun.confirm. Los *_confirm solo llegan aquí cuando NO hay nada
         # armado (si lo hay, el brain resuelve el sí/no antes que el router).
         "shutdown_confirm": r"confirmo apagado",
         "shutdown": r"\bap[aá]ga(?:me)?\s+(?:el\s+|la\s+|mi\s+)?(pc|ordenador|equipo|sistema|torre|m[aá]quina)\b",
@@ -749,14 +749,14 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": f"Brillo al {destino}%. ✔"}
 
     if intent == "hardware":
-        from backend.core import permissions
+        from backend.core.comun import permissions
         if not permissions.hardware_allowed():
             return {"reply": permissions.HW_DENIED}
         return {"reply": f"Informe de sistemas: {_hw_report()}. "
                          "Si quieres afinar, di «lista los procesos» y vemos quién consume."}
 
     if intent == "temps":
-        from backend.core import permissions
+        from backend.core.comun import permissions
         if not permissions.hardware_allowed():
             return {"reply": permissions.HW_DENIED}
         return {"reply": f"Temperaturas: {_temps_report()}"}
@@ -847,7 +847,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             return {"reply": f"Abriendo https://{raw}."}
         # 2) Webs ya APRENDIDAS (el modelo las dedujo antes) → instantáneo
         import json as _json
-        from backend.core.config import DATA_DIR
+        from backend.core.comun.config import DATA_DIR
         cache_file = DATA_DIR / "web_urls.json"
         try:
             cache = _json.loads(cache_file.read_text(encoding="utf-8"))
@@ -1051,7 +1051,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         apagar = intent == "shutdown"
         verbo = "apagar" if apagar else "reiniciar"
         yo = "apago" if apagar else "reinicio"
-        from backend.core import confirm
+        from backend.core.comun import confirm
         canal = (ctx or {}).get("channel", "pc") if isinstance(ctx, dict) else "pc"
         abiertos = len(_proc_names()) if psutil is not None else 0
         cuantos = (f" Ahora mismo hay {abiertos} programa(s) distintos en marcha y "

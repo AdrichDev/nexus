@@ -153,7 +153,7 @@ def test_notificacion_unica_y_automatica():
         jm = jobsmod.JobManager()
         jm._jobs, jm._order, jm._counter = {}, [], 0
         chats = []
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         orig = bus.emit
 
         async def _spy(kind, data=None):

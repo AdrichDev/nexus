@@ -62,7 +62,7 @@ _INFO = (
 # ─────────────────────────── agenda (data/contacts.json) ───────────────────────────
 
 def _contacts_file():
-    from backend.core.config import DATA_DIR
+    from backend.core.comun.config import DATA_DIR
     return DATA_DIR / "contacts.json"
 
 
@@ -117,7 +117,7 @@ def resolve_contact(who: str) -> tuple[str, str]:
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
     from backend.core import remote
-    from backend.core.events import bus
+    from backend.core.comun.events import bus
 
     if intent == "info":
         return {"reply": _INFO}

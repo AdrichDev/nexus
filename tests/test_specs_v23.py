@@ -39,8 +39,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import backend.core.board as board          # noqa: E402
-import backend.core.confirm as confirm      # noqa: E402
-import backend.core.audit as audit          # noqa: E402
+import backend.core.comun.confirm as confirm      # noqa: E402
+import backend.core.comun.audit as audit          # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v21_"))
 board.BOARD_FILE = _TMP / "board.json"
@@ -375,7 +375,11 @@ def test_auditoria_de_destructivas():
 
 def test_brain_resuelve_confirmaciones():
     src = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")
-    check("from . import confirm as _cf" in src, "brain importa el módulo de confirmación")
+    # Se comprueba QUE lo importa, no CÓMO: `confirm` bajó a `backend/core/comun/`
+    # con la Fase 3 y una prueba atada a la línea exacta se rompe cada vez que un
+    # módulo cambia de carpeta, sin que nada haya dejado de funcionar.
+    check(re.search(r"import\s+confirm\s+as\s+_cf", src) is not None,
+          "brain importa el módulo de confirmación")
     check("_cf.answer(text, channel)" in src, "brain resuelve la confirmación del canal")
     i_conf = src.find("_cf.answer")
     i_route = src.find("routed = None if _no_accion else route(text)")

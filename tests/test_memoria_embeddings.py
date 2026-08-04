@@ -158,7 +158,7 @@ def test_descarte_avisa_y_cuenta_no_silencioso():
     original_avisado = mem.pg._avisado_descarte
     avisos = []
     try:
-        from backend.core.events import bus
+        from backend.core.comun.events import bus
         original_emit = bus.emit_sync
         bus.emit_sync = lambda tipo, data=None: avisos.append((tipo, data))
         mem.pg._dimension_columna = lambda tabla="memories": 768
@@ -193,7 +193,7 @@ def test_sale_del_equipo_por_proveedor_y_por_url():
 
 
 def test_cambiar_cerebro_no_cambia_embed_provider():
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
     original = settings.get("llm_provider", "gemini")
     umbral_antes = mem._cargar_umbrales_embedding().get("proveedor_preferido")
     try:
@@ -297,7 +297,7 @@ def test_endpoints_reindexado():
 # ================== A2.5: endpoint de migración protegido ==================
 def test_endpoint_migrar_exige_confirmacion():
     import asyncio
-    from backend.core import confirm
+    from backend.core.comun import confirm
     canal = f"test-{uuid.uuid4().hex[:6]}"
     r = asyncio.run(app_migrar({"dim": 5, "channel": canal}))
     check("reply" in r, "POST /api/memoria/vector/migrar arma confirm.request() (no ejecuta directo)")

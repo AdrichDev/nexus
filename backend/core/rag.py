@@ -22,7 +22,7 @@ import re
 import time
 import unicodedata
 
-from .config import CONFIG_DIR, DATA_DIR, settings
+from .comun.config import CONFIG_DIR, DATA_DIR, settings
 
 _DIR = DATA_DIR / "rag"
 _STORE = _DIR / "knowledge.jsonl"          # {id, text, kind, meta, vec, ts}
@@ -548,7 +548,7 @@ async def reindex(limit: int = 40) -> int:
     avisar (2º de los cuatro truncados de este bloque). AHORA se trocea con
     `trocear()` y cada trozo se indexa por separado, entero."""
     from .memory import MEMORY_DIR
-    from .config import SKILLS_DIR
+    from .comun.config import SKILLS_DIR
     seen = _seen()
     done = 0
     paths = []

@@ -21,10 +21,10 @@ import re
 import uuid
 
 from . import llm, opmem, rag, websearch
-from .config import DATA_DIR, settings
-from .config import assistant_name as _aname
+from .comun.config import DATA_DIR, settings
+from .comun.config import assistant_name as _aname
 from .jobs import jobs as job_mgr
-from .events import bus
+from .comun.events import bus
 from .memory import graph, pg
 from .skills_loader import get_skills, route
 
@@ -357,7 +357,7 @@ def pega_respuesta_a_pregunta(text: str, channel: str = "pc") -> str:
     una pregunta de hace tres mensajes. Y solo se aprovecha si esto parece una
     respuesta: cortísima, que por sí sola no llegue a nadie, y que no sea un
     saludo. Contestar a «¿cuál?» son dos o tres palabras, no una frase."""
-    from . import context as _ctxt
+    from .comun import context as _ctxt
     pendiente = _ctxt.pregunta_pendiente(channel)
     if not pendiente:
         return text
@@ -694,7 +694,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # camino normal.
     if source in ("text", "voice"):
         try:
-            from . import confirm as _cf
+            from .comun import confirm as _cf
             _conf_reply = await _cf.answer(text, channel)
         except Exception as _exc:                       # noqa: BLE001
             _conf_reply = None
@@ -718,7 +718,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # completa ANTES del router (y se explica en el log).
     if source in ("text", "voice"):
         try:
-            from . import context as _mturn
+            from .comun import context as _mturn
             _resolved = _mturn.resolve(text, channel)
         except Exception:
             _resolved = None
@@ -745,7 +745,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
     # AUDITORÍA (v23 T24): «qué has hecho hoy», «qué has borrado», «por qué se borró».
     if source in ("text", "voice") and _AUDIT_RX.search(text):
-        from . import audit as _aud
+        from .comun import audit as _aud
         solo_destructivas = bool(re.search(r"borrad|eliminad|modificad|borr[oó]|elimin[oó]",
                                            text, re.I))
         regs = _aud.tail(12, destructive_only=solo_destructivas)
@@ -1187,7 +1187,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         data = result.get("data")
         _admin = bool(result.get("admin"))     # v24 T18: diagnóstico sin sanear
         try:
-            from . import context as _mturn
+            from .comun import context as _mturn
             _mturn.note_reply(skill.folder, intent, reply, channel)
         except Exception:
             pass
@@ -1371,7 +1371,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
 
 def boot_report() -> list[str]:
-    from .config import assistant_name
+    from .comun.config import assistant_name
     skills = get_skills()
     ok = [s for s in skills.values() if s.status != "error"]
     return [

@@ -12,7 +12,7 @@ Bajo la orden de Adri (voz o texto), nexus puede:
 Corre en el mismo proceso que el backend, con acceso real a docker/ollama/n8n
 locales. No borra contenedores ni ficheros. Lo que sobrescribe algo que ya
 existe (crear el workflow de n8n, cambiar OLLAMA_MODELS) pasa antes por
-`backend.core.confirm`.
+`backend.core.comun.confirm`.
 """
 from __future__ import annotations
 
@@ -222,7 +222,7 @@ async def _ollama_fix(ctx) -> str:
         if norm(target) != norm(env_models):
             if env_models:
                 # Ya había una ruta distinta puesta: sobrescribirla es destructivo.
-                from backend.core import confirm
+                from backend.core.comun import confirm
                 return "\n".join(L) + "\n\n" + confirm.request(
                     channel=ctx.get("channel", "pc"), kind="ollama_models",
                     summary=(f"OLLAMA_MODELS apunta ahora a «{env_models}» y para que Ollama "
@@ -281,7 +281,7 @@ async def _n8n_setup(ctx) -> str:
     except Exception as exc:                                    # noqa: BLE001
         return f"No pude leer {wf_file.name}: {type(exc).__name__}: {exc}"
     # Crear y ACTIVAR un workflow toca tu n8n de verdad: se pregunta antes.
-    from backend.core import confirm
+    from backend.core.comun import confirm
     return confirm.request(
         channel=ctx.get("channel", "pc"), kind="n8n_workflow",
         summary=(f"Voy a crear y ACTIVAR el workflow «{payload['name']}» en tu n8n "

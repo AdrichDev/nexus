@@ -71,7 +71,7 @@ _cache_archivo = None
 def ruta_umbrales() -> Path:
     """config/umbrales.json, respetando NEXUS_CONFIG_DIR si está puesto."""
     try:
-        from backend.core.config import CONFIG_DIR          # type: ignore
+        from backend.core.comun.config import CONFIG_DIR          # type: ignore
         return Path(CONFIG_DIR) / "umbrales.json"
     except Exception:
         return Path(__file__).resolve().parents[2] / "config" / "umbrales.json"

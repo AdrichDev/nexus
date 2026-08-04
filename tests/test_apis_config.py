@@ -15,7 +15,7 @@ def check(c, m):
 def main():
     js = js_hud()
     css = (ROOT / "frontend" / "css" / "command.css").read_text(encoding="utf-8")
-    cfg = (ROOT / "backend" / "core" / "config.py").read_text(encoding="utf-8")
+    cfg = (ROOT / "backend" / "core" / "comun" / "config.py").read_text(encoding="utf-8")
 
     print("· existe el apartado y se llama APIS")
     check("APIS · CLAVES DE ACCESO" in js, "la configuración tiene un apartado APIS")

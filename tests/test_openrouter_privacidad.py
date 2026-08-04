@@ -46,7 +46,7 @@ def check(cond, msg):
 
 def main() -> int:
     from backend.core import llm
-    from backend.core.config import settings
+    from backend.core.comun.config import settings
 
     original = settings.get("cloud_base_url")
 

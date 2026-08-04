@@ -36,7 +36,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import backend.core.board as board       # noqa: E402
-import backend.core.audit as audit       # noqa: E402
+import backend.core.comun.audit as audit       # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v23u_"))
 board.BOARD_FILE = _TMP / "board.json"

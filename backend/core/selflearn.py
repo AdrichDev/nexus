@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import time
 
-from .config import DATA_DIR, settings
+from .comun.config import DATA_DIR, settings
 
 _INTER = DATA_DIR / "interactions.jsonl"
 _PROFILE = DATA_DIR / "operator_profile.md"

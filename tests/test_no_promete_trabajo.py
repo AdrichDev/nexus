@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend.core import publicvoice as pv          # noqa: E402
+from backend.core.comun import publicvoice as pv  # noqa: E402
 
 _pass = 0
 _fail: list[str] = []
@@ -106,7 +106,7 @@ check("no lo estoy haciendo" in solo_promesa.lower(),
 # ============ 4) EL CANDADO ESTÁ EN LA ÚLTIMA BARRERA ======================
 print("== 4) el candado va donde pasa TODO lo que llega al chat ==")
 
-EV = (ROOT / "backend" / "core" / "events.py").read_text(encoding="utf-8")
+EV = (ROOT / "backend" / "core" / "comun" / "events.py").read_text(encoding="utf-8")
 check("sin_progreso_inventado" in EV,
       "events.py no aplica el candado: cada módulo tendría que acordarse solo")
 # El bus NO puede importar el gestor de trabajos: está por encima de su capa y

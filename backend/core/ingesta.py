@@ -28,8 +28,9 @@ import json
 import re
 from pathlib import Path
 
-from . import files_io, permissions, rag
-from .config import CONFIG_DIR, DATA_DIR
+from . import files_io, rag
+from .comun import permissions
+from .comun.config import CONFIG_DIR, DATA_DIR
 
 DOCUMENTOS_DIR = DATA_DIR / "memory" / "documentos"
 
