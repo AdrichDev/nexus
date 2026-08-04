@@ -87,6 +87,7 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_frontend_modulos.py", "test_capas_backend.py",
               "test_reglas_valores.py", "test_reglas_contrato.py",
               "test_aprendizaje_puertas.py", "test_aprendizaje_no_robo.py",
+              "test_aprendizaje_ciclo.py",
               "test_lo_prometido.py", "test_grafo_solo_conocimiento.py",
               "test_saludo_una_vez.py", "test_calla_al_escribir.py", "test_no_promete_trabajo.py", "test_apunta_no_es_siempre_memoria.py", "test_regresion_conversacion.py", "test_que_sabes_de_mi.py",
               "test_grafo_vista.py"):

@@ -501,6 +501,61 @@ def _umbral(clave: str, reserva):
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else reserva
 
 
+def umbral(clave: str, reserva):
+    """Un numero del bloque `aprendizaje` de `config/umbrales.json`, o su reserva.
+
+    Es `_umbral` con la puerta abierta para `aplicacion`. Ningun umbral se
+    incrusta en el codigo de arriba: quien lo necesite lo pide aqui, que es
+    donde se sabe leer el fichero y donde esta la reserva si el fichero no
+    viaja."""
+    return _umbral(clave, reserva)
+
+
+# ------------------------------------------------- evidencia de las correcciones
+# Cuantas veces DISTINTAS se ha observado una correccion. Vive en el MISMO
+# fichero que las reglas, bajo su propia clave: un segundo fichero seria un
+# segundo sitio del que acordarse al borrar, y el contrato dice que borrar
+# `data/reglas_aprendidas.json` devuelve el comportamiento de fabrica exacto.
+#
+# Se cuenta por DIA, no por llamada: repetir la misma queja tres veces seguidas
+# de rabia es un enfado, no tres pruebas.
+
+def anota_ocurrencia(frase: str, dia: str = "") -> int:
+    """Apunta que hoy se ha observado la correccion de `frase` y devuelve cuantos
+    DIAS distintos la sostienen."""
+    clave = (frase or "").strip()
+    if not clave:
+        return 0
+    dia = (dia or _ahora()[:10]).strip()
+    if solo_lectura():
+        return len(_ocurrencias_de(_leer(), clave))
+    with _lock:
+        datos = _leer()
+        bolsa = datos.get("ocurrencias")
+        if not isinstance(bolsa, dict):
+            bolsa = {}
+        dias = [d for d in bolsa.get(clave, []) if isinstance(d, str)]
+        if dia not in dias:
+            dias.append(dia)
+        bolsa[clave] = dias
+        datos["ocurrencias"] = bolsa
+        config._write_json_atomic(ruta_almacen(), datos)
+    return len(dias)
+
+
+def ocurrencias(frase: str) -> int:
+    """Dias distintos en los que se ha observado la correccion de `frase`."""
+    return len(_ocurrencias_de(cargar(), (frase or "").strip()))
+
+
+def _ocurrencias_de(datos: dict, clave: str) -> list:
+    bolsa = datos.get("ocurrencias")
+    if not isinstance(bolsa, dict) or not clave:
+        return []
+    dias = bolsa.get(clave)
+    return [d for d in dias if isinstance(d, str)] if isinstance(dias, list) else []
+
+
 def _puerta_campos(r) -> tuple[bool, str, bool]:
     """Puerta 1. Los ocho campos, y el motivo NOMBRA el que falta: «no vale» no
     le dice nada a quien tiene que arreglarlo."""

@@ -374,12 +374,12 @@ hacer daño.
 
 ### C1. Observar la corrección y distinguir el hueco del fallo
 
-- [ ] C1.1 `aprendizaje.observa(correccion, antecedente, canal) -> propuesta | aviso | {}`.
+- [x] C1.1 `aprendizaje.observa(correccion, antecedente, canal) -> propuesta | aviso | {}`.
       Juzga el **antecedente** —el turno anterior del operador, de `brain._history`
       y `data/interactions.jsonl` como respaldo— con `quien_atiende()`, no la queja.
       — *Cubre*: aprendizaje-correcciones, req. «Distinguir un hueco de enrutado de
       un fallo de código»
-- [ ] C1.2 **RED — no tapar un fallo de código**:
+- [x] C1.2 **RED — no tapar un fallo de código**:
       `test_aprendizaje_ciclo.py::test_antecedente_que_llega_a_una_skill_no_propone_nada`
       — antecedente que devuelve `skill:X/Y` → **cero propuestas** y un registro
       `tipo: "aviso"`. Decisión 3 del dueño. — *Cubre*: aprendizaje-correcciones,
@@ -387,26 +387,26 @@ hacer daño.
       **Cómo probar que puede fallar**: haz que `observa()` devuelva una propuesta
       siempre; el test tiene que dar rojo por las dos afirmaciones (cero propuestas
       **y** aviso presente), no por una.
-- [ ] C1.3 **RED — atajo previo**:
+- [x] C1.3 **RED — atajo previo**:
       `test_aprendizaje_ciclo.py::test_antecedente_capturado_por_un_atajo_no_propone`
       — antecedente que devuelve `memoria`, `charla` o `queja` → aviso, no propuesta.
       Es la clase del fallo de «apunta la mentoría el jueves», y este mecanismo
       **no lo arregla**: que quede escrito en el mensaje del aviso. — *Cubre*:
       aprendizaje-correcciones, escenario «Un atajo previo se queda la frase»
-- [ ] C1.4 **GREEN** implementar la tabla de veredictos de C1.2/C1.3 en `observa()`.
-- [ ] C1.5 Umbral de evidencia: `origen.tipo = "ordenada"` (casó `brain._TEACH_RX`)
+- [x] C1.4 **GREEN** implementar la tabla de veredictos de C1.2/C1.3 en `observa()`.
+- [x] C1.5 Umbral de evidencia: `origen.tipo = "ordenada"` (casó `brain._TEACH_RX`)
       entra con `veces >= 1`; `"observada"` espera `aprendizaje.umbral_observada`
       ocurrencias **distintas**, contadas por `(día, frase normalizada)` para que
       repetir la misma queja tres veces de rabia no cuente como tres pruebas. —
       *Cubre*: aprendizaje-correcciones, req. «La evidencia depende de quién lo
       diga»; aprendizaje-aprobacion, req. «La lista no se llena de ruido» — *Test*:
       `test_aprendizaje_ciclo.py::test_misma_queja_repetida_cuenta_una_vez`
-- [ ] C1.6 **RED — nunca proponer escribir una skill**:
+- [x] C1.6 **RED — nunca proponer escribir una skill**:
       `test_aprendizaje_ciclo.py::test_capacidad_inexistente_no_genera_propuesta` —
       corrección que pide algo que ninguna skill declara → sin propuesta, y la
       respuesta dice que eso necesita una skill nueva, que nexus no escribe. —
       *Cubre*: aprendizaje-correcciones, req. «Nunca proponer escribir una skill»
-- [ ] C1.7 `dominio/selflearn.py` expone la **generalización de patrón** para el
+- [x] C1.7 `dominio/selflearn.py` expone la **generalización de patrón** para el
       proponente. El LLM solo puede **ensanchar** el patrón; su salida es entrada de
       las puertas, nunca un veredicto. Modelo apagado o generalización que falla la
       puerta 3 o la 4 → se cae al patrón literal anclado. El aprendizaje degrada, no

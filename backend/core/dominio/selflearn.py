@@ -15,6 +15,7 @@ Ficheros en data/:
 from __future__ import annotations
 
 import json
+import re
 import time
 
 from ..comun.config import DATA_DIR, settings
@@ -98,6 +99,94 @@ def stats() -> dict:
     s = _load_state()
     return {"total": s.get("total", 0), "since": s.get("since", 0),
             "has_profile": bool(operator_profile()), "last": s.get("last", 0.0)}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  EL ANTECEDENTE Y LA GENERALIZACION — lo que este modulo le presta a 004
+# ══════════════════════════════════════════════════════════════════════════
+# El perfil deja de servir solo para engordar el prompt: aqui expone las dos
+# cosas que el proponente de reglas necesita y que no puede sacar de ningun
+# otro sitio sin importar el cerebro.
+
+def ultima_orden(excluir: str = "") -> str:
+    """La ultima frase del operador que NO es `excluir`, o '' si no hay.
+
+    Es el respaldo de `brain._history` cuando la correccion llega por un canal
+    que no comparte ese historial en RAM (el puente de mensajeria, una segunda
+    ventana). Se lee de `interactions.jsonl`, que es lo unico que sobrevive a un
+    reinicio."""
+    fuera = _normaliza(excluir)
+    for d in reversed(_recent(40)):
+        t = (d.get("t") or "").strip()
+        if t and (not fuera or _normaliza(t) != fuera):
+            return t
+    return ""
+
+
+def _normaliza(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower().strip("¿?¡!.,;:")).strip()
+
+
+# Hueco de inversion: quien sepa hablar con el modelo lo rellena desde arriba.
+# Sin rellenar NO hay generalizacion, y el proponente se queda con el patron
+# literal. Es mas estrecho, pero es valido: el aprendizaje degrada, no
+# desaparece.
+_generalizador = None
+
+
+def registrar_generalizador(fn) -> None:
+    """Guarda quien sabe ensanchar un patron (el modelo). Opcional a proposito."""
+    global _generalizador
+    _generalizador = fn
+
+
+def hay_generalizador() -> bool:
+    return _generalizador is not None
+
+
+def generaliza_patron(frase: str) -> str:
+    """Un patron MAS ANCHO que la frase literal, o '' si no lo hay.
+
+    EL MODELO NO EMITE UN VEREDICTO: lo que devuelve es ENTRADA de las puertas,
+    nunca una autorizacion. Aqui solo se comprueban las tres cosas que hacen que
+    merezca la pena molestar a las puertas con ello:
+
+      1. compila,
+      2. esta anclado por los dos lados —igual que exige la puerta de forma—,
+      3. y CASA LA FRASE QUE LO ORIGINO.
+
+    La tercera es la que convierte «generalizar» en algo comprobable. Un patron
+    que ya no casa su propia frase no es una version ancha de esa regla: es otra
+    regla distinta, colada por la puerta de atras y sin que nadie la haya pedido.
+
+    Devolver '' no es un fallo: es el camino normal cuando no hay modelo."""
+    frase = (frase or "").strip()
+    if not frase or _generalizador is None:
+        return ""
+    try:
+        candidato = str(_generalizador(frase) or "").strip()
+    except Exception:                                      # noqa: BLE001
+        return ""
+    if not candidato:
+        return ""
+    if not (candidato.startswith("^") and candidato.endswith("$")):
+        return ""
+    # LA FORMA SE MIRA ANTES DE EJECUTAR EL PATRON, y no despues.
+    #
+    # La comprobacion de abajo lo hace correr contra la frase. Un patron de
+    # retroceso catastrofico salido del modelo colgaria el proceso AQUI, antes
+    # de que ninguna puerta llegara a verlo. Se pregunta a la misma funcion que
+    # usa la puerta de forma: dos listas de formas peligrosas se separan al
+    # primer descubrimiento nuevo.
+    from . import reglas as _reglas
+    if _reglas._forma_peligrosa(candidato):
+        return ""
+    try:
+        if not re.search(candidato, frase, re.IGNORECASE):
+            return ""
+    except re.error:
+        return ""
+    return candidato
 
 
 async def retrain(force: bool = False) -> str:

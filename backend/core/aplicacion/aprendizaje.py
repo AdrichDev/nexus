@@ -12,15 +12,22 @@ Aqui vive lo que `dominio` no puede saber por si solo: que `carpeta/intent`
 existen de verdad en esta instalacion, y que la puerta de suite NO se ejecuta en
 la maquina de un usuario.
 
-Bloque B de 004: este modulo sabe JUZGAR una regla. Proponerlas, aprobarlas por
-tandas y consultarlas en caliente es el bloque C. Nada de produccion lo importa
-todavia, asi que con este bloque aplicado nexus se comporta exactamente igual
-que antes.
+Bloque B de 004: este modulo sabe JUZGAR una regla. Rebanada C1: ademas sabe
+OBSERVAR una correccion y decidir si delata un hueco de enrutado (donde cabe una
+regla) o un fallo de codigo (donde una regla solo taparia el problema).
+
+Aprobarlas por tandas y consultarlas en caliente sigue siendo C2/C3. Nada de
+produccion importa este modulo todavia y NADIE ha registrado el arbitro, asi que
+`observa()` contesta «no lo se» y nexus se comporta exactamente igual que antes.
 """
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
+import re
+
 from ..comun import audit
-from ..dominio import reglas
+from ..dominio import reglas, selflearn
 from . import skills_loader
 
 
@@ -115,6 +122,251 @@ def puerta_suite(regla: dict) -> str:
               error="no hay tests/ en una instalacion de usuario: aqui activan "
                     "cuatro puertas, no cinco")
     return "no_aplicable"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  OBSERVAR UNA CORRECCION — el hueco y el fallo, que no son lo mismo
+# ═══════════════════════════════════════════════════════════════════════════
+# NO SE JUZGA LA QUEJA: SE JUZGA SU ANTECEDENTE.
+#
+# «no, te he dicho que cierres chrome» no dice nada por si sola. Lo que hay que
+# mirar es el turno ANTERIOR del operador —la frase que se enruto mal— y
+# preguntarle al arbitro quien la atiende HOY. De esa respuesta sale todo:
+#
+#   planificador  -> nadie la atiende: hueco de enrutado, y ahi cabe una regla
+#   skill:X/Y     -> la frase SI llega: el fallo esta dentro de la skill
+#   charla/queja/memoria -> se la quedo un atajo ANTERIOR al router
+#   regla:<id>    -> ya hay una regla aprendida y sigue sin funcionar
+#
+# Solo el primer caso puede generar una propuesta. En los otros tres nexus
+# registra un AVISO y lo dice con esas palabras. Tapar un fallo de codigo con
+# una regla lo esconde para siempre, y este proyecto no finge.
+
+# Como se llama cada caso que NO es un hueco, y que se contesta en cada uno.
+_ATAJOS = ("charla", "queja", "memoria")
+
+# LA FORMULA DE ENSENNANZA, COPIADA A PROPOSITO DE `brain._TEACH_RX`.
+#
+# No se importa: `aprendizaje` no puede nombrar a `brain` sin abrir el quinto
+# ciclo de `CAPAS.md`, y un hueco registrado para una expresion regular seria
+# mas maquinaria que la propia expresion. La copia se paga con una prueba que
+# ejecuta las dos sobre el mismo puñado de frases y exige que contesten igual:
+# si una cambia y la otra no, la suite se pone roja el mismo dia.
+_ENSENANZA_RX = re.compile(
+    r"^\s*apr[eé]nde(?:te)?\s*(?:que\s+)?cuando\s+(?:te\s+)?diga\s+"
+    r"[\"'«]?(?P<ph>.+?)[\"'»]?\s*,?\s+(?:haz|hagas|ejecuta|ejecutes|significa|"
+    r"es|quiero\s+que\s+hagas|pon(?:gas)?)\s+"
+    r"[\"'«]?(?P<order>.+?)[\"'»]?\s*\.?\s*$", re.IGNORECASE)
+
+
+def _norm(s: str) -> str:
+    """Minusculas, espacios colapsados y sin signos de los extremos.
+
+    Es la misma normalizacion que usa el cerebro para comparar frases. Se repite
+    aqui en una linea en vez de importarla: `aprendizaje` no puede importar
+    `brain` —seria el quinto ciclo de `CAPAS.md`— y un hueco registrado para
+    esto costaria mas que la linea."""
+    return re.sub(r"\s+", " ", (s or "").strip().lower().strip("¿?¡!.,;:")).strip()
+
+
+def _ahora() -> str:
+    return dt.datetime.now().isoformat(timespec="seconds")
+
+
+def _identificador(prefijo: str, *partes: str) -> str:
+    """Un id ESTABLE para la misma correccion.
+
+    Sin esto, corregir dos veces lo mismo dejaria dos apuntes distintos y la
+    lista de «que has aprendido» se llenaria de duplicados. `guardar()` sustituye
+    por id, asi que un id derivado del contenido convierte la repeticion en una
+    actualizacion."""
+    crudo = "|".join(_norm(p) for p in partes)
+    return f"{prefijo}-{hashlib.sha1(crudo.encode('utf-8')).hexdigest()[:6]}"
+
+
+def _mensaje_aviso(clase: str, frase: str, veredicto: str) -> str:
+    if clase == "fallo_de_codigo":
+        return (f"«{frase}» ya llega a {veredicto}, asi que el enrutado no falla: "
+                "el fallo esta dentro de esa skill. Una regla lo taparia, y no se "
+                "aprende sobre un fallo de codigo.")
+    if clase == "atajo_previo":
+        return (f"«{frase}» se la queda el atajo «{veredicto}», que corre ANTES del "
+                "router. Las reglas aprendidas van detras del router, asi que este "
+                "mecanismo no lo arregla: hay que tocar el atajo.")
+    if clase == "ya_hay_regla":
+        return (f"«{frase}» ya la atiende una regla aprendida ({veredicto}) y aun asi "
+                "no ha salido bien. Otra regla encima no lo arregla: revisa esa, o el "
+                "destino al que apunta.")
+    return (f"«{frase}» no ha llegado a ninguna skill y la correccion tampoco senala "
+            "a cual deberia ir. Eso necesita una skill nueva, y nexus no escribe "
+            "codigo: escribela tu, o dimelo con «aprende que cuando diga X hagas Y».")
+
+
+def _guarda_aviso(clase: str, frase: str, veredicto: str, correccion: str,
+                  canal: str) -> dict:
+    """Deja constancia de que esa correccion NO era materia de regla.
+
+    Vive en el mismo almacen con `tipo: "aviso"`, y por eso no se activa nunca:
+    `activas()` solo mira las de enrutado y `valida()` rechaza un aviso antes de
+    la primera puerta. Queda en `propuesta` —que aqui significa «abierto»— hasta
+    que alguien lo cierre pasandolo a `descartada`: molestar hasta que se arregle
+    de verdad es la decision 3 del duenno."""
+    aviso = {
+        "id": _identificador("a", clase, frase),
+        "esquema": reglas.ESQUEMA,
+        "tipo": "aviso",
+        "revision": 1,
+        "clase": clase,
+        "origen": {"frase": frase, "canal": canal or "pc", "fecha": _ahora(),
+                   "tipo": "observada", "veces": 1, "correccion": correccion},
+        "destino": veredicto,
+        "mensaje": _mensaje_aviso(clase, frase, veredicto),
+        "evidencia": {"veredicto": veredicto, "suite": None},
+        "estado": "propuesta",
+    }
+    try:
+        reglas.guardar(aviso)
+    except Exception as e:                                 # noqa: BLE001
+        # Que no se pueda apuntar el aviso no puede tumbar la conversacion: se
+        # deja en la auditoria y se devuelve igual, para que al menos se diga.
+        audit.log("aviso_no_guardado", actor="nexus", result=clase, error=str(e))
+    return dict(aviso)
+
+
+def _destino_pretendido(reparacion: str) -> str:
+    """El «carpeta/intent» que senala la reparacion, o '' si no senala ninguno.
+
+    El destino no se adivina: sale de la frase con la que el operador ARREGLO la
+    orden, preguntandole al arbitro a quien llega. Si esa frase tampoco llega a
+    ninguna skill, no hay destino que proponer — y eso NO es un fallo del
+    mecanismo, es que lo que se pide no lo sabe hacer nadie."""
+    veredicto = reglas.arbitro((reparacion or "").strip(), reglas=())
+    if not veredicto.startswith("skill:"):
+        return ""
+    destino = veredicto[len("skill:"):]
+    return destino if existe_destino(destino) else ""
+
+
+def _patron_literal(frase: str) -> str:
+    """La frase, anclada por los dos lados y con los espacios flexibles.
+
+    Es el patron mas ESTRECHO posible: casa esa frase y ninguna otra. Es el
+    suelo al que se cae cuando no hay generalizacion, y por eso se escapa cada
+    palabra: una frase del operador puede traer parentesis o interrogantes, y
+    pegarlos crudos en una expresion regular la convertiria en otra cosa."""
+    palabras = [re.escape(p) for p in (frase or "").split()]
+    return r"^\s*" + r"\s+".join(palabras) + r"\s*$"
+
+
+def _propone(frase: str, reparacion: str, evidencia_tipo: str, correccion: str,
+             canal: str) -> dict:
+    """La rama del HUECO: nadie atiende `frase` y `reparacion` dice quien deberia."""
+    destino = _destino_pretendido(reparacion)
+    if not destino:
+        # NI SE PROPONE, NI SE ACUMULA EVIDENCIA. Lo que se pide no lo sabe hacer
+        # nadie: eso necesita una skill nueva, y nexus no escribe codigo. Contar
+        # ocurrencias de algo inalcanzable solo engordaria el fichero esperando
+        # un umbral que, aunque se cumpliera, no llevaria a ninguna parte.
+        return _guarda_aviso("sin_capacidad", frase, "planificador", correccion, canal)
+
+    # UMBRAL DE EVIDENCIA. Una orden explicita del duenno entra a la primera:
+    # es una orden, no una sospecha. Lo que nexus DEDUCE observando espera a
+    # tener varias pruebas, y una prueba es un DIA distinto: repetir la misma
+    # queja tres veces seguidas de rabia es un enfado, no tres pruebas.
+    if evidencia_tipo == "ordenada":
+        veces = 1
+    else:
+        veces = reglas.anota_ocurrencia(frase)
+        if veces < reglas.umbral("umbral_observada", 3):
+            return {}
+
+    literal = _patron_literal(frase)
+    regla = {
+        "id": _identificador("r", frase),
+        "esquema": reglas.ESQUEMA,
+        "tipo": "enrutado",
+        "revision": 1,
+        "origen": {"frase": frase, "canal": canal or "pc", "fecha": _ahora(),
+                   "tipo": evidencia_tipo, "veces": veces, "correccion": correccion},
+        "destino": destino,
+        "patron": literal,
+        "evidencia": {"origen": evidencia_tipo, "veces": veces, "generalizado": False,
+                      "arrastradas": [], "suite": None},
+        "estado": "propuesta",
+    }
+
+    # EL MODELO SOLO PUEDE ENSANCHAR, Y SU SALIDA ES ENTRADA DE LAS PUERTAS.
+    #
+    # Se le pide una version mas ancha del patron y se la manda a validar tal
+    # cual. Si pasa, manda; si no pasa —o si no hay modelo— se queda el literal,
+    # que es mas estrecho pero valido. El aprendizaje degrada, no desaparece, y
+    # en ningun momento el modelo ha emitido un veredicto.
+    candidato = selflearn.generaliza_patron(frase)
+    ok, motivo = True, ""
+    if candidato and candidato != literal:
+        ancha = dict(regla)
+        ancha["patron"] = candidato
+        ok, motivo = valida(ancha)
+        if ok:
+            regla["patron"] = candidato
+            regla["evidencia"]["generalizado"] = True
+        else:
+            audit.log("generalizacion_descartada", actor="nexus",
+                      targets=[regla["id"]], interpreted=candidato,
+                      result="cae_al_patron_literal", error=motivo)
+    if regla["patron"] == literal:
+        ok, motivo = valida(regla)
+    if not ok:
+        # Pasar el umbral de evidencia NO exime de pasar las puertas. Se dice en
+        # la auditoria y no se propone: una propuesta que no puede activarse solo
+        # sirve para gastarle el tiempo a quien revise la tanda.
+        audit.log("propuesta_descartada", actor="nexus", targets=[regla["id"]],
+                  interpreted=destino, result="no_pasa_las_puertas", error=motivo)
+        return {}
+    regla["evidencia"]["arrastradas"] = barrido(regla).get("arrastradas", [])
+    reglas.guardar(regla)
+    return dict(regla)
+
+
+def observa(correccion: str, antecedente: str = "", canal: str = "pc") -> dict:
+    """Mira una correccion y devuelve una propuesta, un aviso, o nada.
+
+    `correccion` es lo que acaba de decir el operador; `antecedente` es su turno
+    ANTERIOR, que es lo que de verdad se juzga. Si no llega, se busca en
+    `interactions.jsonl` a traves de `selflearn`: el cerebro tiene el historial
+    en RAM, pero una correccion que llega por otro canal no lo comparte.
+
+    La formula explicita («aprende que cuando diga X hagas Y») trae dentro las
+    dos frases, asi que se mira ANTES que el antecedente: ahi no hay nada que
+    deducir, el duenno lo ha dicho.
+
+    Devuelve `{}` cuando no hay nada que decir —y en particular cuando NADIE ha
+    registrado el arbitro, porque juzgar sin saber enrutar seria adivinar."""
+    registrar()
+    correccion = (correccion or "").strip()
+    orden = _ENSENANZA_RX.match(correccion)
+    if orden:
+        frase = orden.group("ph").strip()
+        reparacion = orden.group("order").strip()
+        evidencia_tipo = "ordenada"
+    else:
+        frase = (antecedente or "").strip() or selflearn.ultima_orden(excluir=correccion)
+        reparacion = correccion
+        evidencia_tipo = "observada"
+    if not frase:
+        return {}
+
+    veredicto = reglas.arbitro(frase, reglas=())
+    if not veredicto:
+        # Cadena vacia es «no lo se», no «planificador». Sin arbitro no se juzga.
+        return {}
+    if veredicto.startswith("skill:"):
+        return _guarda_aviso("fallo_de_codigo", frase, veredicto, correccion, canal)
+    if veredicto in _ATAJOS:
+        return _guarda_aviso("atajo_previo", frase, veredicto, correccion, canal)
+    if veredicto.startswith("regla:"):
+        return _guarda_aviso("ya_hay_regla", frase, veredicto, correccion, canal)
+    return _propone(frase, reparacion, evidencia_tipo, correccion, canal)
 
 
 # El hueco se rellena al importarse, como hace `comun/events`. Nada de produccion
