@@ -1011,7 +1011,7 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
     # nexus (Postgres) — nexus es el hub y su memoria, la fuente de verdad.
     try:
         import asyncio as _a
-        from backend.core.memory import pg
+        from backend.core.dominio.memory import pg
         # El PREFIJO va neutro a propósito: esto se recupera con «qué recuerdas
         # de X» y se le enseña al operador tal cual. Quién ejecutó el encargo ya
         # queda marcado en `kind="hermes"`, que es interno y no se pinta nunca.

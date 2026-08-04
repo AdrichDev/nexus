@@ -65,7 +65,7 @@ NO_TUYO = [
     # documentación de las propias skills, indexada para decidir
     {"kind": "knowledge", "content": "# ▦ Skill: Tablero de tareas (kanban estilo Notion)"},
     {"kind": "knowledge", "content": "- «borra el correo 3» / «elimina los correos de Amazon»"},
-    {"kind": "knowledge", "content": "el estado vive en backend.core.board y se guarda en data/"},
+    {"kind": "knowledge", "content": "el estado vive en backend.core.dominio.board y se guarda en data/"},
     # registros de encargos, con la traza dentro
     {"kind": "hermes", "content": "[Trabajo] dame ideas => RuntimeError: el gateway no abrió"},
     {"kind": "hermes", "content": "[Trabajo] instala npm i -g algo => Se ha instalado."},

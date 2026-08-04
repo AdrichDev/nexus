@@ -93,7 +93,7 @@ check("knLimitaVista" in JS, "la cámara puede salirse del mundo y dejarte miran
 
 print("== 3) lo de la misma carpeta va junto ==")
 
-MEM = (ROOT / "backend" / "core" / "memory.py").read_text(encoding="utf-8")
+MEM = (ROOT / "backend" / "core" / "dominio" / "memory.py").read_text(encoding="utf-8")
 check("_carpeta_de" in MEM, "el grafo no sabe de qué carpeta viene cada nota")
 check("dominio:" in MEM and "Carpeta:" in MEM,
       "solo se reconoce un formato de procedencia; hay notas de las dos épocas")
@@ -193,7 +193,7 @@ check("mouseenter" in JS and "vecino" in JS,
 
 print("== 9) el grafo real trae carpetas y enlaces de hermanas ==")
 
-from backend.core import memory as M                       # noqa: E402
+from backend.core.dominio import memory as M  # noqa: E402
 
 MEMDIR = M.MEMORY_DIR
 (MEMDIR / "documentos" / "proyecto-x").mkdir(parents=True, exist_ok=True)

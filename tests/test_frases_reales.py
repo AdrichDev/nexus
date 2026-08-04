@@ -140,7 +140,7 @@ def test_marcar_de_punta_a_punta():
     # El MISMO módulo de tablero que usa la skill: recargarlo dejaba a la skill
     # escribiendo en un tablero y al test leyendo otro, y el test fallaba solo
     # cuando corría dentro de la suite completa.
-    from backend.core import board
+    from backend.core.dominio import board
     from backend.core.comun.config import settings
     board.add_task("velada de Ibai")
     frase = "Marca la velada como realizada, fue el sabado pasado"
@@ -174,7 +174,7 @@ def test_el_id_de_cuenta_vale_lo_pongas_donde_lo_pongas():
         check(IG.credenciales(ctx)[1] == "17841499999999999",
               "y con «ig_business_account_id» también")
 
-        from backend.core import contentos
+        from backend.core.dominio import contentos
         check(contentos._credenciales()[1] == "17841499999999999"
               if hasattr(contentos, "_credenciales") else True,
               "y Content OS ve el que puso el análisis")
@@ -241,7 +241,7 @@ def test_la_memoria_no_se_cuela():
     # cómo se escribe el nombre de una persona. Causa: la búsqueda por palabras
     # daba por relevante cualquier nota que compartiera UNA palabra («que»).
     import asyncio
-    from backend.core import rag
+    from backend.core.dominio import rag
     check("que" not in rag._words("Que es lo que ves"),
           f"«que» ya no cuenta como palabra clave ({rag._words('Que es lo que ves')})")
     check(rag._words("cuentas de instagram de wabiksco") == ["cuentas", "instagram", "wabiksco"],
@@ -268,7 +268,7 @@ def test_la_memoria_no_se_cuela():
         check(any("wabiksco" in x["text"] for x in otro),
               "y cada cosa trae la suya, no la del vecino")
     asyncio.run(prueba())
-    fuente = (ROOT / "backend" / "core" / "rag.py").read_text(encoding="utf-8")
+    fuente = (ROOT / "backend" / "core" / "dominio" / "rag.py").read_text(encoding="utf-8")
     check("_MIN_PALABRAS" in fuente, "hay umbral para la búsqueda por palabras")
     check(">= _MIN_SEM" in fuente,
           "y la búsqueda en base de datos también filtra por relevancia")

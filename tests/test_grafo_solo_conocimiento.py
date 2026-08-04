@@ -53,7 +53,7 @@ def check(cond, msg: str) -> bool:
     return bool(cond)
 
 
-from backend.core import memory as M                        # noqa: E402
+from backend.core.dominio import memory as M  # noqa: E402
 
 MEM = M.MEMORY_DIR
 MEM.mkdir(parents=True, exist_ok=True)
@@ -115,7 +115,7 @@ check(hasattr(M, "_fuera_del_conocimiento"),
       "no existe _fuera_del_conocimiento: la regla vuelve a estar repartida")
 check(hasattr(M, "_excluido_por_nombre"),
       "no existe _excluido_por_nombre, que es la que aplica también a los enlaces")
-src = (ROOT / "backend" / "core" / "memory.py").read_text(encoding="utf-8")
+src = (ROOT / "backend" / "core" / "dominio" / "memory.py").read_text(encoding="utf-8")
 check(src.count("_fuera_del_conocimiento(path)") >= 2,
       "la exclusión debe aplicarse en graph() Y en search(): si solo está en una, "
       "lo retirado desaparece de la vista pero sigue contestando (o al revés)")

@@ -17,7 +17,7 @@ import datetime as dt
 import json
 import time
 
-from .comun.config import DATA_DIR, settings
+from ..comun.config import DATA_DIR, settings
 
 _STATE = DATA_DIR / "review_state.json"
 STALE_DAYS = 14
@@ -145,13 +145,13 @@ async def maybe_send() -> bool:
                       st.get("last_week", "")):
         return False
     txt = build_weekly_review()
-    from .comun.events import bus
+    from ..comun.events import bus
     await bus.emit("chat", {"user": "[revisión semanal automática]", "reply": txt,
                             "provider": "nexus", "skill": "coach", "channel": "pc"})
     await bus.emit("notification", {"title": "📋 Revisión semanal",
                                     "body": "El balance de tu semana está en el chat."})
     try:
-        from .infraestructura.telegram_bridge import send_telegram
+        from ..infraestructura.telegram_bridge import send_telegram
         await send_telegram(txt)
     except Exception:
         pass

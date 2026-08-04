@@ -129,7 +129,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             "**Tareas detectadas** (si las hay) y **Lluvia de ideas** (2-3 ideas que se "
             f"derivan de lo dicho):\n\n{texto[:5000]}")
         # Persistir en memoria
-        from backend.core.memory import graph, pg
+        from backend.core.dominio.memory import graph, pg
         graph.write_note(f"audio {path.stem[:36]}",
                          f"Transcripción de {path.name}:\n\n{texto[:15000]}\n\n"
                          f"---\n{analysis}\n\nEnlaces: [[audios]] [[conocimiento]]")

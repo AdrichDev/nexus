@@ -20,13 +20,13 @@ import json
 import re
 import uuid
 
-from . import opmem, rag
+from .dominio import opmem, rag
 from .infraestructura import llm, websearch
 from .comun.config import DATA_DIR, settings
 from .comun.config import assistant_name as _aname
 from .jobs import jobs as job_mgr
 from .comun.events import bus
-from .memory import graph, pg
+from .dominio.memory import graph, pg
 from .skills_loader import get_skills, route
 
 # Preguntas que casi seguro necesitan datos ACTUALES → buscamos en la web antes
@@ -673,7 +673,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     if _RETRAIN_RX.match(text):
         await bus.emit("log", {"level": "info", "msg": "🧠 Reentrenándome con Fable…"})
         try:
-            from . import selflearn
+            from .dominio import selflearn
             prof = await selflearn.retrain(force=True)
         except Exception:
             prof = ""
@@ -904,7 +904,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # de verdad es una respuesta de avance; si no, el mensaje sigue su curso normal.
     if source in ("text", "voice"):
         try:
-            from . import pm
+            from .dominio import pm
             fu_reply = await pm.apply_followup(text)
         except Exception:
             fu_reply = None
@@ -1329,7 +1329,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # si ya estabas gestionando el tablero (para no duplicar).
     if source in ("text", "voice") and not (routed and routed[0].folder == "tasks_board"):
         try:
-            from . import pm
+            from .dominio import pm
             note = await pm.capture_commitment(text)
         except Exception:
             note = None
@@ -1355,7 +1355,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # segundo plano (con Fable) SIN retrasar la respuesta.
     try:
         if settings.get("self_learning", True):
-            from . import selflearn
+            from .dominio import selflearn
             if selflearn.record_interaction(text, reply, routed[0].folder if routed else None,
                                             ok=not (isinstance(data, dict) and data.get("error"))):
                 asyncio.create_task(selflearn.retrain())

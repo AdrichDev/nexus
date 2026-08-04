@@ -403,7 +403,7 @@ def test_borrar_por_fecha_alcanza_tambien_las_tareas_del_tablero():
     La agenda del HUD pinta las dos cosas juntas. Quien mira la pantalla no
     distingue, y no tiene por qué: «borra lo que haya el día 5» se refiere a lo
     que se VE. Mirar solo el calendario es contestar a otra pregunta."""
-    from backend.core import board
+    from backend.core.dominio import board
     tareas = [{"id": "t5", "due": _iso(HOY + dt.timedelta(days=2)),
                "title": "tarea del dia del evento", "state": "pendiente"},
               {"id": "t9", "due": _iso(HOY + dt.timedelta(days=6)),

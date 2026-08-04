@@ -81,7 +81,7 @@ try:
     from backend.core.infraestructura import engram_bridge as _eng
     from backend.core.comun import publicvoice as _pv
     from backend.core.jobs import jobs as _jobs
-    from backend.core.memory import pg as _pg
+    from backend.core.dominio.memory import pg as _pg
     check(hasattr(_pv, "frase_inicio") and hasattr(_pv, "mensaje_fallo"),
           "publicvoice no tiene frase_inicio/mensaje_fallo")
     check(hasattr(_eng, "installed") and hasattr(_eng, "_engram_exe") and hasattr(_eng, "PROJECT"),

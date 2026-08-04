@@ -29,9 +29,9 @@ import re
 from pathlib import Path
 
 from . import rag
-from .infraestructura import files_io
-from .comun import permissions
-from .comun.config import CONFIG_DIR, DATA_DIR
+from ..infraestructura import files_io
+from ..comun import permissions
+from ..comun.config import CONFIG_DIR, DATA_DIR
 
 DOCUMENTOS_DIR = DATA_DIR / "memory" / "documentos"
 

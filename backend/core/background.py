@@ -68,7 +68,7 @@ async def cycle_loop() -> None:
     while True:
         try:
             if settings.get("self_learning", True):
-                from . import rag, selflearn
+                from .dominio import rag, selflearn
                 n = await rag.reindex(limit=40)
                 if n:
                     await bus.emit("log", {"level": "info",
@@ -100,7 +100,7 @@ async def proactive_loop() -> None:
 async def _check_reminders() -> None:
     """Dispara los recordatorios (de citas/tareas) que ya toca avisar."""
     try:
-        from .memory import pg
+        from .dominio.memory import pg
         online = await asyncio.to_thread(lambda: pg.online)
         if not online:
             return
@@ -134,7 +134,7 @@ async def _daily_nudge() -> None:
     # MODO PM FUERTE: pregunta por una tarea concreta y arma el seguimiento.
     if settings.get("pm_strong", True):
         try:
-            from . import pm
+            from .dominio import pm
             task = pm.pick_task_for_followup()
         except Exception:
             task = None
@@ -180,7 +180,7 @@ async def _daily_nudge() -> None:
 def _pending_hint() -> str:
     """Pistas de lo pendiente (recordatorios/objetivos) para el empujón, si la DB va."""
     try:
-        from .memory import pg
+        from .dominio.memory import pg
         if not pg.online:
             return ""
         goals = pg.goals()

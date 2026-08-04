@@ -119,7 +119,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     op = ctx["settings"].get("operator_name")
 
     if intent == "weekly":
-        from backend.core.review import build_weekly_review
+        from backend.core.dominio.review import build_weekly_review
         import asyncio as _a
         return {"reply": await _a.to_thread(build_weekly_review)}
 
@@ -128,7 +128,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         # hermes + titulares); aquí se añade lo propio del coach: objetivos y
         # checklists. Si el módulo fallara, briefing clásico de respaldo.
         try:
-            from backend.core.briefing import build_briefing
+            from backend.core.dominio.briefing import build_briefing
             parts = [await build_briefing()]
         except Exception:
             parts = [f"Buenos días, {op}. Plan de hoy ({dt.date.today():%d/%m}):"]
@@ -267,7 +267,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         out.write_text(f"# SPEC: {proj}\n\n{spec}\n\n---\n\n"
                        f"## Revisión del abogado del diablo\n\n{review}\n",
                        encoding="utf-8")
-        from backend.core import board
+        from backend.core.dominio import board
         n_tasks = 0
         for line in spec.splitlines():
             m = _re.match(r"^\s*\d+[.)]\s*(.+)", line)

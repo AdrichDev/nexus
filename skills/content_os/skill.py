@@ -163,7 +163,7 @@ def _proximo_del_plan() -> str:
     se pregunta, que es mejor que elegir un tema al azar.
     """
     try:
-        from backend.core import contentos
+        from backend.core.dominio import contentos
         datos = contentos._load()
     except Exception:                                      # noqa: BLE001
         return ""

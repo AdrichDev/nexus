@@ -52,8 +52,8 @@ def skip(msg):
     print("  SALTADO (sin BD):", msg)
 
 
-mem = importlib.import_module("backend.core.memory")
-rag = importlib.import_module("backend.core.rag")
+mem = importlib.import_module("backend.core.dominio.memory")
+rag = importlib.import_module("backend.core.dominio.rag")
 
 
 def _tabla_prueba(conn, cols_extra_sql="", n_dim=3):

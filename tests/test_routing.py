@@ -252,7 +252,7 @@ def test_tablero_estados_y_start():
 
 def test_board_kind_time_fields():
     # board.add_task DEBE aceptar y guardar time_at + kind (código real por AST)
-    src = open(os.path.join(ROOT, "backend", "core", "board.py"), encoding="utf-8").read()
+    src = open(os.path.join(ROOT, "backend", "core", "dominio", "board.py"), encoding="utf-8").read()
     check("time_at" in src and '"kind"' in src, "board: add_task guarda 'time' y 'kind'")
     check('"in progress": "progreso"' in src, "board: alias de estados en inglés (in progress)")
 

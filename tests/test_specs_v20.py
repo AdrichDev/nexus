@@ -121,7 +121,7 @@ def test_context_anti_secuestro():
 
 def test_board_sello_completado():
     """Revisión opus: la revisión semanal cuenta por fecha de COMPLETADO."""
-    import backend.core.board as board
+    import backend.core.dominio.board as board
     import datetime as _dt
     import json as _json, tempfile as _tf
     from pathlib import Path as _P
@@ -135,7 +135,7 @@ def test_board_sello_completado():
         t = board.move_task("tarea antigua", "completada")
         check(t and t.get("completed") == _dt.date.today().isoformat(),
               "move_task a completada sella la fecha")
-        import backend.core.review as review
+        import backend.core.dominio.review as review
         old_dd = review.DATA_DIR
         review.DATA_DIR = tmpb.parent
         try:
@@ -191,8 +191,8 @@ def test_split_chain():
 # ══════════════ M6: revisión semanal ══════════════
 
 def test_review():
-    import backend.core.board as board
-    import backend.core.review as review
+    import backend.core.dominio.board as board
+    import backend.core.dominio.review as review
     now = dt.datetime(2026, 7, 26, 19, 30)          # domingo
     check(review.review_due(now, True, 6, "19:00", "") is True, "due: domingo tarde → sí")
     check(review.review_due(now, True, 6, "19:00", "2026-W30") is False, "due: ya enviada esta semana")
@@ -235,8 +235,8 @@ def test_profile_build():
     # informes...). build_profile() ahora es una respuesta CORTA y NATURAL: solo
     # confirma quién eres y, si acaso, un apunte breve de lo aprendido — NADA de
     # contadores ni de cabeceras/viñetas markdown crudas.
-    import backend.core.profile as prof
-    import backend.core.selflearn as selflearn
+    import backend.core.dominio.profile as prof
+    import backend.core.dominio.selflearn as selflearn
 
     class _FakeSettings:
         def __init__(self, name):
@@ -296,7 +296,7 @@ def test_profile_build():
 
 def test_perfil_natural_helper():
     # _perfil_natural() es la que limpia el markdown; se prueba aislada.
-    import backend.core.profile as prof
+    import backend.core.dominio.profile as prof
     limpio = prof._perfil_natural("**Tono**\n- muy directo\n\n**Temas**\n- NEXUS")
     check("**" not in limpio, "_perfil_natural: quita cabeceras **")
     check("- " not in limpio, "_perfil_natural: quita viñetas")
@@ -349,8 +349,8 @@ def test_perfil_natural_helper():
 
 
 def test_consolidacion():
-    import backend.core.memory as mem
-    import backend.core.profile as prof
+    import backend.core.dominio.memory as mem
+    import backend.core.dominio.profile as prof
     tmp = Path(tempfile.mkdtemp())
     daily = tmp / "daily"
     daily.mkdir(parents=True)
@@ -397,7 +397,7 @@ def test_consolidacion():
 
 def test_today_payload_y_hud():
     import backend.core.comun.config as cfg
-    import backend.core.briefing as bf
+    import backend.core.dominio.briefing as bf
     tmp = Path(tempfile.mkdtemp())
     old_cfg, old_bf = cfg.DATA_DIR, bf.DATA_DIR
     cfg.DATA_DIR = tmp

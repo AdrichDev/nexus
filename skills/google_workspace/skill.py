@@ -748,7 +748,7 @@ def _tareas_en(fechas: list[dt.date]) -> list[dict]:
         return []
     dias = {f.isoformat() for f in fechas}
     try:
-        from backend.core import board
+        from backend.core.dominio import board
         return [t for t in board._load()
                 if (t.get("due") or "")[:10] in dias
                 or (t.get("dueEnd") or "")[:10] in dias]
@@ -1020,7 +1020,7 @@ def _create_everywhere(title: str, due_date: str | None, notes: str,
     except Exception as exc:                                   # noqa: BLE001
         dests.append(f"(Google falló: {type(exc).__name__})")
     try:
-        from backend.core import board
+        from backend.core.dominio import board
         board.add_task(title, due=due_date, priority=priority, tag="correo")
         dests.append("tablero interno")
     except Exception as exc:                                   # noqa: BLE001
@@ -2076,7 +2076,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 for v in victimas:
                     try:
                         if v.get("tipo") == "tarea":
-                            from backend.core import board
+                            from backend.core.dominio import board
                             # A la papelera, no destruido: el tablero ya sabe
                             # deshacer un borrado y esto no es una excepción.
                             n += 1 if board.delete_task(v["id"],
@@ -2187,7 +2187,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             # rangos, con el último día INCLUSIVE para que la agenda lo pinte
             # todos los días)
             try:
-                from backend.core import board
+                from backend.core.dominio import board
                 await asyncio.to_thread(board.add_task, titulo,
                                         start[:10], "media", "agenda",
                                         kind="evento", due_end=ultimo)
@@ -2223,7 +2223,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             except Exception as exc:                              # noqa: BLE001
                 raise exc
             try:
-                from backend.core import board
+                from backend.core.dominio import board
                 await asyncio.to_thread(board.add_task, titulo, fecha, "media", "to-do")
             except Exception:
                 pass

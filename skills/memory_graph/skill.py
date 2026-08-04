@@ -144,7 +144,7 @@ def es_sobre_el_usuario(entrada) -> bool:
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "profile":
-        from backend.core.profile import build_profile
+        from backend.core.dominio.profile import build_profile
         import asyncio as _a
         return {"reply": await _a.to_thread(build_profile)}
 
@@ -274,7 +274,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         # y es lo que más se nota si se olvida.
         maneras = ""
         try:
-            from backend.core import selflearn
+            from backend.core.dominio import selflearn
             maneras = (selflearn.operator_profile() or "")[:1500]
         except Exception:
             pass
@@ -332,7 +332,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 "data": g}
 
     if intent == "status":
-        from backend.core.memory import memory_status
+        from backend.core.dominio.memory import memory_status
         st = memory_status()
         db_txt = "ONLINE ✔" if st["db_online"] else "OFFLINE ✖ (di «levanta docker»)"
         return {"reply": f"Memoria: backend {st['backend']} — {st['graph_notes']} notas "

@@ -56,10 +56,10 @@ def skip(msg):
 
 
 files_io = importlib.import_module("backend.core.infraestructura.files_io")
-rag = importlib.import_module("backend.core.rag")
-mem = importlib.import_module("backend.core.memory")
+rag = importlib.import_module("backend.core.dominio.rag")
+mem = importlib.import_module("backend.core.dominio.memory")
 scheduler = importlib.import_module("backend.core.scheduler")
-ingesta = importlib.import_module("backend.core.ingesta")
+ingesta = importlib.import_module("backend.core.dominio.ingesta")
 config = importlib.import_module("backend.core.comun.config")
 permissions = importlib.import_module("backend.core.comun.permissions")
 

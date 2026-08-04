@@ -178,7 +178,7 @@ def test_umbrales():
 # ══════════════ 3. La demo, aparte y etiquetada ══════════════
 def test_demo():
     print("· los datos de demostración viven en su propio módulo y se declaran")
-    from backend.core import contentos_demo
+    from backend.core.dominio import contentos_demo
     from backend.core.comun import procedencia as pr
 
     m = contentos_demo.metricas()
@@ -190,7 +190,7 @@ def test_demo():
 
     # El criterio que hace posible «un día esto se borra de un tirón»: los
     # números de mentira no pueden seguir viviendo en el módulo de verdad.
-    texto = (ROOT / "backend" / "core" / "contentos.py").read_text(encoding="utf-8")
+    texto = (ROOT / "backend" / "core" / "dominio" / "contentos.py").read_text(encoding="utf-8")
     for literal in ("12840", "184200", "marca.personal"):
         check(literal not in texto,
               f"el literal de demostración {literal!r} ya no está en contentos.py")
@@ -244,7 +244,7 @@ def test_regla():
 
 def test_generate_real():
     print("· generate() no publica una cifra que el modelo se haya inventado")
-    from backend.core import contentos
+    from backend.core.dominio import contentos
     import backend.core.infraestructura.llm as llm
 
     visto = {}
@@ -517,7 +517,7 @@ def _numeros_sueltos(nodo, ruta="payload"):
 
 def test_dashboard_contrato():
     print("· el payload de /api/contentos: ninguna cifra viaja fuera de un sobre")
-    from backend.core import contentos
+    from backend.core.dominio import contentos
     from backend.core.comun import procedencia
 
     d = run(contentos.dashboard())
@@ -556,7 +556,7 @@ def test_dashboard_contrato():
 # ══════════════ 11. Instalación limpia: el panel no se inventa el plan ══════════
 def test_instalacion_limpia():
     print("· en una instalación limpia el panel dice que no hay nada, no se lo inventa")
-    from backend.core import contentos
+    from backend.core.dominio import contentos
 
     # Arenero PROPIO. Las pruebas anteriores ya han escrito en el store del
     # arenero común, y lo que se prueba aquí es justo la PRIMERA vez que se abre
@@ -602,7 +602,7 @@ def test_instalacion_limpia():
 
 def test_sin_literales():
     print("· 48.6, 4.1, 18.4 y 3.2 ya no están escritos en contentos.py")
-    fuente = (ROOT / "backend" / "core" / "contentos.py").read_text(encoding="utf-8")
+    fuente = (ROOT / "backend" / "core" / "dominio" / "contentos.py").read_text(encoding="utf-8")
     for lit in ("48.6", "4.1", "18.4", "3.2"):
         check(lit not in fuente,
               f"el literal {lit} sigue en backend/core/contentos.py")
@@ -612,9 +612,9 @@ def test_sin_literales():
 
 def test_evidencia_y_aprendizajes():
     print("· un apunte no es una evidencia, y un 0 % no es «calidad medida»")
-    from backend.core import contentos
+    from backend.core.dominio import contentos
 
-    fuente = (ROOT / "backend" / "core" / "contentos.py").read_text(encoding="utf-8")
+    fuente = (ROOT / "backend" / "core" / "dominio" / "contentos.py").read_text(encoding="utf-8")
     # Lo que no puede haber es una ASIGNACIÓN de etiqueta: `"conf": "consistente"`.
     # Leerla (`l.get("conf")`) es legítimo; ponerla a mano sobre un texto que
     # nadie ha medido es justo el incidente.

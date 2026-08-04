@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import contentos_demo
-from .comun.config import DATA_DIR, settings
+from ..comun.config import DATA_DIR, settings
 
 STORE = DATA_DIR / "contentos.json"
 GRAPH = "https://graph.facebook.com/v19.0"
@@ -275,7 +275,7 @@ async def dashboard() -> dict:
     `procedencia.dato()` con su origen, su periodo y —si no se puede calcular—
     el motivo. El HUD tiene un único pintor y se niega a pintar lo que no traiga
     sobre, así que cualquier fuga futura se ve en pantalla en vez de colarse."""
-    from .comun import procedencia
+    from ..comun import procedencia
 
     store = _load()
     u = procedencia.umbrales()
@@ -395,8 +395,8 @@ async def generate(kind: str, topic: str = "") -> str:
     bloque DATOS): se le PIDE que no invente cifras. El segundo es
     `procedencia.sin_cifras_inventadas()`: se COMPRUEBA. Hace falta el segundo
     porque el primero es una petición, y una petición se incumple sin avisar."""
-    from .infraestructura import llm
-    from .comun import procedencia
+    from ..infraestructura import llm
+    from ..comun import procedencia
     topic = (topic or "").strip()
     datos, permitidas = _bloque_datos()
     system = f"{llm.REGLA_CONTENT_OS}\n\n{datos}"

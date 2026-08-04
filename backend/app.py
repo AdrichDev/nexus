@@ -23,13 +23,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend.core import brain, contentos
+from backend.core import brain
+from backend.core.dominio import contentos
 from backend.core.infraestructura import stt, tts
 from backend.core.infraestructura.app_index import start_background_index
 from backend.core.comun.config import FRONTEND_DIR, settings
 from backend.core.comun.events import bus
 from backend.core.hotkey import start_hotkey
-from backend.core.memory import graph, memory_status
+from backend.core.dominio.memory import graph, memory_status
 from backend.core.scheduler import scheduler_loop, system_metrics
 from backend.core.skills_loader import load_skills, skills_summary
 from backend.core.infraestructura.telegram_bridge import telegram_loop
@@ -289,7 +290,7 @@ async def api_voice():
 async def api_weather():
     """Tiempo actual para el header del HUD (v23 T15). {} si el servicio falla:
     un fallo del servicio meteorológico no puede bloquear el resto de nexus."""
-    from backend.core import briefing
+    from backend.core.dominio import briefing
     try:
         return await briefing.weather_now()
     except Exception:
@@ -435,7 +436,7 @@ async def api_graph():
 @app.get("/api/note")
 async def api_note(name: str = ""):
     """Contenido de una nota del grafo (para el panel lateral del nodo)."""
-    from backend.core.memory import MEMORY_DIR
+    from backend.core.dominio.memory import MEMORY_DIR
     for p in MEMORY_DIR.rglob("*.md"):
         if p.stem == name:
             try:
@@ -561,7 +562,7 @@ async def api_greet():
     dia = dias[now.weekday()]
     tareas = []
     try:
-        from backend.core import board
+        from backend.core.dominio import board
         hoy = _dt.date.today().isoformat()
         tareas = [t.get("title", "") for t in board._load()
                   if t.get("due") == hoy and t.get("state") not in ("hecha", "completada")][:3]
@@ -673,13 +674,13 @@ async def api_secrets(payload: dict):
 @app.get("/api/today")
 async def api_today():
     """Panel HOY del HUD (v20): agenda del día en JSON estructurado."""
-    from backend.core import briefing
+    from backend.core.dominio import briefing
     return await briefing.today_payload()
 
 
 @app.get("/api/board")
 async def api_board():
-    from backend.core import board
+    from backend.core.dominio import board
     return board.board()
 
 
@@ -702,7 +703,7 @@ async def api_calendar(desde: str = "", hasta: str = ""):
     `desde`/`hasta` (AAAA-MM-DD) acotan el rango. Los pide la vista de agenda
     para traerse el MES entero: sin ellos solo llegaban los 10 próximos eventos,
     y con eso no se puede pintar un calendario."""
-    from backend.core import board
+    from backend.core.dominio import board
     tasks = [t for col in board.board().values() for t in col if t.get("due")]
     google_events, google_status = [], "no conectado"
     try:
@@ -766,7 +767,7 @@ async def api_spotify_status():
 
 @app.post("/api/board/move")
 async def api_board_move(payload: dict):
-    from backend.core import board
+    from backend.core.dominio import board
     t = board.move_task(payload.get("id", ""), payload.get("state", ""))
     if t:
         await bus.emit("log", {"level": "ok",
@@ -778,7 +779,7 @@ async def api_board_move(payload: dict):
 async def api_board_delete(payload: dict):
     """Borra una tarea por id (botón 🗑 del HUD) o por título (voz).
     v23: el borrado es LÓGICO — la tarea va a la papelera y se puede restaurar."""
-    from backend.core import board
+    from backend.core.dominio import board
     t = board.delete_task(payload.get("id", "") or payload.get("query", ""),
                           reason=payload.get("reason", "botón 🗑 del HUD"),
                           by=payload.get("by", "operador"))
@@ -793,7 +794,7 @@ async def api_board_delete(payload: dict):
 @app.get("/api/board/trash")
 async def api_board_trash(limit: int = 50):
     """Papelera de tareas (v23 TAREA 3): lo último borrado primero."""
-    from backend.core import board
+    from backend.core.dominio import board
     return {"items": board.trash(limit=limit), "last_batch": board.last_batch()}
 
 
@@ -801,7 +802,7 @@ async def api_board_trash(limit: int = 50):
 async def api_board_restore(payload: dict):
     """Restaura tareas de la papelera a su columna anterior. Sin argumentos,
     devuelve el ÚLTIMO lote borrado entero."""
-    from backend.core import board
+    from backend.core.dominio import board
     restored = board.restore(query=payload.get("query", "") or payload.get("id", ""),
                              batch=payload.get("batch", ""))
     if restored:
@@ -813,7 +814,7 @@ async def api_board_restore(payload: dict):
 @app.post("/api/board/edit")
 async def api_board_edit(payload: dict):
     """Edita una tarea (botón ✎ del HUD): título, fecha, prioridad o estado."""
-    from backend.core import board
+    from backend.core.dominio import board
     t = board.edit_task(payload.get("id", ""), title=payload.get("title"),
                         due=payload.get("due"), priority=payload.get("priority"),
                         state=payload.get("state"))
@@ -1160,7 +1161,7 @@ async def api_memoria_estado():
     # 002-memoria-y-conocimiento (A4.6): NUNCA llama al proveedor de
     # embeddings — solo lee la columna (catálogo) y lo ya medido en disco.
     # Sin esto, dejar el HUD abierto haría una llamada real por cada poll.
-    from backend.core import memory
+    from backend.core.dominio import memory
     return memory.estado_memoria()
 
 
@@ -1169,7 +1170,7 @@ async def api_memoria_vector_migrar(payload: dict):
     # A2.5: protegido por confirm.request(), igual que vaciar la papelera
     # (tasks_board/skill.py) — el «sí» llega por chat, resuelto en
     # brain.process() ANTES de cualquier router.
-    from backend.core import memory
+    from backend.core.dominio import memory
     from backend.core.comun import confirm
     canal = payload.get("channel") or "pc"
     dim = payload.get("dim")
@@ -1206,7 +1207,7 @@ async def api_memoria_vector_migrar(payload: dict):
 @app.post("/api/memoria/reindexar/plan")
 async def api_memoria_reindexar_plan(payload: dict | None = None):
     # A3.4: solo PRESUPUESTA — cero llamadas al proveedor todavía.
-    from backend.core import memory
+    from backend.core.dominio import memory
     proveedor = (payload or {}).get("proveedor")
     return memory.pg.plan_reindexado(proveedor)
 
@@ -1216,7 +1217,7 @@ async def api_memoria_reindexar(payload: dict):
     # A3.4: con proveedor local, reindexa directo. Con nube, exige
     # confirm.request() nombrando proveedor y nº de llamadas (diseño §3,
     # «cerrojo 2») ANTES de la primera fila — el «sí» llega por chat.
-    from backend.core import memory
+    from backend.core.dominio import memory
     from backend.core.comun import confirm
     plan_id = payload.get("plan_id", "")
     canal = payload.get("channel") or "pc"
@@ -1244,7 +1245,7 @@ async def api_memoria_reindexar(payload: dict):
 async def api_memoria_vector_limpiar_respaldo(payload: dict | None = None):
     # B4.3: cierra la migración A2. Segunda acción EXPLÍCITA — nunca
     # encadenada a migrar_vector(). Irreversible (DROP COLUMN): confirm.request() propio.
-    from backend.core import memory
+    from backend.core.dominio import memory
     from backend.core.comun import confirm
     canal = (payload or {}).get("channel") or "pc"
 
@@ -1266,7 +1267,7 @@ async def api_memoria_vector_limpiar_respaldo(payload: dict | None = None):
 @app.post("/api/memoria/purga/previsualizar")
 async def api_memoria_purga_previsualizar():
     # B5.1: SIEMPRE lo primero — nada se mueve ni se toca aquí.
-    from backend.core import purga
+    from backend.core.dominio import purga
     return purga.previsualizar()
 
 
@@ -1275,7 +1276,7 @@ async def api_memoria_purga_aplicar(payload: dict):
     # B5.1: confirmación propia del protocolo de purga (plan_id + categorías
     # explícitas + acepto_personal) — NO usa confirm.request() de chat porque
     # ya exige una previsualización previa y una selección explícita.
-    from backend.core import purga
+    from backend.core.dominio import purga
     plan_id = payload.get("plan_id", "")
     categorias = payload.get("categorias") or []
     acepto_personal = bool(payload.get("acepto_personal", False))
@@ -1284,7 +1285,7 @@ async def api_memoria_purga_aplicar(payload: dict):
 
 @app.get("/api/memoria/purga/papelera")
 async def api_memoria_purga_papelera(lote: str = ""):
-    from backend.core import purga
+    from backend.core.dominio import purga
     return {"items": purga.papelera(lote)}
 
 
@@ -1292,7 +1293,7 @@ async def api_memoria_purga_papelera(lote: str = ""):
 async def api_memoria_purga_restaurar(payload: dict):
     # B5.1: restaurar es una UPDATE reversible — no destructiva, no exige
     # confirm.request() de chat (misma lógica que board.restore()).
-    from backend.core import purga
+    from backend.core.dominio import purga
     lote = payload.get("lote", "")
     if not lote:
         return {"ok": False, "error": "falta «lote»"}
@@ -1303,7 +1304,7 @@ async def api_memoria_purga_restaurar(payload: dict):
 async def api_memoria_purga_exportar(payload: dict):
     # B5.1: no destructiva (copia), pero puede escribir fuera del sandbox si
     # se pide «destino» — protegido por permissions.path_allowed() dentro.
-    from backend.core import purga
+    from backend.core.dominio import purga
     lote = payload.get("lote", "")
     destino = payload.get("destino")
     if not lote:
@@ -1315,7 +1316,7 @@ async def api_memoria_purga_exportar(payload: dict):
 async def api_memoria_purga_borrar_definitivo(payload: dict):
     # B5.1: IRREVERSIBLE (unlink + DELETE FROM memories). El «sí» llega por
     # chat, igual que migrar_vector — nexus nunca lo dispara solo.
-    from backend.core import purga
+    from backend.core.dominio import purga
     from backend.core.comun import confirm
     canal = payload.get("channel") or "pc"
     lote = payload.get("lote", "")
@@ -1344,7 +1345,7 @@ async def api_memoria_ingerir_carpeta(payload: dict):
     # aparte, en data/memory/documentos/). No destructivo -> sin
     # confirm.request(). permissions.path_allowed() dentro de
     # ingesta.ingerir_carpeta() corta cualquier intento de traversal (C4.4).
-    from backend.core import ingesta
+    from backend.core.dominio import ingesta
     from backend.core.comun import audit
     ruta = str(payload.get("ruta", "")).strip()
     resultado = ingesta.ingerir_carpeta(ruta)

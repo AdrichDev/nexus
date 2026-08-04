@@ -31,7 +31,7 @@ def check(cond, msg):
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import backend.core.opmem as om          # noqa: E402
+import backend.core.dominio.opmem as om          # noqa: E402
 import backend.core.comun.audit as audit       # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v23m_"))
@@ -96,7 +96,7 @@ def test_la_correccion_manda_sobre_lo_anterior():
 
 def test_no_convierte_recuerdos_en_tareas():
     """Criterio de aceptación: los recuerdos NO se convierten en tareas solos."""
-    src = Path(ROOT, "backend", "core", "opmem.py").read_text(encoding="utf-8")
+    src = Path(ROOT, "backend", "core", "dominio", "opmem.py").read_text(encoding="utf-8")
     check("board" not in src and "add_task" not in src,
           "la memoria operativa no toca el tablero de tareas")
     brain = Path(ROOT, "backend", "core", "brain.py").read_text(encoding="utf-8")

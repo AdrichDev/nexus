@@ -32,7 +32,7 @@ import unicodedata
 import uuid
 from pathlib import Path
 
-from .comun.config import CONFIG_DIR, DATA_DIR
+from ..comun.config import CONFIG_DIR, DATA_DIR
 
 MEMORY_DIR = DATA_DIR / "memory"
 PAPELERA_DIR = MEMORY_DIR / "papelera"
@@ -391,7 +391,7 @@ def _guardar_papelera(items: list[dict]) -> None:
     aviso = int(_umbrales_purga().get("papelera_aviso_items", 3000))
     if len(items) >= aviso:
         try:
-            from .comun.events import bus
+            from ..comun.events import bus
             bus.emit_sync("log", {"level": "warn",
                 "msg": f"🗑️ Papelera de memoria: {len(items)} elemento(s) — solo "
                        f"aviso, nada se borra por su cuenta."})
@@ -503,7 +503,7 @@ def aplicar(plan_id: str, categorias: list[str], acepto_personal: bool = False) 
             except Exception:
                 pass
     _planes.pop(plan_id, None)
-    from .comun import audit
+    from ..comun import audit
     audit.log(action="purga_aplicar", actor="operador", destructive=True, confirmed=True,
               request=str(categorias), result=f"lote {lote}: {resultado}",
               extra={"plan_id": plan_id, "lote": lote, "categorias": categorias})
@@ -554,7 +554,7 @@ def restaurar(lote: str) -> dict:
             n_filas = memory.pg.restaurar_filas(lote)
     except Exception:
         pass
-    from .comun import audit
+    from ..comun import audit
     audit.log(action="purga_restaurar", actor="operador", destructive=False, confirmed=True,
               result=f"{len(restauradas)} nota(s), {n_filas} fila(s)", extra={"lote": lote})
     return {"ok": True, "restauradas": restauradas, "filas": n_filas}
@@ -564,7 +564,7 @@ def restaurar(lote: str) -> dict:
 #  B3.4 — exportar / borrado definitivo (PASO 2, lo inicia el usuario)
 # ---------------------------------------------------------------------
 def exportar(lote: str, destino: str | None = None) -> dict:
-    from .comun import permissions
+    from ..comun import permissions
     items = [i for i in _cargar_papelera() if i.get("lote") == lote]
     if not items:
         return {"ok": False, "error": f"no hay nada del lote «{lote}» en la papelera"}
@@ -589,7 +589,7 @@ def exportar(lote: str, destino: str | None = None) -> dict:
             destino_f = dest_dir / it["nombre"]
             shutil.copy2(origen, destino_f)
             copiados.append(str(destino_f))
-    from .comun import audit
+    from ..comun import audit
     audit.log(action="purga_exportar", actor="operador", destructive=False, confirmed=True,
               result=f"{len(copiados)} fichero(s) a {dest_dir}", extra={"lote": lote})
     return {"ok": True, "copiados": copiados, "destino": str(dest_dir)}
@@ -633,7 +633,7 @@ def retirar_carpeta(carpeta: str, lote: str | None = None) -> dict:
         except Exception:                                  # noqa: BLE001
             continue
 
-    from .comun import audit
+    from ..comun import audit
     audit.log(action="purga_retirar_carpeta", actor="operador", destructive=False,
               confirmed=True, result=f"{notas} nota(s) y {filas} fila(s) a la papelera",
               targets=[{"carpeta": carpeta}], extra={"lote": lote})
@@ -653,7 +653,7 @@ def borrar_carpeta_definitivo(carpeta: str) -> dict:
     destruye la última copia de algo. Si no la encuentra, no borra y lo dice.
     """
     from . import memory
-    from .comun import audit
+    from ..comun import audit
     marca = f"Carpeta: {carpeta}"
     copias, corpus = 0, []
     for base in (PAPELERA_DIR, EXPORT_DIR):
@@ -747,7 +747,7 @@ def borrar_definitivo(lote: str) -> dict:
             n_filas = len(rows)
     except Exception:
         pass
-    from .comun import audit
+    from ..comun import audit
     audit.log(action="purga_borrar_definitivo", actor="operador", destructive=True,
               confirmed=True, result=f"{len(borrados)} fichero(s), {n_filas} fila(s) DEFINITIVOS",
               targets=[{"nombre": n} for n in borrados], extra={"lote": lote})

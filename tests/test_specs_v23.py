@@ -38,7 +38,7 @@ def check(cond, msg):
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import backend.core.board as board          # noqa: E402
+import backend.core.dominio.board as board          # noqa: E402
 import backend.core.comun.confirm as confirm      # noqa: E402
 import backend.core.comun.audit as audit          # noqa: E402
 

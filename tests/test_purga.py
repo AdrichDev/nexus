@@ -53,8 +53,8 @@ def skip(msg):
     print("  SALTADO (sin BD):", msg)
 
 
-purga = importlib.import_module("backend.core.purga")
-mem = importlib.import_module("backend.core.memory")
+purga = importlib.import_module("backend.core.dominio.purga")
+mem = importlib.import_module("backend.core.dominio.memory")
 audit = importlib.import_module("backend.core.comun.audit")
 
 

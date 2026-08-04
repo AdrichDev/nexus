@@ -23,7 +23,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from .comun.config import DATA_DIR, settings
+from ..comun.config import DATA_DIR, settings
 
 _MARK = "<!--consolidado-->"
 
@@ -155,7 +155,7 @@ async def _consolidate(now: dt.datetime) -> bool:
         return False
     try:
         import asyncio as _a
-        from .infraestructura.llm import ask_llm
+        from ..infraestructura.llm import ask_llm
         summary, _prov = await _a.wait_for(ask_llm(
             "Resume este registro diario del operador en 4-6 viñetas CONCRETAS "
             "(decisiones, datos, personas, pendientes que sigan vivos). Sin relleno, "
@@ -178,7 +178,7 @@ async def _consolidate(now: dt.datetime) -> bool:
     except Exception:
         return False
     try:
-        from .comun.events import bus
+        from ..comun.events import bus
         await bus.emit("log", {"level": "ok",
                                "msg": f"🧠 Memoria consolidada: resumen del {day:%d/%m} guardado"})
     except Exception:

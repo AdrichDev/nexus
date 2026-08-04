@@ -116,7 +116,7 @@ def main():
     # ══════════════════ engram: no borra sin preguntar ══════════════════════
     print("· engram enseña qué va a olvidar y NO borra hasta el «sí»")
     engram = carga("engram")
-    from backend.core import opmem
+    from backend.core.dominio import opmem
     from backend.core.comun import confirm
     reglas = [{"id": "a1", "kind": "regla", "text": "nunca borres sin enseñar"},
               {"id": "a2", "kind": "preferencia", "text": "resúmenes cortos, sin florituras"}]

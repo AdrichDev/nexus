@@ -24,7 +24,7 @@ import json
 import unicodedata
 import uuid
 
-from .comun.config import DATA_DIR
+from ..comun.config import DATA_DIR
 
 BOARD_FILE = DATA_DIR / "board.json"
 TRASH_FILE = DATA_DIR / "board_trash.json"
@@ -90,7 +90,7 @@ def _now() -> str:
 
 def _audit(**kw) -> None:
     try:
-        from .comun import audit as _a
+        from ..comun import audit as _a
         _a.log(**kw)
     except Exception:
         pass
@@ -471,7 +471,7 @@ def snooze_all(hours: float = 2.0) -> int:
 def _en_silencio(now: dt.datetime) -> bool:
     """Horario de descanso: por defecto de 23:00 a 8:00 no se dan toques."""
     try:
-        from .comun.config import settings
+        from ..comun.config import settings
         ini = int(settings.get("quiet_from", 23))
         fin = int(settings.get("quiet_to", 8))
     except Exception:

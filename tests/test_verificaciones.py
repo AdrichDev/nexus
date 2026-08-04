@@ -78,8 +78,22 @@ def route_local(p, text):
     return None
 
 
+# Capas de backend/core (Fase 3). Se prueban todas porque el nombre del modulo
+# llega en una variable: ninguna reescritura de imports puede arreglarlo.
+_CAPAS = ("", "comun", "infraestructura", "dominio", "aplicacion")
+
+
 def load_core(name):
-    return _import_retry(lambda: importlib.import_module(f"backend.core.{name}"))
+    def _do():
+        ultimo = None
+        for capa in _CAPAS:
+            ruta = f"backend.core.{capa}.{name}" if capa else f"backend.core.{name}"
+            try:
+                return importlib.import_module(ruta)
+            except ModuleNotFoundError as exc:              # noqa: PERF203
+                ultimo = exc
+        raise ultimo
+    return _import_retry(_do)
 
 
 # ============ 1) MÓVIL: voz muteada ============

@@ -21,7 +21,7 @@ Se enseña, pero DICIENDO que es de mentira.
 """
 from __future__ import annotations
 
-from .comun.procedencia import DEMOSTRACION
+from ..comun.procedencia import DEMOSTRACION
 
 
 def metricas() -> dict:

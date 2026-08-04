@@ -90,7 +90,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         # v23 (T4): la fuente de verdad es la memoria operativa LOCAL (sobrevive
         # aunque Engram no esté levantado); el servidor de Engram es el espejo
         # para compartirlo con Claude Code/Cursor/Codex.
-        from backend.core import opmem
+        from backend.core.dominio import opmem
         rec = opmem.remember(hecho, kind=("tecnico" if tipo in ("architecture", "bugfix")
                                           else opmem.clasifica(hecho)),
                              scope="global", source="operador")
@@ -102,7 +102,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": f"🧠 Guardado como {rec.get('kind', tipo)}: «{hecho[:160]}». {espejo}"}
 
     if intent == "rules":
-        from backend.core import opmem
+        from backend.core.dominio import opmem
         reglas = opmem.all_rules(limit=12)
         if not reglas:
             return {"reply": "🧠 Todavía no me has fijado ninguna regla de trabajo. Dime cosas "
@@ -116,7 +116,7 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": "\n".join(lines), "data": st}
 
     if intent == "forget_rule":
-        from backend.core import opmem
+        from backend.core.dominio import opmem
         from backend.core.comun import confirm
         gd = match.groupdict() if match else {}
         q = (gd.get("q") or "").strip().rstrip(".?¿")

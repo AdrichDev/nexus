@@ -35,7 +35,7 @@ def check(cond, msg):
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import backend.core.board as board       # noqa: E402
+import backend.core.dominio.board as board       # noqa: E402
 import backend.core.comun.audit as audit       # noqa: E402
 
 _TMP = Path(tempfile.mkdtemp(prefix="nexus_v23u_"))
@@ -144,7 +144,7 @@ def test_temperatura_en_el_header():
     js = Path(ROOT, "frontend", "js", "command.js").read_text(encoding="utf-8")
     css = Path(ROOT, "frontend", "css", "command.css").read_text(encoding="utf-8")
     app = Path(ROOT, "backend", "app.py").read_text(encoding="utf-8")
-    brf = Path(ROOT, "backend", "core", "briefing.py").read_text(encoding="utf-8")
+    brf = Path(ROOT, "backend", "core", "dominio", "briefing.py").read_text(encoding="utf-8")
     i_head = idx.find("<header")
     i_wx = idx.find('id="wx"')
     i_endhead = idx.find("</header>")
@@ -238,7 +238,7 @@ def test_auditoria_consultable():
         check(bool(mod["_AUDIT_RX"].search(t)), f"«{t}» consulta la auditoría")
     check("destructive_only=solo_destructivas" in brain,
           "y puede filtrar solo lo destructivo")
-    opm = Path(ROOT, "backend", "core", "opmem.py").read_text(encoding="utf-8")
+    opm = Path(ROOT, "backend", "core", "dominio", "opmem.py").read_text(encoding="utf-8")
     check("audit" in opm and "RECALL_LOG" in opm,
           "la auditoría y los recuerdos de Engram son cosas distintas y separadas")
 

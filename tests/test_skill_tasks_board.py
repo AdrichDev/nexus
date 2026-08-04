@@ -2,7 +2,7 @@
 """Auditoría de la skill TABLERO: activación con frases naturales, enrutado real,
 ámbito de los borrados masivos y confirmación obligatoria antes de borrar nada.
 
-No toca el tablero del usuario: `backend.core.board` se apunta a un data/ temporal
+No toca el tablero del usuario: `backend.core.dominio.board` se apunta a un data/ temporal
 antes de importar la skill, así que las tareas de esta suite son inventadas.
 
 Ejecutar:  .venv\\Scripts\\python.exe tests\\test_skill_tasks_board.py
@@ -38,7 +38,8 @@ def check(cond, msg):
 
 # El tablero se desvía a un temporal ANTES de que nadie lo lea.
 TMP = tempfile.mkdtemp(prefix="nexus_board_test_")
-from backend.core import board, skills_loader as sl
+from backend.core import skills_loader as sl
+from backend.core.dominio import board
 from backend.core.comun import confirm  # noqa: E402
 
 board.BOARD_FILE = __import__("pathlib").Path(TMP) / "board.json"

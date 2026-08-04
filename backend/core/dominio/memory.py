@@ -18,7 +18,7 @@ import os
 import re
 from pathlib import Path
 
-from .comun.config import CONFIG_DIR, DATA_DIR, settings
+from ..comun.config import CONFIG_DIR, DATA_DIR, settings
 
 try:
     import psycopg2
@@ -359,7 +359,7 @@ class PgMemory:
         else:
             hint = "revisa el contenedor nexus_memoria_postgres y NEXUS_DB_URL en .env."
         try:
-            from .comun.events import bus
+            from ..comun.events import bus
             bus.emit_sync("log", {"level": "warn",
                                   "msg": f"🧠 Memoria Postgres OFFLINE: {type(exc).__name__}. {hint}"})
         except Exception:
@@ -445,7 +445,7 @@ class PgMemory:
                 except Exception:
                     pass
                 try:
-                    from .comun.events import bus
+                    from ..comun.events import bus
                     bus.emit_sync("log", {"level": "warn",
                                           "msg": f"Memoria: DDL {i} no aplicó ({type(exc).__name__})."})
                 except Exception:
@@ -453,7 +453,7 @@ class PgMemory:
         self._maybe_crear_indice_vector()
         self._schema_ready = True
         try:
-            from .comun.events import bus
+            from ..comun.events import bus
             bus.emit_sync("log", {"level": "ok", "msg": "🧠 Memoria Postgres lista (esquema verificado)."})
         except Exception:
             pass
@@ -561,7 +561,7 @@ class PgMemory:
         pendiente = medida is not None and columna is not None and medida != columna
         if pendiente:
             try:
-                from .comun.events import bus
+                from ..comun.events import bus
                 bus.emit_sync("log", {"level": "warn",
                     "msg": f"🧠 Memoria: reindexado pendiente — la columna está en "
                            f"vector({columna}) pero el modelo activo («{modelo}») da "
@@ -581,7 +581,7 @@ class PgMemory:
         antes de invocar esta función.
         `tabla` es parametrizable para poder probar la migración de verdad
         (contra Postgres real) sin tocar la tabla `memories` de producción."""
-        from .comun import audit
+        from ..comun import audit
         conn = self.connect()
         if conn is None:
             return {"ok": False, "error": "sin conexión a Postgres"}
@@ -699,7 +699,7 @@ class PgMemory:
         if conn is None:
             return {"ok": False, "error": "sin conexión a Postgres"}
         from . import rag
-        from .comun import audit
+        from ..comun import audit
         lote = max(1, int(umbral.get("lote_reindex", 20)))
         procesadas = fallidas = 0
         fallidos_ids: list[int] = []
@@ -763,7 +763,7 @@ class PgMemory:
                 if not self._avisado_descarte:
                     self._avisado_descarte = True
                     try:
-                        from .comun.events import bus
+                        from ..comun.events import bus
                         bus.emit_sync("log", {"level": "warn",
                             "msg": f"🧠 Memoria: vector de {len(vec)} no encaja con la "
                                    f"columna vector({dim}) — fila(s) sin vector, "
@@ -958,7 +958,7 @@ class PgMemory:
             except Exception:
                 pass
             return {"ok": False, "error": str(exc)}
-        from .comun import audit
+        from ..comun import audit
         audit.log(action="memoria_crear_indice_huella", destructive=False,
                   confirmed=True, result=f"{idx} creado", extra={"tabla": tabla})
         return {"ok": True, "ya_existia": False}
@@ -988,7 +988,7 @@ class PgMemory:
             except Exception:
                 pass
             return {"ok": False, "error": str(exc)}
-        from .comun import audit
+        from ..comun import audit
         audit.log(action="memoria_limpiar_respaldo", destructive=True,
                   confirmed=True, result=f"DROP COLUMN {nombre}",
                   extra={"tabla": tabla})

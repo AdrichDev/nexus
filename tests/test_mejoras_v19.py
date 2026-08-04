@@ -130,7 +130,7 @@ def test_research_usa_motor_central():
 # ══════════════ M2: briefing ══════════════
 
 def test_briefing_due():
-    import backend.core.briefing as bf
+    import backend.core.dominio.briefing as bf
     now = dt.datetime(2026, 7, 24, 9, 0)
     check(bf.briefing_due(now, True, "08:30", "") is True, "due: pasada la hora y sin mandar → sí")
     check(bf.briefing_due(now, True, "08:30", "2026-07-24") is False, "due: ya mandado hoy → no")
@@ -141,7 +141,7 @@ def test_briefing_due():
 
 def test_briefing_secciones():
     import json
-    import backend.core.briefing as bf
+    import backend.core.dominio.briefing as bf
     tmp = Path(tempfile.mkdtemp())
     old = bf.DATA_DIR
     bf.DATA_DIR = tmp

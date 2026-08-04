@@ -53,7 +53,8 @@ def check(cond, msg: str) -> bool:
 
 
 TMP = Path(tempfile.mkdtemp(prefix="nexus_rangos_"))
-from backend.core import board, skills_loader as sl
+from backend.core import skills_loader as sl
+from backend.core.dominio import board
 from backend.core.comun import config  # noqa: E402
 
 board.BOARD_FILE = TMP / "board.json"
@@ -269,7 +270,7 @@ if _m:
 print("== 6) el código no lleva datos del usuario ==")
 _PROPIOS = re.compile(r"\b(achoz|adri[aá]n|C:\\Users\\a)\b", re.I)
 for rel in ("skills/tasks_board/skill.py", "skills/tasks_board/SKILL.md",
-            "backend/core/board.py"):
+            "backend/core/dominio/board.py"):
     check(not _PROPIOS.search((ROOT / rel).read_text(encoding="utf-8")),
           f"{rel} lleva dentro datos del usuario")
 

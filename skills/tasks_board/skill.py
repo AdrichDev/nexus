@@ -28,7 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from backend.core import board
+from backend.core.dominio import board
 from backend.core.comun import confirm
 
 SKILL = {

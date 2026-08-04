@@ -36,7 +36,7 @@ import time
 import unicodedata
 import uuid
 
-from .comun.config import DATA_DIR
+from ..comun.config import DATA_DIR
 
 OPS_FILE = DATA_DIR / "engram_ops.json"
 RECALL_LOG = DATA_DIR / "logs" / "recall.jsonl"
@@ -191,7 +191,7 @@ def remember(texto: str, kind: str = "", scope: str = "global",
     items.append(rec)
     _save(items)
     try:
-        from .comun import audit as _a
+        from ..comun import audit as _a
         _a.log(action="engram_remember", actor=source, destructive=False,
                request=texto[:200], result=f"{kind} · ámbito {rec['scope']}")
     except Exception:
@@ -227,7 +227,7 @@ async def mirror_to_engram(ctx, rec: dict) -> None:
     if not rec:
         return
     try:
-        from .infraestructura import engram_bridge as eng
+        from ..infraestructura import engram_bridge as eng
         tipo = "decision" if rec["kind"] in ("decision", "regla", "preferencia",
                                              "correccion", "restriccion",
                                              "delegacion", "convencion",
