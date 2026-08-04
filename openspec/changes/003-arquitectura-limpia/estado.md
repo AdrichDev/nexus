@@ -176,16 +176,10 @@ se verifica; el traslado va por grupos y puede esperar.
    al apagar, y la regresión del pronombre que los tests no vieron. Ambas
    corregidas.
 
-   Pero **no llega a emitir el recibo**. `gentle-ai` 2.2.4 no sabe calcular la
-   transición siguiente cuando la revisión está en `correction_required`, y esa
-   es justamente la única puerta: `finalize` la exige, `review start` se declara
-   bloqueado, y `recover` e `invalidate` rechazan ese estado. O sea que corregir
-   lo que la revisión te pide es lo que te deja atrapado.
-
-   Aislado con una sola variable: con `--projection staged` la misma orden
-   funciona, con `workspace` revienta. Descartados el binario viejo, la ruta con
-   espacios y un lineage huérfano. La evidencia completa está en engram. Los
-   commits de esa tanda van **sin recibo**, a propósito.
+   Pero **no llega a emitir el recibo**: `gentle-ai` 2.2.4 se atasca cuando la
+   revisión queda en `correction_required`, que es justo lo que pasa al corregir
+   lo que ella misma pide. Los commits de esa tanda van **sin recibo**, a
+   propósito. Decidido no reportarlo; la evidencia queda en engram por si acaso.
 
 **Google ya NO es un bloqueante** (03/08/2026). Aquí figuraba como pendiente de
 reautorizar, y era falso: el token está autorizado desde el 02/08 a las 23:59
