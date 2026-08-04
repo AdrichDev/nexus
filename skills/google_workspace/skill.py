@@ -896,6 +896,83 @@ def _parse_when(text: str):
     return date_.isoformat(), (date_ + dt.timedelta(days=1)).isoformat(), True
 
 
+# ══════════ EVENTOS DE VARIOS DÍAS Y TÍTULO LIMPIO (se reutiliza el tablero) ══════════
+_TABLERO = None          # módulo tasks_board cacheado: se carga una sola vez
+
+
+def _tablero():
+    """Devuelve el módulo de la skill tasks_board (carpeta hermana).
+
+    Los rangos («del miércoles al domingo», «del 5 al 9 de agosto»), la limpieza
+    del título y el cuerpo que espera Google ya están resueltos y probados ahí:
+    se importan en vez de repetir aquí las mismas expresiones regulares.
+    `from skills.tasks_board import skill` NO sirve: skills_loader carga cada
+    skill con spec_from_file_location y `skills` no es un paquete importable."""
+    global _TABLERO
+    if _TABLERO is None:
+        import importlib.util
+        ruta = Path(__file__).resolve().parents[1] / "tasks_board" / "skill.py"
+        spec = importlib.util.spec_from_file_location("skills.tasks_board", ruta)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _TABLERO = mod
+    return _TABLERO
+
+
+# El verbo y el «un evento / una cita» que lo acompañan: son la orden, no el asunto.
+# El \b tras «de» es obligatorio: sin él, «crea un evento DEL 5 al 9» perdía la
+# «de» de «del», el rango dejaba de reconocerse y solo se guardaba una fecha.
+_DISPARADOR_RX = re.compile(
+    r"^\s*(?:crea(?:me)?|a[ñn][aá]de(?:me)?|agr[eé]ga(?:me)?|ap[uú]nta(?:me)?|"
+    r"ag[eé]nda(?:me)?|pon(?:me)?|mete(?:me)?)\s+(?:un\s+|una\s+)?"
+    r"(?:evento|cita|reuni[oó]n|recordatorio)?\s*(?:(?:de|para)\b|:)?\s*", re.IGNORECASE)
+
+# Fechas sueltas («el jueves», «25/07», «5 de agosto») fuera del título.
+_FECHA_SUELTA_RX = re.compile(
+    r"\b(?:el\s+|para\s+el\s+|para\s+|este\s+|pr[oó]ximo\s+)?"
+    r"(?:hoy|ma[ñn]ana|pasado\s+ma[ñn]ana|lunes|martes|mi[eé]rcoles|jueves|"
+    r"viernes|s[aá]bado|domingo|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
+    r"\d{1,2}\s+de\s+\w+)\b", re.IGNORECASE)
+
+# «el evento Festival Sonorama» → el asunto es el festival; «evento» es el
+# continente. El lookahead deja fuera «la cita CON el dentista» y «la reunión DE
+# equipo», donde esa palabra SÍ es parte del asunto.
+_GENERICO_RX = re.compile(
+    r"^(?:el|la|un|una)\s+(?:evento|cita|reuni[oó]n|recordatorio)\s+"
+    r"(?!(?:con|de|del|para|en|entre|sobre|a|al)\b)", re.IGNORECASE)
+
+
+def _titulo_evento(resto: str, tb) -> str:
+    """Deja solo el asunto: quita el continente («el evento», «la cita») y el
+    relleno que ya sabe limpiar el tablero («que dure», conectores colgados)."""
+    return tb._limpia_titulo(_GENERICO_RX.sub("", (resto or "").strip(), count=1))
+
+
+def _datos_evento(text: str) -> tuple[str, str | None, str | None, bool, str]:
+    """De la orden saca (titulo, start, end, all_day, ultimo_dia).
+
+    `ultimo_dia` es el último día del rango INCLUSIVE ('' si el evento ocupa un
+    solo día): Google quiere el fin exclusivo, pero el tablero guarda el último
+    día real. start/end en ISO; start es None si no hay fecha entendible."""
+    tb = _tablero()
+    cuerpo = _DISPARADOR_RX.sub("", text, count=1)
+    cuerpo = re.sub(r"\b(?:al|en\s+(?:el|mi|google))\s+calendario\b", "",
+                    cuerpo, flags=re.IGNORECASE)
+    resto, hora = tb._extract_time(cuerpo)
+    resto, ini, fin = tb._extract_range(resto)
+    if ini and fin:
+        start, end, all_day = tb._cuerpo_evento(ini, hora or "", fin)
+        return _titulo_evento(resto, tb), start, end, all_day, fin
+    # Sin rango manda el parser de siempre: una fecha con hora dura una hora y
+    # una fecha pelada ocupa el día entero.
+    titulo = _titulo_evento(_TIME_RX.sub("", _FECHA_SUELTA_RX.sub("", cuerpo)), tb)
+    when = _parse_when(text)
+    if not when:
+        return titulo, None, None, False, ""
+    start, end, all_day = when
+    return titulo, start, end, all_day, ""
+
+
 def _create_event(summary: str, start: str, end: str | None = None,
                   description: str = "", all_day: bool = False) -> str:
     """Crea un evento REAL en el calendario principal. Devuelve el enlace."""
@@ -2090,37 +2167,38 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                              "traigo el resultado en cuanto acabe."}
 
         if intent == "create_event":
-            when = _parse_when(text)
-            # título = lo que queda tras quitar el disparador y la fecha/hora
-            titulo = re.sub(
-                r"^\s*(?:crea(?:me)?|a[ñn][aá]de(?:me)?|agr[eé]ga(?:me)?|ap[uú]nta(?:me)?|"
-                r"ag[eé]nda(?:me)?|pon(?:me)?|mete(?:me)?)\s+(?:un\s+|una\s+)?"
-                r"(?:evento|cita|reuni[oó]n|recordatorio)?\s*(?:de|para|:)?\s*", "", text, flags=re.IGNORECASE)
-            titulo = re.sub(r"\b(?:al|en\s+(?:el|mi|google))\s+calendario\b", "", titulo, flags=re.IGNORECASE)
-            titulo = _TIME_RX.sub("", titulo)
-            titulo = re.sub(r"\b(?:el\s+|para\s+el\s+|para\s+|este\s+|pr[oó]ximo\s+)?"
-                            r"(?:hoy|ma[ñn]ana|pasado\s+ma[ñn]ana|lunes|martes|mi[eé]rcoles|jueves|"
-                            r"viernes|s[aá]bado|domingo|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|"
-                            r"\d{1,2}\s+de\s+\w+)\b", "", titulo, flags=re.IGNORECASE).strip(" ,.:-")
+            titulo, start, end, all_day, ultimo = _datos_evento(text)
             if not titulo:
-                titulo = "Evento"
-            if not when:
+                # Sin asunto se PREGUNTA, no se inventa. Un evento titulado
+                # «Evento» en el calendario es peor que no crearlo: mañana no
+                # dice nada. Mismo criterio que el tablero con las tareas.
+                cuando = _fmt_cuando(start) if start else ""
+                return {"reply": f"¿Evento de qué{f', el {cuando}' if cuando else ''}? "
+                                 "Dime el nombre y lo apunto."}
+            if not start:
                 return {"reply": "¿Para cuándo lo pongo? Dime la fecha (y hora si quieres): "
-                                 "«crea un evento reunión con Ana el viernes a las 17:00»."}
-            start, end, all_day = when
+                                 "«crea un evento reunión con Ana el viernes a las 17:00» "
+                                 "o «apunta el evento Feria del libro del 5 al 9 de agosto»."}
             try:
                 _link = await asyncio.to_thread(_create_event, titulo, start, end, "", all_day)
             except Exception as exc:                              # noqa: BLE001
                 raise exc
-            # espejo en el tablero interno (con la fecha del evento)
+            # espejo en el tablero interno (con la fecha del evento; en los
+            # rangos, con el último día INCLUSIVE para que la agenda lo pinte
+            # todos los días)
             try:
                 from backend.core import board
                 await asyncio.to_thread(board.add_task, titulo,
-                                        start[:10], "media", "agenda")
+                                        start[:10], "media", "agenda",
+                                        kind="evento", due_end=ultimo)
             except Exception:
                 pass
-            cuando = (f"el {_fmt_cuando(start)}" if not all_day
-                      else f"el {_fmt_cuando(start)} (todo el día)")
+            if ultimo and ultimo != start[:10]:
+                cuando = (f"del {_fmt_cuando(start)} al {_fmt_cuando(ultimo)}"
+                          + ("" if not all_day else " (todos los días)"))
+            else:
+                cuando = (f"el {_fmt_cuando(start)}" if not all_day
+                          else f"el {_fmt_cuando(start)} (todo el día)")
             return {"reply": f"📅 Evento creado en tu Google Calendar: «{titulo}» {cuando}. "
                              "Lo he reflejado también en tu tablero. Si te arrepientes, "
                              "di «cancela ese evento» y desaparece."}

@@ -340,10 +340,31 @@ _JOBS_CANCEL_RX = re.compile(
 # para recuperarlo por significado más adelante (no es una orden a un minion).
 _REMEMBER_RX = re.compile(
     r"^\s*(?:recu[eé]rda(?:me|te)?|ap[uú]nta(?:me|te)?|gu[aá]rda(?:me|te)?|"
-    r"ten\s+en\s+cuenta|no\s+olvides|memoriza)\s+(?:que\s+|lo\s+de\s+|esto:?\s+)?"
+    r"ten\s+en\s+cuenta|no\s+olvides|memoriza)\s+(?P<con>que\s+|lo\s+de\s+|esto:?\s+)?"
     r"(?P<fact>.{4,}?)\s*\.?\s*$", re.IGNORECASE)
 
 # Historial corto en RAM para la conversación (la persistencia va a DB/grafo)
+def es_memoria_explicita(text: str) -> bool:
+    """¿«apunta esto» es GUARDAR UN HECHO, o una orden para una skill?
+
+    Las separa el CONECTOR. «apunta QUE me gusta el café solo» es un hecho;
+    «apunta la reunión del jueves» es una cita. Sin «que», «lo de» o «esto:»,
+    manda la skill que sepa atenderlo — y si no la hay, se guarda igual, que es
+    lo que se hacía siempre.
+
+    Esto se comprueba ANTES del router, así que sin la condición el atajo se
+    tragaba TODO lo que empieza por «apunta»: incluidas las frases que el propio
+    SKILL.md promete para el tablero y el calendario, que no llegaban nunca a su
+    skill. `test_lo_prometido` no lo veía porque comprueba el router, y el router
+    ni se ejecutaba."""
+    m = _REMEMBER_RX.match(text or "")
+    if not m:
+        return False
+    if m.group("con"):
+        return True
+    return route(text) is None
+
+
 _history: list[dict] = []
 MAX_TURNS = 12
 
@@ -786,7 +807,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
     # MEMORIA EXPLÍCITA: «recuerda que…» / «apunta que…» → guarda un HECHO en la
     # base de conocimiento (RAG/DB) para recuperarlo por significado más adelante.
-    mrem = _REMEMBER_RX.match(text)
+    mrem = _REMEMBER_RX.match(text) if es_memoria_explicita(text) else None
     if mrem:
         fact = mrem.group("fact").strip()
         # v23 (T4/T5): si es una MANERA DE TRABAJAR va a la memoria operativa

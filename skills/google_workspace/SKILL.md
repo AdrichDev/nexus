@@ -41,6 +41,12 @@ Calendar:
 - «crea un evento reunión con Ana el viernes a las 17:00» /
   «resérvame una cita con el dentista el martes» → evento REAL (entiende «mañana»,
   «el jueves», «25/07», «a las 9:30 de la mañana»; sin hora = todo el día)
+- «apunta el evento Festival Sonorama del miercoles al domingo» /
+  «crea un evento que dure del 5 al 9 que sea Feria del libro» → evento de VARIOS
+  DÍAS: ocupa la franja entera, no un punto suelto. El asunto puede ir DETRÁS de
+  las fechas («que sea», «que es», «llamada», «titulada», dos puntos) y el relleno
+  («que dure», «el evento», «la cita») no entra en el título. Los rangos y la
+  limpieza del título son los MISMOS del tablero: se reutiliza su código.
 - «mueve la reunión al viernes a las 17» / «reprograma la cita del médico»
 - «cancela la reunión con el CTO» / «borra el evento del jueves» /
   «anúlame la cita del dentista»

@@ -75,6 +75,7 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_skill_hermes.py", "test_skill_files.py",
               "test_skill_system_pc.py", "test_volumen_destino.py",
               "test_skill_tasks_board.py", "test_eventos_varios_dias.py",
+              "test_eventos_google_rango.py",
               "test_calendario_por_fecha.py",
               "test_skill_autoprovision.py", "test_skill_media.py",
               "test_skill_chrome.py", "test_skill_content_os.py",
@@ -85,7 +86,7 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_skills_pequenas_1.py", "test_skills_pequenas_2.py",
               "test_frontend_modulos.py", "test_capas_backend.py",
               "test_lo_prometido.py", "test_grafo_solo_conocimiento.py",
-              "test_saludo_una_vez.py", "test_calla_al_escribir.py", "test_no_promete_trabajo.py",
+              "test_saludo_una_vez.py", "test_calla_al_escribir.py", "test_no_promete_trabajo.py", "test_apunta_no_es_siempre_memoria.py",
               "test_grafo_vista.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
