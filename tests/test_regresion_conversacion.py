@@ -21,12 +21,20 @@ Ejecutar:  .venv\\Scripts\\python.exe tests\\test_regresion_conversacion.py
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+# AISLAMIENTO. `brain` lee las frases aprendidas de `data/`, asi que sin esto la
+# prueba mira los datos REALES de la maquina: pasa o falla segun lo que tenga
+# guardado quien la ejecute, y en otra maquina dice otra cosa. Igual que hace
+# `test_lo_prometido`, que si lo aislaba.
+os.environ.setdefault("NEXUS_DATA_DIR", tempfile.mkdtemp(prefix="nexus_regresion_"))
 
 from backend.core.aplicacion import brain  # noqa: E402
 from backend.core.aplicacion.skills_loader import load_skills               # noqa: E402
