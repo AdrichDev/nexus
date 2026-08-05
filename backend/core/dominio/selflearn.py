@@ -4,7 +4,7 @@ nexus — AUTO-REENTRENAMIENTO ("aprende de mí").
 Además de recordar órdenes exactas (ver brain._learn_*), nexus DESTILA con el
 mejor razonador disponible (Fable / claude-fable-5) un PERFIL del operador a partir
 de sus conversaciones y de las órdenes que funcionan. Ese perfil se inyecta en el
-system prompt → el asistente responde y decide cada vez más a medida de Adri, y se
+system prompt → el asistente responde y decide cada vez más a medida del operador, y se
 re-genera SOLO cada N interacciones (o cuando se le dice «reentrénate»).
 
 Ficheros en data/:
@@ -115,15 +115,25 @@ def ultima_orden(excluir: str = "") -> str:
     que no comparte ese historial en RAM (el puente de mensajeria, una segunda
     ventana). Se lee de `interactions.jsonl`, que es lo unico que sobrevive a un
     reinicio."""
-    fuera = _normaliza(excluir)
+    fuera = normaliza(excluir)
     for d in reversed(_recent(40)):
         t = (d.get("t") or "").strip()
-        if t and (not fuera or _normaliza(t) != fuera):
+        if t and (not fuera or normaliza(t) != fuera):
             return t
     return ""
 
 
-def _normaliza(s: str) -> str:
+def normaliza(s: str) -> str:
+    """Minusculas, espacios colapsados y sin signos en los extremos.
+
+    ES PUBLICA A PROPOSITO. Esta misma linea vivia copiada tres veces —aqui, en
+    `brain` y en `aprendizaje`— y las tres se justificaban con «no puedo
+    importar la otra». Era verdad y era irrelevante: las dos de `aplicacion` SI
+    pueden importar `dominio`, que es donde tiene que vivir una regla de
+    normalizacion. Tres copias sin un test que las vigilara es como divergen dos
+    frases que deberian ser la misma: `observa()` normaliza para comparar y
+    `ultima_orden()` para excluir, asi que separarlas hace que la propia
+    correccion vuelva como antecedente de si misma."""
     return re.sub(r"\s+", " ", (s or "").strip().lower().strip("¿?¡!.,;:")).strip()
 
 
@@ -140,22 +150,19 @@ def registrar_generalizador(fn) -> None:
     _generalizador = fn
 
 
-def hay_generalizador() -> bool:
-    return _generalizador is not None
-
-
 def generaliza_patron(frase: str) -> str:
     """Un patron MAS ANCHO que la frase literal, o '' si no lo hay.
 
     EL MODELO NO EMITE UN VEREDICTO: lo que devuelve es ENTRADA de las puertas,
-    nunca una autorizacion. Aqui solo se comprueban las tres cosas que hacen que
-    merezca la pena molestar a las puertas con ello:
+    nunca una autorizacion. Aqui solo se comprueban las cuatro cosas que hacen
+    que merezca la pena molestar a las puertas con ello:
 
-      1. compila,
-      2. esta anclado por los dos lados —igual que exige la puerta de forma—,
-      3. y CASA LA FRASE QUE LO ORIGINO.
+      1. esta anclado por los dos lados —igual que exige la puerta de forma—,
+      2. su FORMA no es peligrosa (se pregunta a `reglas._forma_peligrosa`),
+      3. compila,
+      4. y CASA LA FRASE QUE LO ORIGINO.
 
-    La tercera es la que convierte «generalizar» en algo comprobable. Un patron
+    La cuarta es la que convierte «generalizar» en algo comprobable. Un patron
     que ya no casa su propia frase no es una version ancha de esa regla: es otra
     regla distinta, colada por la puerta de atras y sin que nadie la haya pedido.
 

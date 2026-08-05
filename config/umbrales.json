@@ -449,9 +449,9 @@
     "tope_frases_arrastradas": 2,
     "_tope_frases_arrastradas": "Cuantas frases del corpus, ademas de la que origino la regla, puede llevarse un patron antes de considerarse una red de arrastre y descartarse. Por encima de esto la regla no es una forma nueva de decir algo: es demasiado ancha.",
     "dias_caducidad_propuesta": 30,
-    "_dias_caducidad_propuesta": "Cuanto vive una PROPUESTA sin aprobar antes de caducar. Las reglas ACTIVAS no caducan ni se podan: un tope seria un borrado automatico, y aqui no hay ninguno. Valor elegido, no medido: subelo si revisas la lista con menos frecuencia.",
+    "_dias_caducidad_propuesta": "TODAVIA NO HACE NADA (pendiente de la tarea C3.9 del cambio 004): hoy ninguna propuesta caduca, asi que cambiar este numero no cambia el comportamiento de nexus. Se deja escrito para que el dia que se cablee no haya que inventarse el valor, y hay una prueba (tests/test_reglas_valores.py, UMBRALES_PENDIENTES) que obliga a quitarlo de esa lista en cuanto alguien lo lea desde el codigo. CUANDO FUNCIONE sera: cuanto vive una PROPUESTA sin aprobar antes de caducar. Las reglas ACTIVAS no caducaran ni se podaran: un tope seria un borrado automatico, y aqui no hay ninguno. Valor elegido, no medido: subelo si revisas la lista con menos frecuencia.",
     "presupuesto_ms_barrido": 1500,
-    "_presupuesto_ms_barrido": "Milisegundos que puede tardar el barrido del corpus con una regla candidata antes de descartarla. Es la unica defensa en EJECUCION contra un retroceso catastrofico de la regex: en el proyecto no hay modulo 'regex' con timeout. Valor elegido, no medido: el barrido de referencia son ~255 frases."
+    "_presupuesto_ms_barrido": "Milisegundos que puede tardar el barrido del corpus con una regla candidata antes de descartarla. Es la unica defensa en EJECUCION contra un retroceso catastrofico de la regex: en el proyecto no hay modulo 'regex' con timeout. Valor elegido, no medido: el barrido de referencia son 281 frases (medidas el 05/08/2026: 255 prometidas por los SKILL.md + 34 del corpus de regresion, sin repetir)."
   },
   "saludo": {
     "_que_es": "Cada vez que se abre nexus, saluda. Si abres y cierras la ventana —o hay otra abierta, o el movil, o una prueba— saludaba OTRA VEZ, en voz alta y a todas las pantallas a la vez. Estos minutos son el descanso minimo entre saludos. Subirlo = saluda menos.",

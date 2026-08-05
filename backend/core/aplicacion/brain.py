@@ -539,7 +539,13 @@ def _learn_examples(n: int = 14) -> str:
 #     el operador puede ENSEÑAR/corregir en caliente («aprende que cuando diga
 #     X hagas Y»). La última enseñanza siempre gana (re-aprende).
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip().lower().strip("¿?¡!.,;:")).strip()
+    """Delega en `dominio/selflearn`: esta linea estaba copiada en tres sitios.
+
+    Comparar frases normalizadas es una regla de dominio, y `aplicacion` puede
+    bajar a `dominio`. Tres copias sin test que las vigilara solo esperaban a
+    divergir."""
+    from ..dominio import selflearn
+    return selflearn.normaliza(s)
 
 
 def _learn_lookup(phrase: str) -> str:

@@ -160,13 +160,13 @@ _ENSENANZA_RX = re.compile(
 
 
 def _norm(s: str) -> str:
-    """Minusculas, espacios colapsados y sin signos de los extremos.
+    """La normalizacion de frases vive en `dominio/selflearn`, no aqui.
 
-    Es la misma normalizacion que usa el cerebro para comparar frases. Se repite
-    aqui en una linea en vez de importarla: `aprendizaje` no puede importar
-    `brain` —seria el quinto ciclo de `CAPAS.md`— y un hueco registrado para
-    esto costaria mas que la linea."""
-    return re.sub(r"\s+", " ", (s or "").strip().lower().strip("¿?¡!.,;:")).strip()
+    Estaba copiada linea a linea con el argumento de que `aprendizaje` no puede
+    importar `brain`. Cierto, pero la pregunta era otra: esto es una regla de
+    dominio, y `aplicacion` SI puede bajar a `dominio`. Se deja el nombre corto
+    para no tocar las llamadas."""
+    return selflearn.normaliza(s)
 
 
 def _ahora() -> str:
@@ -240,6 +240,15 @@ def _destino_pretendido(reparacion: str) -> str:
     orden, preguntandole al arbitro a quien llega. Si esa frase tampoco llega a
     ninguna skill, no hay destino que proponer — y eso NO es un fallo del
     mecanismo, es que lo que se pide no lo sabe hacer nadie."""
+    # AQUI `reglas=()` SI ES LO CORRECTO, y no es el mismo caso que en `observa()`.
+    #
+    # Alli el conjunto vacio mataba la fila «ya hay una regla». Aqui se busca lo
+    # contrario: el destino NATIVO que hay detras de la reparacion. Con las
+    # activas puestas, una regla aprendida que ya case la reparacion contestaria
+    # `regla:<id>`, que no empieza por `skill:` y saldria como «sin capacidad» —
+    # y aunque se leyera, apuntar una regla nueva a OTRA regla no lleva a ningun
+    # sitio. Se pregunta con el conjunto vacio a proposito: se quiere saber quien
+    # atiende esa frase POR CODIGO.
     veredicto = reglas.arbitro((reparacion or "").strip(), reglas=())
     if not veredicto.startswith("skill:"):
         return ""
@@ -356,7 +365,19 @@ def observa(correccion: str, antecedente: str = "", canal: str = "pc") -> dict:
     if not frase:
         return {}
 
-    veredicto = reglas.arbitro(frase, reglas=())
+    # SE PREGUNTA CON LAS REGLAS ACTIVAS PUESTAS, y no con `reglas=()`.
+    #
+    # `()` es el conjunto vacio, y con el el arbitro NUNCA puede contestar
+    # `regla:<id>`: la fila «ya hay una regla» de la tabla de veredictos no se
+    # ejecutaba jamas. El precio de esa fila muerta no era teorico — la frase
+    # volvia a caer en `planificador`, se volvia a proponer, y como `guardar()`
+    # sustituye por id, la regla que el duenno YA HABIA APROBADO regresaba a
+    # `propuesta`: una correccion desactivaba en silencio una aprobacion.
+    #
+    # Se pasan las activas de forma EXPLICITA en vez de `reglas=None` porque
+    # `None` deja que sea el arbitro quien vaya a buscarlas, y aqui interesa que
+    # el conjunto con el que se juzga sea el mismo que se puede enseñar.
+    veredicto = reglas.arbitro(frase, reglas=tuple(reglas.activas()))
     if not veredicto:
         # Cadena vacia es «no lo se», no «planificador». Sin arbitro no se juzga.
         return {}

@@ -16,6 +16,7 @@ Ejecutar:  .venv\\Scripts\\python.exe tests\\test_aprendizaje_ciclo.py
 """
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
 import sys
@@ -50,6 +51,7 @@ from backend.core.aplicacion import brain                   # noqa: E402
 from backend.core.aplicacion import skills_loader as sl     # noqa: E402
 from backend.core.dominio import reglas                     # noqa: E402
 from backend.core.dominio import selflearn                  # noqa: E402
+from backend.core.comun import audit                        # noqa: E402
 
 sl.load_skills()
 aprendizaje.registrar()
@@ -57,6 +59,10 @@ reglas.registrar_arbitro(brain.quien_atiende)
 
 # Una frase que hoy NO atiende nadie: es el hueco donde una regla si cabe.
 HUECO = "tramoya de prueba para el barrido"
+# La misma, con signos que en una expresion regular significan otra cosa. Sirve
+# para comprobar que la frase del operador se ESCAPA antes de convertirse en
+# patron: pegarla cruda la convertiria en un grupo y el patron casaria de mas.
+HUECO_CON_SIGNOS = "tramoya (de prueba) para el barrido"
 # Una correccion que SI llega a una skill: de ahi sale el destino pretendido.
 REPARA = "cierra chrome"
 
@@ -111,6 +117,13 @@ def test_antecedente_que_llega_a_una_skill_no_propone_nada():
           f"el aviso no queda registrado en el almacen: {len(guardados)} avisos")
     check(guardados and guardados[0].get("origen", {}).get("frase") == "apaga la tele",
           "el aviso no lleva pegada la frase que se enruto, sino otra cosa")
+    # UN AVISO NACE ABIERTO. «propuesta» aqui significa «abierto»: el aviso se
+    # queda molestando en la lista hasta que alguien lo cierre a mano pasandolo a
+    # «descartada». Naciendo ya cerrado se apuntaria el fallo de codigo y nadie
+    # volveria a verlo, que es justo lo contrario de la decision 3 del duenno.
+    check(guardados and guardados[0].get("estado") == "propuesta",
+          f"el aviso nace en estado {guardados[0].get('estado') if guardados else None!r} "
+          "en vez de abierto: un fallo de codigo tiene que molestar hasta que se arregle")
 
     # Un aviso NUNCA se activa, por mucho que alguien le escriba «activa».
     reglas.transitar(guardados[0]["id"], "activa", "a mano")
@@ -152,6 +165,57 @@ def test_antecedente_capturado_por_un_atajo_no_propone():
     _limpia()
 
 
+# ══════════ C1.4 · si YA hay una regla, no se apila otra encima ══════════
+def test_antecedente_que_ya_tiene_regla_no_apila_otra():
+    print("== C1.4) el antecedente ya lo atiende una regla aprendida: aviso, no otra regla ==")
+    _limpia()
+    # 1) Se aprende una regla para el hueco y se ACTIVA. A partir de aqui el
+    #    antecedente ya no cae al planificador: lo atiende una regla.
+    propuesta = aprendizaje.observa(f"aprende que cuando diga {HUECO} hagas {REPARA}")
+    check(propuesta.get("tipo") == "enrutado",
+          f"el montaje falla: no hay regla que activar ({propuesta})")
+    if propuesta.get("tipo") != "enrutado":
+        _limpia()
+        return
+    rid = propuesta["id"]
+    check(reglas.transitar(rid, "activa", "prueba"), "la regla no se ha podido activar")
+    activas = tuple(reglas.activas())
+    check([r["id"] for r in activas] == [rid],
+          f"la regla activada no esta en el conjunto activo: {[r['id'] for r in activas]}")
+
+    # EL ARBITRO DE VERDAD YA LO DICE. Si esto no fuera asi, lo de abajo estaria
+    # midiendo una situacion que no existe.
+    check(brain.quien_atiende(HUECO, reglas=activas) == f"regla:{rid}",
+          f"«{HUECO}» no la atiende la regla recien activada sino "
+          f"«{brain.quien_atiende(HUECO, reglas=activas)}»")
+
+    # 2) Y corregir OTRA VEZ sobre la misma frase avisa, no apila.
+    salida = aprendizaje.observa("no, eso tampoco", antecedente=HUECO, canal="pc")
+    check(salida.get("tipo") == "aviso",
+          f"con una regla ya activa sobre la frase se devuelve {salida.get('tipo')!r} "
+          "en vez de un aviso")
+    check(salida.get("clase") == "ya_hay_regla",
+          f"el aviso no se clasifica como «ya hay regla»: {salida.get('clase')!r}")
+    check(rid in str(salida.get("mensaje") or ""),
+          f"el aviso no dice QUE regla es la que ya lo atiende: «{salida.get('mensaje')}»")
+
+    # 3) Y lo mismo con la formula explicita, que es la que de verdad hace dano:
+    #    trae destino, asi que sin este veredicto llegaria a proponer, y
+    #    `guardar()` sustituye por id — la regla ACTIVA volveria a «propuesta».
+    #    Una correccion habria DESACTIVADO en silencio lo que ya estaba aprobado.
+    otra = aprendizaje.observa(f"aprende que cuando diga {HUECO} hagas {REPARA}")
+    check(otra.get("clase") == "ya_hay_regla",
+          f"reensenar una frase que ya tiene regla activa devuelve "
+          f"{otra.get('tipo')!r}/{otra.get('clase')!r} en vez de un aviso")
+    check([r["id"] for r in reglas.activas()] == [rid],
+          "corregir dos veces la misma frase ha desactivado la regla que ya estaba "
+          "activa: una correccion no puede deshacer una aprobacion")
+    almacen = [r for r in reglas.cargar().get("reglas", []) if r.get("tipo") == "enrutado"]
+    check(len(almacen) == 1 and almacen[0].get("estado") == "activa",
+          f"la regla aprendida ya no esta como estaba: {[(r['id'], r['estado']) for r in almacen]}")
+    _limpia()
+
+
 # ══════════ C1.5 · la evidencia depende de quien lo diga ══════════
 def test_misma_queja_repetida_cuenta_una_vez():
     print("== C1.5) tres quejas el mismo dia son UNA prueba, no tres ==")
@@ -179,8 +243,19 @@ def test_misma_queja_repetida_cuenta_una_vez():
     check(_propuestas() == [], f"hay propuesta por debajo del umbral: {_propuestas()}")
 
     # Dos dias anteriores + el de hoy: tres pruebas DISTINTAS, y ahi si.
-    reglas.anota_ocurrencia(HUECO, "2026-07-30")
-    reglas.anota_ocurrencia(HUECO, "2026-07-31")
+    #
+    # LOS DOS DIAS SE DERIVAN DEL QUE SE ACABA DE APUNTAR, no se escriben a mano.
+    # Aqui ponia «2026-07-30» y «2026-07-31»: el dia que el reloj de la maquina
+    # marcara una de esas dos fechas, la que se apunto arriba coincidiria con
+    # una de ellas, saldrian dos dias distintos en vez de tres y el caso se
+    # pondria rojo sin que nadie hubiera tocado nada. Una bomba de relojeria en
+    # un caso que existe precisamente para vigilar el paso de los dias.
+    apuntado = reglas.cargar().get("ocurrencias", {}).get(HUECO, [])
+    check(len(apuntado) == 1,
+          f"no hay un unico dia apuntado del que tirar: {apuntado}")
+    hoy = dt.date.fromisoformat(apuntado[0])
+    for atras in (1, 2):
+        reglas.anota_ocurrencia(HUECO, (hoy - dt.timedelta(days=atras)).isoformat())
     check(reglas.ocurrencias(HUECO) == 3,
           f"dos dias mas no suman: {reglas.ocurrencias(HUECO)} pruebas")
     salida = aprendizaje.observa(REPARA, antecedente=HUECO, canal="pc")
@@ -218,17 +293,45 @@ def test_una_orden_explicita_entra_a_la_primera():
     check(salida.get("destino") == "system_pc/kill",
           f"el destino no sale de la orden: {salida.get('destino')!r}")
 
-    # Y la formula que reconoce el aprendizaje es LA MISMA que la del cerebro.
-    # No se importa (seria el quinto ciclo de CAPAS.md), asi que se compara:
-    # si una de las dos cambia sin la otra, esto se pone rojo.
-    for frase in (f"aprende que cuando diga {HUECO} hagas {REPARA}",
-                  f"aprendete cuando diga {HUECO} ejecuta {REPARA}",
-                  "aprende a cocinar", "no era eso", REPARA):
-        check(bool(aprendizaje._ENSENANZA_RX.match(frase))
-              == bool(brain._TEACH_RX.match(frase)),
-              f"la formula de ensenanza de aprendizaje y la del cerebro discrepan "
-              f"en «{frase}»")
     _limpia()
+
+
+def test_la_formula_de_ensenanza_es_LA_MISMA_QUE_LA_DEL_CEREBRO():
+    print("== C1.5) _ENSENANZA_RX es copia literal de brain._TEACH_RX, letra por letra ==")
+    # SE COMPARA EL TEXTO DE LA EXPRESION, NO SU COMPORTAMIENTO SOBRE UN PUNADO
+    # DE FRASES.
+    #
+    # Aqui habia una tabla de cinco frases y una comparacion de `bool(match)`.
+    # Ejercitaba `hagas` y `ejecuta`, y ni una sola vez `haz`, `ejecutes`,
+    # `significa`, `es`, `quiero que hagas`, `pon`, `pongas` ni el «cuando TE
+    # diga». Medido: quitarle a `_ENSENANZA_RX` la mitad de los verbos dejaba la
+    # suite VERDE, y quitarle el «te» tambien. La copia se estaba vigilando con
+    # una lupa que solo miraba dos letras de la firma.
+    #
+    # Comparar el patron entero cierra el hueco de una vez: cualquier divergencia
+    # —un verbo, una tilde, una bandera— sale roja el mismo dia.
+    check(aprendizaje._ENSENANZA_RX.pattern == brain._TEACH_RX.pattern,
+          "la formula de ensenanza de aprendizaje ya no es la copia literal de la "
+          "del cerebro:\n"
+          f"    aprendizaje: {aprendizaje._ENSENANZA_RX.pattern!r}\n"
+          f"    brain      : {brain._TEACH_RX.pattern!r}")
+    check(aprendizaje._ENSENANZA_RX.flags == brain._TEACH_RX.flags,
+          f"las dos formulas se compilan con banderas distintas: "
+          f"{aprendizaje._ENSENANZA_RX.flags} vs {brain._TEACH_RX.flags}")
+
+    # Y ademas se ejercita CADA verbo de la formula, para que la comparacion de
+    # arriba no se quede en una igualdad entre dos cosas rotas por igual.
+    for verbo in ("haz", "hagas", "ejecuta", "ejecutes", "significa", "es",
+                  "quiero que hagas", "pon", "pongas"):
+        frase = f"aprende que cuando te diga {HUECO} {verbo} {REPARA}"
+        m = aprendizaje._ENSENANZA_RX.match(frase)
+        check(m is not None and m.group("ph").strip() == HUECO
+              and m.group("order").strip() == REPARA,
+              f"la formula no reconoce «{verbo}»: {frase!r} -> "
+              f"{(m.group('ph'), m.group('order')) if m else None}")
+    for frase in ("aprende a cocinar", "no era eso", REPARA):
+        check(aprendizaje._ENSENANZA_RX.match(frase) is None,
+              f"la formula se traga «{frase}», que no es una ensenanza")
 
 
 # ══════════ C1.6 · nexus no propone jamas escribir una skill ══════════
@@ -300,11 +403,69 @@ def test_sin_modelo_cae_al_patron_literal():
               f"{salida.get('patron')!r}")
         _limpia()
 
+        # 2 bis) LA GENERALIZACION QUE `selflearn` DA POR BUENA Y LAS PUERTAS
+        #        TIRAN. Los dos casos de arriba los para `generaliza_patron()`
+        #        —devuelven cadena vacia—, asi que el `if ok:` de `_propone()`
+        #        NUNCA veia un candidato malo: la comprobacion de que la salida
+        #        del modelo es ENTRADA de las puertas estaba muerta en el banco
+        #        de pruebas. Medido: aceptar el candidato pasaran o no las
+        #        puertas dejaba la suite entera verde.
+        #
+        #        Este patron esta anclado, compila, no es una forma peligrosa y
+        #        CASA su propia frase —las tres cosas que mira `selflearn`—, pero
+        #        se pasa del largo maximo que exige la puerta 3.
+        largo = (r"^\s*tramoya\s+de\s+prueba\s+para\s+el\s+barrido\s*(?:"
+                 + "|".join(f"relleno{i:02d}" for i in range(20)) + r")?\s*$")
+        selflearn.registrar_generalizador(lambda f: largo)
+        check(selflearn.generaliza_patron(HUECO) == largo,
+              "selflearn ya para este candidato: entonces no prueba que lo paren "
+              "LAS PUERTAS, que es lo que este caso mide")
+        check(reglas.valida({**{"id": "r-tmp", "esquema": reglas.ESQUEMA,
+                                "tipo": "enrutado", "revision": 1,
+                                "origen": {"frase": HUECO, "canal": "pc",
+                                           "fecha": "2026-01-01T00:00:00"},
+                                "destino": "system_pc/kill", "patron": largo,
+                                "evidencia": {"arrastradas": [], "suite": None},
+                                "estado": "propuesta"}})[0] is False,
+              "el candidato largo pasa las puertas: este caso no mide nada")
+        salida = aprendizaje.observa(f"aprende que cuando diga {HUECO} hagas {REPARA}")
+        check(salida.get("patron") == literal,
+              f"una generalizacion que NO pasa las puertas se ha quedado en la "
+              f"propuesta: {salida.get('patron')!r}")
+        check((salida.get("evidencia") or {}).get("generalizado") is False,
+              "la propuesta dice que esta generalizada y lleva el patron literal")
+        # Y se dice POR QUE se cayo al literal: una degradacion silenciosa es
+        # indistinguible de un modelo apagado.
+        acciones = [a for a in audit.tail(40)
+                    if a.get("action") == "generalizacion_descartada"]
+        check(acciones and acciones[-1].get("result") == "cae_al_patron_literal",
+              "descartar la generalizacion no deja linea en la auditoria: "
+              f"{[a.get('action') for a in audit.tail(10)]}")
+        check(acciones and "demasiado largo" in str(acciones[-1].get("error") or ""),
+              f"la auditoria no dice por que se descarto: "
+              f"{acciones[-1].get('error') if acciones else None!r}")
+        _limpia()
+
         # 3) CON UN MODELO QUE DEVUELVE ALGO QUE NO CASA SU PROPIA FRASE. No es
         #    una version ancha de esa regla: es otra regla colada por detras.
         selflearn.registrar_generalizador(lambda f: r"^\s*otra\s+cosa\s+distinta\s*$")
         check(selflearn.generaliza_patron(HUECO) == "",
               "se acepta como generalizacion un patron que no casa la frase original")
+        _limpia()
+
+        # 3 bis) LAS OTRAS DOS COSAS QUE `generaliza_patron()` PROMETE MIRAR y
+        #        que no comprobaba nadie: que compila y que esta anclado por los
+        #        dos lados. Las tapaba la puerta 3, que exige lo mismo mas tarde
+        #        —el resultado visible era el mismo patron literal—, pero una
+        #        guarda que solo esta viva porque otra la cubre es una guarda que
+        #        se puede borrar sin que salte nada.
+        for malo, por_que in (
+                (r"\s*tramoya\s+de\s+prueba\s+para\s+el\s+barrido\s*$", "sin anclar por delante"),
+                (r"^\s*tramoya\s+de\s+prueba\s+para\s+el\s+barrido\s*", "sin anclar por detras"),
+                (r"^\s*tramoya\s+(de\s+prueba\s+para\s+el\s+barrido\s*$", "no compila")):
+            selflearn.registrar_generalizador(lambda f, _m=malo: _m)
+            check(selflearn.generaliza_patron(HUECO) == "",
+                  f"se acepta un candidato {por_que}: {malo!r}")
         _limpia()
 
         # 4) CON UN MODELO QUE ENSANCHA DE VERDAD. Ese si manda, y se nota:
@@ -323,6 +484,63 @@ def test_sin_modelo_cae_al_patron_literal():
     finally:
         selflearn.registrar_generalizador(None)
         _limpia()
+
+
+def test_una_frase_con_signos_no_se_cuela_como_expresion_regular():
+    print("== C1.7) la frase del operador se ESCAPA antes de ser patron ==")
+    _limpia()
+    # Una frase del duenno puede traer parentesis, interrogantes o un punto.
+    # Pegada cruda en una expresion regular deja de ser esa frase y pasa a ser
+    # otra cosa: los parentesis se convierten en un grupo y el patron casa
+    # frases que el operador nunca dijo.
+    check(brain.quien_atiende(HUECO_CON_SIGNOS, reglas=()) == "planificador",
+          f"«{HUECO_CON_SIGNOS}» ya la atiende alguien: no queda hueco que medir")
+    salida = aprendizaje.observa(
+        f"aprende que cuando diga {HUECO_CON_SIGNOS} hagas {REPARA}")
+    check(salida.get("tipo") == "enrutado",
+          f"una frase con signos no llega a proponerse: {salida}")
+    patron = str(salida.get("patron") or "zzz")
+    check(re.search(patron, HUECO_CON_SIGNOS, re.IGNORECASE) is not None,
+          f"el patron no casa la frase que lo origino: {patron!r}")
+    # Y ESTA ES LA QUE IMPORTA: sin escapar, «(de prueba)» seria un grupo y el
+    # patron casaria tambien la frase SIN los parentesis, que es otra distinta.
+    check(re.search(patron, HUECO, re.IGNORECASE) is None,
+          f"el patron casa «{HUECO}», que es otra frase: los parentesis se han "
+          f"colado como sintaxis en vez de como texto ({patron!r})")
+    _limpia()
+
+
+# ══════════ C1.1 · sin arbitro no se juzga: «no lo se» no es «planificador» ══════════
+def test_sin_arbitro_registrado_no_se_juzga_nada():
+    print("== C1.1) sin arbitro registrado, observa() calla y no escribe nada ==")
+    _limpia()
+    # NADIE REGISTRA EL ARBITRO HASTA EL BLOQUE C. La promesa escrita en la
+    # cabecera del modulo es que, hasta entonces, `observa()` contesta «no lo se»
+    # y nexus se comporta EXACTAMENTE igual que antes. Nadie la comprobaba:
+    # medido, cambiar ese `return {}` por «tratalo como planificador» dejaba las
+    # 81 suites verdes — y con eso cada correccion se juzgaria a ciegas, sin
+    # saber quien enruta, que es adivinar.
+    reglas.registrar_arbitro(None)
+    try:
+        check(reglas.arbitro(HUECO, reglas=()) == "",
+              "sin arbitro registrado el arbitro contesta algo: revisa este caso")
+        for correccion, antecedente in (
+                (f"aprende que cuando diga {HUECO} hagas {REPARA}", ""),
+                ("no era eso", "apaga la tele"),
+                (REPARA, HUECO)):
+            salida = aprendizaje.observa(correccion, antecedente=antecedente)
+            check(salida == {},
+                  f"sin arbitro se juzga «{antecedente or correccion}» igual: {salida}")
+        check(reglas.cargar().get("reglas", []) == [],
+              f"sin arbitro se ha escrito algo en el almacen: "
+              f"{reglas.cargar().get('reglas')}")
+        check(reglas.ocurrencias(HUECO) == 0,
+              "sin arbitro se acumula evidencia de una correccion que nadie ha juzgado")
+    finally:
+        reglas.registrar_arbitro(brain.quien_atiende)
+    check(reglas.arbitro(HUECO, reglas=()) == "planificador",
+          "el arbitro no se ha vuelto a registrar: los casos de despues mienten")
+    _limpia()
 
 
 # ══════════ C1.1 · el antecedente, y de donde sale cuando no lo pasan ══════════
@@ -365,22 +583,101 @@ def test_ficheros_nuevos_de_c1_sin_datos_personales():
     # La guarda viaja CON los ficheros que vigila: metida en la suite de B, un
     # `git revert` de C1 la dejaria mirando ficheros que ya no existen.
     prohibidas = ("ad" + "ri", "maq" + "ueda", "ach" + "oz")
-    for f in (ROOT / "tests" / "test_aprendizaje_ciclo.py",):
+    # `selflearn.py` entra aqui: C1 le anade `ultima_orden()` y
+    # `generaliza_patron()`, y la guarda de B4.6 no lo miraba. Al meterlo salio
+    # rojo a la primera por el nombre del duenno escrito en su cabecera, que
+    # llevaba ahi desde antes de este cambio y no vigilaba nadie.
+    for f in (ROOT / "tests" / "test_aprendizaje_ciclo.py",
+              ROOT / "backend" / "core" / "dominio" / "selflearn.py"):
+        check(f.exists(), f"{f.name} no existe: la guarda no esta mirando nada")
+        if not f.exists():
+            continue
         txt = f.read_text(encoding="utf-8")
         for palabra in prohibidas:
             check(palabra not in txt.lower(),
                   f"«{palabra}» aparece en {f.name}: dato personal del duenno")
         ips = re.findall(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])", txt)
         check(not ips, f"IPs completas escritas en {f.name}: {ips[:3]}")
+        # La copia de B4.6 miraba tambien las MAC y esta se dejo el caso fuera.
+        macs = re.findall(r"\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b", txt)
+        check(not macs, f"MACs completas escritas en {f.name}: {macs[:3]}")
+
+
+# ══════════ la normalizacion de frases, que ahora es punto unico ══════════
+def test_la_normalizacion_de_frases_hace_las_cuatro_cosas():
+    print("== C1) `selflearn.normaliza()` es la unica, y por eso hay que vigilarla ==")
+
+    # ESTA LINEA VIVIA COPIADA TRES VECES (`brain`, `aprendizaje`, `selflearn`) y
+    # NINGUNA COPIA TENIA TEST. Al unificarlas dejo de existir la divergencia,
+    # pero apareció algo peor: un punto unico de fallo sin vigilancia. Medido:
+    # dejando `normaliza()` en un simple `.strip()` las 81 suites seguian verdes,
+    # y con ella rota «Apaga la tele.» deja de reconocerse como «apaga la tele».
+    for crudo, esperado, que in (
+            ("APAGA la Tele", "apaga la tele", "no baja a minusculas"),
+            ("apaga   la    tele", "apaga la tele", "no colapsa los espacios"),
+            ("  apaga la tele  ", "apaga la tele", "no recorta los extremos"),
+            ("¿apaga la tele?", "apaga la tele", "no quita los signos de pregunta"),
+            ("¡apaga la tele!", "apaga la tele", "no quita los signos de admiracion"),
+            ("apaga la tele.", "apaga la tele", "no quita el punto final"),
+            ("apaga la tele,", "apaga la tele", "no quita la coma final"),
+            ("¿APAGA   la Tele?  ", "apaga la tele", "no aplica las cuatro a la vez"),
+            ("", "", "no aguanta la cadena vacia"),
+    ):
+        check(selflearn.normaliza(crudo) == esperado,
+              f"normaliza({crudo!r}) {que}: {selflearn.normaliza(crudo)!r} "
+              f"en vez de {esperado!r}")
+
+    # Y la consecuencia que de verdad importa: dos maneras de escribir la MISMA
+    # orden tienen que contar como la misma. Si no, la evidencia se dispersa y el
+    # umbral no se alcanza nunca.
+    check(selflearn.normaliza("¿Apaga la TELE?") == selflearn.normaliza("apaga la tele"),
+          "dos formas de escribir la misma orden no se reconocen como la misma: "
+          "la evidencia se dispersaria y el umbral no se alcanzaria nunca")
+    check(selflearn.normaliza("Crea una tarea") != selflearn.normaliza("borra una tarea"),
+          "normaliza() iguala dos ordenes distintas: estaria borrando informacion")
+
+
+def test_la_normalizacion_es_una_sola_implementacion():
+    print("== C1) nadie vuelve a copiar la normalizacion en su propio modulo ==")
+
+    # La copia se justificaba con «no puedo importar `brain`». Era verdad y era
+    # irrelevante: esto es una regla de DOMINIO y `aplicacion` puede bajar a
+    # dominio. Este test existe para que la copia no vuelva por la puerta de
+    # atras: si alguien reescribe la linea en su modulo, salta.
+    ORIGEN = ROOT / "backend" / "core" / "dominio" / "selflearn.py"
+    HUELLA = 'strip("¿?¡!.,;:")'
+    duplicados = []
+    for py in (ROOT / "backend").rglob("*.py"):
+        if py.resolve() == ORIGEN.resolve():
+            continue
+        if HUELLA in py.read_text(encoding="utf-8", errors="replace"):
+            duplicados.append(str(py.relative_to(ROOT)).replace("\\", "/"))
+    check(not duplicados,
+          f"la normalizacion vuelve a estar copiada fuera de dominio/selflearn.py: "
+          f"{duplicados}. Es una regla de dominio: importala, no la reescribas")
+
+    # Y que las dos de `aplicacion` sigan dando lo mismo que la de dominio, que
+    # es lo unico que garantiza que delegan de verdad y no han vuelto a divergir.
+    for frase in ("¿Apaga la TELE?", "  crea   una tarea. ", ""):
+        check(brain._norm(frase) == selflearn.normaliza(frase),
+              f"brain._norm ya no delega en dominio para {frase!r}")
+        check(aprendizaje._norm(frase) == selflearn.normaliza(frase),
+              f"aprendizaje._norm ya no delega en dominio para {frase!r}")
 
 
 def main() -> int:
-    for f in (test_antecedente_que_llega_a_una_skill_no_propone_nada,
+    for f in (test_la_normalizacion_de_frases_hace_las_cuatro_cosas,
+              test_la_normalizacion_es_una_sola_implementacion,
+              test_antecedente_que_llega_a_una_skill_no_propone_nada,
+              test_antecedente_que_ya_tiene_regla_no_apila_otra,
               test_antecedente_capturado_por_un_atajo_no_propone,
               test_misma_queja_repetida_cuenta_una_vez,
               test_una_orden_explicita_entra_a_la_primera,
               test_capacidad_inexistente_no_genera_propuesta,
               test_sin_modelo_cae_al_patron_literal,
+              test_una_frase_con_signos_no_se_cuela_como_expresion_regular,
+              test_la_formula_de_ensenanza_es_LA_MISMA_QUE_LA_DEL_CEREBRO,
+              test_sin_arbitro_registrado_no_se_juzga_nada,
               test_el_antecedente_se_busca_en_el_registro_si_no_llega,
               test_ficheros_nuevos_de_c1_sin_datos_personales):
         try:

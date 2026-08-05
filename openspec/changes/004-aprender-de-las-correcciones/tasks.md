@@ -384,9 +384,16 @@ hacer daño.
       — antecedente que devuelve `skill:X/Y` → **cero propuestas** y un registro
       `tipo: "aviso"`. Decisión 3 del dueño. — *Cubre*: aprendizaje-correcciones,
       escenario «La frase llega a la skill correcta y la skill se comporta mal»
-      **Cómo probar que puede fallar**: haz que `observa()` devuelva una propuesta
-      siempre; el test tiene que dar rojo por las dos afirmaciones (cero propuestas
-      **y** aviso presente), no por una.
+      **Cómo probar que puede fallar**: quita la fila `skill:` de la tabla de
+      veredictos de `observa()` (`if veredicto.startswith("skill:")` → `if False`).
+      Rojo por `clase` y por el mensaje.
+      **OJO — la receta que había aquí antes era falsa**: decía «haz que `observa()`
+      devuelva una propuesta siempre; el test tiene que dar rojo por las dos
+      afirmaciones (cero propuestas **y** aviso presente)». Comprobado ejecutándolo:
+      quitando la tabla entera, la corrección «no, la del salón» no señala ningún
+      destino, así que se cae en `sin_capacidad` — que **sigue siendo un aviso y
+      sigue sin proponer nada**. Esas dos afirmaciones se quedan VERDES. Lo que
+      destapa el sabotaje es exigir la **clase** del aviso, no su existencia.
 - [x] C1.3 **RED — atajo previo**:
       `test_aprendizaje_ciclo.py::test_antecedente_capturado_por_un_atajo_no_propone`
       — antecedente que devuelve `memoria`, `charla` o `queja` → aviso, no propuesta.
