@@ -225,26 +225,75 @@ _DIA_TOKEN = (r"(?:\d{1,2}[/-]\d{1,2}|\d{1,2}\s+de\s+\w+|\d{1,2}|"
               r"lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|"
               r"ma[ñn]ana|hoy)")
 # Coletillas que se cuelan entre el día y el conector: «del miércoles DE ESTA
-# SEMANA hasta el domingo».
-_COLETILLA_DIA = (r"(?:\s+(?:de\s+esta\s+semana|de\s+la\s+semana\s+que\s+viene|"
-                  r"que\s+viene|pr[oó]xim[oa]))?")
+# SEMANA hasta el domingo». Se CAPTURAN, no se tiran: antes eran un grupo sin
+# nombre que se tragaba el texto sin usarlo, así que decir «de esta semana» daba
+# exactamente el mismo resultado que no decirlo. Eso no es entender, es aparentar.
+def _coletilla(grupo: str) -> str:
+    return (r"(?:\s+(?P<" + grupo + r">de\s+esta\s+semana|"
+            r"de\s+la\s+semana\s+que\s+viene|que\s+viene|pr[oó]xim[oa]))?")
+
+
+# De la coletilla escrita a la semana de la que habla.
+_SEMANA_ESTA = "esta"
+_SEMANA_SIGUIENTE = "siguiente"
+
+
+def _semana_de(coletilla: str | None) -> str:
+    """«de esta semana» → la semana en curso; «que viene» / «próximo» → la
+    siguiente; sin coletilla, cadena vacía: manda la regla por defecto."""
+    c = " ".join((coletilla or "").lower().split())
+    if not c:
+        return ""
+    return _SEMANA_ESTA if c == "de esta semana" else _SEMANA_SIGUIENTE
+
+
 _RANGO_RX = re.compile(
     r"\b(?:del|desde\s+el|desde|entre\s+el|entre)\s+(?P<ini>" + _DIA_TOKEN + r")"
-    + _COLETILLA_DIA
+    + _coletilla("sem_ini")
     + r"\s+(?:al|hasta\s+el|hasta)\s+(?P<fin>" + _DIA_TOKEN + r")"
-    + _COLETILLA_DIA, re.IGNORECASE)
+    + _coletilla("sem_fin"), re.IGNORECASE)
 
 
-def _fecha_token(tok: str, today: dt.date, mes_ref: int | None = None) -> dt.date | None:
+def _lunes_de(fecha: dt.date) -> dt.date:
+    """El lunes de la semana natural que contiene esa fecha."""
+    return fecha - dt.timedelta(days=fecha.weekday())
+
+
+def _dia_de_semana(wd: int, hoy: dt.date, desde: dt.date, semana: str) -> dt.date:
+    """La fecha del día de la semana `wd` dentro de un RANGO.
+
+    Sin coletilla: la primera vez que ese día cae en o DESPUÉS de `desde`, y hoy
+    cuenta. Quien un miércoles dice «del miércoles al domingo» está hablando de
+    hoy, no de dentro de ocho días; ese salto convertía un festival de cinco
+    días en otro que empezaba la semana siguiente.
+
+    Con coletilla, la semana se ancla siempre a HOY, nunca al otro extremo:
+    «del miércoles al domingo de la semana que viene» dicho un jueves son el 12 y
+    el 16, que son la misma semana. Anclando al arranque, el domingo se iría al
+    23 y el operador se encontraría un evento de doce días."""
+    if semana == _SEMANA_ESTA:
+        return _lunes_de(hoy) + dt.timedelta(days=wd)
+    if semana == _SEMANA_SIGUIENTE:
+        return _lunes_de(hoy) + dt.timedelta(days=7 + wd)
+    return desde + dt.timedelta(days=(wd - desde.weekday()) % 7)
+
+
+def _fecha_token(tok: str, today: dt.date, mes_ref: int | None = None,
+                 desde: dt.date | None = None, semana: str = "") -> dt.date | None:
     """Convierte un extremo del rango («miércoles», «5», «5 de agosto», «25/07»,
-    «mañana», «hoy») en fecha. Siempre hacia adelante: nunca devuelve pasado."""
+    «mañana», «hoy») en fecha.
+
+    `desde` es el SUELO: la fecha a partir de la cual se busca. Para el arranque
+    es hoy; para el fin es el arranque ya resuelto, y así el fin no puede caer
+    antes que el principio. `semana` es la coletilla ya interpretada."""
     t = " ".join((tok or "").lower().split())
+    suelo = desde or today
     if t == "hoy":
         return today
     if re.fullmatch(r"ma[ñn]ana", t):
         return today + dt.timedelta(days=1)
     if t in DIAS:
-        return today + dt.timedelta(days=(DIAS[t] - today.weekday()) % 7 or 7)
+        return _dia_de_semana(DIAS[t], today, suelo, semana)
     solo_dia = False
     m = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})", t)
     if m:
@@ -259,14 +308,14 @@ def _fecha_token(tok: str, today: dt.date, mes_ref: int | None = None) -> dt.dat
         elif m.group(2):
             return None                      # «5 de esta» no es una fecha
         else:
-            mo, solo_dia = mes_ref or today.month, mes_ref is None
-    y = today.year
+            mo, solo_dia = mes_ref or suelo.month, mes_ref is None
+    y = suelo.year
     for _ in range(13):
         try:
             f = dt.date(y, mo, d)
         except ValueError:
             return None
-        if f >= today:
+        if f >= suelo:
             return f
         if solo_dia:                         # solo el día: se busca en el mes siguiente
             mo += 1
@@ -289,13 +338,26 @@ def _extract_range(text: str) -> tuple[str, str | None, str | None]:
     # «del 5 al 9 de agosto»: el mes lo dice el segundo extremo y vale para los dos.
     mm = re.fullmatch(r"\d{1,2}\s+de\s+(\w+)", fin_tok)
     mes_ref = MESES.get(mm.group(1)) if mm else None
-    ini = _fecha_token(m.group("ini"), today, mes_ref)
-    fin = _fecha_token(fin_tok, today)
-    if not ini or not fin:
+    ini = _fecha_token(m.group("ini"), today, mes_ref,
+                       semana=_semana_de(m.group("sem_ini")))
+    if not ini:
         return text, None, None
-    if fin < ini and fin_tok in DIAS:        # «del domingo al miércoles» cruza semana
-        fin += dt.timedelta(days=7)
+    # El FIN se resuelve RELATIVO AL INICIO, no por su cuenta: «hasta el domingo»
+    # es el primer domingo en o después del arranque. Resolver cada extremo
+    # aislado es lo que dejaba salir rangos del revés (12 → 9) sin una queja.
+    fin = _fecha_token(fin_tok, today, desde=ini,
+                       semana=_semana_de(m.group("sem_fin")))
+    if not fin:
+        return text, None, None
+    if fin < ini and fin_tok in DIAS:
+        # Solo puede pasar si la coletilla del fin ancla a una semana anterior
+        # al arranque. Se avanza en semanas ENTERAS: respeta el día que dijo el
+        # operador, que es lo único que no admite discusión.
+        fin += dt.timedelta(days=7 * -((ini - fin).days // -7))
     if fin < ini:
+        # Un rango invertido nunca sale de aquí. Si a estas alturas sigue del
+        # revés es que no se ha entendido la frase: mejor no entender nada y que
+        # el handler pregunte, que apuntar en el calendario algo que nadie pidió.
         return text, None, None
     limpio = text[:m.start()] + " " + text[m.end():]
     return re.sub(r"\s{2,}", " ", limpio).strip(" ,."), ini.isoformat(), fin.isoformat()

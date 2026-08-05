@@ -70,9 +70,32 @@ HOY = dt.date.today()
 
 
 def _dia(nombre: str) -> str:
-    """El próximo día de la semana con ese nombre (nunca hoy), en ISO."""
+    """El próximo día de la semana con ese nombre (nunca hoy), en ISO.
+
+    Es la regla de la FECHA SUELTA («para el viernes», «el jueves a las 18»),
+    que sigue siendo la de siempre: dicho un jueves, «el jueves» es el que
+    viene. SOLO para fechas sueltas: para un rango está `_rango`."""
     wd = TB.DIAS[nombre]
     return (HOY + dt.timedelta(days=(wd - HOY.weekday()) % 7 or 7)).isoformat()
+
+
+def _rango(ini_nombre: str, fin_nombre: str, semana: str = "") -> tuple[str, str]:
+    """Los dos extremos de un RANGO, coherentes entre sí.
+
+    El ayudante viejo resolvía cada día por su cuenta con la regla «nunca hoy»,
+    así que un jueves «del miércoles al domingo» le salía 12 → 9: un rango del
+    revés que el test daba por bueno. Aquí el arranque puede ser hoy y el fin se
+    busca a partir del arranque, nunca a partir de hoy.
+
+    El oráculo de la semántica es `test_rangos_semana.py`, que clava el día y
+    compara contra fechas escritas a mano; esto es solo la fontanería para que
+    las comprobaciones de título, cuerpo de Google y agenda valgan cualquier día
+    del año en vez de solo de miércoles a sábado."""
+    ini = (HOY - dt.timedelta(days=HOY.weekday()) + dt.timedelta(days=TB.DIAS[ini_nombre])
+           if semana == "esta"
+           else HOY + dt.timedelta(days=(TB.DIAS[ini_nombre] - HOY.weekday()) % 7))
+    fin = ini + dt.timedelta(days=(TB.DIAS[fin_nombre] - ini.weekday()) % 7)
+    return ini.isoformat(), fin.isoformat()
 
 
 # ═══════════ 1) el título es el ASUNTO, no la frase entera ═══════════
@@ -102,18 +125,22 @@ def _extrae(frase: str) -> tuple[str, str | None, str | None, str | None]:
 
 F1 = ("Creame una tarea que dure del miercoles de esta semana hasta el domingo "
       "que sea Festival Sonorama Aranda de Duero")
+# F1 dice «de esta semana»: ancla la franja a la semana en curso, se pida el día
+# que se pida. F2 no lo dice, así que arranca en el próximo miércoles (hoy vale).
+F1_INI, F1_FIN = _rango("miercoles", "domingo", "esta")
+F2_INI, F2_FIN = _rango("miercoles", "domingo")
 tit, ini, fin, hora = _extrae(F1)
 check(tit == "Festival Sonorama Aranda de Duero",
       f"el título del festival sale con relleno: {tit!r}")
-check(ini == _dia("miercoles"), f"el rango no empieza el miércoles: {ini}")
-check(fin == _dia("domingo"), f"el rango no termina el domingo: {fin}")
+check(ini == F1_INI, f"el rango no empieza el miércoles de esta semana: {ini}")
+check(fin == F1_FIN, f"el rango no termina el domingo: {fin}")
 check(hora is None, f"un rango de días pelados no lleva hora y ha sacado {hora}")
 
 F2 = ("Anotame la tarea como una entrada de google calendar que dure desde el "
       "miercoles a las 15 de la tarde hasta el domingo")
 tit, ini, fin, hora = _extrae(F2)
 check(tit == "", f"«como una entrada de google calendar que dure» no es un título: {tit!r}")
-check((ini, fin, hora) == (_dia("miercoles"), _dia("domingo"), "15:00"),
+check((ini, fin, hora) == (F2_INI, F2_FIN, "15:00"),
       f"el rango con hora sale mal: {ini} → {fin} a las {hora}")
 
 for frase, esperado in (
@@ -197,7 +224,7 @@ check(len(tareas) == 1, f"el handler no ha creado una tarea: {len(tareas)}")
 t = tareas[0] if tareas else {}
 check(t.get("title") == "Festival Sonorama Aranda de Duero",
       f"el tablero guarda el título con relleno: {t.get('title')!r}")
-check(t.get("due") == _dia("miercoles") and t.get("dueEnd") == _dia("domingo"),
+check(t.get("due") == F1_INI and t.get("dueEnd") == F1_FIN,
       f"el tablero no guarda el rango entero: {t.get('due')} → {t.get('dueEnd')}")
 check(t.get("kind") == "evento", f"un rango de días es un evento, no {t.get('kind')!r}")
 check("Google Calendar" in reply, f"no dice que haya ido a Google Calendar: {reply!r}")
@@ -210,8 +237,8 @@ if evs:
     check(ev["summary"] == "Festival Sonorama Aranda de Duero",
           f"el evento de Google va con el título sucio: {ev['summary']!r}")
     check(ev["all_day"] is True, "un rango de días pelados es de día completo")
-    check(ev["start"] == _dia("miercoles"), f"el evento no empieza el miércoles: {ev['start']}")
-    esperado_fin = (dt.date.fromisoformat(_dia("domingo")) + dt.timedelta(days=1)).isoformat()
+    check(ev["start"] == F1_INI, f"el evento no empieza el miércoles: {ev['start']}")
+    esperado_fin = (dt.date.fromisoformat(F1_FIN) + dt.timedelta(days=1)).isoformat()
     check(ev["end"] == esperado_fin,
           f"el evento no abarca hasta el domingo (fin exclusivo {esperado_fin}): {ev['end']}")
 
@@ -223,7 +250,7 @@ check(not board._load(), "ha creado una tarea SIN asunto en vez de preguntar")
 check(not REGISTRO.exists(), "ha mandado a Google un evento sin asunto")
 check("asunto" in res.get("reply", "").lower(),
       f"no pregunta por el asunto: {res.get('reply')!r}")
-check(_dia("miercoles") in res.get("reply", "") and _dia("domingo") in res.get("reply", ""),
+check(F2_INI in res.get("reply", "") and F2_FIN in res.get("reply", ""),
       f"al preguntar tira las fechas que ya había entendido: {res.get('reply')!r}")
 
 # ═══════════ 5) la agenda del HUD pinta TODOS los días del evento ═══════════

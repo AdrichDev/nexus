@@ -70,8 +70,27 @@ DIAS = {"lunes": 0, "martes": 1, "miercoles": 2, "jueves": 3, "viernes": 4,
 
 
 def _dia(nombre: str) -> str:
-    """El próximo día de la semana con ese nombre (nunca hoy), en ISO."""
+    """El próximo día de la semana con ese nombre (nunca hoy), en ISO.
+
+    Es la regla de la FECHA SUELTA («la reunión el jueves a las 10»), que sigue
+    siendo la de siempre. Para un rango está `_rango`."""
     return (HOY + dt.timedelta(days=(DIAS[nombre] - HOY.weekday()) % 7 or 7)).isoformat()
+
+
+def _rango(ini_nombre: str, fin_nombre: str) -> tuple[str, str]:
+    """Los dos extremos de un RANGO, coherentes entre sí.
+
+    Mismo defecto que en `test_eventos_varios_dias.py`: resolver cada extremo
+    por su cuenta con la regla «nunca hoy» daba rangos del revés según el día en
+    que se ejecutase la suite. El arranque puede ser hoy y el fin se busca a
+    partir del arranque. La semántica la prueba `test_rangos_semana.py` contra
+    fechas escritas a mano; esto solo mantiene la suite honesta cualquier día."""
+    ini = HOY + dt.timedelta(days=(DIAS[ini_nombre] - HOY.weekday()) % 7)
+    fin = ini + dt.timedelta(days=(DIAS[fin_nombre] - ini.weekday()) % 7)
+    return ini.isoformat(), fin.isoformat()
+
+
+MIE, DOM = _rango("miercoles", "domingo")
 
 
 def _suma(iso: str, dias: int) -> str:
@@ -95,9 +114,9 @@ print("== 2) el título es el asunto y el rango son VARIOS días ==")
 tit, start, end, all_day, ultimo = GW._datos_evento(
     "apunta el evento Festival Sonorama del miercoles al domingo")
 check(tit == "Festival Sonorama", f"el título sale con relleno: {tit!r}")
-check(start == _dia("miercoles"), f"el evento no empieza el miércoles: {start}")
-check(ultimo == _dia("domingo"), f"el evento no termina el domingo: {ultimo}")
-check(end == _suma(_dia("domingo"), 1),
+check(start == MIE, f"el evento no empieza el miércoles: {start}")
+check(ultimo == DOM, f"el evento no termina el domingo: {ultimo}")
+check(end == _suma(DOM, 1),
       f"Google quiere el fin EXCLUSIVO (+1 día) en los de día completo: {end}")
 check(all_day is True, "un rango de días pelados es de día completo")
 
@@ -113,14 +132,25 @@ check(all_day is True, "un rango sin hora es de día completo")
 # el rango también se entiende con el mes dicho una sola vez y con hora
 tit, start, end, all_day, ultimo = GW._datos_evento(
     "crea un evento del 5 al 9 de agosto que sea Feria del libro")
-check((tit, start, ultimo, all_day) == ("Feria del libro", "2026-08-05", "2026-08-09", True),
-      f"«del 5 al 9 de agosto» sale mal: {tit!r} {start} → {ultimo} (all_day={all_day})")
+# SIN EL AÑO ESCRITO A MANO, A PROPOSITO. Congelarlo hacia «2026-08-05» solo
+# pasaba unos dias al año: dicho el 6 de agosto, el dia 5 ya ha pasado y el
+# resolutor salta al agosto siguiente, asi que el test se ponia rojo por el
+# calendario y no por el codigo. Lo que aqui esta DECIDIDO es el mes, los dias y
+# que son cinco dias de dia completo; en que año cae «del 5 al 9 de agosto»
+# dicho el dia 6 es una pregunta de producto que nadie ha contestado todavia, y
+# un test no puede fingir que si.
+_ini, _fin = dt.date.fromisoformat(start), dt.date.fromisoformat(ultimo)
+check(tit == "Feria del libro", f"«del 5 al 9 de agosto» ensucia el título: {tit!r}")
+check((_ini.month, _ini.day, _fin.month, _fin.day) == (8, 5, 8, 9),
+      f"«del 5 al 9 de agosto» no cae del 5 al 9 de agosto: {start} → {ultimo}")
+check(_fin - _ini == dt.timedelta(days=4), f"del 5 al 9 son 5 días: {start} → {ultimo}")
+check(_ini.year == _fin.year, f"el rango se parte entre dos años: {start} → {ultimo}")
+check(all_day is True, f"«del 5 al 9 de agosto» es de día completo (all_day={all_day})")
 
 tit, start, end, all_day, ultimo = GW._datos_evento(
     "apunta el evento Sonorama desde el miercoles a las 15 hasta el domingo")
 check(tit == "Sonorama", f"el título del rango con hora sale mal: {tit!r}")
-check((start, end, all_day) == (f"{_dia('miercoles')}T15:00:00",
-                                f"{_dia('domingo')}T23:59:00", False),
+check((start, end, all_day) == (f"{MIE}T15:00:00", f"{DOM}T23:59:00", False),
       f"el rango con hora arranca a esa hora y acaba con el último día: {start} → {end}")
 
 # el asunto detrás de las fechas, con cada marcador
@@ -217,9 +247,9 @@ if ENVIADOS:
     print("   cuerpo enviado a Google:", json.dumps(ev, ensure_ascii=False))
     check(ev.get("summary") == "Festival Sonorama",
           f"el evento va con el título sucio: {ev.get('summary')!r}")
-    check(ev.get("start") == {"date": _dia("miercoles")},
+    check(ev.get("start") == {"date": MIE},
           f"el evento no empieza el miércoles: {ev.get('start')}")
-    check(ev.get("end") == {"date": _suma(_dia("domingo"), 1)},
+    check(ev.get("end") == {"date": _suma(DOM, 1)},
           f"el evento no abarca hasta el domingo (fin exclusivo): {ev.get('end')}")
     check("dateTime" not in json.dumps(ev),
           "un rango de días pelados no lleva hora, va como día completo")
@@ -229,11 +259,11 @@ check(len(tareas) == 1, f"el espejo del tablero ha creado {len(tareas)} tareas, 
 t = tareas[0] if tareas else {}
 check(t.get("title") == "Festival Sonorama",
       f"el tablero guarda el título con relleno: {t.get('title')!r}")
-check(t.get("due") == _dia("miercoles") and t.get("dueEnd") == _dia("domingo"),
+check(t.get("due") == MIE and t.get("dueEnd") == DOM,
       f"el tablero no guarda el rango entero (último día INCLUSIVE): "
       f"{t.get('due')} → {t.get('dueEnd')}")
 check(t.get("kind") == "evento", f"un evento de calendario no es {t.get('kind')!r}")
-check(_dia("domingo")[8:10] in reply or "/" in reply,
+check(DOM[8:10] in reply or "/" in reply,
       f"la respuesta no dice hasta cuándo dura: {reply!r}")
 
 ENVIADOS.clear()
