@@ -96,6 +96,46 @@ for intent, frases in ACTIVAN.items():
         check(bool(r) and r[0].folder == "tasks_board" and r[1] == intent,
               f"«{f}» debería ser tasks_board/{intent} y va a {destino}")
 
+print("== 2b) llegar al intent no basta: hay que EXTRAER bien el título ==")
+# Medido contra nexus en marcha: «marca como completada X» llegaba a
+# `marcar` y contestaba «No encuentro esa tarea». El patrón esperaba el
+# orden «marca X como ESTADO», así que con el estado delante el grupo
+# perezoso capturaba literalmente «como» y luego buscaba una tarea
+# titulada «como». El test de arriba lo daba por bueno porque solo miraba
+# a qué intent llegaba, no qué sacaba de la frase.
+TITULOS = [
+    ("marca la compra como hecha",                 "la compra",  "hecha"),
+    ("marca como completada la compra",            "la compra",  "completada"),
+    ("marca como hecha la tarea revisar el acta",  "revisar el acta", "hecha"),
+    ("da por hecha la compra",                     "la compra",  "hecha"),
+    ("marca revisar el acta como completada",      "revisar el acta", "completada"),
+]
+# PENDIENTE, y ajeno a este arreglo: el verbo «pon» no llega a esta skill.
+# «pon como terminada la web del cliente» se la queda `system_pc/open_web` y «pon
+# como terminada la propuesta» se la queda `media/play`, porque ambas skills van
+# antes por orden alfabetico y sus patrones ven «pon ... la web» y «pon ...». Es
+# un choque entre skills ANTERIOR a este arreglo: se deja anotado y no se tapa
+# aqui, porque arreglaria una frase y rompería «pon la web de google» y «pon
+# musica». Con «marca» no hay disputa, y es lo que se prueba arriba.
+for frase, titulo_esperado, estado_esperado in TITULOS:
+    r = sl.route(frase)
+    if not (r and r[1] == "marcar"):
+        check(False, f"«{frase}» ya no llega a tasks_board/marcar: "
+                     f"{(r[0].folder + '/' + r[1]) if r else 'ningún sitio'}")
+        continue
+    g = r[2].groupdict()
+    tarea = (g.get("task5") or g.get("task3") or g.get("task4") or "").strip()
+    estado = (g.get("state5") or g.get("state3") or g.get("state4") or "").strip()
+    # El artículo puede venir o no según la rama; lo que NO puede pasar es
+    # que el título se quede con una palabra de la propia orden.
+    limpio = tarea.removeprefix("la ").removeprefix("el ").strip()
+    esperado = titulo_esperado.removeprefix("la ").removeprefix("el ").strip()
+    check(limpio == esperado,
+          f"«{frase}»: saca el título «{tarea}» en vez de «{titulo_esperado}». "
+          "Con un título así no encuentra la tarea y contesta «No encuentro esa tarea»")
+    check(estado == estado_esperado,
+          f"«{frase}»: saca el estado «{estado}» en vez de «{estado_esperado}»")
+
 # «restaura la tarea X» tiene que traer el título, no restaurarlo todo
 r = sl.route("restaura la tarea diseñar logo")
 check(bool(r) and (r[2].groupdict().get("task") or "").strip() == "diseñar logo",

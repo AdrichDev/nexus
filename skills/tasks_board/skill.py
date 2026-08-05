@@ -57,9 +57,21 @@ SKILL = {
         # «da por hecha la compra» invierte el orden (verbo, estado, tarea), así
         # que va en su propia alternativa: metida en la de arriba capturaba «por»
         # como si fuera el nombre de la tarea.
+        # EL ESTADO PUEDE IR DELANTE O DETRAS DEL TITULO, y las dos formas son
+        # igual de naturales: «marca la compra como hecha» y «marca como hecha
+        # la compra». La rama de estado-primero (`state5`) va ANTES que la de
+        # titulo-primero a proposito: sin ella, «marca como completada la
+        # compra» casaba igualmente con la rama perezosa y capturaba
+        # `task3 = "como"`, con lo que se buscaba una tarea titulada «como» y
+        # se contestaba «No encuentro esa tarea». Llegaba al intent correcto y
+        # fallaba igual, que es la peor forma de fallar.
         "marcar": r"(?:da|dad|d[ae]me)\s+por\s+(?P<state4>realizadas?|hechas?|completadas?|"
                   r"terminadas?|acabadas?|finalizadas?)\s+(?:la\s+|el\s+)?(?:tarea\s+)?"
                   r"(?P<task4>.+)"
+                  r"|(?:marca|pon)\s+(?:como\s+|por\s+)"
+                  r"(?P<state5>realizadas?|hechas?|completadas?|terminadas?|acabadas?|"
+                  r"finalizadas?|listas?|pendientes?|en\s+progreso|en\s+curso|"
+                  r"en\s+revisi[oó]n)\s+(?:la\s+|el\s+)?(?:tarea\s+)?(?P<task5>.+)"
                   r"|(?:marca|pon)\s+(?:la\s+|el\s+)?(?:tarea\s+)?"
                   r"(?P<task3>.+?)\s+(?:como\s+|por\s+)?"
                   r"(?P<state3>realizadas?|hechas?|completadas?|terminadas?|acabadas?|"
@@ -638,8 +650,11 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if intent == "start":
             q, state_raw = _g("task2"), "progreso"
         elif intent == "marcar":
-            q = _g("task3") or _g("task4")
-            state_raw = _g("state3") or _g("state4")
+            # `task5`/`state5` son la rama de estado-primero («marca como hecha
+            # la compra»). Van los primeros porque si esa rama caso, es la que
+            # trae el titulo de verdad.
+            q = _g("task5") or _g("task3") or _g("task4")
+            state_raw = _g("state5") or _g("state3") or _g("state4")
         else:
             q, state_raw = _g("task"), _g("state")
         if not q or not state_raw:
