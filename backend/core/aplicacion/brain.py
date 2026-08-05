@@ -120,11 +120,39 @@ def _needs_web(text: str) -> bool:
 # CHARLA PURA (saludos, gracias, ok...): lo ÚNICO que no pasa por el intérprete.
 # Todo lo demás, si ningún regex casó, va al MODELO para que decida la skill —
 # Adri: «si entiende la acción, tiene que ejecutar; no esperar la orden concreta».
-_SMALLTALK_RX = re.compile(
-    r"^\s*(hola|buenas|buenos\s+d[ií]as|buenas\s+(?:tardes|noches)|hey|ey|"
-    r"qu[eé]\s+tal|c[oó]mo\s+est[aá]s|gracias|muchas\s+gracias|vale|ok(?:ey)?|"
+#
+# UNA PIEZA DE CHARLA. 05/08/2026: aquí ponía «qué tal» y «cómo estás» a secas, y
+# la frase entera tenía que ser UNA SOLA de estas piezas (el patrón terminaba en
+# `\b[\s!¡.,?¿]*$`). Resultado medido: «qué tal» y «cómo estás» eran charla, pero
+# «qué tal estás», «cómo te va», «qué tal todo» y «hola qué tal» caían al
+# planificador. A la primera le sobraba el «estás»; la última son DOS piezas.
+# Así que hacían falta las dos cosas: las variantes naturales del saludo y del
+# «qué tal», y poder ENCADENAR piezas.
+_CHARLA_PIEZA = (
+    r"(?:hola|buenas|buenos\s+d[ií]as|buenas\s+(?:tardes|noches)|hey|ey|"
+    # «qué tal» con su cola: estás / te va / todo / va todo / andas / vas.
+    r"qu[eé]\s+tal(?:\s+(?:est[aá]s|te\s+va|todo|va\s+todo|andas|vas))?|"
+    # «cómo» + la forma de preguntar por alguien. OJO: `c[oó]mo\s+va` a secas NO
+    # está, y es deliberado — «cómo va mi instagram» es una orden.
+    r"c[oó]mo\s+(?:est[aá]s|te\s+va|andas|vas|lo\s+llevas|va\s+todo)|"
+    r"gracias|muchas\s+gracias|vale|ok(?:ey)?|"
     r"genial|perfecto|guay|de\s+acuerdo|entendido|adi[oó]s|hasta\s+luego|chao|"
-    r"(?:ja|je|ji|jo){2,}|s[ií]|no)\b[\s!¡.,?¿]*$", re.IGNORECASE)
+    r"(?:ja|je|ji|jo){2,}|s[ií]|no)")
+
+# CHARLA PURA = UNA PIEZA, O VARIAS ENCADENADAS, Y NADA MÁS.
+#
+# El anclaje por los dos lados (`^…$`) es LA salvaguarda entera de este atajo, y
+# no es negociable: corre ANTES del router, así que todo lo que se quede aquí es
+# una orden que NO se ejecuta. Con el anclaje, «hola, ábreme chrome» no es charla
+# —«ábreme chrome» no es una pieza— y «qué tal va el tablero» tampoco.
+#
+# El encadenado va acotado a 4 repeticiones en vez de `*` a propósito: un `*`
+# sobre un grupo con alternancia es la forma clásica del retroceso catastrófico,
+# y nadie encadena seis saludos. Es el mismo criterio que aplica
+# `reglas._forma_peligrosa()` a los patrones aprendidos.
+_SMALLTALK_RX = re.compile(
+    r"^\s*" + _CHARLA_PIEZA + r"(?:[\s!¡.,;?¿]+" + _CHARLA_PIEZA + r"){0,4}"
+    r"\b[\s!¡.,?¿]*$", re.IGNORECASE)
 
 
 # MULTI-ORDEN en una sola frase: «cuántos correos Y dime la agenda de julio».

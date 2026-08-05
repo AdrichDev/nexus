@@ -51,11 +51,24 @@ check(MOD is not None and hasattr(MOD, "handle"), "system_pc no expone handle()"
 
 INTENTS = list(SSK.patterns.keys()) if SSK else []
 for i in ("volume", "volume_app", "volume_ask",
-          "temps", "hardware", "processes", "kill", "youtube", "open_web",
+          "temps", "hardware", "processes", "port_who", "ports", "kill",
+          "youtube", "open_web",
           "reindex", "list_apps", "open_app", "screenshot", "webcam",
           "shutdown", "shutdown_confirm", "restart", "restart_confirm",
           "wake", "set_mac"):
     check(i in INTENTS, f"falta el intent «{i}»")
+
+# LOS PATRONES ANCHOS VAN AL FINAL. `open_app` y `open_web` se quedan casi
+# cualquier «abre X»; si un intent nuevo se cuela detrás de ellos, nunca se
+# alcanza. Se comprueba el ORDEN del diccionario, que es el que recorre el router.
+_ORDEN = list(SSK.patterns.keys()) if SSK else []
+for antes, despues in (("port_who", "open_app"), ("ports", "open_app"),
+                       ("port_who", "open_web"), ("ports", "open_web"),
+                       ("port_who", "ports")):
+    if antes in _ORDEN and despues in _ORDEN:
+        check(_ORDEN.index(antes) < _ORDEN.index(despues),
+              f"«{antes}» va detrás de «{despues}» en el diccionario de intents: "
+              "el patrón ancho se lo come antes de llegar")
 
 # --------------------------------------------- 2) activación: frases naturales
 print("== 2) activación con frases naturales (tildes, enclíticos, sinónimos) ==")
@@ -67,6 +80,19 @@ ACTIVAN = {
     "processes": ["lista los procesos", "lístame los procesos",
                   "muéstrame los procesos", "qué procesos hay",
                   "qué se está comiendo la ram", "qué consume más cpu"],
+    # PUERTOS. Ninguna de las 32 skills sabía mirar puertos, así que estas
+    # preguntas caían al planificador y el modelo rellenaba el hueco: una vez
+    # delegó en Hermes y acertó, otra devolvió un ranking de procesos por
+    # memoria, al instante y con total seguridad. No determinista y falso.
+    "port_who": ["qué programa está usando el puerto 5678",
+                 "qué hay en el puerto 8177",
+                 "quién está escuchando en el puerto 3000",
+                 "qué proceso usa el puerto 443",
+                 "mira el puerto 8080",
+                 "el puerto 5432"],
+    "ports": ["qué puertos tengo abiertos", "lista los puertos abiertos",
+              "qué puertos hay abiertos", "puertos en escucha",
+              "muéstrame los puertos abiertos"],
     "kill": ["cierra el proceso chrome", "ciérrame el proceso chrome",
              "mata spotify", "mátame el proceso spotify", "termina discord.exe",
              "cierra la aplicación discord", "cierra el programa spotify",
@@ -340,6 +366,115 @@ res = _handle("cierra el proceso chrome")
 check("psutil" in res.get("reply", ""), "sin psutil, matar procesos no dice qué falta")
 check("no he terminado" in res.get("reply", "").lower(),
       "sin psutil no deja claro que NO ha terminado nada")
+
+# ------------------------------------------------- 6b) puertos: o el dato o el «no sé»
+print("== 6b) puertos: sin psutil NI netstat, lo dice; no aproxima ==")
+
+
+class _SubprocessSinNetstat:
+    """`netstat` que no está en el equipo. Es el peor caso real: sin psutil y sin
+    la herramienta de respaldo no hay de dónde sacar el dato, y entonces la única
+    respuesta honesta es decirlo."""
+
+    def run(self, *_a, **_k):
+        raise FileNotFoundError("netstat")
+
+
+_subprocess_real = MOD.subprocess
+MOD.subprocess = _SubprocessSinNetstat()
+for frase in ("qué programa está usando el puerto 5678", "qué puertos tengo abiertos"):
+    reply = _handle(frase).get("reply", "")
+    low = reply.lower()
+    check("no" in low and ("psutil" in low or "netstat" in low or "no puedo" in low
+                           or "no he podido" in low),
+          f"«{frase}» sin forma de mirar los puertos no dice que NO puede saberlo: {reply!r}")
+    check("MB" not in reply and "GB" not in reply,
+          f"«{frase}» devuelve un ranking de procesos por memoria en vez de puertos: {reply!r}")
+MOD.subprocess = _subprocess_real
+
+print("== 6c) puertos: el dato sale del sistema, y un puerto vacío se dice ==")
+
+
+class _AddrDoble:
+    def __init__(self, port):
+        self.port = port
+
+
+class _ConexionDoble:
+    def __init__(self, port, status, pid):
+        self.laddr = _AddrDoble(port)
+        self.status = status
+        self.pid = pid
+
+
+class _ProcesoDoble:
+    def __init__(self, nombre):
+        self._nombre = nombre
+
+    def name(self):
+        return self._nombre
+
+
+class _PsutilPuertosDoble:
+    """psutil de mentira con una tabla de conexiones fija. Incluye a propósito
+    una conexión ESTABLISHED y una escucha sin PID: la primera no es «un puerto
+    abierto» y la segunda no tiene nombre que enseñar."""
+
+    CONN_LISTEN = "LISTEN"
+
+    class AccessDenied(Exception):
+        pass
+
+    class NoSuchProcess(Exception):
+        pass
+
+    NOMBRES = {4242: "node.exe", 700: "nexus.exe", 900: "postgres.exe"}
+
+    def net_connections(self, kind="inet"):
+        return [_ConexionDoble(5678, "LISTEN", 4242),
+                _ConexionDoble(8177, "LISTEN", 700),
+                _ConexionDoble(5432, "LISTEN", 900),
+                _ConexionDoble(137, "LISTEN", None),
+                _ConexionDoble(54321, "ESTABLISHED", 4242)]
+
+    def Process(self, pid):                                  # noqa: N802 (API de psutil)
+        if pid not in self.NOMBRES:
+            raise self.NoSuchProcess(pid)
+        return _ProcesoDoble(self.NOMBRES[pid])
+
+    def process_iter(self, _campos=None):
+        return []
+
+
+MOD.psutil = _PsutilPuertosDoble()
+
+reply = _handle("qué programa está usando el puerto 5678").get("reply", "")
+check("5678" in reply, f"la respuesta no repite el puerto preguntado: {reply!r}")
+check("node" in reply.lower(), f"no dice QUÉ programa escucha en el puerto: {reply!r}")
+check("4242" in reply, f"no dice el PID del proceso que escucha: {reply!r}")
+
+reply = _handle("qué hay en el puerto 8177").get("reply", "")
+check("nexus" in reply.lower() and "700" in reply,
+      f"«qué hay en el puerto 8177» no da el proceso real: {reply!r}")
+
+# UN PUERTO SIN NADIE SE DICE TAL CUAL. Es justo donde el planificador se
+# inventaba una respuesta: aquí no se aproxima ni se ofrece otra cosa.
+reply = _handle("qué programa está usando el puerto 9999").get("reply", "")
+low = reply.lower()
+check("9999" in reply and ("nadie" in low or "no escucha" in low or "ninguno" in low
+                           or "libre" in low),
+      f"un puerto sin nadie escuchando no se dice tal cual: {reply!r}")
+check(not any(n.split(".")[0] in low for n in _PsutilPuertosDoble.NOMBRES.values()),
+      f"un puerto vacío devuelve el proceso de OTRO puerto: {reply!r}")
+
+reply = _handle("qué puertos tengo abiertos").get("reply", "")
+for esperado in ("5678", "8177", "5432", "node", "nexus", "postgres"):
+    check(esperado in reply.lower(),
+          f"la lista de puertos en escucha no trae «{esperado}»: {reply!r}")
+check("54321" not in reply,
+      f"la lista mete un puerto ESTABLISHED, que no es un puerto en escucha: {reply!r}")
+check("137" in reply,
+      f"una escucha sin PID desaparece de la lista en vez de decirse: {reply!r}")
 
 MOD.psutil = _psutil_real
 MOD.os.system = _os_system_real

@@ -12,6 +12,13 @@ import datetime as dt
 import re
 from pathlib import Path
 
+# Import A NIVEL DE MODULO, y por la misma razon que en skills/system_pc: el
+# fragmento que sale de aqui se concatena dentro de SKILL["patterns"], que se
+# construye AL IMPORTAR este fichero. Un import perezoso llegaria tarde. No
+# cierra ningun ciclo: `reglas` es dominio y solo importa `comun/config` y
+# `comun/audit`, nunca skills ni `skills_loader`.
+from backend.core.dominio import reglas as _reglas
+
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
 CREDS_FILE = CONFIG_DIR / "google_credentials.json"
 TOKEN_FILE = CONFIG_DIR / "google_token.json"
@@ -80,6 +87,34 @@ _DIA_EN_LETRA = (r"uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doc
                  r"veinte|veintiuno|veintid[oó]s|veintitr[eé]s|veinticuatro|"
                  r"veinticinco|veintis[eé]is|veintisiete|veintiocho|veintinueve|"
                  r"treinta|primero")
+
+# EL SUSTANTIVO QUE DICE EL OPERADOR MANDA SOBRE UNA PALABRA SUELTA DEL TITULO.
+#
+# 05/08/2026, medido: «borra la tarea CITA con el dentista de prueba» acababa en
+# `delete_event` y contestaba «No encuentro ningun evento». La culpa era del
+# hueco comodin de 25 caracteres que hay entre el verbo y el sustantivo de
+# calendario: se tragaba « la tarea » y luego encontraba «cita» DENTRO DEL
+# TITULO de una tarea del tablero.
+#
+# El arreglo NO es acortar el hueco (haria falta para «borra ese evento de
+# mañana») sino TEMPERARLO: el hueco puede tener cualquier cosa MENOS un
+# sustantivo del tablero. Si la frase dice «tarea» antes de «cita/evento/
+# reunion», la orden es del tablero interno y esta skill no la toca.
+#
+# La lista de sustantivos sale de `reglas.valor()` —reserva en el codigo,
+# `config/umbrales.json` la puede pisar— igual que `system_pc.no_es_programa`.
+# Se lee al importar porque el patron se monta al importar.
+#
+# OJO, ESTO NO AFECTA A «elimina las dos tareas DEL CALENDARIO», que SI es de
+# Google: esa frase la caza la SEGUNDA rama de `delete_event`, la anclada a la
+# palabra «calendario», y esa rama no se tempera. Es deliberado: quien nombra el
+# calendario esta diciendo de que agenda habla.
+_MANDA_EL_TABLERO = _reglas.valor("google_workspace.manda_el_tablero")
+
+# Hueco «cualquier cosa menos un sustantivo del tablero», carácter a carácter.
+# Es un token temperado: en cada posicion comprueba que ahi no empieza una de
+# esas palabras antes de consumir el caracter.
+_HUECO_SIN_TABLERO = r"(?:(?!\b(?:" + _MANDA_EL_TABLERO + r")\b)[^.\n]){0,25}"
 
 SKILL = {
     "name": "Google (Gmail/Calendar/Drive)",
@@ -155,10 +190,18 @@ SKILL = {
         # Por eso hay una segunda alternativa anclada a la palabra «calendario»:
         # cubre «elimina las dos tareas del calendario» sin robarle nada al
         # tablero interno (que nunca dice «calendario»).
+        # 05/08/2026, TERCER AGUJERO: el hueco de 25 caracteres de la PRIMERA
+        # rama se tragaba « la tarea » y cazaba «cita» dentro del TITULO de una
+        # tarea del tablero. Ahora ese hueco va temperado con
+        # `_HUECO_SIN_TABLERO` (ver el bloque de arriba). Las otras dos ramas se
+        # quedan como estaban: la de «calendario» porque quien nombra el
+        # calendario ya ha dicho de que agenda habla, y la de la fecha porque
+        # va anclada a un dia y sin el no casa.
         "delete_event": r"(?:b[oó]rra(?:me)?|borres|borrar|elimin(?:a(?:me)?|es|en|ar)|"
                         r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar)|"
                         r"an[uú]l(?:a(?:me)?|es|ar)|desconvoca)\b"
-                        r"[^.\n]{0,25}\b(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+|ese\s+|esa\s+|esos\s+|esas\s+)?"
+                        + _HUECO_SIN_TABLERO +
+                        r"\b(?:el\s+|la\s+|los\s+|las\s+|mi\s+|mis\s+|ese\s+|esa\s+|esos\s+|esas\s+)?"
                         r"(?:eventos?|citas?|reuni(?:[oó]n|ones)|recordatorios?|mentor[ií]as?)\b(?P<what>.+)?"
                         r"|(?:b[oó]rra(?:me)?|borres|borrar|elimin(?:a(?:me)?|es|en|ar)|"
                         r"qu[ií]t(?:a(?:me)?|es|ar)|cancel(?:a(?:me)?|es|ar)|an[uú]l(?:a(?:me)?|es|ar))\b"

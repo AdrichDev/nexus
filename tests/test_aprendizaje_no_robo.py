@@ -118,15 +118,20 @@ def _config_de_juguete() -> Path:
 
 
 # ══════════ B2.1 · el corpus de produccion es el mismo que el de la suite ══════════
-def test_corpus_prometido_255_distintas():
-    print("== B2.1) corpus_prometido() saca las 255 frases de los SKILL.md ==")
+def test_corpus_prometido_259_distintas():
+    # 05/08/2026: eran 255/259. `skills/system_pc/SKILL.md` estrena el intent de
+    # PUERTOS («que programa esta usando el puerto 5678», «que hay en el puerto
+    # 8177», «que puertos tengo abiertos», «lista los puertos abiertos») y sus
+    # cuatro vinnetas entran en el corpus, que es justo lo que se quiere: son
+    # frases que ninguna regla aprendida puede robarle a la skill.
+    print("== B2.1) corpus_prometido() saca las 259 frases de los SKILL.md ==")
     frases = reglas.corpus_prometido()
-    check(len(frases) == 255,
-          f"corpus_prometido() devuelve {len(frases)} frases distintas, no 255: "
+    check(len(frases) == 259,
+          f"corpus_prometido() devuelve {len(frases)} frases distintas, no 259: "
           "si has anadido o quitado ordenes de un SKILL.md, actualiza esta cifra")
     check(len(set(frases)) == len(frases), "corpus_prometido() devuelve repetidas")
-    check(len(reglas.corpus_prometido(con_origen=True)) == 259,
-          "con_origen=True ya no devuelve las 259 apariciones (una orden puede "
+    check(len(reglas.corpus_prometido(con_origen=True)) == 263,
+          "con_origen=True ya no devuelve las 263 apariciones (una orden puede "
           "estar documentada en dos skills a proposito)")
     check("pon la tele" in frases,
           "una frase que domotica/SKILL.md promete no esta en el corpus")
@@ -648,7 +653,7 @@ def test_el_escalon_de_las_reglas_sigue_declarado_en_la_suite_de_regresion():
 
 
 def main() -> int:
-    for f in (test_corpus_prometido_255_distintas,
+    for f in (test_corpus_prometido_259_distintas,
               test_corpus_regresion_esta_en_el_spec,
               test_sin_catalogo_ninguna_regla_activa,
               test_regla_ladrona_se_descarta_nombrando_la_frase,

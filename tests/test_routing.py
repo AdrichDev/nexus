@@ -717,16 +717,53 @@ def test_plan_parse():
     check(parse('{"skill":"g","intent":"x","args":null}')["args"] == {}, "plan: args null -> {}")
 
 
+def _smalltalk_rx_real():
+    """El `_SMALLTALK_RX` de brain.py, compilado ejecutando SU PROPIO código.
+
+    05/08/2026: aquí se buscaba con una regex el argumento de `re.compile(...)`
+    y se le hacía `eval`. El día que el patrón pasó a montarse a partir de una
+    constante de arriba (`_CHARLA_PIEZA`, para poder encadenar piezas de charla),
+    el `eval` reventó con un NameError. No era un fallo del cerebro: era que esta
+    prueba leía un TROZO del código y lo llamaba «el regex real».
+
+    Ahora se ejecutan, en orden y tal cual están escritas, las asignaciones de
+    nivel superior de brain.py hasta que `_SMALLTALK_RX` queda definido. Las que
+    dependan de algo que no está (imports del backend) fallan y se saltan: aquí
+    solo interesa la cadena de constantes de la que cuelga el patrón. Así, si
+    mañana el patrón se apoya en dos constantes en vez de una, esto sigue
+    midiendo el patrón de verdad sin que haya que tocarlo."""
+    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"),
+               encoding="utf-8").read()
+    ns = {"re": re}
+    for nodo in ast.parse(src).body:
+        if not isinstance(nodo, ast.Assign):
+            continue
+        try:
+            exec(compile(ast.Module(body=[nodo], type_ignores=[]), "brain.py", "exec"), ns)
+        except Exception:                                  # noqa: BLE001
+            continue                                       # depende del backend: no toca
+        if "_SMALLTALK_RX" in ns:
+            return ns["_SMALLTALK_RX"]
+    return None
+
+
 def test_no_regression_smalltalk():
     # el gate del planificador NO debe dispararse con charla pura (se testea el regex real)
-    src = open(os.path.join(ROOT, "backend", "core", "aplicacion", "brain.py"), encoding="utf-8").read()
-    m = re.search(r"_SMALLTALK_RX = re\.compile\(\s*(.*?)\s*,\s*re\.IGNORECASE\)", src, re.S)
-    assert m, "_SMALLTALK_RX no encontrado en brain.py"
-    rx = re.compile(eval("(" + m.group(1) + ")"), re.IGNORECASE)
+    rx = _smalltalk_rx_real()
+    assert rx is not None, "_SMALLTALK_RX no encontrado en brain.py"
     for t in ["hola", "gracias", "vale", "ok", "jajaja", "hasta luego"]:
         check(bool(rx.match(t)), f"smalltalk: '{t}' debe filtrarse")
+    # Las variantes de «qué tal» y las piezas ENCADENADAS también son charla:
+    # antes del 05/08/2026 solo casaba una pieza suelta y «hola qué tal» se iba
+    # al planificador.
+    for t in ["qué tal", "qué tal estás", "cómo te va", "qué tal todo", "hola qué tal"]:
+        check(bool(rx.match(t)), f"smalltalk: '{t}' es charla y debe filtrarse")
     for t in ["pon música", "enciende la tele", "analiza los correos"]:
         check(not rx.match(t), f"smalltalk: '{t}' NO debe filtrarse (es acción)")
+    # Y el anclaje por los dos lados sigue en pie: una pieza de charla DELANTE de
+    # una orden no convierte la orden en charla.
+    for t in ["vale, apaga la tele", "hola, ábreme chrome", "qué tal va el tablero"]:
+        check(not rx.match(t), f"smalltalk: '{t}' lleva una orden dentro y se filtra")
 
 
 if __name__ == "__main__":

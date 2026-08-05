@@ -235,6 +235,27 @@ VALORES: dict[str, tuple[type, tuple, object]] = {
         r"trato|acuerdo|caso|tema|asunto|debate|discusi[oó]n"           # metáforas
         r")\b)"
     )),
+    # skills/system_pc/skill.py, intent «ports»: cuantos puertos en escucha se
+    # enumeran antes de resumir el resto. Es un tope de LECTURA, no de datos: lo
+    # que se queda fuera se CUENTA, nunca se esconde. En un equipo de trabajo hay
+    # facilmente 40 puertos escuchando y leidos en voz alta no dicen nada.
+    "system_pc.puertos_en_lista": (int, (1, 200), 12),
+    # skills/google_workspace/skill.py, patron «delete_event»: los sustantivos
+    # que, dichos ANTES del sustantivo de calendario, significan que la orden es
+    # del TABLERO interno y no de Google.
+    #
+    # POR QUE EXISTE (05/08/2026, medido). «borra la tarea CITA con el dentista»
+    # se iba a `delete_event` y contestaba «No encuentro ningun evento». El hueco
+    # comodin de 25 caracteres de la primera rama se tragaba « la tarea » y
+    # encontraba «cita» DENTRO DEL TITULO de la tarea. El sustantivo que dice el
+    # operador manda sobre una palabra suelta del titulo.
+    #
+    # Es un FRAGMENTO DE ALTERNANCIA, no un lookahead: quien lo usa lo envuelve.
+    # Asi el mismo valor sirve para temperar un hueco y para un lookahead, y no
+    # hay que repetir aqui la forma exacta en la que se consume.
+    "google_workspace.manda_el_tablero": (str, (4, 2000), (
+        r"tareas?|to-?dos?|pendientes?"
+    )),
 }
 
 
@@ -710,7 +731,7 @@ _PUNTO_LIBRE_RX = re.compile(r"(?<!\\)\.[*+]")
 _ALTERNANCIA_RX = re.compile(r"\((?:\?:)?[^()]*\|[^()]*\)\s*[*+]")
 
 # Claves cuyo valor NO es texto: se concatena a un patron y tiene que compilar.
-_CLAVES_REGEX = {"system_pc.no_es_programa"}
+_CLAVES_REGEX = {"system_pc.no_es_programa", "google_workspace.manda_el_tablero"}
 
 
 def _forma_peligrosa(patron: str) -> str:

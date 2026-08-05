@@ -13,6 +13,14 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 - «qué temperatura tiene la cpu» / «cómo van las temperaturas» / «está muy caliente la gpu»
 - «lista los procesos» / «lístame los procesos» / «qué procesos hay» /
   «qué se está comiendo la ram»
+- «qué programa está usando el puerto 5678» / «qué hay en el puerto 8177» /
+  «quién está escuchando en el puerto 3000» / «mira el puerto 8080» → el proceso
+  que ESCUCHA ahí, con su nombre y su PID. Si no escucha nadie, **lo dice**: no
+  ofrece «lo más parecido»
+- «qué puertos tengo abiertos» / «lista los puertos abiertos» / «puertos en
+  escucha» → los puertos en escucha con el proceso de cada uno. Se enumeran los
+  primeros y **se cuenta cuántos quedan fuera**; el tope está en
+  `config/umbrales.json` (`system_pc.puertos_en_lista`)
 - **Cerrar cualquier programa, con o sin ancla**: «cierra chrome» / «ciérrame
   spotify» / «cierra el navegador» / «termina discord» / «mata spotify», y también
   las formas largas «cierra el proceso chrome» / «cierra el programa spotify» /
@@ -88,6 +96,13 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 ## Lo que NO hace
 
 - No inventa cifras: sin `psutil` **no** da un informe de ejemplo, dice qué falta.
+- **No adivina quién está en un puerto.** El dato sale de `psutil` o, si no está,
+  de `netstat -ano` con los nombres de `tasklist`. Hay tres formas de no saberlo y
+  las tres se dicen tal cual: sin `psutil` ni `netstat`, `psutil` denegado (en
+  Windows los procesos de otros usuarios piden administrador), y un puerto en el
+  que no escucha nadie. Ninguna se rellena con lo más parecido. Antes de existir
+  este intent la pregunta caía al planificador, que llegó a contestar con un
+  ranking de procesos por memoria.
 - No afirma haber abierto una app sin comprobarlo: compara la lista de procesos
   antes y después y distingue «arrancó», «arrancó otra cosa» y «no arrancó».
 - No abre juegos de Steam que no estén instalados; lo dice y ofrece instalarlos.

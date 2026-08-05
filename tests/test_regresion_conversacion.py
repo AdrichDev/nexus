@@ -122,6 +122,39 @@ check(re.search(r"len\(text\.split\(\)\)\s*<=\s*[1-5]\b", bloque) is not None,
       "no se exige que la respuesta sea corta: una frase larga no es un «cuál»")
 
 
+# ═══════════ 3 bis) LA CHARLA AGUANTA LAS VARIANTES, Y NO SE PASA ═══════════
+# 05/08/2026, medido. «qué tal» y «cómo estás» eran charla; «qué tal estás»,
+# «cómo te va», «qué tal todo» y «hola qué tal» acababan en el planificador. La
+# causa: `_SMALLTALK_RX` terminaba en `\b[\s!¡.,?¿]*$`, o sea que exigía que la
+# frase ENTERA fuese UNA SOLA pieza de charla. A «qué tal estás» le sobraba el
+# «estás» y «hola qué tal» son dos piezas.
+#
+# LAS DOS LISTAS VAN JUNTAS A PROPÓSITO. Este atajo corre ANTES del router: cada
+# frase que se queda aquí es una orden que NO se ejecuta. Ensancharlo sin vigilar
+# el otro lado convierte un fallo molesto (una charla que no se entiende) en uno
+# grave (una orden que se traga un «vale»).
+print("== 3 bis) la charla admite variantes y frases encadenadas, sin comerse órdenes ==")
+
+ES_CHARLA = ("qué tal", "cómo estás", "qué tal estás", "cómo te va", "qué tal todo",
+             "hola qué tal", "hola, ¿qué tal estás?", "buenas, qué tal",
+             "hola", "gracias", "vale", "buenos días", "qué tal andas",
+             "cómo lo llevas", "hola buenas")
+for frase in ES_CHARLA:
+    real = atiende(frase)
+    check(real == "charla", f"«{frase}» es charla y la atiende {real}")
+
+# Y ESTAS NO. Cada una lleva delante o dentro una palabra de charla («no», «vale»,
+# «sí», «hola», «qué tal», «cómo va») y detrás una ORDEN de verdad.
+NO_ES_CHARLA = ("no borres nada", "vale, apaga la tele", "sí, crea la tarea",
+                "hola, ábreme chrome", "qué tal va el tablero",
+                "cómo va mi instagram", "hola, cuántos correos tengo",
+                "gracias, ahora apaga las luces")
+for frase in NO_ES_CHARLA:
+    real = atiende(frase)
+    check(real != "charla",
+          f"«{frase}» lleva una orden dentro y el atajo de charla se la ha tragado")
+
+
 # ═══════════ 4) LOS ATAJOS DECLARADOS SON LOS QUE HAY ═══════════
 print("== 3) si aparece un atajo nuevo antes del router, esta prueba se entera ==")
 

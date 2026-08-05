@@ -225,6 +225,42 @@ def test_no_le_roba_las_ordenes_de_ficheros_locales_ni_las_del_tablero():
               f"«{frase}» → {folder}/{intent}; era de {esperado}")
 
 
+def test_una_palabra_del_titulo_no_secuestra_la_orden():
+    """El SUSTANTIVO QUE DICE EL OPERADOR manda sobre una palabra suelta del título.
+
+    05/08/2026, medido: «borra la tarea CITA con el dentista de prueba» acababa en
+    `google_workspace/delete_event` y contestaba «No encuentro ningún evento». La
+    causa era el hueco comodín de 25 caracteres de la primera rama de
+    `delete_event`: se tragaba « la tarea » y encontraba «cita» DENTRO DEL TÍTULO
+    de una tarea del tablero. El operador había dicho «tarea», y esa palabra es la
+    que manda.
+
+    Las dos direcciones van juntas a propósito. Estrechar la rama del calendario
+    sin vigilar lo que ya funcionaba es cambiar un fallo por otro, y la frase
+    «elimina las dos tareas del calendario» es la trampa: dice «tareas» PERO
+    también «calendario», y es de Google. La caza la SEGUNDA rama del mismo
+    patrón, que va anclada a «calendario» y no se toca."""
+    del_tablero = ("borra la tarea comprar folios",
+                   "borra la tarea cita con el dentista",
+                   "borra la tarea cita con el dentista de prueba",
+                   "elimina la tarea de la reunión con el gestor")
+    for frase in del_tablero:
+        folder, intent = _ruta(frase)
+        check((folder, intent) == ("tasks_board", "delete"),
+              f"«{frase}» → {folder}/{intent}; el operador dijo «tarea», "
+              "es del TABLERO, no del calendario")
+
+    del_calendario = ("borra el evento Sonorama",
+                      "cancela la reunión del jueves",
+                      "elimina las dos tareas del calendario",
+                      "anúlame la cita del dentista",
+                      "quita esa cita")
+    for frase in del_calendario:
+        folder, intent = _ruta(frase)
+        check((folder, intent) == ("google_workspace", "delete_event"),
+              f"«{frase}» → {folder}/{intent}; esto es del CALENDARIO y se ha roto")
+
+
 def test_el_candado_antidrive_de_files_no_tiene_huecos():
     """Los intents de `files` que pueden ver una frase de Drive tienen que llevar
     el lookahead _SIN_DRIVE. Se comprueba ENRUTANDO, que es como se descubrió que

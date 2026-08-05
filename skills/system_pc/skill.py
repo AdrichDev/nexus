@@ -154,6 +154,35 @@ SKILL = {
                      r"|qu[eé] procesos (?:hay|corren|est[aá]n|tengo)|top de procesos"
                      r"|qu[eé] [^.\n]{0,25}(?:consume|consumiendo|come|comiendo|gasta|gastando|"
                      r"chupa|chupando)[^.\n]{0,15}\b(?:ram|memoria|cpu)\b",
+        # ¿QUIÉN ESCUCHA EN UN PUERTO? 05/08/2026: ninguna de las 32 skills sabía
+        # mirar puertos. «qué programa está usando el puerto 5678» no casaba con
+        # nada y caía al planificador, que rellenaba el hueco con lo que le
+        # parecía: una vez delegó en Hermes y acertó, otra devolvió un ranking de
+        # procesos por memoria, al instante y con total seguridad. Falso y no
+        # determinista, que es la peor combinación.
+        #
+        # EXIGE LAS DOS COSAS, la palabra «puerto» y el NÚMERO. Sin el número no
+        # es esta pregunta (es la lista, el intent de abajo), y sin la palabra
+        # «puerto» un número suelto es de cualquiera. Va ANTES que `ports` porque
+        # es el más específico de los dos, y ambos van muy por delante de
+        # `open_web`/`open_app`, que se quedan casi cualquier frase.
+        "port_who": r"\b(?:qu[eé]|qui[eé]n(?:es)?|cu[aá]l)\b[^.\n]{0,40}"
+                    r"\bpuertos?\s+(?:n[uú]mero\s+)?(?P<port>\d{1,5})\b"
+                    r"|\b(?:mira|comprueba|revisa|consulta|dime|dame|mu[eé]stra(?:me)?|"
+                    r"ens[eé][ñn]a(?:me)?|ver)\b[^.\n]{0,30}"
+                    r"\bpuertos?\s+(?:n[uú]mero\s+)?(?P<port2>\d{1,5})\b"
+                    r"|\bpuertos?\s+(?P<port3>\d{1,5})\b[^.\n]{0,30}"
+                    r"\b(?:qui[eé]n|ocupad[oa]s?|en\s+uso|libres?|escuchando|usa|usando)\b"
+                    # A pelo, que es como se pregunta cuando ya se venía hablando
+                    # del tema: «el puerto 5432». Anclada a la frase entera para
+                    # que un número suelto en medio de otra orden no la dispare.
+                    r"|^\s*(?:el\s+|en\s+el\s+)?puertos?\s+(?P<port4>\d{1,5})\s*[.!?¿¡]*$",
+        # QUÉ PUERTOS HAY EN ESCUCHA. Siempre en PLURAL y siempre con la palabra
+        # «puertos»: sin ella no hay forma de distinguir esto de nada.
+        "ports": r"\b(?:qu[eé]|cu[aá]les)\b[^.\n]{0,25}\bpuertos\b"
+                 r"|\bpuertos\s+(?:abiertos?|en\s+escucha|escuchando|en\s+uso|ocupados?)\b"
+                 r"|\b(?:l[ií]sta|mu[eé]stra(?:me)?|ens[eé][ñn]a(?:me)?|dime|dame|saca|ver)"
+                 r"(?:me)?\b[^.\n]{0,20}\bpuertos\b",
         # Cerrar un programa. Las tres primeras formas llevan ancla explícita
         # («proceso», «la app/el programa», un «.exe»). La cuarta y la quinta son
         # las que se dicen de verdad —«mata chrome», «cierra spotify»— y por eso
@@ -630,6 +659,160 @@ def _tokens(name: str) -> list:
     return [w for w in re.sub(r"[^a-z0-9 ]", " ", (name or "").lower()).split() if len(w) > 2]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# PUERTOS EN ESCUCHA
+#
+# Añadido el 05/08/2026 porque NINGUNA de las 32 skills sabía mirar puertos.
+# «qué programa está usando el puerto 5678» no casaba con ningún patrón, así que
+# la decisión la tomaba el modelo: una vez delegó en Hermes y acertó, otra
+# devolvió un ranking de procesos por memoria, al instante y con total
+# seguridad. Falso y no determinista.
+#
+# LA REGLA AQUÍ ES QUE O SALE DEL SISTEMA O SE DICE QUE NO SE SABE. Hay tres
+# formas de no saberlo y las tres se cuentan tal cual: sin psutil y sin netstat,
+# psutil que no deja mirar (en Windows los procesos de otros usuarios necesitan
+# administrador), y un puerto en el que sencillamente no escucha nadie. Ninguna
+# de las tres se rellena con «lo más parecido».
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _nombre_de_pid(pid) -> str:
+    """Nombre del ejecutable de un PID, o '' si no se puede saber.
+
+    Cadena vacía significa «no lo sé», y quien la reciba lo enseña como PID a
+    secas. Devolver aquí un nombre aproximado sería exactamente el fallo que
+    este bloque viene a arreglar."""
+    if pid is None or psutil is None:
+        return ""
+    try:
+        return psutil.Process(pid).name() or ""
+    except Exception:                                      # noqa: BLE001
+        return ""
+
+
+def _puertos_por_psutil():
+    """[(puerto, pid, nombre)] de lo que ESCUCHA, o None si psutil no puede.
+
+    None NO es «no hay puertos»: es «no lo he podido mirar». Son dos respuestas
+    distintas para el usuario y por eso no comparten valor de retorno."""
+    if psutil is None:
+        return None
+    escucha = getattr(psutil, "CONN_LISTEN", "LISTEN")
+    try:
+        conexiones = psutil.net_connections(kind="inet")
+    except Exception:                                      # noqa: BLE001
+        # AccessDenied en Windows sin administrador, y cualquier otra cosa que
+        # psutil eche por aquí. Se cae al respaldo, no se inventa nada.
+        return None
+    filas = []
+    for c in conexiones:
+        if getattr(c, "status", "") != escucha:
+            continue
+        laddr = getattr(c, "laddr", None)
+        puerto = getattr(laddr, "port", None)
+        if puerto is None:
+            continue
+        filas.append((int(puerto), getattr(c, "pid", None),
+                      _nombre_de_pid(getattr(c, "pid", None))))
+    return filas
+
+
+def _nombres_por_pid_tasklist() -> dict:
+    """pid -> nombre del ejecutable, leído de `tasklist`. {} si no se puede.
+
+    Solo hace falta cuando psutil no está: `netstat -ano` da el PID pero no el
+    nombre, y un PID a pelo no le dice nada a nadie."""
+    if sys.platform != "win32":
+        return {}
+    try:
+        out = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
+                             capture_output=True, text=True, timeout=10,
+                             encoding="utf-8", errors="replace")
+    except Exception:                                      # noqa: BLE001
+        return {}
+    tabla = {}
+    for linea in (out.stdout or "").splitlines():
+        campos = re.findall(r'"([^"]*)"', linea)
+        if len(campos) >= 2 and campos[1].strip().isdigit():
+            tabla[int(campos[1].strip())] = campos[0].strip()
+    return tabla
+
+
+def _puertos_por_netstat():
+    """[(puerto, pid, nombre)] leído de `netstat -ano`, o None si no se puede.
+
+    Es el respaldo de `_puertos_por_psutil`. La línea de netstat en Windows es
+    «TCP  0.0.0.0:8177  0.0.0.0:0  LISTENING  1234»: se coge el puerto de la
+    dirección LOCAL (la segunda columna) y el PID de la última."""
+    if sys.platform != "win32":
+        return None
+    try:
+        out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
+                             timeout=15, encoding="utf-8", errors="replace")
+    except Exception:                                      # noqa: BLE001
+        return None
+    if getattr(out, "returncode", 1) != 0:
+        return None
+    nombres = _nombres_por_pid_tasklist()
+    filas = []
+    for linea in (out.stdout or "").splitlines():
+        campos = linea.split()
+        # Solo TCP en escucha: en UDP no existe el estado LISTENING y una
+        # entrada UDP no significa que haya nadie atendiendo.
+        if len(campos) < 5 or campos[0].upper() != "TCP" or campos[3].upper() != "LISTENING":
+            continue
+        m = re.search(r":(\d{1,5})$", campos[1])
+        if not m:
+            continue
+        pid = int(campos[4]) if campos[4].isdigit() else None
+        filas.append((int(m.group(1)), pid, nombres.get(pid, "")))
+    return filas
+
+
+def _puertos_en_escucha():
+    """(filas, motivo). `filas` es [(puerto, pid, nombre)] cuando se ha podido
+    mirar; `None` cuando NO, y entonces `motivo` explica por qué.
+
+    Nunca devuelve las dos cosas a medias: o hay dato, o hay explicación."""
+    filas = _puertos_por_psutil()
+    if filas is not None:
+        return filas, ""
+    filas = _puertos_por_netstat()
+    if filas is not None:
+        return filas, ""
+    if psutil is None and sys.platform != "win32":
+        return None, ("No puedo mirar los puertos: falta psutil (pip install psutil y "
+                      "reinicia) y aquí no tengo el netstat de Windows como respaldo.")
+    if psutil is None:
+        return None, ("No puedo mirar los puertos: falta psutil (pip install psutil y "
+                      "reinicia) y netstat tampoco me ha contestado.")
+    return None, ("No he podido leer la tabla de puertos: psutil me la ha denegado "
+                  "—en Windows los procesos de otros usuarios piden administrador— y "
+                  "netstat tampoco me ha contestado. No te la invento.")
+
+
+def _quien_escucha(filas, puerto: int) -> list:
+    """Las filas que escuchan en ESE puerto, sin repetir proceso."""
+    vistos, salida = set(), []
+    for p, pid, nombre in filas:
+        if p != puerto or (pid, nombre) in vistos:
+            continue
+        vistos.add((pid, nombre))
+        salida.append((p, pid, nombre))
+    return salida
+
+
+def _etiqueta_proceso(pid, nombre: str) -> str:
+    """Cómo se nombra un proceso en la respuesta. Sin nombre se enseña el PID a
+    secas: es menos cómodo, pero es lo que se sabe."""
+    if nombre and pid is not None:
+        return f"{nombre} (PID {pid})"
+    if nombre:
+        return nombre
+    if pid is not None:
+        return f"un proceso del que Windows no me da el nombre (PID {pid})"
+    return "un proceso del sistema, sin PID visible"
+
+
 async def _verify_started(before: set, name_hint: str, wait: float = 1.8):
     """Comprueba de VERDAD si arrancó LO QUE SE PIDIÓ, comparando procesos
     antes/después. Devuelve (estado, detalle):
@@ -771,6 +954,48 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          for p in procs if p.info["name"])
         return {"reply": f"Top procesos por memoria: {top}. "
                          "Di «cierra el proceso <nombre>» y tumbo el que sobre."}
+
+    if intent == "port_who":
+        gd = match.groupdict()
+        crudo = next((gd.get(k) for k in ("port", "port2", "port3", "port4")
+                      if gd.get(k)), "")
+        puerto = int(crudo)
+        filas, motivo = _puertos_en_escucha()
+        if filas is None:
+            return {"reply": motivo}
+        duenyos = _quien_escucha(filas, puerto)
+        # UN PUERTO SIN NADIE SE DICE TAL CUAL. Aquí es donde el planificador se
+        # inventaba una respuesta: no se ofrece «lo más parecido» ni se cambia
+        # la pregunta por otra que sí se sepa contestar.
+        if not duenyos:
+            return {"reply": f"En el puerto {puerto} no escucha nadie ahora mismo. "
+                             "Está libre."}
+        if len(duenyos) == 1:
+            _p, pid, nombre = duenyos[0]
+            return {"reply": f"En el puerto {puerto} escucha {_etiqueta_proceso(pid, nombre)}."}
+        lista = ", ".join(_etiqueta_proceso(pid, nombre) for _p, pid, nombre in duenyos)
+        return {"reply": f"En el puerto {puerto} escuchan {len(duenyos)} procesos: {lista}."}
+
+    if intent == "ports":
+        filas, motivo = _puertos_en_escucha()
+        if filas is None:
+            return {"reply": motivo}
+        if not filas:
+            return {"reply": "No hay ningún puerto en escucha en este equipo."}
+        # Un puerto puede aparecer varias veces (IPv4 e IPv6, varias interfaces):
+        # se enseña una vez por puerto.
+        por_puerto = {}
+        for p, pid, nombre in sorted(filas):
+            por_puerto.setdefault(p, (pid, nombre))
+        tope = int(_reglas.valor("system_pc.puertos_en_lista"))
+        puertos = sorted(por_puerto)
+        visibles = puertos[:tope]
+        texto = " · ".join(f"{p}: {_etiqueta_proceso(*por_puerto[p])}" for p in visibles)
+        resto = len(puertos) - len(visibles)
+        # LO QUE NO CABE SE CUENTA, NO SE ESCONDE: una lista recortada en
+        # silencio es una lista que miente sobre cuántos puertos hay abiertos.
+        cola = f" Y {resto} puerto(s) más en escucha." if resto > 0 else ""
+        return {"reply": f"Puertos en escucha ({len(puertos)}): {texto}.{cola}"}
 
     if intent == "kill":
         gd = match.groupdict()
