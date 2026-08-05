@@ -24,6 +24,25 @@ _transient_guard: contextvars.ContextVar[Callable[[], bool] | None] = (
 )
 _TRANSIENT_TYPES = frozenset({"audio", "state", "chat"})
 
+# LO QUE NO SE GUARDA EN EL HISTORIAL QUE SE REENVIA AL RECONECTAR.
+#
+# Al conectar, el HUD recibe los ULTIMOS 30 EVENTOS para recuperar el contexto.
+# `metrics` es un medidor en vivo —CPU, memoria— que llega 12 veces por minuto y
+# cuyo valor de hace dos minutos no le sirve a nadie: el siguiente tic lo pisa.
+# Pero SI ocupaba sitio en el historial, y ahi estaba el dano: medido, esos 30
+# eventos eran 31 de 31 `metrics` y CERO mensajes de chat. Es decir, quien
+# reconectaba no recuperaba ni una sola respuesta.
+#
+# Lo pagaba sobre todo el trabajo delegado. Nexus encarga algo a Hermes, contesta
+# «me pongo con ello», y cuando termina publica el resultado en el chat. Si eso
+# tarda mas de ~2,5 minutos —que es lo normal en una investigacion— el aviso
+# quedaba fuera de la ventana, y al reconectar el operador no veia NUNCA la
+# respuesta a lo que habia pedido. Parecia que nexus se lo tragaba; en realidad
+# lo cantaba a un WebSocket que ya no estaba.
+#
+# `audio` tampoco se guarda: son trozos de voz ya reproducidos.
+_SIN_HISTORIAL = frozenset({"audio", "metrics"})
+
 
 # ¿Hay algún trabajo en marcha? Lo sabe el gestor de trabajos, que está POR
 # ENCIMA de esta capa. Así que aquí solo queda el hueco y él lo rellena al
@@ -111,7 +130,7 @@ class EventBus:
             except Exception:
                 pass                    # ante la duda no se toca lo que iba a decir
         evt = {"type": type_, "data": data, "ts": time.time()}
-        if type_ != "audio":
+        if type_ not in _SIN_HISTORIAL:
             self.history.append(evt)
             self.history = self.history[-200:]
         if type_ == "log":

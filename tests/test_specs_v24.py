@@ -304,9 +304,51 @@ def test_lista_de_terminos_prohibidos():
           "y no da falsos positivos")
 
 
+def test_el_historial_que_se_reenvia_no_lo_llenan_las_metricas():
+    """El resultado de un encargo delegado tiene que sobrevivir a una reconexión.
+
+    Al conectar, el HUD recibe los ÚLTIMOS 30 EVENTOS. Si `metrics` —un medidor
+    en vivo que llega 12 veces por minuto— entra en ese historial, lo llena
+    entero: medido en marcha, esos 30 eventos eran 31 de 31 `metrics` y CERO
+    mensajes de chat. Quien reconectaba no recuperaba ni una respuesta.
+
+    Lo pagaba el trabajo delegado: nexus encarga algo, dice «me pongo con ello»,
+    y publica el resultado al terminar. Si tarda más de ~2,5 minutos —lo normal
+    en una investigación— el aviso ya estaba fuera de la ventana y el operador
+    no veía NUNCA la respuesta a lo que pidió."""
+    src = Path(ROOT, "backend", "core", "comun", "events.py").read_text(encoding="utf-8")
+    check("_SIN_HISTORIAL" in src,
+          "no hay lista de tipos excluidos del historial: las métricas vuelven a "
+          "tapar las respuestas al reconectar")
+
+    async def _t():
+        from backend.core.comun.events import bus
+        antes = list(bus.history)
+        try:
+            bus.history = []
+            await bus.emit("chat", {"user": "hermes: investiga X",
+                                    "reply": "Ya lo tengo: el resultado es Y."})
+            # El ruido que de verdad llega: 12 metricas por minuto durante la
+            # espera de un encargo largo.
+            for _ in range(60):
+                await bus.emit("metrics", {"cpu": 12, "ram": 34})
+            ventana = bus.history[-30:]          # lo que reenvia app.py al reconectar
+            chats = [e for e in ventana if e["type"] == "chat"]
+            check(len(chats) == 1,
+                  f"tras 60 tics de métricas, la respuesta del encargo ya no está en "
+                  f"los 30 eventos que se reenvían al reconectar: {len(chats)} chats")
+            check(not [e for e in bus.history if e["type"] == "metrics"],
+                  "las métricas siguen guardándose en el historial y se lo comen")
+        finally:
+            bus.history = antes
+
+    asyncio.get_event_loop().run_until_complete(_t())
+
+
 if __name__ == "__main__":
     asyncio.set_event_loop(asyncio.new_event_loop())
     tests = [test_frases_prohibidas_de_las_specs, test_el_caso_real_de_la_captura,
+             test_el_historial_que_se_reenvia_no_lo_llenan_las_metricas,
              test_el_bus_es_la_ultima_barrera, test_la_skill_ya_nace_limpia,
              test_el_ejecutor_no_se_ve_en_la_tarjeta_de_multitarea,
              test_sanear_no_puede_dejar_la_respuesta_vacia,
