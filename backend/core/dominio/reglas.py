@@ -8,9 +8,12 @@ por aprender) y la tabla `VALORES`, que es la lista de listas y umbrales que han
 salido del codigo y por tanto pueden aprenderse.
 
 Bloques A y B de 004: almacen, tabla de valores, contrato de estados y las
-puertas 1-4 que una regla tiene que cruzar para contar como activa. Proponer,
-aprobar y consultar en caliente es el bloque C: aqui todavia no hay nada que
-active una regla por su cuenta.
+puertas 1-4 que una regla tiene que cruzar para contar como activa. La rebanada
+C1 anadio ademas el contador de evidencia (`anota_ocurrencia`/`ocurrencias`),
+que vive en este mismo fichero bajo su propia clave.
+
+Aprobar por tandas y consultar en caliente sigue siendo C2/C3: aqui todavia no
+hay nada que active una regla por su cuenta.
 """
 from __future__ import annotations
 
@@ -274,11 +277,22 @@ def _superposicion() -> dict:
     """clave -> valor de las reglas `valor` activas del almacen.
 
     Sin catalogo registrado, `existe_destino()` contesta `False` y esto sale
-    vacio: una regla escrita a mano en el fichero no activa nada por si sola."""
+    vacio: una regla escrita a mano en el fichero no activa nada por si sola.
+
+    EL ORDEN DEL FICHERO NO DECIDE NADA. Con dos reglas activas sobre la misma
+    clave gana la de activacion mas reciente, igual que en `activas()` y por la
+    misma razon: dos ejecuciones con el mismo almacen tienen que dar lo mismo.
+    Antes se recorria el fichero tal cual y pisaba la ULTIMA linea — y `guardar()`
+    reescribe la lista como «todas menos esta, y esta al final», asi que guardar
+    cualquier regla reordenaba el fichero y podia cambiar el valor de otra. Con
+    `system_pc.no_es_programa`, que se concatena al patron de una skill al
+    importarla, eso son dos patrones distintos en dos arranques y ni un rastro de
+    por que."""
     fuera = {}
-    for r in cargar().get("reglas", []):
-        if not isinstance(r, dict):
-            continue
+    candidatas = [r for r in cargar().get("reglas", []) if isinstance(r, dict)]
+    candidatas.sort(key=lambda r: (str(r.get("activada") or ""), str(r.get("id") or "")))
+
+    for r in candidatas:
         if r.get("tipo") != "valor" or r.get("estado") != "activa":
             continue
         clave = str(r.get("destino") or "")
@@ -350,16 +364,30 @@ def _skill_mds() -> list[Path]:
 
 
 def _clave_corpus(mds: list[Path]) -> tuple:
-    """Lo BARATO de la huella: cuantos SKILL.md hay y cual es el mtime mayor.
-    Se calcula sin abrir un solo fichero, y es lo que decide si hace falta
-    volver a extraer las frases (que si cuesta)."""
-    mayor = 0.0
+    """Lo BARATO de la huella: la RUTA, el `mtime` y el tamanno de cada
+    `SKILL.md`. Se calcula sin abrir un solo fichero —un `stat` por skill, que
+    es lo mismo que costaba antes— y es lo que decide si hace falta volver a
+    extraer las frases (que si cuesta).
+
+    LA CLAVE TIENE QUE IDENTIFICAR EL CATALOGO, NO SOLO MEDIRLO. Era
+    `(cuantos SKILL.md, mtime mayor)`, y eso confunde dos catalogos distintos
+    en cuanto coinciden las dos cifras. No es una rareza teorica: el reloj de
+    Windows tiene ~15,6 ms de resolucion, asi que dos ficheros escritos
+    seguidos comparten `mtime` casi la mitad de las veces —medido: 90 de cada
+    200 pares—. Con el mismo numero de skills eso era LA MISMA CLAVE, y el
+    segundo catalogo recibia las frases del primero sin un solo aviso.
+
+    El tamanno va dentro porque un editor puede conservar la marca de tiempo al
+    guardar: sin el, editar un SKILL.md sin mover su `mtime` dejaba el corpus
+    viejo en pie."""
+    partes = []
     for md in mds:
         try:
-            mayor = max(mayor, md.stat().st_mtime)
+            st = md.stat()
         except OSError:
             continue
-    return (len(mds), mayor)
+        partes.append((str(md), st.st_mtime, st.st_size))
+    return tuple(partes)
 
 
 def corpus_prometido(con_origen: bool = False):
@@ -369,9 +397,18 @@ def corpus_prometido(con_origen: bool = False):
     `con_origen=True`, los pares `(carpeta, frase)` incluyendo las repetidas:
     una misma orden puede estar documentada en dos skills a proposito, porque
     las fronteras se explican en los dos lados."""
+    global _corpus_cache
     mds = _skill_mds()
     clave = _clave_corpus(mds)
-    if _corpus_cache["clave"] != clave:
+    # SE LEE EL CACHE UNA SOLA VEZ Y SE PUBLICA DE UNA PIEZA. Antes se escribia
+    # `_corpus_cache["clave"] = clave` y DESPUES `_corpus_cache["pares"] =
+    # pares`: entre las dos lineas, otro hilo veia la clave NUEVA con las frases
+    # VIEJAS y se las creia sin volver a extraer. nexus es un proceso con varios
+    # hilos y esto no corre bajo el candado del almacen, asi que la ventana era
+    # real. Cambiar el nombre del modulo por un diccionario entero no tiene
+    # ventana: o se ve el viejo completo o el nuevo completo.
+    cache = _corpus_cache
+    if cache["clave"] != clave:
         pares: list[tuple[str, str]] = []
         for md in mds:
             try:
@@ -390,9 +427,9 @@ def corpus_prometido(con_origen: bool = False):
                     if f.lower() in _NO_SON_ORDENES:
                         continue
                     pares.append((md.parent.name, f))
-        _corpus_cache["clave"] = clave
-        _corpus_cache["pares"] = pares
-    pares = _corpus_cache["pares"]
+        cache = {"clave": clave, "pares": pares}
+        _corpus_cache = cache
+    pares = cache["pares"]
     if con_origen:
         return list(pares)
     vistas, unicas = set(), []
@@ -723,7 +760,9 @@ def barrido(regla: dict) -> dict:
     ningun sitio. Un barrido que parcheara un global mediria otra cosa.
 
     LA FORMA SE MIRA AQUI, NO SOLO EN LA PUERTA 3. Esta funcion es publica y se
-    puede llamar suelta, y ejecuta el patron candidato 289 veces. Con un patron
+    puede llamar suelta, y ejecuta el patron candidato una vez por frase del
+    corpus (281 medidas el 05/08/2026: 255 prometidas + 34 de regresion, sin
+    repetir). Con un patron
     de retroceso catastrofico no hay presupuesto que valga: el presupuesto se
     mide DESPUES de barrer, asi que se cuelga antes de poder medirlo. Comprobar
     la forma cuesta microsegundos y es lo unico que evita ese cuelgue."""
@@ -803,9 +842,13 @@ def _puerta_no_robo(r) -> tuple[bool, str, bool]:
         return (False,
                 f"la regla es demasiado ancha: ademas de la suya arrastra "
                 f"{len(extra)} frases (tope {tope:.0f}): {extra}", True)
-    if propia and arbitro(propia, reglas=()) != "planificador":
+    # SE PREGUNTA UNA SOLA VEZ. Estaba preguntado dos —una para decidir y otra
+    # para redactar el motivo—, y el arbitro es lo caro de todo esto: es el que
+    # recorre los atajos y el router enteros.
+    quien_la_atiende = arbitro(propia, reglas=()) if propia else ""
+    if propia and quien_la_atiende != "planificador":
         return (False,
-                f"«{propia}» ya la atiende {arbitro(propia, reglas=())}: "
+                f"«{propia}» ya la atiende {quien_la_atiende}: "
                 "no hay hueco que ocupar, y una regla no arregla un fallo de codigo",
                 True)
     return True, "", True
@@ -898,8 +941,9 @@ def destino_de(rid: str) -> str:
     return ""
 
 
-# Huella de revalidacion perezosa. Revalidar cuesta un barrido sobre ~290
-# frases; hacerlo en CADA consulta seria pagarlo en cada mensaje. Se paga cuando
+# Huella de revalidacion perezosa. Revalidar cuesta un barrido sobre el corpus
+# entero (281 frases medidas el 05/08/2026); hacerlo en CADA consulta seria
+# pagarlo en cada mensaje. Se paga cuando
 # algo ha cambiado: el corpus (se instalo una skill, se edito un SKILL.md) o el
 # conjunto de reglas.
 _huella: dict = {"corpus": None, "reglas": None, "activas": [], "barridos": 0}

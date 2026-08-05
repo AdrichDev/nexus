@@ -112,9 +112,27 @@ def test_aprendizaje_no_importa_brain():
     # Y los dos modulos estan dados de alta en la suite de capas Y en CAPAS.md.
     capas = (ROOT / "tests" / "test_capas_backend.py").read_text(encoding="utf-8")
     doc = (ROOT / "backend" / "core" / "CAPAS.md").read_text(encoding="utf-8")
-    for modulo in ("reglas", "aprendizaje"):
+    # SE PARSEA LA FILA DE LA TABLA, NO EL DOCUMENTO ENTERO. Debajo de la tabla
+    # hay prosa que nombra `reglas` y `aprendizaje` entre comillas invertidas
+    # explicando por que estan donde estan, asi que buscar en todo el fichero
+    # daba por buena una tabla a la que se le hubiera quitado el modulo — o que
+    # lo tuviera en la FILA EQUIVOCADA. Es el mismo fallo que el bloque A
+    # arreglo en `test_capas_backend.py`, reintroducido aqui.
+    filas = {}
+    for linea in doc.splitlines():
+        if not linea.strip().startswith("|"):
+            continue
+        celdas = [c.strip() for c in linea.strip().strip("|").split("|")]
+        if len(celdas) < 2:
+            continue
+        capa = celdas[0].strip("* ").replace("ó", "o").replace("Capa", "")
+        filas[capa] = re.findall(r"`([^`]+)`", celdas[1])
+    for modulo, capa in (("reglas", "dominio"), ("aprendizaje", "aplicacion")):
         check(f'"{modulo}"' in capas, f"«{modulo}» no esta en la lista CAPAS del test")
-        check(f"`{modulo}`" in doc, f"«{modulo}» no esta en la tabla de CAPAS.md")
+        check(modulo in filas.get(capa, []),
+              f"«{modulo}» no esta en la FILA de «{capa}» de la tabla de CAPAS.md "
+              f"(esa fila trae {filas.get(capa)}): nombrarlo en la prosa de abajo "
+              "no es tenerlo dado de alta")
     check(capas.count("EXCEPCIONES: set") == 1 and capas.count('("llm", "llm_runtime")') == 1,
           "la lista de excepciones ha cambiado de forma")
     i = capas.find("EXCEPCIONES: set")
@@ -122,6 +140,103 @@ def test_aprendizaje_no_importa_brain():
     check(bloque.count("(\"") == 4,
           f"hay {bloque.count(chr(40) + chr(34))} excepciones en vez de las cuatro de "
           "siempre: este cambio no puede anadir deuda nueva")
+
+
+# ══════════ B5.2 · una suite sin dar de alta no corre NUNCA ══════════
+def test_las_suites_del_aprendizaje_estan_en_run_all():
+    print("== B5.2) las suites de B estan dadas de alta en la tupla de run_all ==")
+    # NADIE VIGILABA ESTO, Y ES LA PUERTA MAS FACIL DE CRUZAR: sacar una suite
+    # de la tupla de `run_all.py` la deja sin ejecutarse jamas y no pone nada en
+    # rojo, porque lo que se rompe es precisamente lo que mediria el rojo. Se
+    # comprueba que estan DENTRO de la tupla que `run_all` recorre, no que
+    # aparezcan en algun sitio del fichero: una linea comentada tambien
+    # «aparece».
+    src = (ROOT / "tests" / "run_all.py").read_text(encoding="utf-8")
+    i = src.find("for suite in (")
+    check(i != -1, "run_all.py ya no recorre una tupla de suites: revisa este caso")
+    tupla = src[i:src.find("):", i)]
+    # La lista crece con cada rebanada. `test_aprendizaje_ciclo.py` (rebanada C1)
+    # se dio de alta en `run_all.py` pero NO aqui, asi que volvia a poder salirse
+    # de la tupla sin que nadie se enterase: medido, sacarla dejaba las 81 suites
+    # verdes. Una suite que no corre no protege nada, y esa es exactamente la
+    # puerta que este caso existe para cerrar.
+    for suite in ("test_reglas_contrato.py", "test_aprendizaje_puertas.py",
+                  "test_aprendizaje_no_robo.py", "test_reglas_valores.py",
+                  "test_aprendizaje_ciclo.py",
+                  "test_capas_backend.py", "test_regresion_conversacion.py",
+                  "test_lo_prometido.py"):
+        check(f'"{suite}"' in tupla,
+              f"«{suite}» no esta en la tupla de suites de run_all.py: no la ejecuta "
+              "nadie, y una suite que no corre no protege nada")
+        check((ROOT / "tests" / suite).exists(),
+              f"«{suite}» esta dada de alta en run_all.py pero el fichero no existe")
+
+
+# ══════════ el contrato de tipos: un aviso no se activa, y una regla `valor` no enruta ══════════
+def test_un_aviso_no_cruza_ninguna_puerta():
+    print("== un «aviso» no se activa nunca: es un fallo de codigo, no un hueco ==")
+    # DECISION 3 DEL DUENNO, Y NO LA VIGILABA NADIE. Un `aviso` es la constancia
+    # de que una correccion delataba un fallo DENTRO de una skill. Taparlo con
+    # una regla lo esconde para siempre. Quitar el rechazo de `valida()` dejaba
+    # las 81 suites verdes.
+    aviso = _regla(id="r-aviso", tipo="aviso", patron=None,
+                   destino="skill:domotica/tv_off")
+    ok, motivo = reglas.valida(aviso)
+    check(ok is False, "un «aviso» pasa la validacion y podria activarse")
+    check("aviso" in motivo.lower(),
+          f"el motivo no dice que un aviso no se activa: «{motivo}»")
+    check("fallo de codigo" in motivo.lower(),
+          f"el motivo no explica POR QUE no se activa: «{motivo}»")
+
+    # Y es una denegacion del ENTORNO en cuanto a marcas: un aviso no se condena
+    # a `invalida`, se queda abierto hasta que alguien lo cierre.
+    _ok, _motivo, aislable = reglas._valida(aviso)
+    check(aislable is False,
+          "un aviso se marca «invalida»: entonces deja de molestar, que es justo "
+          "lo contrario de para lo que existe")
+
+
+def test_activas_solo_devuelve_reglas_de_enrutado():
+    print("== activas() no devuelve avisos ni reglas de valor ==")
+    # `activas()` alimenta `_regla_que_casa()`, que enruta. Una regla `valor` no
+    # tiene `patron` y un `aviso` tampoco: colarlos ahi no cambia el enrutado
+    # hoy, pero mete en el conjunto activo cosas que no han cruzado las puertas
+    # de una regla de enrutado. Quitar el filtro dejaba las 81 suites verdes.
+    tmp = Path(tempfile.mkdtemp(prefix="nexus_activas_"))
+    data_real = reglas.config.DATA_DIR
+    catalogo_real, arbitro_real = reglas._catalogo, reglas._arbitro
+    try:
+        reglas.config.DATA_DIR = tmp
+        reglas.registrar_catalogo(lambda d: True)
+        reglas.registrar_arbitro(
+            lambda frase, channel="pc", reglas=None: "planificador")
+        reglas.olvida_huella()
+        valor = {"id": "r-valor", "esquema": reglas.ESQUEMA, "tipo": "valor",
+                 "revision": 1,
+                 "origen": {"frase": "de prueba", "canal": "pc",
+                            "fecha": "2026-08-04T10:00:00"},
+                 "destino": "domotica.room_words",
+                 "valor": [f"palabra{i}" for i in range(8)],
+                 "evidencia": {"arrastradas": [], "suite": None}, "estado": "activa"}
+        aviso = {"id": "r-aviso", "esquema": reglas.ESQUEMA, "tipo": "aviso",
+                 "revision": 1,
+                 "origen": {"frase": "de prueba", "canal": "pc",
+                            "fecha": "2026-08-04T10:00:00"},
+                 "destino": "skill:domotica/tv_off",
+                 "evidencia": {"veredicto": "x", "suite": None},
+                 "estado": "activa"}
+        reglas.ruta_almacen().parent.mkdir(parents=True, exist_ok=True)
+        reglas.ruta_almacen().write_text(
+            json.dumps({"esquema": reglas.ESQUEMA, "reglas": [valor, aviso]},
+                       ensure_ascii=False), encoding="utf-8")
+        ids = [r.get("id") for r in reglas.activas()]
+        check(ids == [],
+              f"activas() devuelve reglas que no son de enrutado: {ids}")
+    finally:
+        reglas.config.DATA_DIR = data_real
+        reglas.registrar_catalogo(catalogo_real)
+        reglas.registrar_arbitro(arbitro_real)
+        reglas.olvida_huella()
 
 
 # ══════════ B4.6 · nada personal en lo que se anade ══════════
@@ -181,7 +296,7 @@ def test_el_almacen_solo_escribe_dentro_de_data_dir():
 
 # ══════════ B3.8 · el barrido mira la forma ANTES de barrer ══════════
 def test_el_barrido_no_ejecuta_un_patron_de_forma_peligrosa():
-    print("== B3.8) barrido() rechaza la forma antes de correrla 289 veces ==")
+    print("== B3.8) barrido() rechaza la forma antes de correrla 281 veces ==")
 
     # `barrido()` es publica y se puede llamar suelta. Ejecutaba el patron
     # candidato contra todo el catalogo y SOLO DESPUES miraba el presupuesto de
@@ -277,6 +392,9 @@ def test_dos_hilos_no_se_roban_la_marca_de_reentrada():
 def main() -> int:
     for f in (test_puerta_suite_nunca_se_marca_superada_sola,
               test_aprendizaje_no_importa_brain,
+              test_las_suites_del_aprendizaje_estan_en_run_all,
+              test_un_aviso_no_cruza_ninguna_puerta,
+              test_activas_solo_devuelve_reglas_de_enrutado,
               test_ficheros_nuevos_sin_datos_personales,
               test_el_almacen_solo_escribe_dentro_de_data_dir,
               test_el_barrido_no_ejecuta_un_patron_de_forma_peligrosa,

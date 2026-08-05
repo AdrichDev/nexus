@@ -68,11 +68,60 @@ REG = sl.load_skills()
 DOM = REG["domotica"].module
 SPC = REG["system_pc"].module
 
-# El orden de la tabla ES la prioridad del sondeo. Se escribe aqui a mano, no se
-# deriva de VALORES: si se derivara, reordenarla en el codigo no pondria nada en
-# rojo y esta prueba no probaria nada.
-PUERTOS_EN_ORDEN = [8060, 8001, 8002, 55000, 8008, 8009, 7000, 32400, 8123,
-                    1883, 9100, 631, 554, 445, 3389, 22, 62078, 5353, 53, 8080]
+# ═══════════════════════════════════════════════════════════════════════════
+#  LO QUE HABIA ANTES DE LA MIGRACION, ESCRITO A MANO
+# ═══════════════════════════════════════════════════════════════════════════
+# Copiado literalmente de la revision ANTERIOR al bloque A (`e616021`):
+# `skills/domotica/skill.py:1677` (_ROOM_WORDS), `:506` (_PORT_HINTS) y
+# `skills/system_pc/skill.py` (_NO_ES_PROGRAMA).
+#
+# SE ESCRIBE A MANO Y NO SE DERIVA DE `VALORES`. Derivarlo seria comparar la
+# tabla consigo misma: cambiar un valor en el codigo no pondria nada en rojo, y
+# la prueba diria «todo bien» mientras el comportamiento cambia. La promesa
+# entera del bloque A era «lo unico que cambia es DE DONDE se lee un valor»; sin
+# esto, esa promesa no la vigila nadie.
+#
+# COMPROBADO EL 05/08/2026, y por eso esta escrito: quitar tres palabras del
+# fragmento de `no_es_programa` («conversacion», «hilos», «mensajes») dejaba las
+# 81 suites en VERDE. «cierra la conversacion» pasaba a tratarse como un
+# programa que cerrar. Cambiar la etiqueta del puerto 8060 de «TV Roku» a otra
+# cosa, tambien verde. Se pinchaba el ORDEN y el TIPO de las claves, que era la
+# trampa declarada de A3.2, pero NINGUN valor.
+ROOM_WORDS_DE_ANTES = {
+    "habitacion", "salon", "cocina", "cuarto", "bano", "pasillo", "entrada",
+    "dormitorio", "comedor", "garaje", "jardin", "terraza", "oficina",
+    "despacho", "tv", "tele", "television", "smart", "casa", "sala",
+}
+
+# Puerto → etiqueta, EN ORDEN: el orden es la prioridad del sondeo
+# (`skill.py:540`, «orden de `_port_hints()` = prioridad»).
+PORT_HINTS_DE_ANTES = [
+    (8060, "TV Roku"), (8001, "TV Samsung"), (8002, "TV Samsung"),
+    (55000, "TV Samsung"), (8008, "Chromecast"), (8009, "Chromecast"),
+    (7000, "AirPlay"), (32400, "Servidor Plex"), (8123, "Home Assistant"),
+    (1883, "IoT (MQTT)"), (9100, "Impresora"), (631, "Impresora (IPP)"),
+    (554, "Cámara IP (RTSP)"), (445, "PC/servidor (SMB)"),
+    (3389, "PC Windows (escritorio remoto)"), (22, "Linux/servidor (SSH)"),
+    (62078, "iPhone/iPad"), (5353, "mDNS"), (53, "Router/DNS"), (8080, "Web/panel"),
+]
+
+PUERTOS_EN_ORDEN = [p for p, _e in PORT_HINTS_DE_ANTES]
+
+# Las 59 alternativas del lookahead negativo de «kill», en orden.
+NO_ES_PROGRAMA_DE_ANTES = [
+    "la", "los", "las", "una", "unos", "unas",
+    "procesos?", "aplicaci[oó]n", "app", "programa",
+    "pesta[ñn]as?", "marcadores?", "historial", "navegaci[oó]n",
+    "tablero", "tareas?", "notas?", "listas?", "proyectos?",
+    "facturas?", "presupuestos?",
+    "correos?", "mails?", "e-?mails?", "bandeja", "calendario",
+    "tele", "televisi[oó]n", "persianas?", "cortinas?", "puertas?", "garaje",
+    "luz", "luces", "gas", "grifo", "calefacci[oó]n",
+    "chats?", "conversaci[oó]n", "hilos?", "mensajes?",
+    "sesi[oó]n", "ventanas?", "pantallas?", "di[aá]logos?", "men[uú]s?",
+    "paneles?", "modal", "pico", "boca", "ojos?", "puertos?",
+    "trato", "acuerdo", "caso", "tema", "asunto", "debate", "discusi[oó]n",
+]
 
 
 def _escribe_almacen(lista) -> None:
@@ -432,6 +481,250 @@ def test_un_valor_escrito_a_mano_no_se_salta_las_puertas():
           "una regla que cumple el contrato ha dejado de aplicarse")
 
 
+def test_los_tres_valores_migrados_son_LOS_DE_ANTES():
+    """A4.3, pero como PRUEBA y no como comprobacion de una tarde.
+
+    A4.3 se verificaba volcando el enrutado de todo el corpus antes y despues y
+    comparando los dos ficheros. Eso demuestra que la migracion salio bien EL DIA
+    QUE SE HIZO, y despues no queda nada: el diff se tira y nadie lo repite.
+
+    EL AGUJERO QUE TAPA ESTE CASO (medido el 05/08/2026). Las pruebas del bloque
+    A pinchaban la fontaneria —de donde sale el valor, en que orden, con que tipo
+    de clave— pero NINGUN valor. Se comprobo saboteando:
+
+      * quitar «conversaci[oó]n», «hilos?» y «mensajes?» del fragmento de
+        `system_pc.no_es_programa`: las 81 suites en VERDE. Y con eso «cierra la
+        conversacion» pasa a tratarse como un programa que cerrar.
+      * cambiar la etiqueta del puerto 8060 de «TV Roku» a «TV LG»: VERDE.
+      * quitar «salon», «tele», «tv», «television» y «sala» de
+        `domotica.room_words`: solo `test_routing` se quejaba, y de rebote.
+
+    Los tres casos son el error tipico de sacar una lista del codigo: se copia y
+    se pierde una linea por el camino. Aqui se compara contra lo que habia ANTES,
+    escrito a mano arriba.
+
+    PARA VERLO ROJO: borra una palabra de cualquiera de las tres reservas de
+    `reglas.VALORES`."""
+    print("== A4.3) los tres valores migrados son EXACTAMENTE los de antes ==")
+    _limpia_almacen()
+
+    # 1) room_words: el conjunto entero, no solo «sale de reglas».
+    hoy = reglas.valor("domotica.room_words")
+    check(hoy == ROOM_WORDS_DE_ANTES,
+          f"domotica.room_words ya no es la lista de antes de la migracion: "
+          f"faltan {sorted(ROOM_WORDS_DE_ANTES - hoy)}, "
+          f"sobran {sorted(hoy - ROOM_WORDS_DE_ANTES)}")
+
+    # 2) port_hints: puerto Y ETIQUETA, en orden. El orden ya se comprobaba; la
+    #    etiqueta no la miraba nadie, y es lo que ve el usuario en el HUD.
+    check(list(reglas.valor("domotica.port_hints").items()) == PORT_HINTS_DE_ANTES,
+          "domotica.port_hints ya no es la tabla de antes (puerto, etiqueta u orden): "
+          f"{list(reglas.valor('domotica.port_hints').items())}")
+
+    # 3) no_es_programa: las 59 alternativas del lookahead, en orden.
+    frag = reglas.valor("system_pc.no_es_programa")
+    cuerpo = frag[len("(?!(?:"):-len(r")\b)")]
+    toks = [t for t in cuerpo.split("|") if t]
+    check(toks == NO_ES_PROGRAMA_DE_ANTES,
+          "system_pc.no_es_programa ya no excluye lo mismo que antes: "
+          f"faltan {[t for t in NO_ES_PROGRAMA_DE_ANTES if t not in toks]}, "
+          f"sobran {[t for t in toks if t not in NO_ES_PROGRAMA_DE_ANTES]}")
+
+
+def test_lo_que_no_es_un_programa_sigue_sin_serlo():
+    """Y lo mismo, pero por el lado del COMPORTAMIENTO.
+
+    Comparar listas prueba que el texto no ha cambiado. Esto prueba que el texto
+    SIRVE PARA ALGO: cada sustantivo que el fragmento excluye tiene que seguir
+    sin llegar a `system_pc/kill`. Si un dia el fragmento se reescribe entero
+    —agrupando alternativas, por ejemplo— la comparacion de arriba se pondria
+    roja aunque el comportamiento fuera identico, y alguien la «arreglaria»
+    pegando la lista nueva. Este caso es el que no se puede arreglar pegando.
+
+    PARA VERLO ROJO: quita «conversaci[oó]n» de la reserva de
+    `system_pc.no_es_programa`; «cierra la conversación» pasa a system_pc/kill."""
+    print("== A4.3) lo que el fragmento excluye no llega a «kill» ==")
+    _limpia_almacen()
+
+    def _donde(frase):
+        r = sl.route(frase)
+        return f"{r[0].folder}/{r[1]}" if r else "planificador"
+
+    # Un sustantivo por bloque del fragmento: chrome, tasks_board, billing,
+    # google_workspace, domotica, comms, «no son programas» y metaforas.
+    for frase in ("cierra las pestañas", "cierra el historial",
+                  "cierra el tablero", "cierra las tareas", "cierra las notas",
+                  "cierra las facturas", "cierra los presupuestos",
+                  "cierra los correos", "cierra la bandeja", "cierra el calendario",
+                  "cierra la tele", "cierra las persianas", "cierra las cortinas",
+                  "cierra la puerta", "cierra el garaje", "cierra el gas",
+                  "cierra el grifo", "cierra la calefacción",
+                  "cierra la conversación", "cierra los hilos", "cierra los mensajes",
+                  "cierra el chat", "cierra la sesión", "cierra las ventanas",
+                  "cierra el diálogo", "cierra el menú", "cierra los paneles",
+                  "cierra la boca", "cierra los ojos", "cierra los puertos",
+                  "cierra el trato", "cierra el acuerdo", "cierra el caso",
+                  "cierra el tema", "cierra el asunto", "cierra el debate"):
+        check(_donde(frase) != "system_pc/kill",
+              f"«{frase}» se trata como un programa que cerrar: "
+              "el fragmento system_pc.no_es_programa ha dejado de excluirlo")
+
+    # Y lo que SI es un programa sigue llegando: el lookahead no es un muro.
+    for frase in ("cierra spotify", "cierra chrome", "mata notepad"):
+        check(_donde(frase) == "system_pc/kill",
+              f"«{frase}» ha dejado de llegar a system_pc/kill: {_donde(frase)}")
+
+
+def test_dos_reglas_del_mismo_valor_no_dependen_del_orden_del_fichero():
+    """Con dos reglas activas sobre la MISMA clave, gana la mas reciente —
+    siempre la misma, se lean en el orden que se lean.
+
+    EL FALLO (encontrado auditando el bloque A el 05/08/2026). `activas()` ordena
+    a proposito por fecha de activacion, y lo dice en su propio docstring: «no se
+    depende del orden de lectura del fichero ni del de insercion de un
+    diccionario, para que dos ejecuciones con el mismo almacen den lo mismo».
+    `_superposicion()` —que es la TERCERA fase de `valor()`— no ordenaba nada:
+    recorria las reglas en el orden del fichero y la ultima pisaba a las
+    anteriores. Con las mismas dos reglas, cambiar de sitio dos lineas del JSON
+    cambiaba el valor.
+
+    Y no es hipotetico: `guardar()` reescribe la lista como «todas menos esta, y
+    esta al final», asi que guardar CUALQUIER regla reordena el fichero. Una de
+    estas claves, `system_pc.no_es_programa`, se concatena al patron de una skill
+    AL IMPORTARLA: el mismo almacen podia dar dos patrones distintos en dos
+    arranques, sin dejar rastro de por que.
+
+    PARA VERLO ROJO: en `_superposicion()`, volver a recorrer
+    `cargar()["reglas"]` directamente en vez de la lista ordenada."""
+    print("== A2.2) el orden de las lineas del almacen no cambia el valor ==")
+    _limpia_almacen()
+    reglas.registrar_catalogo(lambda clave: clave in reglas.VALORES)
+
+    def _r(rid, palabras, activada):
+        r = _regla_valor("domotica.room_words", palabras, rid=rid)
+        r["activada"] = activada
+        return r
+
+    vieja = _r("r-vieja", ["alfa", "beta", "gamma", "delta", "epsilon"],
+               "2026-01-01T00:00:00")
+    nueva = _r("r-nueva", ["uno", "dos", "tres", "cuatro", "cinco"],
+               "2026-08-04T00:00:00")
+
+    salidas = []
+    for lista in ([vieja, nueva], [nueva, vieja]):
+        _escribe_almacen(lista)
+        reglas.olvida_huella()
+        salidas.append(reglas.valor("domotica.room_words"))
+    check(salidas[0] == salidas[1],
+          f"el mismo almacen da valores distintos segun el orden de sus lineas: "
+          f"{sorted(salidas[0])} vs {sorted(salidas[1])}")
+    check(salidas[0] == {"uno", "dos", "tres", "cuatro", "cinco"},
+          f"no gana la regla mas reciente, gana la que toque por orden: {sorted(salidas[0])}")
+    _limpia_almacen()
+
+
+# Claves del bloque `aprendizaje` que estan en el fichero A PROPOSITO sin que
+# ningun codigo las lea todavia, cada una con la tarea que las va a cablear. Que
+# haya que apuntarlas AQUI es el objetivo: una clave que el usuario puede tocar y
+# que no hace nada es una promesa que nadie cumple, y sin esta lista se queda ahi
+# para siempre sin que nadie se entere. El dia que C3.9 aterrice, este test dira
+# que la quites de la lista.
+UMBRALES_PENDIENTES = {
+    "dias_caducidad_propuesta": "C3.9, todavia sin hacer: hoy ninguna propuesta caduca",
+}
+
+
+def test_el_bloque_aprendizaje_de_umbrales_esta_cableado():
+    """Cada numero de `config/umbrales.json` lo lee alguien, y cada numero que
+    lee el codigo lo puede tocar el usuario.
+
+    A2.4 metio cuatro claves en `config/umbrales.json` y no dejo ninguna prueba.
+    Borrar el bloque `aprendizaje` ENTERO dejaba las 81 suites en verde
+    (comprobado el 05/08/2026), lo cual esta bien —el fichero no viaja en una
+    instalacion limpia y el codigo tiene reserva— pero significa que nadie
+    vigilaba las dos formas de que ese fichero mienta:
+
+      * una clave escrita en el fichero que ningun codigo lee: el usuario la
+        cambia, reinicia, y no pasa nada. `dias_caducidad_propuesta` es
+        exactamente eso hoy, y su texto de ayuda describe un comportamiento que
+        todavia no existe.
+      * una clave que el codigo lee con un nombre distinto del que hay en el
+        fichero (una errata en cualquiera de los dos lados): nexus se queda con
+        la reserva para siempre y el ajuste del usuario no hace nada, en
+        silencio.
+
+    PARA VERLO ROJO: cambia `tope_frases_arrastradas` por `tope_frases` en
+    `config/umbrales.json`, o quita `dias_caducidad_propuesta` de
+    `UMBRALES_PENDIENTES` de aqui arriba."""
+    print("== A2.4) el bloque «aprendizaje» de umbrales.json esta cableado ==")
+    import re as _re
+    datos = json.loads(UMBRALES.read_text(encoding="utf-8"))
+    bloque = datos.get("aprendizaje")
+    if not check(isinstance(bloque, dict),
+                 "config/umbrales.json no trae el bloque «aprendizaje» de A2.4"):
+        return
+
+    # Las claves de verdad: las que no empiezan por «_» (esas son la explicacion).
+    del_fichero = {k: v for k, v in bloque.items() if not k.startswith("_")}
+
+    # Las que el codigo lee de verdad, sacadas del propio codigo.
+    leidas: dict[str, float] = {}
+    for py in sorted((ROOT / "backend").rglob("*.py")):
+        for clave, reserva in _re.findall(
+                r'\b_?umbral\(\s*"([a-z_]+)"\s*,\s*([0-9.]+)\s*\)',
+                py.read_text(encoding="utf-8")):
+            leidas[clave] = float(reserva)
+    check(leidas, "no se ha encontrado ni una llamada a umbral() en backend/: "
+                  "¿ha cambiado la forma de leer los umbrales?")
+
+    for clave in sorted(leidas):
+        check(clave in del_fichero,
+              f"el codigo lee el umbral «{clave}» pero no esta en el bloque "
+              "«aprendizaje» de config/umbrales.json: el usuario no puede tocarlo")
+
+    for clave in sorted(del_fichero):
+        if clave in leidas:
+            continue
+        check(clave in UMBRALES_PENDIENTES,
+              f"«{clave}» esta en config/umbrales.json y no lo lee NINGUN codigo: "
+              "o lo cableas, o lo quitas, o lo declaras en UMBRALES_PENDIENTES "
+              "diciendo que tarea lo va a cablear")
+
+    for clave in sorted(UMBRALES_PENDIENTES):
+        check(clave not in leidas,
+              f"«{clave}» ya lo lee el codigo: quitalo de UMBRALES_PENDIENTES, "
+              f"que su motivo era «{UMBRALES_PENDIENTES[clave]}»")
+        check(clave in del_fichero,
+              f"«{clave}» esta declarado pendiente pero ya no esta en "
+              "config/umbrales.json: quitalo tambien de UMBRALES_PENDIENTES")
+
+    # Y la reserva del codigo coincide con lo que trae el fichero: si no, el
+    # fichero documenta un valor por defecto que no es el que se usa cuando el
+    # fichero no viaja.
+    for clave, reserva in sorted(leidas.items()):
+        if clave not in del_fichero:
+            continue
+        check(float(del_fichero[clave]) == reserva,
+              f"«{clave}» vale {del_fichero[clave]} en config/umbrales.json y "
+              f"{reserva} de reserva en el codigo: en una instalacion limpia, "
+              "donde el fichero no viaja, nexus se comporta de otra manera")
+
+    # Y el cableado se comprueba de verdad: cambiar el fichero cambia lo que
+    # devuelve umbral(). Comparar dos numeros iguales no prueba que se lean.
+    tmp = Path(tempfile.mkdtemp(prefix="nexus_umb_"))
+    (tmp / "umbrales.json").write_text(
+        json.dumps({"aprendizaje": {k: 987 for k in leidas}}), encoding="utf-8")
+    cfg_real = reglas.config.CONFIG_DIR
+    try:
+        reglas.config.CONFIG_DIR = tmp
+        for clave, reserva in sorted(leidas.items()):
+            check(reglas.umbral(clave, reserva) == 987,
+                  f"umbral(«{clave}») no lee config/umbrales.json: devuelve la "
+                  "reserva del codigo aunque el fichero diga otra cosa")
+    finally:
+        reglas.config.CONFIG_DIR = cfg_real
+
+
 def test_las_skills_siguen_cargando():
     print("== A3.4) ninguna skill se queda en error por el import nuevo ==")
     reg = sl.load_skills()
@@ -468,6 +761,10 @@ def main() -> int:
               test_port_hints_conserva_orden_y_claves_int,
               test_no_es_programa_sale_de_reglas,
               test_un_valor_escrito_a_mano_no_se_salta_las_puertas,
+              test_los_tres_valores_migrados_son_LOS_DE_ANTES,
+              test_lo_que_no_es_un_programa_sigue_sin_serlo,
+              test_dos_reglas_del_mismo_valor_no_dependen_del_orden_del_fichero,
+              test_el_bloque_aprendizaje_de_umbrales_esta_cableado,
               test_las_skills_siguen_cargando,
               test_los_ficheros_nuevos_no_llevan_datos_personales):
         try:

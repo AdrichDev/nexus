@@ -332,6 +332,122 @@ def test_barrido_lento_descarta_la_regla():
     finally:
         reglas.config.SKILLS_DIR = skills_real
         reglas.config.CONFIG_DIR = cfg_real
+        reglas.registrar_arbitro(brain.quien_atiende)
+        _limpia()
+
+
+# ══════════ B2.5 · un catalogo A MEDIAS deniega igual que uno ausente ══════════
+def test_corpus_a_medias_deniega_y_no_condena_la_regla():
+    print("== B2.5) con los SKILL.md puestos pero sin el corpus de regresion, deniega ==")
+    _limpia()
+    # EL CASO QUE FALTABA, Y ES EL PELIGROSO. Con el catalogo ENTERO ausente
+    # (`SKILLS_DIR` vacio) el corpus sale vacio y la puerta se planta: eso ya se
+    # probaba arriba. Pero con los `SKILL.md` en su sitio y
+    # `config/corpus_regresion.json` sin instalar, el corpus SIGUE SIENDO una
+    # lista de frases: la puerta se ejecuta, no encuentra robo entre ellas y
+    # APRUEBA — midiendo contra 34 frases menos de las que cree. No es una
+    # puerta que falla, es una que se abre sola y no lo dice. Quitar de
+    # `corpus_incompleto()` la linea que exige el fichero dejaba las 81 suites
+    # verdes.
+    corpus = _corpus_de_juguete(["apaga la tele", "crea una tarea", HUECO])
+    cfg_sin_regresion = Path(tempfile.mkdtemp(prefix="nexus_cfg_medias_"))
+    skills_real, cfg_real = reglas.config.SKILLS_DIR, reglas.config.CONFIG_DIR
+    try:
+        reglas.config.SKILLS_DIR = corpus
+        reglas.config.CONFIG_DIR = cfg_sin_regresion
+        check(len(reglas.corpus_prometido()) == 3,
+              f"el banco no monta las frases prometidas: {reglas.corpus_prometido()}")
+        check(reglas.corpus_regresion() == [],
+              "el banco no ha dejado el corpus de regresion sin instalar")
+        check(reglas.corpus_completo() != [],
+              "el corpus completo sale VACIO: entonces lo que se prueba abajo es la "
+              "guarda del catalogo ausente y no la del catalogo a medias")
+
+        ok, motivo = reglas.valida(_regla())
+        check(ok is False,
+              "con el corpus a medias la puerta de no robo aprueba: mide contra "
+              "menos frases de las que cree y no lo dice")
+        check("entero" in motivo.lower() or "medias" in motivo.lower(),
+              f"el motivo no dice que el catalogo esta a medias: «{motivo}»")
+        check("corpus_regresion.json" in motivo,
+              f"el motivo no nombra el fichero que falta: «{motivo}»")
+
+        # Y es una denegacion DEL ENTORNO: la regla no se condena en disco por
+        # una instalacion incompleta, que se arregla sola en cuanto llegue.
+        _ok, _motivo, aislable = reglas._puerta_no_robo(_regla())
+        check(aislable is False,
+              "un catalogo a medias marca la regla «invalida» PARA SIEMPRE: eso "
+              "mata una regla buena por un problema de instalacion")
+    finally:
+        reglas.config.SKILLS_DIR = skills_real
+        reglas.config.CONFIG_DIR = cfg_real
+        _limpia()
+
+
+# ══════════ B3.3 · la frase propia tiene que estar en el hueco ══════════
+def test_una_regla_no_arregla_un_fallo_de_codigo():
+    print("== B3.3) si a la frase propia ya la atiende una skill, no hay hueco ==")
+    _limpia()
+    # UNA REGLA APRENDIDA OCUPA UN HUECO, NO TAPA UN FALLO. Si la frase que
+    # origino la regla YA llega a una skill, el enrutado no falla: falla la
+    # skill, y una regla encima lo esconde para siempre. Esta guarda es ademas
+    # la unica que impide que la puerta 4 apruebe a ciegas cuando el arbitro
+    # revienta: `arbitro()` se traga la excepcion y devuelve cadena vacia, y
+    # entonces el barrido ve 0 robos y 0 arrastres sobre TODO el corpus.
+    # «apaga la tele» se deja FUERA del catalogo a proposito: si estuviera
+    # dentro, el barrido la veria y la regla caeria por ROBO antes de llegar a
+    # la guarda que se quiere probar. Una frase que una skill atiende y que no
+    # esta documentada en ningun SKILL.md no es un caso raro: es lo normal.
+    corpus = _corpus_de_juguete(["crea una tarea", HUECO])
+
+    def _arbitro_con_skill(frase, channel="pc", reglas=None):
+        import re as _re
+        for r in (reglas or ()):
+            if _re.search(r.get("patron", ""), frase, _re.IGNORECASE):
+                return f"regla:{r.get('id')}"
+        return "skill:domotica/tv_off" if frase == "apaga la tele" else "planificador"
+
+    skills_real, cfg_real = reglas.config.SKILLS_DIR, reglas.config.CONFIG_DIR
+    try:
+        reglas.config.SKILLS_DIR = corpus
+        reglas.config.CONFIG_DIR = _config_de_juguete()
+        reglas.registrar_arbitro(_arbitro_con_skill)
+
+        # La regla NO roba —su patron solo casa con «apaga la tele», que es su
+        # propia frase— y aun asi tiene que caer: no hay hueco que ocupar.
+        tapadera = _regla(id="r-tapadera", patron=r"^\s*apaga\s+la\s+tele\s*$",
+                          origen={"frase": "apaga la tele", "canal": "pc",
+                                  "fecha": "2026-08-04T10:00:00"})
+        ok, motivo = reglas.valida(tapadera)
+        check(ok is False,
+              "una regla sobre una frase que YA atiende una skill pasa la validacion: "
+              "eso es tapar un fallo de codigo con una regla")
+        check("hueco" in motivo.lower() or "fallo de codigo" in motivo.lower(),
+              f"el motivo no explica que no hay hueco que ocupar: «{motivo}»")
+        check("skill:domotica/tv_off" in motivo,
+              f"el motivo no dice quien atiende ya esa frase: «{motivo}»")
+
+        # Y la misma regla sobre una frase del hueco SI pasa: el corte es que la
+        # frase propia caiga al planificador, no que todo se rechace.
+        buena = _regla(id="r-buena", patron=PATRON_HUECO,
+                       origen={"frase": HUECO, "canal": "pc",
+                               "fecha": "2026-08-04T10:00:00"})
+        ok, motivo = reglas.valida(buena)
+        check(ok is True, f"una regla sobre una frase del hueco se rechaza: «{motivo}»")
+
+        # Y UN ARBITRO QUE REVIENTA NO PUEDE APROBAR NADA. `arbitro()` se traga
+        # las excepciones y devuelve cadena vacia; sin esta guarda el barrido
+        # sale a cero diferencias y eso se lee como «no roba».
+        def _arbitro_roto(frase, channel="pc", reglas=None):
+            raise RuntimeError("el arbitro ha reventado")
+
+        reglas.registrar_arbitro(_arbitro_roto)
+        ok, motivo = reglas.valida(buena)
+        check(ok is False,
+              "con el arbitro reventado la puerta de no robo APRUEBA: el barrido ve "
+              "cero diferencias porque no ve nada, y eso se lee como «no roba»")
+    finally:
+        reglas.config.SKILLS_DIR = skills_real
         reglas.config.CONFIG_DIR = cfg_real
         reglas.registrar_arbitro(brain.quien_atiende)
         _limpia()
@@ -423,6 +539,38 @@ def test_el_robo_es_inalcanzable_no_rechazado():
     _limpia()
 
 
+def test_una_regla_solo_se_queda_lo_que_casa_su_patron():
+    print("== B4.1) una regla activa NO se queda el hueco entero, solo su patron ==")
+    _limpia()
+    # EL CASO NEGATIVO, QUE ES EL QUE FALTABA. `test_solo_transicion_...` exige
+    # que toda frase que cambie lo haga de `planificador` a `regla:<id>`, y una
+    # regla que se tragara el hueco ENTERO cumple esa condicion al pie de la
+    # letra: quitar el `re.search` de `_regla_que_casa()` dejaba las 81 suites
+    # verdes. Que la regla case con SU frase se probaba; que NO case con las
+    # demas, no lo probaba nadie.
+    regla = _regla(estado="activa")
+    otras = ["zurrapa de prueba para el barrido",
+             "tramoya de prueba para otra cosa",
+             "tramoya",
+             "tramoya de prueba para el barrido y algo mas"]
+    for f in otras:
+        check(brain.quien_atiende(f, reglas=()) == "planificador",
+              f"«{f}» ya la atiende alguien: este caso necesita frases del hueco")
+        check(brain.quien_atiende(f, reglas=(regla,)) == "planificador",
+              f"«{f}» NO casa el patron de la regla y aun asi se la queda "
+              f"({brain.quien_atiende(f, reglas=(regla,))}): la regla se esta "
+              "quedando el hueco entero, no lo que su patron dice")
+    check(brain.quien_atiende(HUECO, reglas=(regla,)) == "regla:r-hueco",
+          "la frase que SI casa el patron no se la queda la regla: entonces el "
+          "caso de arriba pasaria con una regla que no hace nada")
+
+    # Y un patron que no compila no puede quedarse nada ni tumbar la consulta.
+    rota = _regla(id="r-rota", estado="activa", patron=r"^(sin cerrar$")
+    check(brain.quien_atiende(HUECO, reglas=(rota,)) == "planificador",
+          "una regla con el patron roto tumba o secuestra la consulta")
+    _limpia()
+
+
 def test_una_regla_valor_no_enruta():
     print("== una regla de tipo «valor» no mueve a nadie ==")
     _limpia()
@@ -441,7 +589,13 @@ def test_una_regla_valor_no_enruta():
 # ══════════ B4.4 · la hermeticidad que ya estaba, y que no se puede quitar ══════════
 def test_las_suites_de_enrutado_aislan_data_dir():
     print("== B4.4) las suites de enrutado siguen aislando NEXUS_DATA_DIR ==")
-    for nombre in ("test_regresion_conversacion.py", "test_lo_prometido.py"):
+    # `test_aprendizaje_ciclo.py` (rebanada C1) entra en esta lista porque es la
+    # que MAS dano hace si se le cae el aislamiento: su `_limpia()` borra
+    # `reglas_aprendidas.json` y uno de sus casos borra `interactions.jsonl`. Sin
+    # `NEXUS_DATA_DIR` apuntando a una carpeta temporal, eso son los datos REALES
+    # del duenno. Medido: quitarle la linea del aislamiento dejaba todo verde.
+    for nombre in ("test_regresion_conversacion.py", "test_lo_prometido.py",
+                   "test_aprendizaje_ciclo.py"):
         src = (ROOT / "tests" / nombre).read_text(encoding="utf-8")
         i = src.find("NEXUS_DATA_DIR")
         check(i != -1,
@@ -457,6 +611,42 @@ def test_las_suites_de_enrutado_aislan_data_dir():
               "antes de aislar NEXUS_DATA_DIR: config ya ha resuelto DATA_DIR")
 
 
+# ══════════ B4.3 · el atajo nuevo sigue DECLARADO en la suite de regresion ══════════
+def test_el_escalon_de_las_reglas_sigue_declarado_en_la_suite_de_regresion():
+    print("== B4.3) la lista de guardas de test_regresion_conversacion nombra el atajo ==")
+    # LA LISTA ES LA PROTECCION, Y NADIE VIGILABA LA LISTA. `test_regresion_
+    # conversacion` recorre los atajos que `quien_atiende()` tiene que consultar
+    # y falla si alguno desaparece. Quitar de esa lista el escalon de las reglas
+    # aprendidas dejaba las 81 suites verdes — y con eso la suite volvia a mirar
+    # un escalon por debajo, que es exactamente como se colo el atajo de
+    # «apunta» y lo que la tarea B4.3 se propuso impedir.
+    # SE PARSEA LA LISTA, NO EL FICHERO ENTERO. `_regla_que_casa` aparece mas
+    # abajo en las dos comprobaciones de ORDEN, asi que buscar en todo el texto
+    # daba por buena una lista a la que se le hubiera quitado la guarda — el
+    # mismo escalon por debajo que este caso existe para impedir.
+    src = (ROOT / "tests" / "test_regresion_conversacion.py").read_text(encoding="utf-8")
+    i = src.find("for guarda in (")
+    check(i != -1,
+          "test_regresion_conversacion.py ya no recorre una lista de guardas: "
+          "revisa este caso antes de darlo por bueno")
+    lista = src[i:src.find("):", i)]
+    for guarda in ("_SMALLTALK_RX", "_NO_ACCION_RX", "es_memoria_explicita",
+                   "_META_QUEJA_RX", "route(", "_regla_que_casa"):
+        check(f'"{guarda}"' in lista,
+              f"«{guarda}» ya no esta en la lista de guardas de "
+              f"test_regresion_conversacion.py (la lista trae {lista.split(chr(10))[0]}...): "
+              "ese atajo puede desaparecer de quien_atiende() sin que nadie se entere")
+
+    # Y las dos comprobaciones de ORDEN siguen ahi: ahi esta la garantia de que
+    # una regla aprendida no puede quitarle una frase a una skill.
+    check(src.count('cuerpo.find("r = route(t)") < cuerpo.find("_regla_que_casa")') == 1,
+          "test_regresion_conversacion.py ya no comprueba que las reglas van "
+          "DESPUES del router")
+    check(src.count('cuerpo.find("_META_QUEJA_RX") < cuerpo.find("_regla_que_casa")') == 1,
+          "test_regresion_conversacion.py ya no comprueba que las reglas van "
+          "despues de la meta-queja")
+
+
 def main() -> int:
     for f in (test_corpus_prometido_255_distintas,
               test_corpus_regresion_esta_en_el_spec,
@@ -464,10 +654,14 @@ def main() -> int:
               test_regla_ladrona_se_descarta_nombrando_la_frase,
               test_arrastre_por_encima_del_tope_se_descarta,
               test_barrido_lento_descarta_la_regla,
+              test_corpus_a_medias_deniega_y_no_condena_la_regla,
+              test_una_regla_no_arregla_un_fallo_de_codigo,
               test_solo_transicion_planificador_a_regla,
               test_el_robo_es_inalcanzable_no_rechazado,
+              test_una_regla_solo_se_queda_lo_que_casa_su_patron,
               test_una_regla_valor_no_enruta,
-              test_las_suites_de_enrutado_aislan_data_dir):
+              test_las_suites_de_enrutado_aislan_data_dir,
+              test_el_escalon_de_las_reglas_sigue_declarado_en_la_suite_de_regresion):
         try:
             f()
         except Exception as e:                             # noqa: BLE001

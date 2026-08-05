@@ -182,14 +182,61 @@ for nombre, _ms in CAPAS:
 for a, b in sorted(EXCEPCIONES):
     check(a in doc and b in doc,
           f"la excepcion {a} → {b} no esta explicada en backend/core/CAPAS.md")
-# Y la TABLA de CAPAS.md nombra los mismos modulos que la lista de aqui. Sin
-# esto, dar de alta un modulo solo en el test dejaba la suite en verde y el
-# documento desactualizado: la capa se leia distinta segun donde se mirase.
+# Y la TABLA de CAPAS.md nombra los mismos modulos que la lista de aqui, FILA A
+# FILA. Sin esto, dar de alta un modulo solo en el test dejaba la suite en verde
+# y el documento desactualizado: la capa se leia distinta segun donde se mirase.
+#
+# OJO A COMO SE COMPRUEBA, QUE AQUI ESTUVO EL FALLO. Antes se buscaba «`modulo`»
+# en el DOCUMENTO ENTERO. Pero debajo de la tabla hay prosa explicando las
+# colocaciones no obvias, y ahi se nombran `pm`, `reglas` y `aprendizaje` entre
+# comillas invertidas. Resultado: quitar cualquiera de esos tres de la TABLA
+# dejaba la suite VERDE — la prosa tapaba el hueco. Se comprobo el 05/08/2026
+# borrando `reglas` de la fila de dominio: 424 OK, 0 fallos.
+#
+# Peor todavia: buscando en todo el documento, un modulo listado en la FILA
+# EQUIVOCADA tambien pasaba. La tabla dice quien esta en cada capa; si no se lee
+# fila a fila, no se esta comprobando la tabla, se esta comprobando que la
+# palabra aparece en alguna parte.
+def _tabla_capas(texto: str) -> dict[str, set[str]]:
+    """Capa → modulos, leidos de las FILAS de la tabla «Quién está en cada capa».
+
+    Solo las filas de la tabla: en cuanto se acaba (primera linea que no empieza
+    por «|») se para, para que la prosa de debajo no cuente."""
+    fuera: dict[str, set[str]] = {}
+    dentro = False
+    for linea in texto.splitlines():
+        if linea.lstrip().startswith("| Capa "):
+            dentro = True
+            continue
+        if not dentro:
+            continue
+        if not linea.lstrip().startswith("|"):
+            break
+        celdas = [c.strip() for c in linea.strip().strip("|").split("|")]
+        if len(celdas) < 2:
+            continue
+        capa = celdas[0].strip("* ").lower()
+        capa = capa.replace("común", "comun").replace("aplicación", "aplicacion")
+        if capa in ("---", ""):
+            continue
+        fuera[capa] = set(re.findall(r"`([^`]+)`", celdas[1]))
+    return fuera
+
+
+TABLA = _tabla_capas(doc)
 for nombre, mods in CAPAS:
+    fila = TABLA.get(nombre)
+    if not check(fila is not None,
+                 f"la tabla de backend/core/CAPAS.md no tiene fila para la capa «{nombre}»"):
+        continue
     for m in sorted(mods):
-        check(f"`{m}`" in doc,
-              f"«{m}» esta en la capa «{nombre}» del test pero no en la tabla de "
-              "backend/core/CAPAS.md")
+        check(m in fila,
+              f"«{m}» esta en la capa «{nombre}» del test pero NO en la fila de "
+              f"«{nombre}» de la tabla de backend/core/CAPAS.md")
+    for m in sorted(fila - mods):
+        check(False,
+              f"la tabla de backend/core/CAPAS.md pone «{m}» en la capa «{nombre}» "
+              "y el test no: el documento y la prueba dicen capas distintas")
 
 print("== 6) el modulo que ya vive en su capa esta en la carpeta que le toca ==")
 
