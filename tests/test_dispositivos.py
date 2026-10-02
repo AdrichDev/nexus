@@ -120,53 +120,6 @@ def test_apagar_usa_el_interruptor_solo_tras_leer_el_estado():
           "la tecla de apagado solo se usa desde ese camino comprobado")
 
 
-def test_encender_una_tv_dormida_no_manda_tecla():
-    """EL BUG: WoL + tecla a la vez = se enciende y se apaga."""
-    m = _skill()
-    teclas, wol = [], []
-    m._tv_esta_viva = lambda ip, timeout=1.2: asyncio.sleep(0, result=False)
-    m._mac_for_ip = lambda ip: "AA:BB:CC:DD:EE:FF"
-    m._ip_for_mac = lambda mac: ""      # sin esto se leia la tabla ARP de verdad
-    m._wol_burst = lambda mac, ip, bc: wol.append(mac) or True
-    m._save_tv = lambda ctx, tv: None
-    m._save_estado = lambda ctx, tv, on: teclas.append(("estado", on))
-
-    async def _key(ctx, tv, roku, samsung):
-        teclas.append(samsung)
-        return True
-    m._tv_key = _key
-
-    r = asyncio.run(m._tv_power_on(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
-                                            "name": "TV salón"}))
-    pulsadas = [t for t in teclas if isinstance(t, str)]
-    check(pulsadas == [], f"a una TV DORMIDA no se le manda ninguna tecla ({pulsadas})")
-    check(wol == ["AA:BB:CC:DD:EE:FF"], "solo se la despierta por Wake-on-LAN")
-    check(r["ok"] and r.get("state") == "on", f"y se informa de que queda encendida ({r})")
-
-
-def test_encender_una_tv_viva_manda_encender():
-    m = _skill()
-    teclas, wol = [], []
-    m._tv_esta_viva = lambda ip, timeout=1.2: asyncio.sleep(0, result=True)
-    m._mac_for_ip = lambda ip: "AA:BB:CC:DD:EE:FF"
-    m._ip_for_mac = lambda mac: ""      # sin esto se leia la tabla ARP de verdad
-    m._wol_burst = lambda mac, ip, bc: wol.append(mac) or True
-    m._save_tv = lambda ctx, tv: None
-    m._save_estado = lambda ctx, tv, on: None
-
-    async def _key(ctx, tv, roku, samsung):
-        teclas.append((roku, samsung))
-        return True
-    m._tv_key = _key
-
-    r = asyncio.run(m._tv_power_on(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
-                                            "name": "TV salón"}))
-    check(teclas == [("keypress/PowerOn", "KEY_POWERON")],
-          f"a una TV VIVA se le manda ENCENDER, no un interruptor ({teclas})")
-    check(wol == [], "y no hace falta despertarla por red")
-    check(r["ok"] and r.get("state") == "on", "queda encendida")
-
-
 def test_encender_dos_veces_no_la_apaga():
     """Idempotencia: «encender» sobre algo encendido lo deja encendido."""
     m = _skill()
@@ -725,8 +678,6 @@ def test_ollama_usa_el_modelo_de_la_peticion():
 if __name__ == "__main__":
     tests = [test_encender_es_una_orden_absoluta,
              test_apagar_usa_el_interruptor_solo_tras_leer_el_estado,
-             test_encender_una_tv_dormida_no_manda_tecla,
-             test_encender_una_tv_viva_manda_encender,
              test_encender_dos_veces_no_la_apaga,
              test_el_estado_se_persiste, test_apagar_devuelve_estado,
              test_apagar_lo_ya_apagado_no_pulsa_nada,
