@@ -5,6 +5,7 @@ import datetime as dt
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import webbrowser
@@ -894,6 +895,28 @@ def _match_steam_game(query: str):
     return None, None
 
 
+def _registered_chrome_exe() -> str | None:
+    """Read only Chrome's fixed App Paths entry; never look up a requested name."""
+    try:
+        import winreg
+        key_name = (r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+                    r"\App Paths\chrome.exe")
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(hive, key_name) as key:
+                    value, _ = winreg.QueryValueEx(key, None)
+                if isinstance(value, str):
+                    target = value.strip().strip('"')
+                    if (os.path.isabs(target) and target.lower().endswith(".exe")
+                            and os.path.isfile(target)):
+                        return target
+            except OSError:
+                continue
+    except ImportError:
+        pass
+    return None
+
+
 async def handle(intent: str, text: str, match, ctx) -> dict:
     bus = ctx["bus"]
 
@@ -1151,8 +1174,19 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": f"Conozco {len(apps)} aplicaciones instaladas. Muestra: {sample}…"}
 
     if intent == "open_app":
-        app = match.group("app").strip().rstrip(".?!")
-        low = app.lower().strip()
+        raw_app = match.group("app")
+        # Control characters must be rejected before stripping whitespace.
+        # Sentence-final punctuation is voice syntax, not part of the app name.
+        app = raw_app.strip().rstrip(".?!").strip()
+        # Reject command syntax before any fuzzy lookup, URL alias or Steam match.
+        # Multi-word names are still allowed for indexed apps and installed games.
+        if (re.search(r"[\x00-\x1f\x7f]", raw_app) or
+                re.search(r'[&|<>^%!"\'`;:$()/\\]|\s--?[A-Za-z]', app)):
+            return {"reply": "No puedo abrir ese nombre: contiene caracteres de comando o una ruta. "
+                             "Dime solo el nombre de la aplicación."}
+        if not app:
+            return {"reply": "No encuentro ningún nombre de aplicación. Dime cuál quieres abrir."}
+        low = app.lower()
         # 1) Webs frecuentes (no son apps instaladas)
         web_alias = {"internet": "https://www.google.com",
                      "whatsapp web": "https://web.whatsapp.com",
@@ -1211,22 +1245,38 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 return {"reply": f"No veo «{app}» instalado en Steam, así que no puedo abrirlo. "
                                  f"Existe en la tienda; si quieres instalarlo dime «instala {app} en steam»."}
 
-        # 3) Último recurso: comandos clásicos de Windows / protocolo URI.
-        #    OJO: los valores NO llevan 'start' (ya lo añade el wrapper de abajo);
-        #    antes ponía «start "" start spotify:» y por eso no abría Spotify.
-        alias = {"calculadora": "calc", "notas": "notepad", "explorador": "explorer",
-                 "navegador": "chrome", "terminal": "cmd", "cmd": "cmd",
-                 "spotify": "spotify:", "steam": "steam://open/main",
-                 "epic": "com.epicgames.launcher://", "whatsapp": "whatsapp:"}
+        # Fixed URI routes are distinct from executable names. No dynamic shell
+        # string is constructed, including for the Discord updater.
+        uri_alias = {"spotify": "spotify:", "steam": "steam://open/main",
+                     "epic": "com.epicgames.launcher://", "whatsapp": "whatsapp:"}
+        exe_alias = {"calculadora": "calc.exe", "notas": "notepad.exe",
+                     "explorador": "explorer.exe", "navegador": "chrome.exe",
+                     "chrome": "chrome.exe", "terminal": "cmd.exe", "cmd": "cmd.exe"}
         before = _proc_names()
         try:
-            if sys.platform == "win32":
-                if low == "discord":
-                    os.system('start "" "%LOCALAPPDATA%\\Discord\\Update.exe" --processStart Discord.exe')
-                else:
-                    os.system(f'start "" {alias.get(low, app)}')
+            if sys.platform == "win32" and low in uri_alias:
+                os.startfile(uri_alias[low])
+            elif sys.platform == "win32" and low == "discord":
+                local_app_data = os.environ.get("LOCALAPPDATA")
+                if not local_app_data:
+                    raise FileNotFoundError("LOCALAPPDATA no está configurado")
+                updater = os.path.join(local_app_data, "Discord", "Update.exe")
+                subprocess.Popen([updater, "--processStart", "Discord.exe"], shell=False)
             else:
-                subprocess.Popen(alias.get(low, app).split())
+                executable = exe_alias.get(low, app)
+                # Unindexed PATH fallback accepts one basename, never arguments,
+                # directories or Windows script wrappers.
+                if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", executable):
+                    return {"reply": f"No encuentro «{app}» como aplicación conocida. "
+                                     "Dime un único nombre de ejecutable, sin argumentos."}
+                resolved = shutil.which(executable)
+                if not resolved and sys.platform == "win32" and low in ("navegador", "chrome"):
+                    resolved = _registered_chrome_exe()
+                if not resolved or (sys.platform == "win32" and
+                                    not resolved.lower().endswith(".exe")):
+                    return {"reply": f"No encuentro «{app}» instalado como ejecutable. "
+                                     "Dime el nombre exacto o «reindexa las aplicaciones»."}
+                subprocess.Popen([resolved], shell=False)
         except Exception as exc:
             return {"reply": f"No he podido abrir «{app}»: {exc}"}
         st, detail = await _verify_started(before, app)

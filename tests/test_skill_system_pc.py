@@ -479,6 +479,225 @@ check("137" in reply,
 MOD.psutil = _psutil_real
 MOD.os.system = _os_system_real
 
+# ------------------------------------------------- 6d) opening apps: never execute model text as a command
+print("== 6d) app launch: safe names, fixed aliases and honest verification ==")
+from unittest.mock import patch  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from backend.core.infraestructura import app_index  # noqa: E402
+
+launches = []
+resolved = {"harmless": r"C:\Tools\harmless.EXE", "harmless.exe": r"C:\Tools\harmless.EXE",
+            "calc": r"C:\Tools\calc", "calc.exe": r"C:\Windows\calc.exe",
+            "notepad": r"C:\Tools\notepad", "notepad.exe": r"C:\Windows\notepad.exe",
+            "chrome.exe": None,
+            "notes.cmd": r"C:\Tools\notes.cmd", "notes.bat": r"C:\Tools\notes.bat",
+            "notes.ps1": r"C:\Tools\notes.ps1"}
+
+
+def _fake_popen(argv, **kwargs):
+    launches.append(("popen", argv, kwargs))
+
+
+def _fake_startfile(target):
+    launches.append(("startfile", target))
+
+
+def _fake_system(cmd):
+    launches.append(("system", cmd))
+
+
+def _fake_which(name):
+    launches.append(("which", name))
+    return resolved.get(name)
+
+
+def _fake_find(name):
+    launches.append(("find", name))
+    return ("Notepad", r"C:\Apps\notepad.exe") if name.lower() == "notepad" else None
+
+
+_CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+_chrome_registry_value = [_CHROME_PATH]
+_CHROME_KEY = (r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+               r"\App Paths\chrome.exe")
+
+
+class _FakeRegistryKey:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+def _fake_open_key(hive, key):
+    launches.append(("regkey", hive, key))
+    if hive != "HKLM" or key != _CHROME_KEY:
+        raise FileNotFoundError(key)
+    return _FakeRegistryKey()
+
+
+def _fake_query_value(_key, value):
+    assert value is None
+    return _chrome_registry_value[0], 1
+
+
+_fake_winreg = SimpleNamespace(HKEY_LOCAL_MACHINE="HKLM", HKEY_CURRENT_USER="HKCU",
+                               OpenKey=_fake_open_key, QueryValueEx=_fake_query_value)
+
+
+verification = ["yes", ""]
+
+
+async def _fake_verify(_before, _hint, wait=1.8):
+    return tuple(verification)
+
+
+def _open_app_named(name):
+    # Model-supplied names can reach the handler without the voice router.
+    class _Match:
+        def group(self, key):
+            assert key == "app"
+            return name
+
+    return asyncio.run(MOD.handle("open_app", "abre " + name, _Match(), CTX))
+
+
+with (patch.object(MOD.sys, "platform", "win32"),
+      patch.object(MOD.os, "system", _fake_system),
+      patch.object(MOD.os, "startfile", _fake_startfile, create=True),
+      patch.object(MOD.subprocess, "Popen", _fake_popen),
+      patch.object(app_index, "get_index", lambda: {"Notepad": "target"}),
+      patch.object(app_index, "find_app", _fake_find),
+      patch.object(app_index, "launch", lambda target: launches.append(("indexed", target))),
+      patch.object(MOD, "_match_steam_game", lambda _name: (None, None)),
+      patch.object(MOD, "_steam_appid_by_name", lambda _name: None),
+      patch.object(MOD, "_proc_names", lambda: set()),
+      patch.object(MOD, "_verify_started", _fake_verify),
+      patch("shutil.which", _fake_which),
+      patch.dict(sys.modules, {"winreg": _fake_winreg}),
+      patch.object(MOD.os.path, "isfile", lambda p: p == _CHROME_PATH),
+      patch.object(MOD.webbrowser, "open", lambda url: launches.append(("web", url)))):
+    # Rejection precedes web aliases, fuzzy index matching and Steam lookup.
+    for name in ("harmless & calc", "harmless | calc", "harmless > output",
+                 "harmless < input", "harmless\ncalc", "harmless /silent",
+                 "harmless --flag", "notepad & calc", "steam | calc",
+                 "whatsapp web & calc", "discord & calc", "harmless\\calc",
+                 "harmless & calc!", "harm!less", "calc! & harmless",
+                 "harmless\n", "harmless\r  "):
+        launches.clear()
+        result = _open_app_named(name)
+        check(not launches, f"unsafe app name {name!r} reached a resolver/launcher: {launches}")
+        check("no" in result.get("reply", "").lower(),
+              f"unsafe app name {name!r} was not refused: {result}")
+
+    for name in ("!", "?!", " .?!  "):
+        launches.clear()
+        result = _open_app_named(name)
+        check(not launches and "no" in result["reply"].lower(),
+              f"empty normalized app name reached a resolver: {name!r}, {launches}, {result}")
+
+    for name in ("harmless!", "harmless?!", "harmless.?!  "):
+        launches.clear()
+        result = _open_app_named(name)
+        check(("popen", [resolved["harmless"]], {"shell": False}) in launches
+              and "abierto" in result["reply"],
+              f"sentence-final punctuation broke PATH app launch: {name!r}, {launches}, {result}")
+
+    launches.clear()
+    result = _open_app_named("calculadora!")
+    check(("popen", [resolved["calc.exe"]], {"shell": False}) in launches
+          and "abierto" in result["reply"],
+          f"voice alias with exclamation was not launched safely: {launches}, {result}")
+
+    launches.clear()
+    result = _open_app_named("notas")
+    check(("which", "notepad.exe") in launches and
+          ("popen", [resolved["notepad.exe"]], {"shell": False}) in launches and
+          "abierto" in result["reply"],
+          f"fixed notes alias used shadowing extensionless tool: {launches}, {result}")
+
+    launches.clear()
+    result = _open_app_named("navegador")
+    check(("which", "chrome.exe") in launches and
+          ("popen", [_CHROME_PATH], {"shell": False}) in launches and
+          ("regkey", "HKLM", _CHROME_KEY) in launches and
+          "abierto" in result["reply"],
+          f"fixed Chrome alias failed App Paths fallback: {launches}, {result}")
+    launches.clear()
+    _open_app_named("chrome")
+    check(("popen", [_CHROME_PATH], {"shell": False}) in launches,
+          f"fixed Chrome name did not use App Paths: {launches}")
+    _chrome_registry_value[0] = _CHROME_PATH + " --flag"
+    launches.clear()
+    result = _open_app_named("navegador")
+    check(not any(x[0] in ("popen", "startfile", "system") for x in launches)
+          and "no encuentro" in result["reply"].lower(),
+          f"registry target with arguments was launched: {launches}, {result}")
+    _chrome_registry_value[0] = _CHROME_PATH
+
+    launches.clear()
+    result = _open_app_named("harmless")
+    check(("popen", [resolved["harmless"]], {"shell": False}) in launches,
+          f"exact PATH executable did not launch with a shell-free argv: {launches}")
+    check(("which", "harmless") in launches and "abierto" in result["reply"]
+          and not any(x[0] == "regkey" for x in launches),
+          f"exact PATH launch was not resolved/verified: {launches}, {result}")
+
+    launches.clear()
+    _open_app_named("harmless.exe")
+    check(("popen", [resolved["harmless.exe"]], {"shell": False}) in launches,
+          "explicit .exe basename did not use the resolved executable")
+    for state, detail, fragment in (("no", "", "no encuentro"),
+                                    ("other", "launcher.exe", "no estoy seguro"),
+                                    ("unknown", "", "abriendo")):
+        verification[:] = [state, detail]
+        result = _open_app_named("harmless")
+        check(fragment in result["reply"].lower(),
+              f"launch verification {state} was reported incorrectly: {result}")
+    verification[:] = ["yes", ""]
+    launches.clear()
+    result = _open_app_named("missing_executable")
+    check(not any(x[0] in ("popen", "startfile", "system") for x in launches)
+          and "no encuentro" in result["reply"].lower(),
+          f"unresolved executable reported success or launched: {launches}, {result}")
+    with patch.object(MOD.subprocess, "Popen", side_effect=OSError("denied")):
+        result = _open_app_named("harmless")
+        check("no he podido" in result["reply"].lower() and "denied" in result["reply"],
+              f"Popen failure was reported as success: {result}")
+
+    for name in ("notes.cmd", "notes.bat", "notes.ps1"):
+        launches.clear()
+        result = _open_app_named(name)
+        check(not any(x[0] in ("popen", "startfile", "system") for x in launches),
+              f"script wrapper {name} was launched: {launches}")
+        check("no" in result["reply"].lower(), f"script wrapper {name} was not refused")
+
+    launches.clear()
+    result = _open_app_named("notepad!")
+    check(("indexed", r"C:\Apps\notepad.exe") in launches and "abierto" in result["reply"],
+          f"sentence-final punctuation broke indexed app launch: {launches}, {result}")
+    launches.clear()
+    result = _open_app_named("notepad")
+    check(("indexed", r"C:\Apps\notepad.exe") in launches and "abierto" in result["reply"],
+          f"indexed app launch changed: {launches}, {result}")
+    launches.clear()
+    _open_app_named("whatsapp web")
+    check(launches == [("web", "https://web.whatsapp.com")],
+          f"fixed web alias changed: {launches}")
+    for name, uri in (("spotify", "spotify:"), ("steam", "steam://open/main"),
+                      ("epic", "com.epicgames.launcher://"), ("whatsapp", "whatsapp:")):
+        launches.clear()
+        _open_app_named(name)
+        check([x for x in launches if x[0] != "find"] == [("startfile", uri)],
+              f"fixed URI alias {name} did not use shell-free startfile: {launches}")
+    launches.clear()
+    _open_app_named("discord")
+    check([x for x in launches if x[0] != "find"] ==
+          [("popen", [os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                      "Discord", "Update.exe"), "--processStart", "Discord.exe"],
+            {"shell": False})], f"Discord updater argv changed: {launches}")
+
 # ------------------------------------------------- 7) agnóstica
 print("== 7) agnóstica: sin nombres propios ni rutas del usuario ==")
 import re as _re                                            # noqa: E402
