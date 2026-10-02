@@ -188,16 +188,47 @@ class SayText(BaseModel):
     text: str = ""
 
 
+def _trusted_local_ws_origin(ws: WebSocket) -> bool:
+    """Tokenless browser access requires a loopback Host and its own HTTP Origin.
+
+    Native/non-browser clients omit Origin and must instead supply a QR token.
+    Proxy forwarding headers never grant local trust, even with a loopback peer.
+    """
+    from urllib.parse import urlsplit
+
+    host = ws.headers.get("host", "")
+    origin = ws.headers.get("origin", "")
+    if not host or not origin or host != host.strip() or origin != origin.strip():
+        return False
+    try:
+        parsed_host = urlsplit("http://" + host)
+        parsed_origin = urlsplit(origin)
+        return (parsed_host.hostname in ("127.0.0.1", "::1", "localhost")
+                and parsed_host.port is not None
+                and parsed_host.username is None and parsed_host.password is None
+                and parsed_host.netloc.lower() == host.lower()
+                and parsed_origin.scheme == "http"
+                and parsed_origin.netloc.lower() == host.lower()
+                and parsed_origin.hostname == parsed_host.hostname
+                and parsed_origin.port == parsed_host.port
+                and parsed_origin.username is None and parsed_origin.password is None
+                and not parsed_origin.path and not parsed_origin.query
+                and not parsed_origin.fragment)
+    except ValueError:
+        return False
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     from backend.core.infraestructura import remote
-    # Mismo criterio que el middleware HTTP: este equipo pasa; cualquier otro
-    # origen (túnel, WiFi, lo que sea) necesita el token del QR.
+    # A tokenless local browser is trusted only with a same-authority loopback
+    # Origin. QR-authenticated LAN/tunnel/mobile ?host clients can legitimately
+    # connect across origins; do not impose this browser constraint on them.
     _local = (not ws.headers.get("cf-connecting-ip")
               and not ws.headers.get("x-forwarded-for")
               and getattr(getattr(ws, "client", None), "host", "")
               in ("127.0.0.1", "::1", "localhost"))
-    if not _local:
+    if not (_local and _trusted_local_ws_origin(ws)):
         import hmac
         esperado = remote.link_token()
         if not esperado or not hmac.compare_digest(

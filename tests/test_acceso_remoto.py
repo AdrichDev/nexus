@@ -20,6 +20,8 @@ Aquí se arranca nexus DE VERDAD y se llama por HTTP como lo harían:
 
 Ejecutar:  python tests/test_acceso_remoto.py    (desde la carpeta nexus)
 """
+import ast
+import asyncio
 import json
 import os
 import shutil
@@ -28,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -95,6 +98,111 @@ def _pide(base, ruta, metodo="GET", cuerpo=None, cabeceras=None, token=""):
 # pone un túnel o un proxy delante: es como llega el móvil desde fuera.
 DE_FUERA = {"Cf-Connecting-Ip": "203.0.113.9"}
 DE_LA_WIFI = {"X-Forwarded-For": "192.168.1.77"}
+
+
+def test_ws_origin() -> int:
+    """Exercise the real /ws handler without starting services or touching secrets."""
+    from unittest.mock import patch
+
+    tree = ast.parse((ROOT / "backend" / "app.py").read_text(encoding="utf-8"))
+    nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and n.name in ("websocket_endpoint", "_trusted_local_ws_origin")]
+    endpoint = next(n for n in nodes if n.name == "websocket_endpoint")
+    endpoint.decorator_list = []
+    namespace = {"asyncio": asyncio, "json": json, "WebSocket": object,
+                 "WebSocketDisconnect": type("WebSocketDisconnect", (Exception,), {})}
+
+    class FakeBus:
+        history = []
+
+        def __init__(self):
+            self.clients = set()
+
+        def register(self, ws):
+            self.clients.add(ws)
+
+        def unregister(self, ws):
+            self.clients.discard(ws)
+
+    namespace["bus"] = FakeBus()
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "backend/app.py", "exec"), namespace)
+    remote = types.ModuleType("backend.core.infraestructura.remote")
+    remote.link_token = lambda: "fixture-qr-token"
+    packages = {}
+    for name in ("backend", "backend.core", "backend.core.infraestructura"):
+        package = types.ModuleType(name)
+        package.__path__ = []
+        packages[name] = package
+
+    class FakeWS:
+        def __init__(self, host, origin, *, client="127.0.0.1", token="", forwarded=None):
+            self.headers = _Cab({"host": host, **({"origin": origin} if origin is not None else {}),
+                                 **(forwarded or {})})
+            self.client = types.SimpleNamespace(host=client)
+            self.query_params = {"token": token}
+            self.accepted = False
+            self.closed = None
+
+        async def accept(self):
+            self.accepted = True
+
+        async def close(self, code):
+            self.closed = code
+
+        async def receive_text(self):
+            raise namespace["WebSocketDisconnect"]()
+
+    async def probe(host, origin, **kw):
+        ws = FakeWS(host, origin, **kw)
+        with patch.dict(sys.modules, {**packages, "backend.core.infraestructura.remote": remote}):
+            await namespace["websocket_endpoint"](ws)
+        check(ws not in namespace["bus"].clients, "the WebSocket is not left registered")
+        return ws
+
+    async def cases():
+        for origin in ("https://evil.example", "null", "bogus", "http://127.0.0.1:8177/path", None):
+            ws = await probe("127.0.0.1:8177", origin)
+            check(not ws.accepted and ws.closed is not None,
+                  f"tokenless local WebSocket rejects Origin {origin!r} before accept")
+        for host, origin in (("evil.example:8177", "http://evil.example:8177"),
+                             ("evil.example:8177", "http://127.0.0.1:8177"),
+                             ("127.0.0.1:8177@evil.example", "http://127.0.0.1:8177"),
+                             ("127.0.0.1:not-a-port", "http://127.0.0.1:8177"),
+                             ("", "http://127.0.0.1:8177"),
+                             ("127.0.0.1:8177", "http://127.0.0.1:9999")):
+            ws = await probe(host, origin)
+            check(not ws.accepted and ws.closed is not None,
+                  f"tokenless local WebSocket rejects Host/Origin {host!r}/{origin!r}")
+        for host, origin in (("127.0.0.1:8177", "http://127.0.0.1:8177"),
+                             ("localhost:8177", "http://localhost:8177"),
+                             ("[::1]:8177", "http://[::1]:8177")):
+            ws = await probe(host, origin)
+            check(ws.accepted and ws.closed is None,
+                  f"local HUD accepts browser/pywebview Origin {origin!r}")
+        for forwarded in ({"Cf-Connecting-Ip": "203.0.113.9"},
+                          {"X-Forwarded-For": "192.0.2.9"}):
+            ws = await probe("127.0.0.1:8177", "http://127.0.0.1:8177",
+                             forwarded=forwarded)
+            check(not ws.accepted and ws.closed is not None,
+                  f"proxy-marked peer needs QR token: {forwarded!r}")
+        for origin in ("https://mobile.example", "null", None):
+            ws = await probe("tunnel.example", origin, token="fixture-qr-token",
+                             forwarded={"Cf-Connecting-Ip": "203.0.113.9"})
+            check(ws.accepted and ws.closed is None,
+                  f"QR-authenticated mobile ?host override keeps working: {origin!r}")
+        ws = await probe("192.168.1.5:8177", "http://mobile.example",
+                         client="192.168.1.77", token="fixture-qr-token")
+        check(ws.accepted, "QR-authenticated LAN mobile keeps working")
+        ws = await probe("127.0.0.1:8177", None, token="fixture-qr-token")
+        check(ws.accepted, "non-browser local clients require an explicit QR token")
+        ws = await probe("127.0.0.1:8177", "https://evil.example", token="fixture-qr-token")
+        check(ws.accepted, "a valid QR token authenticates even a cross-origin local peer")
+        ws = await probe("127.0.0.1:8177", None, token="wrong")
+        check(not ws.accepted and ws.closed is not None,
+              "a non-browser local client cannot use an invalid token")
+
+    asyncio.run(cases())
+    return 0
 
 
 def main() -> int:
@@ -315,7 +423,10 @@ def main() -> int:
 if __name__ == "__main__":
     print("· quién puede mandarle órdenes al PC")
     try:
-        main()
+        if sys.argv[1:] == ["--ws-origin"]:
+            test_ws_origin()
+        else:
+            main()
     except Exception as e:                                       # noqa: BLE001
         _fail.append(f"EXCEPCIÓN: {type(e).__name__}: {e}")
         print("  EXCEPCIÓN:", type(e).__name__, e)
