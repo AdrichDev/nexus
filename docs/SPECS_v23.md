@@ -788,10 +788,10 @@ encargo real de punta a punta contra el gateway de Hermes.
 
 ### Módulos nuevos
 
-- `backend/core/confirm.py` — puerta de confirmación por canal (T1).
-- `backend/core/audit.py` — `data/logs/audit.jsonl` (T24).
-- `backend/core/opmem.py` — memoria operativa de Engram (T4-T6).
-- `backend/core/files_io.py` — lectura/escritura real y versionado (T18-T21).
+- `backend/core/comun/confirm.py` — puerta de confirmación por canal (T1).
+- `backend/core/comun/audit.py` — `data/logs/audit.jsonl` (T24).
+- `backend/core/dominio/opmem.py` — memoria operativa de Engram (T4-T6).
+- `backend/core/infraestructura/files_io.py` — lectura/escritura real y versionado (T18-T21).
 - `tests/e2e/run_e2e.py` — pruebas end-to-end reales con evidencias (T22).
 
 ### Cómo se comprueba todo

@@ -18,7 +18,7 @@
 │  │  HUD  (HTML/CSS/JS + Canvas)                          │  │
 │  │  métricas · reactor de partículas · skills · terminal │  │
 │  └────────────────────────▲──────────────────────────────┘  │
-│            WebSocket + REST│ http://127.0.0.1:8177          │
+│            WebSocket + REST│ http://127.0.0.1:8177 (ventana)│
 │  ┌────────────────────────┴──────────────────────────────┐  │
 │  │  BACKEND FastAPI                                      │  │
 │  │  ┌────────┐  ┌──────────────────────────────┐         │  │
@@ -43,20 +43,24 @@ generalista; cada skill es un minion especializado con SOLO el contexto de su
 dominio (evita alucinaciones por exceso de contexto). El router prueba primero
 regex por skill; si nada casa, va al LLM conversacional con memoria.
 
-## Instalación
+## Instalación y arranque
 
 ```bat
 git clone <repo> nexus
 cd nexus
-setup.bat          :: crea .venv, instala deps, copia .env y settings.json
+run.bat          :: prepara dependencias si faltan y ejecuta backend.desktop
 ```
 
-Opcional pero recomendado — memoria a largo plazo (Docker):
+Como alternativa, con el entorno Python preparado: `.venv\Scripts\python.exe -m backend.desktop`.
+La ventana pywebview usa `127.0.0.1:8177`; el servidor escucha en
+`0.0.0.0:8177` para permitir clientes en la red. Restringe el acceso a redes
+confiables y usa el QR con token para clientes remotos.
 
-```bat
-cd ..\nexus
-nexus_up.bat      :: levanta Postgres+pgvector en :5433 y el engine nexus
-```
+Postgres/pgvector es un servicio de apoyo opcional en
+`config/docker-compose.yml`, no el motor ni el lanzador del HUD. Si se genera
+un archivo Compose nuevo desde la aplicación, Postgres se publica solo en
+loopback; un archivo Compose existente puede publicar el puerto de otra forma.
+Revisa su configuración y la red antes de levantarlo.
 
 Opcional — voz real:
 

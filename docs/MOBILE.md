@@ -13,19 +13,19 @@ En `movil/nexus.apk` tienes la app **ya compilada y firmada** (~21 KB):
 3. La app pide sus permisos (cámara, micro, galería, contactos, ubicación).
 4. Botón **«VINCULAR CON nexus»** → se abre la cámara → apunta al **QR**
    que muestra el PC (botón 📱 arriba a la derecha del centro de mando).
-5. Vinculado. **Funciona AUNQUE NO estéis en la misma WiFi**: el PC levanta un
-   túnel seguro (cloudflared) y el QR lleva la URL + un token de autenticación.
-   Sin túnel, el QR lleva la IP local (misma WiFi) como plan B.
+5. Tras vincular con el QR (URL + token de autenticación), usa la IP local
+   en la misma WiFi. Fuera de ella, solo funcionará si el túnel está configurado,
+   disponible y accesible desde el móvil; no se ha validado aquí con hardware
+   ni con un túnel público.
 
 Dentro del nodo: ◉ para hablar (voz nativa de Android vía puente `WabiksNative`),
 chat de texto, botones 🔊/🔇 IA y 🎙 YO para silenciar a nexus o mutearte,
 respuestas por voz (síntesis del móvil) y texto con enlaces que se abren en el
 navegador. **Mantén pulsado ◉** ~1 s para re-vincular con otro PC.
 
-> **Firma**: `movil/nexus.keystore` (alias `nexus`, contraseña `nexus2026`).
-> GUÁRDALO: las actualizaciones del APK deben firmarse con este mismo keystore
-> o Android obligará a desinstalar antes. Reconstruir: ver `movil/` o pedírselo
-> al agente (javac + dx + aapt + zipalign + apksigner, sin Android Studio).
+> **Firma de actualizaciones:** conserva el mismo keystore para actualizar la app.
+> Guarda el keystore y sus contraseñas fuera del repositorio; proporciona las
+> credenciales mediante variables de entorno locales al compilar, nunca en guías.
 
 ## iOS — PWA instalable (no existe .ipa sin Mac)
 
@@ -47,9 +47,11 @@ preparada con icono y modo app:
 Navegador → `http://IP-DEL-PC:8177/m` → «Añadir a pantalla de inicio».
 El reconocimiento de voz usa el del navegador (Chrome/Safari lo traen).
 
-Para fuera de casa: abre el puerto 8177 en el router hacia el PC, o mejor un
-túnel seguro (Tailscale / Cloudflare Tunnel) y entra por esa dirección con
-`?host=` → `http://tu-tunel/m?host=tu-tunel`.
+Para acceder fuera de casa, evita publicar directamente el puerto 8177
+del router: expondría el servidor en Internet. Prefiere un túnel con control
+de acceso (Tailscale / Cloudflare Tunnel), configurado y comprobado antes
+de usarlo. Entra por la URL del túnel y vincula el cliente con el QR y su
+token; `?host=` solo indica el host y no sustituye la autenticación.
 
 ## Windows — el .exe
 
