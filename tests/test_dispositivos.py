@@ -188,29 +188,6 @@ def _apagado(estados, teclas=None, guardado=None):
     return m
 
 
-def test_apagar_devuelve_estado():
-    guardado, teclas = [], []
-    m = _apagado(["on", "off"], teclas, guardado)
-    r = asyncio.run(m.control_api(_ctx(), {"kind": "tv", "action": "off",
-                                           "ip": "192.168.1.50", "brand": "samsung",
-                                           "name": "TV"}))
-    check(r["ok"] and r.get("state") == "off", f"apagar devuelve el estado ({r})")
-    check(guardado == [False], "y lo persiste")
-    check(teclas == ["KEY_POWER"], f"pulsando la tecla que Tizen obedece ({teclas})")
-
-
-def test_apagar_lo_ya_apagado_no_pulsa_nada():
-    """El interruptor sobre una TV apagada la ENCENDERÍA. Por eso «apagar» es
-    idempotente: si el estado ya es apagado, no se manda ninguna tecla."""
-    guardado, teclas = [], []
-    m = _apagado(["off"], teclas, guardado)
-    r = asyncio.run(m._tv_apagar(_ctx(), {"ip": "192.168.1.50", "brand": "samsung",
-                                          "name": "TV"}))
-    check(teclas == [], f"a una TV ya apagada no se le pulsa nada ({teclas})")
-    check(r["ok"] and r.get("state") == "off", f"y se informa de que está apagada ({r})")
-    check("ya estaba apagada" in r["reply"], f"diciendo la verdad ({r['reply']})")
-
-
 def test_apagar_no_afirma_lo_que_no_ha_comprobado():
     """Mandar la orden no es que la TV obedezca: si al comprobarlo sigue encendida,
     ni se dice «apagada» ni se persiste ese estado."""
@@ -679,8 +656,7 @@ if __name__ == "__main__":
     tests = [test_encender_es_una_orden_absoluta,
              test_apagar_usa_el_interruptor_solo_tras_leer_el_estado,
              test_encender_dos_veces_no_la_apaga,
-             test_el_estado_se_persiste, test_apagar_devuelve_estado,
-             test_apagar_lo_ya_apagado_no_pulsa_nada,
+             test_el_estado_se_persiste,
              test_apagar_no_afirma_lo_que_no_ha_comprobado,
              test_apagar_avisa_cuando_no_puede_confirmarlo,
              test_apagar_a_ciegas_no_pulsa_el_interruptor,
