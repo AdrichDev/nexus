@@ -13,7 +13,7 @@ Lo que comprueba:
   3) index.html carga command.js como modulo (si no, los import son un error).
   4) Ningun fichero del arbol se queda huerfano, sin que nadie lo importe.
 
-Ejecutar:  .venv\\Scripts\\python.exe tests\\test_frontend_modulos.py
+Ejecutar:  .venv\\Scripts\\python.exe tests\\unit\\frontend\\test_modules.py
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 JS = ROOT / "frontend" / "js"
 
 # Scripts clasicos: dejan su API en window y NO son modulos. Se quedan fuera.
