@@ -1049,7 +1049,8 @@ def _create_task(title: str, due_date: str | None = None, notes: str = "") -> st
 
 
 def _create_everywhere(title: str, due_date: str | None, notes: str,
-                       priority: str = "alta") -> str:
+                       priority: str = "alta", *, task_type: str = "",
+                       urgency: str = "", source_id: str = "") -> str:
     """Crea la tarea en GOOGLE (Calendar si hay fecha, si no Tasks) Y en el TABLERO
     INTERNO de nexus. Devuelve un texto con los destinos donde quedó guardada."""
     dests = []
@@ -1064,11 +1065,25 @@ def _create_everywhere(title: str, due_date: str | None, notes: str,
         dests.append(f"(Google falló: {type(exc).__name__})")
     try:
         from backend.core.dominio import board
-        board.add_task(title, due=due_date, priority=priority, tag="correo")
+        board.add_task(title, due=due_date, priority=priority, tag="correo",
+                       description=notes, source="correo", source_id=source_id,
+                       task_type=task_type, urgency=urgency)
         dests.append("tablero interno")
     except Exception as exc:                                   # noqa: BLE001
         dests.append(f"(tablero falló: {type(exc).__name__})")
     return " + ".join(dests) if dests else "ningún destino"
+
+
+def _email_task_fields(a: dict) -> tuple[str, str]:
+    """(type, urgency) of the board task for one classifier result. Missing or invalid
+    model fields fall back to the default type and to urgency derived from the older keys."""
+    from backend.core.dominio import board
+    if a.get("urgente"):
+        derived = "critica"
+    else:
+        derived = {"alta": "alta", "media": "media", "baja": "baja"}.get(
+            str(a.get("importancia") or "").strip().lower(), board.DEFAULT_URGENCY)
+    return board.norm_type(a.get("tipo")), board.norm_urgency(a.get("urgencia"), derived)
 
 
 async def _email_urgent_job(ctx, channel: str) -> dict:
@@ -1151,6 +1166,10 @@ async def _email_actions_job(ctx, channel: str) -> dict:
             _last_emails = msgs
             analysis, sin_clasificar = await _analyze_emails(msgs)
             acts = [(msgs[a["i"]], a) for a in analysis if a.get("accionable")]
+            # Dedupe: un correo con tarea en el tablero no se vuelve a crear (ni en Google).
+            from backend.core.dominio import board as _board
+            ya_tenian = [(m, a) for m, a in acts if _board.find_by_source("correo", m.get("id", ""))]
+            acts = [(m, a) for m, a in acts if (m, a) not in ya_tenian]
             # Igual que en la revisión de urgentes: lo que no se ha mirado se dice.
             # Aquí encima duele el doble, porque «no accionable» = no se crea tarea.
             fallo = ("" if not sin_clasificar else
@@ -1161,6 +1180,10 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                 reply = (f"❌ No he podido analizar NINGUNO de tus {unread} correos sin leer, "
                          "así que no he creado ninguna tarea. El modelo no devolvió una "
                          "clasificación válida.")
+            elif not acts and ya_tenian:
+                reply = (f"Análisis hecho: ninguna tarea nueva, {len(ya_tenian)} correo(s) ya "
+                         "tenían tarea:\n" + "\n".join(f"• {m['subject']}" for m, _a in ya_tenian)
+                         + fallo)
             elif not acts:
                 ambito = "" if len(msgs) >= unread else f" (los {len(msgs)} más recientes)"
                 reply = (f"He analizado tus {unread} correos sin leer{ambito} y ninguno pide "
@@ -1172,7 +1195,10 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                     fecha = (a.get("fecha") or "").strip() or None
                     prio = "alta" if (a.get("urgente") or a.get("importancia") == "alta") else "media"
                     notas = f"De {m['from']} — Asunto: {m['subject']}"
-                    destinos = await asyncio.to_thread(_create_everywhere, titulo, fecha, notas, prio)
+                    tipo, urg = _email_task_fields(a)
+                    destinos = await asyncio.to_thread(
+                        _create_everywhere, titulo, fecha, notas, prio,
+                        task_type=tipo, urgency=urg, source_id=m.get("id", ""))
                     creadas.append((titulo, fecha, destinos))
                 lines = [f"• {t}" + (f" (para {f})" if f else "") + f"  → {d}" for t, f, d in creadas]
                 n_ok = sum(1 for _t2, _f2, d in creadas
@@ -1188,7 +1214,9 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                         aviso = ("\n\n⚠ En Google no pude guardarlas (autorización pendiente); "
                                  "en tu tablero SÍ están.")
                     reply = (f"Análisis de correos terminado — {n_ok} tarea(s) creadas:\n"
-                             + "\n".join(lines) + aviso + fallo)
+                             + "\n".join(lines) + aviso + fallo
+                             + (f"\n\n{len(ya_tenian)} correo(s) ya tenían tarea y no se "
+                                "han duplicado." if ya_tenian else ""))
     except Exception as exc:                                   # noqa: BLE001
         reply = f"El análisis de correos ha fallado: {type(exc).__name__}: {exc}"
     await bus.emit("chat", {"user": "[análisis de correos]", "reply": reply,
@@ -1377,7 +1405,9 @@ async def _analyze_batch(msgs: list[dict]) -> list[dict]:
         '{"i": entero (índice del correo), "urgente": true|false, "importancia": "alta"|"media"|"baja", '
         '"accionable": true|false, "tarea": "título breve en imperativo de lo que hay que hacer, o cadena vacía", '
         '"fecha": "YYYY-MM-DD si el correo implica una fecha/plazo, o cadena vacía", '
-        '"motivo": "5-10 palabras"}. '
+        '"motivo": "5-10 palabras", '
+        '"tipo": "responder"|"hacer"|"pagar"|"asistir"|"revisar"|"esperar", '
+        '"urgencia": "critica"|"alta"|"media"|"baja"}. '
         "urgente = necesita atención hoy/mañana, hay un plazo inminente, o hay consecuencias por no actuar. "
         "accionable = el correo te pide hacer algo concreto (pagar, responder, revisar, confirmar, agendar). "
         "NO inventes fechas: pon fecha solo si aparece o se implica claramente. Responde ÚNICAMENTE el JSON, sin texto extra."

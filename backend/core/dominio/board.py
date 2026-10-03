@@ -367,6 +367,22 @@ def add_task(title: str, due: str | None = None, priority: str = "media",
     return task
 
 
+def find_by_source(source: str, source_id: str) -> dict | None:
+    """Tarea existente creada desde `source` con ese `source_id` (p. ej. correo + id).
+
+    Decisión de dedupe: las tareas HECHAS sí cuentan (un correo ya tratado no debe
+    volver a generar tarea en la siguiente pasada); las de la papelera (deletedAt)
+    se ignoran, porque borrarla es descartarla y un reproceso puede recrearla.
+    Un `source_id` vacío nunca coincide."""
+    sid = (source_id or "").strip()
+    if not sid:
+        return None
+    for t in _load():
+        if t.get("source") == source and t.get("sourceId") == sid and not t.get("deletedAt"):
+            return t
+    return None
+
+
 def find_task(query: str) -> dict | None:
     q = _norm(query)
     tasks = _load()
