@@ -97,6 +97,7 @@ window.orbHTML = orbHTML;
         state.chat.push({ who: 'user', text: data.user }); state.chat.push({ who: 'ai', text: data.reply });
         if (current === 'chat') renderChatLog();
         if (current === 'command') renderCCChat();
+        refreshBoard();                       // la orden pudo crear/mover/restaurar tareas
         const ma = $('#mem-answer'); if (ma && current === 'memory') ma.innerHTML = linkify(data.reply);
         pushLog('info', `nexus: ${String(data.reply).slice(0, 140)}`);
         armTTSFallback(data.reply);           // habla el navegador si el backend no manda audio
@@ -545,6 +546,7 @@ window.orbHTML = orbHTML;
         pulseCore();
         if (current === 'chat') renderChatLog();
         if (current === 'command') renderCCChat();
+        refreshBoard();
         pushLog('info', `nexus: ${String(d.reply).slice(0, 140)}`);
         speakBrowser(d.reply);   // sin WS no llega 'audio' → habla el navegador
       });
@@ -922,6 +924,17 @@ window.orbHTML = orbHTML;
     }).join('')}</div></div>`).join('')}
       </div>`;
   };
+
+  // El tablero también cambia por chat/voz/correo: vuelve a pedirlo y repinta solo si cambió
+  // (así no se pisa una edición o confirmación inline cuando no hay nada nuevo).
+  async function refreshBoard() {
+    try {
+      const b = await api('/api/board');
+      if (JSON.stringify(b) === JSON.stringify(state.board)) return;
+      state.board = b;
+      if (current === 'tasks') render('tasks');
+    } catch (e) { /* sin red: se queda lo que había */ }
+  }
 
   // Mueve una tarea de columna (drag&drop o flechas) → persiste en el backend y repinta.
   async function moveTask(id, state_) {
@@ -1432,6 +1445,7 @@ window.orbHTML = orbHTML;
       api('/api/knowledge').then((k) => { const c = $('#kn-count'); if (c) c.textContent = (k?.count || 0).toLocaleString('es'); });
     }
     if (view === 'tasks') {
+      refreshBoard();                         // al entrar: lo que haya cambiado fuera de la vista
       $$('.kcard .mv button').forEach((b) => b.addEventListener('click', (ev) => {
         ev.stopPropagation(); moveTask(b.dataset.id, b.dataset.to);
       }));

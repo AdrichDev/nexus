@@ -73,18 +73,14 @@ def main() -> int:
                 return page.locator(f'.kcol[data-s="{col}"] .kcard', has_text=title).count() == 1
 
             def stale_probe(col, title, label):
-                """Tasks view after a chat-originated change: shown at once, after waiting, after reload?"""
-                nav("tasks")
-                if ui_has(col, title):
-                    check(True, f"{label}: visible in the tasks view right after the chat command"); return
-                page.wait_for_timeout(4000); nav("command"); nav("tasks")
-                waited = ui_has(col, title)
-                page.reload(wait_until="domcontentloaded"); page.wait_for_timeout(2500); nav("tasks")
-                reloaded = ui_has(col, title)
-                FINDINGS.append(f"{label}: not visible right after the chat command (visible after 4 s wait+renav: {waited}; "
-                                f"after page reload: {reloaded})")
-                print("  FINDING", FINDINGS[-1])
-                check(reloaded, f"{label}: visible after a page reload (UI board is stale until then)")
+                """A task changed by a chat command must be visible in the Tareas view without reloading."""
+                nav("tasks"); page.wait_for_timeout(800)
+                ok = ui_has(col, title)
+                if not ok:
+                    page.reload(wait_until="domcontentloaded"); page.wait_for_timeout(2500); nav("tasks")
+                    FINDINGS.append(f"{label}: only visible after a page reload: {ui_has(col, title)}")
+                    print("  FINDING", FINDINGS[-1])
+                check(ok, f"{label}: visible in the Tareas view without reloading")
 
             # ---------------- tasks ----------------
             T = "P05 pintar valla"
