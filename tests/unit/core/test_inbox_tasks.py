@@ -98,12 +98,27 @@ analysis = [
 ]
 
 
-async def fake_load(n=30):
-    return [dict(m) for m in emails], 3, 3
+load_calls = []
+
+
+async def fake_load(n=30, skip=None):
+    """Same contract as gw._load_unread_scope: skip() runs on metadata, skipped mails are
+    returned apart and their body would never be read."""
+    load_calls.append(n)
+    fetched = [dict(m) for m in emails]
+    skipped = [m for m in fetched if skip and skip(m)]
+    keep = [m for m in fetched if m not in skipped]
+    return keep, skipped, len(fetched), len(fetched)
+
+
+analyzed_ids = []
 
 
 async def fake_analyze(msgs):
-    return [dict(a) for a in analysis], []
+    """Classify only the mails the job actually sends (canned verdicts keyed by mail id)."""
+    analyzed_ids.append([m["id"] for m in msgs])
+    by_id = {emails[a["i"]]["id"]: a for a in analysis}
+    return [{**by_id[m["id"]], "i": k} for k, m in enumerate(msgs) if m["id"] in by_id], []
 
 
 def fake_event(*a, **k):
@@ -114,7 +129,7 @@ def fake_task(*a, **k):
     calls["task"] += 1
 
 
-gw._load_unread_bodies = fake_load
+gw._load_unread_scope = fake_load
 gw._analyze_emails = fake_analyze
 gw._create_event = fake_event
 gw._create_task = fake_task
@@ -148,6 +163,8 @@ check(calls == {"event": 1, "task": 1}, f"google NOT called again: {calls}")
 check("ya tenían tarea" in r2 and "creadas" not in r2.replace("ninguna tarea nueva", ""),
       f"second reply reports skipped, not created: {r2}")
 check("falló" not in r2 and "NO pude" not in r2 and "❌" not in r2, f"all-skipped is not an error: {r2}")
+check(analyzed_ids[-1] == ["e3"], f"F3: only the not-yet-tasked mail is analyzed on rerun: {analyzed_ids[-1]}")
+check("Alcance: analizados 1 de 3 sin leer" in r2 and "2 ya tenían tarea" in r2, f"F2 scope in all-skipped branch: {r2}")
 
 print("== 4) partial: one new email among known ones ==")
 emails.append({"id": "e4", "from": "d@x.com", "subject": "Nuevo", "body": "x"})
@@ -156,6 +173,8 @@ r3 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
 check(len(board._load()) == 3, "only the new email creates a task")
 check(calls["event"] + calls["task"] == 3, f"google called once more: {calls}")
 check("1 tarea(s) creadas" in r3 and "ya tenían tarea" in r3, f"partial reply: {r3}")
+check(analyzed_ids[-1] == ["e3", "e4"], f"F3: partial run analyzes only untasked mails: {analyzed_ids[-1]}")
+check("Alcance: analizados 2 de 4 sin leer" in r3, f"F2 scope in created branch: {r3}")
 
 print()
 print(f"test_inbox_tasks: {_ok} OK, {len(_fail)} fallos")

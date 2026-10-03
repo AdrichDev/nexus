@@ -82,11 +82,12 @@ sys.modules["googleapiclient.discovery"] = _disc
 from backend.core.infraestructura import llm  # noqa: E402
 from backend.core.comun.events import bus  # noqa: E402
 
-LLM = {"raw": "", "calls": 0, "boom": False}
+LLM = {"raw": "", "calls": 0, "boom": False, "prompts": []}
 
 
 async def _fake_ask_llm(prompt, system=None, **kw):
     LLM["calls"] += 1
+    LLM["prompts"].append(prompt)
     if LLM["boom"]:
         raise RuntimeError("llm down")
     return LLM["raw"], "fake"
@@ -105,7 +106,7 @@ def fresh(google, raw="", boom=False):
         if f.exists():
             f.unlink()
     CURRENT["google"] = google
-    LLM.update(raw=raw, calls=0, boom=boom)
+    LLM.update(raw=raw, calls=0, boom=boom, prompts=[])
 
 
 def run_job():
@@ -183,10 +184,21 @@ check(len(g.messages) == 3, "no mail deleted")
 # ── (c) rerun: dedupe ────────────────────────────────────────────────────────
 print("== c) rerun dedupes ==")
 before = (len(board._load()), len(g.events), len(g.tasks))
+reads_before = len([1 for n, kw in g.calls if n == "gmail.messages.get" and kw.get("format") == "full"])
+# Rerun: the 2 mails that already have a task are skipped BEFORE reading/LLM; the model only
+# sees the newsletter (local index 0), which has no task because it is not actionable.
+LLM.update(raw='[{"i": 0, "urgente": false, "importancia": "baja", "accionable": false, '
+                '"tarea": "", "fecha": "", "motivo": "boletin"}]', calls=0, prompts=[])
 r2 = run_job()
 after = (len(board._load()), len(g.events), len(g.tasks))
 check(after == before, f"rerun created nothing: {before} -> {after}")
 check("ya tenían tarea" in r2 and "ninguna tarea nueva" in r2, f"rerun reply: {r2}")
+check("Alcance: analizados 1 de 3 sin leer" in r2 and "2 ya tenían tarea" in r2, f"rerun scope: {r2}")
+check(LLM["calls"] == 1 and "Ofertas de la semana" in LLM["prompts"][0]
+      and "Entrega informe" not in LLM["prompts"][0] and "[ALERTA]" not in LLM["prompts"][0],
+      f"rerun: only the not-yet-tasked mail reaches the LLM: {LLM['prompts']}")
+reads_after = len([1 for n, kw in g.calls if n == "gmail.messages.get" and kw.get("format") == "full"])
+check(reads_after - reads_before == 1, f"rerun: only 1 body read ({reads_after - reads_before})")
 check("❌" not in r2 and "falló" not in r2, f"rerun is not an error: {r2}")
 
 # ── (d) garbage LLM ──────────────────────────────────────────────────────────

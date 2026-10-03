@@ -8,11 +8,14 @@ ground-truth stub that parses the digest the job sends) and bus.emit.
 Ground truth: inbox_corpus.py. No network, no credentials, no real data.
 Run:  PYTHONUTF8=1 python tests/unit/skills/google_workspace/test_inbox_scale.py
 
-FINDINGS characterised here (production code is NOT changed, see the report):
-  F1 the job only ever looks at the 30 newest unread mails and never marks mail read.
-  F2 the reply of the "tasks created" branch says nothing about that cap.
-  F3 already-handled mails are re-sent to the LLM on every run (dedupe happens after it).
-  F4 a security mark forces urgente but not the board urgency/accionable chosen by the model.
+FINDINGS (found by this suite, now FIXED in skill.py; assertions pin the fixed behavior):
+  F1 per-run cap `max_por_pasada` (default 100) instead of a hard 30; all unread up to the cap
+     are analyzed in successive LLM batches within the run.
+  F2 every reply branch states analyzed-vs-total (and already-tasked / cap) when not all were analyzed.
+  F3 mails that already have a board task are skipped BEFORE their body is read or the LLM is called.
+  F4 a configured urgent mark forces accionable=True and urgencia="critica" (not only `urgente`).
+Known limitation (pinned below): mails analyzed but NOT actionable have no task, so they are
+re-analyzed on every run and keep occupying the cap window (the job never marks mail read).
 """
 from __future__ import annotations
 
@@ -82,12 +85,12 @@ async def _noop_emit(*a, **k):
 
 bus.emit = _noop_emit
 
-CAP = 30                                   # _load_unread_bodies(30) in _email_actions_job
+CAP = 30                                   # small cap used by the fault-injection / cap scenarios
 
 
-def set_lote(n):
-    """Fixed batch size, default marks (independent of config/umbrales.json)."""
-    gw._CORREOS = {"por_lote": n, "por_lote_por_proveedor": {},
+def set_lote(n, cap=100):
+    """Fixed batch size and per-run cap, default marks (independent of config/umbrales.json)."""
+    gw._CORREOS = {"por_lote": n, "por_lote_por_proveedor": {}, "max_por_pasada": cap,
                    "marcas_urgentes": list(gw._CORREOS_RESERVA["marcas_urgentes"])}
 
 
@@ -95,6 +98,7 @@ def set_real_lote():
     """The shipped defaults resolved by the REAL _por_lote() (provider table included)."""
     gw._CORREOS = {"por_lote": gw._CORREOS_RESERVA["por_lote"],
                    "por_lote_por_proveedor": dict(gw._CORREOS_RESERVA["por_lote_por_proveedor"]),
+                   "max_por_pasada": gw._CORREOS_RESERVA.get("max_por_pasada", 100),
                    "marcas_urgentes": list(gw._CORREOS_RESERVA["marcas_urgentes"])}
 
 
@@ -197,6 +201,18 @@ def human_reads(google, ids):
         google.messages[i]["labelIds"].remove("UNREAD")
 
 
+def body_read_ids(google):
+    """Ids whose full body was read through the fake Gmail (call log)."""
+    return [kw.get("id") for n, kw in google.calls
+            if n == "gmail.messages.get" and kw.get("format") == "full"]
+
+
+def run_urgent(google, stub):
+    CURRENT["google"] = google
+    llm.ask_llm = stub
+    return asyncio.run(gw._email_urgent_job(None, "api"))["reply"]
+
+
 def tasks_by_source():
     return {t["sourceId"]: t for t in board._load()}
 
@@ -258,17 +274,18 @@ def expected_kpis(rows, today=TODAY, days_soon=2):
 
 VISIBLE = CORPUS[:CAP]
 REST = CORPUS[CAP:]
+NONACT_IDS = [r["id"] for r in CORPUS if not r["accionable"]]
 T0 = time.perf_counter()
 
-# ═════════════════ 1) healthy run, 50 unread, various batch sizes ═════════════════
-print("== 1) healthy run: 50 unread, cap 30, batch sizes ==")
-exp_visible_actionable = [r for r in VISIBLE if r["accionable"]]
-check(len(exp_visible_actionable) == 13 and len(ACTIONABLE) == 22, "ground truth shape 13/22")
+# ═════════════════ 1) healthy run, 50 unread, default cap 100, various batch sizes ═════════════════
+print("== 1) healthy run: 50 unread, default cap 100, batch sizes ==")
+check(len(ACTIONABLE) == 22 and len(VISIBLE) == 30, "ground truth shape 22 actionable of 50")
+check(gw._CORREOS_RESERVA.get("max_por_pasada") == 100, "F1: default max_por_pasada is 100")
 healthy = {}
 for label, setter, expect_sizes in (
-        ("por_lote=6", lambda: set_lote(6), [6, 6, 6, 6, 6]),
-        ("por_lote=30", lambda: set_lote(30), [30]),
-        ("por_lote=7", lambda: set_lote(7), [7, 7, 7, 7, 2]),
+        ("por_lote=6", lambda: set_lote(6), [6] * 8 + [2]),
+        ("por_lote=30", lambda: set_lote(30), [30, 20]),
+        ("por_lote=7", lambda: set_lote(7), [7] * 7 + [1]),
         ("real _por_lote()", set_real_lote, None)):
     setter()
     g = make_google(CORPUS)
@@ -279,81 +296,125 @@ for label, setter, expect_sizes in (
     dt_run = time.perf_counter() - t
     if expect_sizes is None:
         n = gw._por_lote()
-        expect_sizes = [n] * (CAP // n) + ([CAP % n] if CAP % n else [])
+        expect_sizes = [n] * (50 // n) + ([50 % n] if 50 % n else [])
         print(f"   real _por_lote() = {n}")
     check(stub.batch_sizes == expect_sizes, f"{label}: batch sizes {stub.batch_sizes} != {expect_sizes}")
     check(stub.unknown == [], f"{label}: stub saw unknown mails {stub.unknown}")
     analyzed = sum(stub.batch_sizes)
-    check(analyzed == CAP, f"{label}: analyzed {analyzed}, expected {CAP} of 50")
-    check(sorted(i for _c, _j, i in stub.seen) == [r["id"] for r in VISIBLE],
-          f"{label}: LLM saw exactly the 30 newest")
-    verify_tasks(label, g, VISIBLE)
-    check(len(board._load()) == 13 and len(g.events) == 6 and len(g.tasks) == 7,
+    check(analyzed == 50, f"{label}: analyzed {analyzed}, expected 50 of 50")
+    check(sorted(i for _c, _j, i in stub.seen) == sorted(r["id"] for r in CORPUS),
+          f"{label}: LLM saw all 50 mails")
+    verify_tasks(label, g, CORPUS)
+    check(len(board._load()) == 22 and len(g.events) == 8 and len(g.tasks) == 14,
           f"{label}: created {len(board._load())} (events {len(g.events)}, tasks {len(g.tasks)})")
-    check("13 tarea(s) creadas" in reply and "SIN clasificar" not in reply, f"{label}: reply: {reply[:120]}")
-    # No task for any non-actionable mail, none for mails beyond the cap
-    check(not set(tasks_by_source()) & {r["id"] for r in CORPUS if not r["accionable"]},
-          f"{label}: no task for non-actionable mail")
-    check(not set(tasks_by_source()) & {r["id"] for r in REST}, f"{label}: nothing from beyond the cap")
+    check(set(tasks_by_source()) == {r["id"] for r in ACTIONABLE},
+          f"{label}: task ids match ground truth in ONE run")
+    check("22 tarea(s) creadas" in reply and "SIN clasificar" not in reply, f"{label}: reply: {reply[:120]}")
+    check("Alcance" not in reply, f"{label}: nothing left out -> no scope caveat: {reply[-120:]}")
+    check(not set(tasks_by_source()) & set(NONACT_IDS), f"{label}: no task for non-actionable mail")
     forbidden_guard(label, g)
     healthy[label] = (dt_run, len(board._load()))
     print(f"   {label}: analyzed={analyzed} created={len(board._load())} batches={stub.batch_sizes} "
           f"time={dt_run:.3f}s")
 
-# F1/F2: scope statement. Tasks created -> the reply never mentions 50 nor the cap (FINDING F2).
-check("50" not in reply and "más recientes" not in reply,
-      "F2 (finding): created-branch reply does not mention the 30-of-50 scope")
-# ...whereas the no-action branch does disclose it.
-set_lote(6)
+# F2: scope statement in EVERY branch of the actions job when not all unread were analyzed.
+print("== 1b) F2 scope wording, every branch (cap 30 of 50) ==")
+set_lote(6, 30)
 g = make_google(CORPUS)
 fresh()
+reply_c = run_job(g, StubLLM(CORPUS))
+check("13 tarea(s) creadas" in reply_c and "Alcance: analizados 30 de 50 sin leer" in reply_c
+      and "20 sin mirar por el tope de 30 por pasada" in reply_c,
+      f"F2 created branch states scope + cap: {reply_c[-220:]}")
+# (marked mails are excluded here: since F4 a mark forces a task even if the model says "no action")
+unmarked = [r for r in CORPUS if not gw._marca_urgente({"from": r["frm"], "subject": r["subject"]})]
+check(len(unmarked) == 46, f"4 marked mails in the corpus: {len(unmarked)}")
+g = make_google(unmarked)
+fresh()
 reply_none = run_job(g, StubLLM(CORPUS, force_noaction=True))
-check("tus 50 correos sin leer (los 30 más recientes)" in reply_none and board._load() == [],
-      f"no-action branch discloses scope: {reply_none}")
-
-# ═════════════════ 2) never marks read -> the other 20 are never reached ═════════════════
-print("== 2) cap + never-read behaviour (FINDING F1) ==")
+check(board._load() == [] and "ninguno pide una acción concreta" in reply_none
+      and "Alcance: analizados 30 de 46 sin leer" in reply_none
+      and "16 sin mirar por el tope de 30 por pasada" in reply_none,
+      f"F2 nothing-actionable branch states scope + cap: {reply_none}")
+# skipped branch: 30 unread, 13 already tasked -> 17 analyzed (non-actionable)
+g1 = make_google(VISIBLE)
+fresh()
+run_job(g1, StubLLM(CORPUS))
+r_skip = run_job(g1, StubLLM(CORPUS))
+check("ninguna tarea nueva, 13 correo(s) ya tenían tarea" in r_skip
+      and "analizados 17 de 30 sin leer" in r_skip and "13 ya tenían tarea" in r_skip,
+      f"F2 skipped branch states analyzed/total/tasked: {r_skip}")
+# every unread already tasked -> nothing analyzed, still honest (not 'could not analyze NONE')
+fresh()
+g2 = make_google([r for r in CORPUS if r["accionable"]])
+run_job(g2, StubLLM(CORPUS))
+st = StubLLM(CORPUS)
+r_all = run_job(g2, st)
+check(st.calls == 0 and "ninguna tarea nueva, 22 correo(s) ya tenían tarea" in r_all
+      and "analizados 0 de 22 sin leer" in r_all and "No he podido analizar" not in r_all,
+      f"F2/F3 all-skipped branch: calls={st.calls} {r_all}")
+# urgent job: scope wording + cap only
+set_lote(6, 30)
+g = make_google(CORPUS)
+ur = run_urgent(g, StubLLM(CORPUS))
+check("de tus 50 sin leer" in ur and "Alcance: analizados 30 de 50 sin leer" in ur
+      and "20 sin mirar por el tope de 30 por pasada" in ur, f"urgent (urgent branch) scope: {ur[-200:]}")
+ur2 = run_urgent(g, StubLLM(CORPUS, override={r["subject"]: {"urgente": False} for r in CORPUS}))
+check("Alcance: analizados 30 de 50 sin leer" in ur2 and "20 sin mirar" in ur2,
+      f"urgent (nothing urgent) scope: {ur2[-200:]}")
 set_lote(6)
+g = make_google(CORPUS)
+ur4 = run_urgent(g, StubLLM(CORPUS))
+check("Alcance" not in ur4 and "de tus 50 sin leer" in ur4, f"urgent: all 50 analyzed at default cap: {ur4[-150:]}")
+
+# ═════════════════ 2) the cap, successive runs, never-read behaviour ═════════════════
+print("== 2) per-run cap (F1) + skip already-tasked (F3) ==")
+set_lote(6, 20)
 g = make_google(CORPUS)
 fresh()
 stub = StubLLM(CORPUS)
-run_job(g, stub)
-n_after_1 = len(board._load())
+r1 = run_job(g, stub)
+first20 = [r["id"] for r in CORPUS[:20]]
+check(sorted(i for _c, _j, i in stub.seen) == sorted(first20), "cap 20: run 1 analyzes the 20 newest only")
+exp1 = {r["id"] for r in CORPUS[:20] if r["accionable"]}
+n1 = len(board._load())
+check(set(tasks_by_source()) == exp1 and n1 == len(exp1), f"cap 20: run 1 tasks {sorted(tasks_by_source())}")
+check("Alcance: analizados 20 de 50 sin leer" in r1 and "30 sin mirar por el tope de 20 por pasada" in r1,
+      f"cap 20: honest reply about the rest: {r1[-200:]}")
+check(sorted(set(body_read_ids(g))) == sorted(first20), "cap 20: only the 20 window bodies were read")
+# run 2: tasked ones are skipped, but NON-ACTIONABLE ones keep occupying the window (pinned limitation)
+reads_before = len(body_read_ids(g))
 stub2 = StubLLM(CORPUS)
 r2 = run_job(g, stub2)
-check(len(board._load()) == n_after_1 == 13, "run 2 creates nothing new")
-check(sorted(i for _c, _j, i in stub2.seen) == [r["id"] for r in VISIBLE],
-      "F1: run 2 analyzes the SAME 30 mails again")
-unreached = [r["id"] for r in REST]
-check(not set(tasks_by_source()) & set(unreached), "F1: 20 mails never reached on any run")
-check(sum(1 for r in REST if r["accionable"]) == 9, "F1: 9 actionable mails are silently never processed")
-check(all("UNREAD" in m["labelIds"] for m in g.messages.values()), "F1: job never marks mail read")
-check(stub2.calls == 5, f"F3 (finding): rerun still spends {stub2.calls} LLM calls on handled mails")
-forbidden_guard("run2", g)
+nonact20 = [r["id"] for r in CORPUS[:20] if not r["accionable"]]
+seen2 = sorted(i for _c, _j, i in stub2.seen)
+check(seen2 == sorted(nonact20), f"limitation: run 2 re-analyzes only the non-actionable of the window: {seen2}")
+check(not (set(seen2) & exp1), "F3: run 2 sends NO already-tasked mail to the LLM")
+check(len(body_read_ids(g)) - reads_before == len(nonact20),
+      "F3: run 2 read bodies only for the not-yet-tasked mails")
+check(len(board._load()) == n1 and set(tasks_by_source()) == exp1,
+      "limitation: window never advances past non-actionable mails -> mails 21..50 never reached")
+check("ninguna tarea nueva" in r2 and f"{len(exp1)} correo(s) ya tenían tarea" in r2
+      and "Alcance: analizados" in r2 and "30 sin mirar por el tope de 20 por pasada" in r2,
+      f"run 2 reply honest: {r2[-260:]}")
+check(all("UNREAD" in m["labelIds"] for m in g.messages.values()), "job never marks mail read")
+forbidden_guard("cap20", g)
 
-print("== 2b) 30 unread at a time: second pass processes new, dedupes old ==")
-g = make_google(CORPUS)
-fresh()
-s1 = StubLLM(CORPUS)
-run_job(g, s1)
-check(len(board._load()) == 13, "pass 1 created 13")
-human_reads(g, [r["id"] for r in CORPUS[:20]])                  # human reads the 20 oldest-of-window
-unread_now = [m["id"] for m in g.messages.values() if "UNREAD" in m["labelIds"]]
-check(len(unread_now) == 30, f"30 unread remain: {len(unread_now)}")
-s2 = StubLLM(CORPUS)
-r2 = run_job(g, s2)
-exp_pass2 = [r["id"] for r in CORPUS[20:50]]
-check(sorted(i for _c, _j, i in s2.seen) == exp_pass2, "pass 2 window = mails 20..49")
-new_tasks = len(board._load()) - 13
-dup_old = [r for r in CORPUS[20:30] if r["accionable"]]
-new_rows = [r for r in CORPUS[30:] if r["accionable"]]
-check(new_tasks == len(new_rows) == 9, f"pass 2 created {new_tasks} new tasks (expected 9)")
-check(f"{len(dup_old)} correo(s) ya tenían tarea" in r2 and len(dup_old) == 5,
-      f"pass 2 reply dedupes old (5): {r2[-120:]}")
-verify_tasks("2 passes", g, CORPUS[:30] + CORPUS[30:])
-check(len(board._load()) == 22 and len(g.events) == 8 and len(g.tasks) == 14,
-      f"all 22 actionable of 50 handled: {len(board._load())} ev={len(g.events)} tk={len(g.tasks)}")
-forbidden_guard("2 passes", g)
+print("== 2b) the window moves on once the first ones are handled ==")
+human_reads(g, first20)                      # the human reads the 20 newest -> next run reaches the rest
+stub3 = StubLLM(CORPUS)
+r3 = run_job(g, stub3)
+check(sorted(i for _c, _j, i in stub3.seen) == sorted(r["id"] for r in CORPUS[20:40] if True),
+      "after the human read the first 20: next 20 analyzed")
+check(set(tasks_by_source()) == {r["id"] for r in CORPUS[:40] if r["accionable"]},
+      "tasks cover mails 0..39 after run 3")
+check("Alcance: analizados 20 de 30 sin leer" in r3 and "10 sin mirar" in r3, f"run 3 scope: {r3[-200:]}")
+set_lote(6)                                  # default cap: everything remaining at once
+run_job(g, StubLLM(CORPUS))
+check(set(tasks_by_source()) == {r["id"] for r in CORPUS if r["accionable"]} and len(board._load()) == 22,
+      "default cap: remaining mails get their tasks; 22 total, no duplicates")
+check(len(g.events) == 8 and len(g.tasks) == 14, f"no duplicate Google items: {len(g.events)}/{len(g.tasks)}")
+forbidden_guard("2b", g)
 
 # ═════════════════ 3) KPIs ═════════════════
 print("== 3) KPIs ==")
@@ -365,8 +426,8 @@ check(k["overdue"] == 1 and k["due_soon"] == 2 and k["no_due"] == 14, f"due spli
 check(k["by_type"] == {"responder": 5, "hacer": 3, "pagar": 3, "asistir": 3, "revisar": 6, "esperar": 2},
       f"by_type {k['by_type']}")
 check(k["by_urgency"] == ek["by_urgency"] and k["by_urgency"]["critica"] == 4, f"by_urgency {k['by_urgency']}")
-k30 = None   # KPIs of the first-30 run
-set_lote(6)
+k30 = None   # KPIs of the first-30 run (cap 30)
+set_lote(6, 30)
 g = make_google(CORPUS)
 fresh()
 run_job(g, StubLLM(CORPUS))
@@ -375,8 +436,8 @@ check(k30 == expected_kpis(VISIBLE) and k30["open"] == 13 and k30["overdue"] == 
       and k30["due_soon"] == 2, f"first-30 kpis {k30}")
 
 # ═════════════════ 4) fault injection (cap window, por_lote 6 -> 5 batches) ═════════════════
-print("== 4) fault injection ==")
-set_lote(6)
+print("== 4) fault injection (cap 30 window, por_lote 6 -> 5 batches) ==")
+set_lote(6, 30)
 ids = [r["id"] for r in VISIBLE]
 
 
@@ -451,62 +512,86 @@ g, stub, reply = faulty("all-garbage", {i: ("garbage",) for i in range(5)})
 check(set(tasks_by_source()) == {"m08", "m21", "m26"}
       and "27 de 30 se han quedado SIN clasificar" in reply, f"all-garbage: {reply[-170:]}")
 
-# F4: the mark forces `urgente` only. Model says not-actionable / calmer -> no task / calmer task.
+# F4: a configured mark forces urgente AND accionable AND urgencia critica over the model.
 alert = next(r for r in CORPUS if r["id"] == "m08")
 fresh()
 g = make_google([alert])
 stub = StubLLM([alert], override={alert["subject"]: {"accionable": False}})
 reply = run_job(g, stub)
-check(board._load() == [] and "ninguno pide una acción concreta" in reply,
-      "F4 (finding): [ALERTA] judged non-actionable by the model -> no task in this job")
+t = board._load()
+check(len(t) == 1 and t[0]["urgency"] == "critica" and t[0]["sourceId"] == "m08",
+      f"F4: [ALERTA] judged non-actionable by the model still gets a critica task: {t}")
+check("1 tarea(s) creadas" in reply, f"F4: reply: {reply[:90]}")
 fresh()
 g = make_google([alert])
 stub = StubLLM([alert], override={alert["subject"]: {"urgente": False, "urgencia": "baja"}})
 run_job(g, stub)
-t = board._load()[0]
-print(f"   F4: marked [ALERTA] with model urgencia=baja -> board urgency={t['urgency']}")
-check(t["urgency"] == "baja", f"F4 (finding): mark does not raise board urgency, got {t['urgency']}")
+t = (board._load() or [{}])[0]
+check(t.get("urgency") == "critica", f"F4: urgencia baja overridden by the mark, got {t['urgency']}")
+check(t.get("type") == alert["tipo"], f"F4: model's valid tipo kept: {t['type']}")
+fresh()
+g = make_google([alert])
+stub = StubLLM([alert], override={alert["subject"]: {"accionable": False, "urgencia": "baja", "tipo": "???"}})
+run_job(g, stub)
+t = (board._load() or [{}])[0]
+check(t.get("type") == "revisar" and t.get("urgency") == "critica", f"F4: invalid tipo -> revisar: {t.get('type')}/{t.get('urgency')}")
+# no mark, model says not actionable -> still no task (mark logic does not leak)
+calm = next(r for r in CORPUS if not r["accionable"] and not gw._marca_urgente({"from": r["frm"], "subject": r["subject"]}))
+fresh()
+g = make_google([calm])
+run_job(g, StubLLM([calm]))
+check(board._load() == [], "F4: unmarked non-actionable mail still gets no task")
 
 # ═════════════════ 5) rerun idempotence at scale ═════════════════
-print("== 5) rerun idempotence ==")
+print("== 5) rerun idempotence at scale (F3) ==")
 set_lote(6)
 g = make_google(CORPUS)
 fresh()
 run_job(g, StubLLM(CORPUS))
 before = (len(board._load()), len(g.events), len(g.tasks))
 ins_before = (len(g.inserts("calendar.events.insert")), len(g.inserts("tasks.tasks.insert")))
-r2 = run_job(g, StubLLM(CORPUS))
+reads_before = len(body_read_ids(g))
+stub_r = StubLLM(CORPUS)
+r2 = run_job(g, stub_r)
 after = (len(board._load()), len(g.events), len(g.tasks))
 ins_after = (len(g.inserts("calendar.events.insert")), len(g.inserts("tasks.tasks.insert")))
-check(before == after == (13, 6, 7) and ins_before == ins_after == (6, 7),
+check(before == after == (22, 8, 14) and ins_before == ins_after == (8, 14),
       f"rerun creates nothing: {before} -> {after}, inserts {ins_before} -> {ins_after}")
-check("ninguna tarea nueva, 13 correo(s) ya tenían tarea" in r2, f"rerun reply: {r2[:100]}")
-# 5 new actionable mails arrive (newest first) -> window = 5 new + 25 oldest-of-window
+check("ninguna tarea nueva, 22 correo(s) ya tenían tarea" in r2
+      and "Alcance: analizados 28 de 50 sin leer" in r2 and "22 ya tenían tarea" in r2,
+      f"rerun reply: {r2[-260:]}")
+tasked = {r["id"] for r in ACTIONABLE}
+seen_r = sorted(i for _c, _j, i in stub_r.seen)
+check(seen_r == sorted(NONACT_IDS), "F3: rerun digest holds ONLY the not-yet-tasked (28 non-actionable) mails")
+check(not (set(seen_r) & tasked), "F3: no already-tasked mail was re-sent to the LLM")
+check(sum(stub_r.batch_sizes) == 28, f"F3: rerun LLM batches cover 28 mails: {stub_r.batch_sizes}")
+new_reads = body_read_ids(g)[reads_before:]
+check(sorted(new_reads) == sorted(NONACT_IDS) and not (set(new_reads) & tasked),
+      "F3: bodies of already-tasked mails were NOT read again")
+# 5 new actionable mails arrive (newest first): only they + the 28 non-actionable are analyzed
 new_msgs = {r["id"]: to_mail(r) for r in NEW5}
 g.messages = {**new_msgs, **g.messages}
 stub3 = StubLLM(CORPUS + NEW5)
 r3 = run_job(g, stub3)
-check(len(board._load()) == 18 and len(g.events) == 8 and len(g.tasks) == 10,
+check(len(board._load()) == 27 and len(g.events) == 10 and len(g.tasks) == 17,
       f"+5 new: board={len(board._load())} events={len(g.events)} tasks={len(g.tasks)}")
 got = tasks_by_source()
 check(all(r["id"] in got and got[r["id"]]["title"] == r["title"] for r in NEW5),
       "+5 new: exactly the new mails got their tasks")
-check("5 tarea(s) creadas" in r3 and "11 correo(s) ya tenían tarea" in r3, f"+5 new reply: {r3[-110:]}")
-check(sum(stub3.batch_sizes) == CAP and stub3.unknown == [], "+5 new: window still 30")
-verify_tasks("+5 new", g, VISIBLE + NEW5)
+check("5 tarea(s) creadas" in r3 and "22 correo(s) ya tenían tarea" in r3
+      and "Alcance: analizados 33 de 55 sin leer" in r3, f"+5 new reply: {r3[-230:]}")
+check(sum(stub3.batch_sizes) == 33 and stub3.unknown == [], f"+5 new: 33 analyzed {stub3.batch_sizes}")
+verify_tasks("+5 new", g, CORPUS + NEW5)
 forbidden_guard("rerun", g)
 
-# ═════════════════ 6) robustness (full 50 via the two-pass flow) ═════════════════
+# ═════════════════ 6) robustness (full 50 in ONE run) ═════════════════
 print("== 6) robustness ==")
 set_lote(6)
 g = make_google(CORPUS)
 fresh()
 s1 = StubLLM(CORPUS)
 run_job(g, s1)
-human_reads(g, [r["id"] for r in CORPUS[:20]])
-s2 = StubLLM(CORPUS)
-run_job(g, s2)
-digests = [d for s in (s1, s2) for d in s.digests]
+digests = list(s1.digests)
 contents = {}
 for d in digests:
     for _j, frm, subject, content in parse_digest(d):
@@ -539,13 +624,31 @@ check(not [x for x in got if x in ("m07",)], "newsletter citing 'alerta de segur
 raw = json.loads(board.BOARD_FILE.read_text(encoding="utf-8"))
 check(any(t["title"] == mal["title"] for t in raw), "title stored verbatim as text in board.json")
 
+# ═════════════════ 6b) max_por_pasada config validation (temp config dir only) ═════════════════
+print("== 6b) max_por_pasada validation ==")
+import pathlib  # noqa: E402
+_cfg = pathlib.Path(TMP) / "cfg_cap"
+_cfg.mkdir(exist_ok=True)
+_old_cfg = gw.CONFIG_DIR
+gw.CONFIG_DIR = _cfg
+try:
+    for val, want in ((250, 250), (1, 1), (500, 500), (0, 100), (501, 100), ("20", 100),
+                      (True, 100), (2.5, 100), (None, 100)):
+        (_cfg / "umbrales.json").write_text(json.dumps({"correos": {"max_por_pasada": val}}), encoding="utf-8")
+        got_cap = gw._carga_correos()["max_por_pasada"]
+        check(got_cap == want, f"max_por_pasada {val!r} -> {got_cap}, want {want}")
+    (_cfg / "umbrales.json").write_text("{broken", encoding="utf-8")
+    check(gw._carga_correos()["max_por_pasada"] == 100, "broken JSON -> default cap 100")
+finally:
+    gw.CONFIG_DIR = _old_cfg
+
 # ═════════════════ 7) Gmail only read (whole suite) ═════════════════
 print("== 7) Gmail read-only ==")
 forbidden_guard("full", g)
 body_reads = [kw for n, kw in g.calls if n == "gmail.messages.get" and kw.get("format") == "full"]
-check(len(body_reads) == 60, f"bodies read once per analysed mail per pass: {len(body_reads)}")
-check(len(g.messages) == 50 and sum(1 for m in g.messages.values() if "UNREAD" in m["labelIds"]) == 30,
-      "no mail deleted; only the human's reads changed labels")
+check(len(body_reads) == 50, f"bodies read once per analysed mail: {len(body_reads)}")
+check(len(g.messages) == 50 and sum(1 for m in g.messages.values() if "UNREAD" in m["labelIds"]) == 50,
+      "no mail deleted; job never marked read")
 
 total = time.perf_counter() - T0
 print(f"\n   total suite time {total:.2f}s; healthy runs "

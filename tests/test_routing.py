@@ -643,7 +643,8 @@ def test_email_counts_reales():
     src = open(os.path.join(ROOT, "skills", "google_workspace", "skill.py"), encoding="utf-8").read()
     check("threadsUnread" in src, "gmail: usa threadsUnread (el número que VE el operador en su app)")
     check("_load_unread_bodies(8)" not in src, "gmail: eliminado el 8 fijo de email_urgent")
-    check("_load_unread_bodies(30)" in src, "gmail: analiza hasta 30 sin leer")
+    check("_load_unread_bodies(30)" not in src and "_max_por_pasada()" in src,
+          "gmail: analiza hasta el tope configurable por pasada, no un 30 fijo")
     check('de tus {unread} sin leer' in src,
           "gmail: el urgente reporta el TOTAL real, no los que ha podido leer")
 

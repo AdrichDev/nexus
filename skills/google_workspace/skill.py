@@ -1093,7 +1093,7 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
     global _last_emails
     from backend.core.comun.events import bus
     try:
-        msgs, unread, total = await _load_unread_bodies(30)
+        msgs, _saltados, unread, total = await _load_unread_scope(_max_por_pasada())
         if not unread:
             reply = "✅ Revisión terminada: 0 sin leer, nada urgente."
             corto = "Revisión terminada: nada urgente."
@@ -1101,8 +1101,7 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
             _last_emails = msgs
             analysis, sin_clasificar = await _analyze_emails(msgs)
             urg = [(msgs[a["i"]], a) for a in analysis if a.get("urgente")]
-            ambito = ("" if len(msgs) >= unread
-                      else f" (analizados los {len(msgs)} más recientes)")
+            alcance = _alcance_correos(unread, len(msgs), 0, unread - len(msgs))
             # NO SABER no es NO HAY. Si el modelo se ha dejado correos, se dice:
             # callarlo es lo que hizo que una alerta de seguridad pasara por
             # «nada urgente» el 31/07/2026.
@@ -1112,13 +1111,14 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
                          "clasificarlos (el modelo no devolvió respuesta válida). No digo "
                          "que no corran prisa; digo que NO LOS HE MIRADO. Si quieres, "
                          "vuelve a pedírmelo o baja «por_lote» en config/umbrales.json.")
+            fallo += alcance
             if len(sin_clasificar) == len(msgs):
                 reply = (f"❌ No he podido analizar NINGUNO de tus {unread} correos sin leer: "
                          "el modelo no ha devuelto una clasificación válida. No te digo que "
-                         "no haya nada urgente, porque no lo sé.")
+                         "no haya nada urgente, porque no lo sé." + alcance)
                 corto = "No he podido analizar los correos. No te fíes."
             elif not urg:
-                reply = (f"✅ Revisión terminada: de tus {unread} sin leer{ambito}, "
+                reply = (f"✅ Revisión terminada: de tus {unread} sin leer, "
                          "ninguno parece urgente." + fallo)
                 corto = (f"Revisión terminada: {unread} sin leer y nada urgente."
                          if not sin_clasificar else
@@ -1127,7 +1127,7 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
                 lines = [f"🔴 {m['from']} — «{m['subject']}»" +
                          (f" · {a.get('motivo','')}" if a.get('motivo') else "")
                          for m, a in urg]
-                reply = (f"✅ Revisión terminada — de tus {unread} sin leer{ambito}, "
+                reply = (f"✅ Revisión terminada — de tus {unread} sin leer, "
                          f"{len(urg)} urgente(s):\n" + "\n".join(lines) + fallo +
                          "\n\n¿Te creo tareas para tratarlos? Di «crea tareas de lo importante del correo».")
                 corto = f"Revisión terminada: {len(urg)} urgentes de {unread} sin leer."
@@ -1159,35 +1159,47 @@ async def _email_actions_job(ctx, channel: str) -> dict:
     global _last_emails
     from backend.core.comun.events import bus
     try:
-        msgs, unread, total = await _load_unread_bodies(30)
+        from backend.core.dominio import board as _board
+        # Los correos que YA tienen tarea no se leen ni se mandan al modelo otra vez.
+        # (Los analizados pero NO accionables no tienen tarea: se vuelven a analizar.)
+        msgs, saltados, unread, total = await _load_unread_scope(
+            _max_por_pasada(), skip=lambda m: bool(_board.find_by_source("correo", m.get("id", ""))))
         if not unread:
             reply = "He revisado la bandeja: sin correos nuevos, nada que convertir en tareas."
+        elif not msgs and not saltados:
+            reply = (f"❌ Tengo {unread} correos sin leer pero no he podido traer ninguno para "
+                     "analizarlo, así que no he creado tareas. No es que no haya nada.")
         else:
             _last_emails = msgs
-            analysis, sin_clasificar = await _analyze_emails(msgs)
+            if msgs:
+                analysis, sin_clasificar = await _analyze_emails(msgs)
+            else:
+                analysis, sin_clasificar = [], []
             acts = [(msgs[a["i"]], a) for a in analysis if a.get("accionable")]
-            # Dedupe: un correo con tarea en el tablero no se vuelve a crear (ni en Google).
-            from backend.core.dominio import board as _board
+            # Dedupe final (red de seguridad): un correo con tarea en el tablero no se
+            # vuelve a crear (ni en Google), aunque se haya colado en el análisis.
             ya_tenian = [(m, a) for m, a in acts if _board.find_by_source("correo", m.get("id", ""))]
             acts = [(m, a) for m, a in acts if (m, a) not in ya_tenian]
+            ya_asuntos = [m["subject"] for m in saltados] + [m["subject"] for m, _a in ya_tenian]
+            alcance = _alcance_correos(unread, len(msgs), len(ya_asuntos),
+                                       unread - len(msgs) - len(saltados))
             # Igual que en la revisión de urgentes: lo que no se ha mirado se dice.
             # Aquí encima duele el doble, porque «no accionable» = no se crea tarea.
             fallo = ("" if not sin_clasificar else
                      f"\n\n⚠️ {len(sin_clasificar)} de {len(msgs)} se han quedado SIN "
                      "clasificar (el modelo no devolvió respuesta válida): de esos no he "
                      "creado tarea, y no porque no la merezcan.")
-            if len(sin_clasificar) == len(msgs):
+            if msgs and len(sin_clasificar) == len(msgs):
                 reply = (f"❌ No he podido analizar NINGUNO de tus {unread} correos sin leer, "
                          "así que no he creado ninguna tarea. El modelo no devolvió una "
-                         "clasificación válida.")
-            elif not acts and ya_tenian:
-                reply = (f"Análisis hecho: ninguna tarea nueva, {len(ya_tenian)} correo(s) ya "
-                         "tenían tarea:\n" + "\n".join(f"• {m['subject']}" for m, _a in ya_tenian)
-                         + fallo)
+                         "clasificación válida." + alcance)
+            elif not acts and ya_asuntos:
+                reply = (f"Análisis hecho: ninguna tarea nueva, {len(ya_asuntos)} correo(s) ya "
+                         "tenían tarea:\n" + "\n".join(f"• {t}" for t in ya_asuntos)
+                         + fallo + alcance)
             elif not acts:
-                ambito = "" if len(msgs) >= unread else f" (los {len(msgs)} más recientes)"
-                reply = (f"He analizado tus {unread} correos sin leer{ambito} y ninguno pide "
-                         "una acción concreta: no he creado tareas." + fallo)
+                reply = (f"He analizado tus {unread} correos sin leer y ninguno pide "
+                         "una acción concreta: no he creado tareas." + fallo + alcance)
             else:
                 creadas = []
                 for m, a in acts:
@@ -1207,7 +1219,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                     reply = (f"Análisis hecho, preparé {len(creadas)} tarea(s)… pero NO pude "
                              "GUARDAR ninguna:\n" + "\n".join(lines) +
                              "\n\nCasi seguro falta aceptar la autorización de ESCRITURA de "
-                             "Google en el navegador del PC.")
+                             "Google en el navegador del PC." + alcance)
                 else:
                     aviso = ""
                     if not any("Google" in d and "falló" not in d for _t2, _f2, d in creadas):
@@ -1215,8 +1227,8 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                                  "en tu tablero SÍ están.")
                     reply = (f"Análisis de correos terminado — {n_ok} tarea(s) creadas:\n"
                              + "\n".join(lines) + aviso + fallo
-                             + (f"\n\n{len(ya_tenian)} correo(s) ya tenían tarea y no se "
-                                "han duplicado." if ya_tenian else ""))
+                             + (f"\n\n{len(ya_asuntos)} correo(s) ya tenían tarea y no se "
+                                "han duplicado." if ya_asuntos else "") + alcance)
     except Exception as exc:                                   # noqa: BLE001
         reply = f"El análisis de correos ha fallado: {type(exc).__name__}: {exc}"
     await bus.emit("chat", {"user": "[análisis de correos]", "reply": reply,
@@ -1270,6 +1282,9 @@ def _parse_json_array(raw: str, n: int) -> list:
 # ─────────────────────────────────────────────────────────────────────────────
 _CORREOS_RESERVA = {
     "por_lote": 6,
+    # Tope de correos que UNA pasada de los jobs en 2º plano mira. Antes eran 30 fijos
+    # y, como el job no marca leído, del 31 en adelante no se analizaba NUNCA.
+    "max_por_pasada": 100,
     "por_lote_por_proveedor": {"ollama": 6, "openai": 30, "anthropic": 30,
                                "gemini": 30, "cloud": 30},
     "marcas_urgentes": ["[alerta]", "[urgente]", "[urgent]", "[critico]", "[critical]",
@@ -1299,6 +1314,9 @@ def _carga_correos() -> dict:
             n = _entero(leido.get("por_lote"), 1, 60)
             if n:
                 vals["por_lote"] = n
+            n = _entero(leido.get("max_por_pasada"), 1, 500)
+            if n:
+                vals["max_por_pasada"] = n
             tabla = leido.get("por_lote_por_proveedor")
             if isinstance(tabla, dict):
                 for prov, v in tabla.items():
@@ -1332,6 +1350,27 @@ def _por_lote() -> int:
     except Exception:
         pass                                   # sin ajustes legibles, el prudente
     return _CORREOS["por_lote_por_proveedor"].get(prov, _CORREOS["por_lote"])
+
+
+def _max_por_pasada() -> int:
+    """Tope por pasada (1..500) de la config vigente; 100 si no es válido."""
+    n = _entero(_CORREOS.get("max_por_pasada"), 1, 500)
+    return n if n else _CORREOS_RESERVA["max_por_pasada"]
+
+
+def _alcance_correos(unread: int, analizados: int, ya_con_tarea: int, sin_mirar: int) -> str:
+    """Frase de ALCANCE para la respuesta: cuántos se analizaron de cuántos sin leer, cuántos
+    ya tenían tarea y cuántos no se miraron por el tope. "" si se miró todo y nada se saltó.
+    NO SABER no es NO HAY: que no se analizaran todos se dice, en cada rama."""
+    if not ya_con_tarea and sin_mirar <= 0:
+        return ""
+    txt = f"\n\nAlcance: analizados {analizados} de {unread} sin leer"
+    if ya_con_tarea:
+        txt += f" · {ya_con_tarea} ya tenían tarea (no los he vuelto a leer)"
+    if sin_mirar > 0:
+        txt += (f" · {sin_mirar} sin mirar por el tope de {_max_por_pasada()} por pasada "
+                "(«max_por_pasada»); se ven en la siguiente")
+    return txt
 
 
 def _sin_tildes(s: str) -> str:
@@ -1379,11 +1418,18 @@ async def _analyze_emails(msgs: list[dict]) -> tuple[list[dict], list[int]]:
                              "accionable": True, "fecha": "",
                              "tarea": f"Revisar correo de {m.get('from', '')}: {m.get('subject', '')}"[:120],
                              "motivo": f"marca «{marca}» en el asunto"}
-        elif not a.get("urgente"):             # dijo que no; la marca pesa más
-            a["urgente"] = True
-            a["importancia"] = "alta"
-            a["motivo"] = (f"marca «{marca}» en el asunto"
-                           + (f" · el modelo decía: {a['motivo']}" if a.get("motivo") else ""))
+        else:
+            if not a.get("urgente"):           # dijo que no; la marca pesa más
+                a["urgente"] = True
+                a["importancia"] = "alta"
+                a["motivo"] = (f"marca «{marca}» en el asunto"
+                               + (f" · el modelo decía: {a['motivo']}" if a.get("motivo") else ""))
+            # La marca también manda sobre la tarea: accionable y crítica, aunque el
+            # modelo dijera «no accionable» o «baja». Su tipo se respeta si es válido.
+            from backend.core.dominio import board as _b
+            a["accionable"] = True
+            a["urgencia"] = "critica"
+            a["tipo"] = _b.norm_type(a.get("tipo"), "revisar")
 
     sin_clasificar = [i for i in range(len(msgs)) if i not in por_indice]
     return [por_indice[i] for i in sorted(por_indice)], sin_clasificar
@@ -1429,17 +1475,29 @@ async def _analyze_batch(msgs: list[dict]) -> list[dict]:
     return clean
 
 
-async def _load_unread_bodies(max_n: int = 30) -> tuple[list[dict], int, int | None]:
-    """Trae los NO leídos con su CUERPO leído (para poder analizar por contexto)."""
+async def _load_unread_scope(max_n: int, skip=None) -> tuple[list[dict], list[dict], int, int | None]:
+    """Trae hasta `max_n` NO leídos (los más recientes) y lee el CUERPO solo de los que
+    hay que analizar. `skip(m) -> bool` (opcional) se evalúa con los METADATOS, antes de
+    leer el cuerpo: los que devuelven True no se leen y se devuelven aparte.
+    Devuelve (a_analizar, saltados, sin_leer_total, total)."""
     unread, total = await asyncio.to_thread(_count_unread)
     if not unread:
-        return [], 0, total
-    msgs = await asyncio.to_thread(_fetch_emails, min(unread, max_n), True)
+        return [], [], 0, total
+    fetched = await asyncio.to_thread(_fetch_emails, min(unread, max_n), True)
+    saltados = [m for m in fetched if skip and skip(m)]
+    ids_saltados = {id(m) for m in saltados}
+    msgs = [m for m in fetched if id(m) not in ids_saltados]
     for m in msgs:
         try:
             m["body"] = await asyncio.to_thread(_read_email, m["id"])
         except Exception:
             m["body"] = m.get("snippet", "")
+    return msgs, saltados, unread, total
+
+
+async def _load_unread_bodies(max_n: int = 30) -> tuple[list[dict], int, int | None]:
+    """Trae los NO leídos con su CUERPO leído (para poder analizar por contexto)."""
+    msgs, _saltados, unread, total = await _load_unread_scope(max_n)
     return msgs, unread, total
 
 
