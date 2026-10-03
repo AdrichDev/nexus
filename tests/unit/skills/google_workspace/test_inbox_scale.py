@@ -39,7 +39,8 @@ os.environ["NEXUS_CONFIG_DIR"] = os.path.join(TMP, "config")
 
 from backend.core.dominio import board  # noqa: E402
 from fake_gmail import FakeGoogle, GMAIL_READS, mail  # noqa: E402
-from inbox_corpus import ACTIONABLE, CORPUS, NEW5, TODAY  # noqa: E402
+from inbox_corpus import (ACTIONABLE, CORPUS, NEW5, PROMO, PROMO_LATE, PROMO_MARKED,  # noqa: E402
+                          PROMO_NEXT, TODAY)
 
 board.BOARD_FILE = board.DATA_DIR / "board.json"
 board.TRASH_FILE = board.DATA_DIR / "board_trash.json"
@@ -123,7 +124,8 @@ def parse_digest(digest):
 class StubLLM:
     """faults: {call_number: ("garbage",) | ("raise",) | ("omit", j) | ("oor",) | ("oor_shift", j)}"""
 
-    def __init__(self, rows, faults=None, force_noaction=False, override=None):
+    def __init__(self, rows, faults=None, force_noaction=False, override=None, omit_promo=False):
+        self.omit_promo = omit_promo            # model never emits the "promocional" key
         self.truth = {(r["subject"], sender_name(r["frm"])): r for r in rows}
         self.faults = faults or {}
         self.force_noaction = force_noaction
@@ -139,6 +141,8 @@ class StubLLM:
              "accionable": row["accionable"] and not self.force_noaction,
              "tarea": row["title"], "fecha": row["fecha"], "motivo": "stub",
              "tipo": row["tipo"], "urgencia": row["urgencia"]}
+        if row.get("promocional") and not self.omit_promo:
+            d["promocional"] = True             # non-promo rows emit no key at all (old shape)
         d.update(self.override.get(row["subject"], {}))
         return d
 
@@ -650,7 +654,149 @@ check(len(body_reads) == 50, f"bodies read once per analysed mail: {len(body_rea
 check(len(g.messages) == 50 and sum(1 for m in g.messages.values() if "UNREAD" in m["labelIds"]) == 50,
       "no mail deleted; job never marked read")
 
-total = time.perf_counter() - T0
+T_BASE = time.perf_counter() - T0          # the 5 s budget covers the pre-T5d scenarios
+# ═════════════════ 8) T5d: promotional mails are grouped, never one task each ═════════════════
+print("== 8) T5d promo grouping ==")
+set_lote(6)
+PROMO_IDS = [r["id"] for r in PROMO]
+ALLP = CORPUS + PROMO + PROMO_LATE + PROMO_NEXT + [PROMO_MARKED]
+
+
+def groups():
+    return [t for t in board._load() if t["sourceId"] == "promociones"]
+
+
+g = make_google(PROMO + CORPUS)
+fresh()
+s8 = StubLLM(ALLP)
+r8 = run_job(g, s8)
+grp = groups()
+check(len(grp) == 1 and len(board._load()) == 23, f"T5d: 22 individual + ONE group: {len(board._load())}")
+check(not (set(tasks_by_source()) & set(PROMO_IDS)), "T5d: no promo mail has its own task")
+t8 = grp[0]
+check(t8["title"] == "Revisar promociones (3)" and t8["type"] == "revisar" and t8["urgency"] == "baja"
+      and t8["due"] is None and t8["source"] == "correo" and t8["state"] == "pendiente",
+      f"T5d: group fields {t8['title']} {t8['type']} {t8['urgency']} {t8['due']}")
+check(sorted(t8["sourceIds"]) == sorted(PROMO_IDS), f"T5d: sourceIds {t8['sourceIds']}")
+check(all(f"• {sender_name(r['frm'])} — {r['subject']}" in t8["description"].split("\n") for r in PROMO)
+      and len(t8["description"].split("\n")) == 3, f"T5d: description {t8['description']!r}")
+check(len(g.events) == 8 and len(g.tasks) == 14 and not any("promo" in t["title"].lower() for t in g.tasks),
+      f"T5d: NOTHING inserted in Google for the group: {len(g.events)}/{len(g.tasks)}")
+check("22 tarea(s) creadas" in r8 and "3 promoción(es) agrupadas en UNA sola tarea" in r8
+      and "Revisar promociones (3)" in r8 and "no las he convertido en tareas individuales" in r8
+      and "ni las he creado en Google" in r8, f"T5d reply: {r8[-420:]}")
+only_indiv = r8.split("tarea(s) creadas:")[1].split("📣")[0]
+check(not any(r["subject"] in only_indiv or "directo" in only_indiv for r in PROMO),
+      "T5d: reply lists no individual line for promos")
+k8 = board.kpis(today=TODAY)
+e8 = expected_kpis(CORPUS)
+e8["open"] += 1
+e8["by_type"]["revisar"] += 1
+e8["by_urgency"]["baja"] += 1
+e8["by_source"]["correo"] += 1
+e8["no_due"] += 1
+check(k8 == e8, f"T5d: KPIs count the group as ONE open revisar/baja task: {k8}")
+forbidden_guard("T5d healthy", g)
+
+# rerun: skipped BEFORE the body read, no LLM call for grouped mails, nothing new
+reads8 = len(body_read_ids(g))
+ins8 = (len(g.inserts("calendar.events.insert")), len(g.inserts("tasks.tasks.insert")))
+s8b = StubLLM(ALLP)
+r8b = run_job(g, s8b)
+seen8b = {i for _c, _j, i in s8b.seen}
+check(not (seen8b & set(PROMO_IDS)), f"T5d rerun: grouped mails never reach the LLM: {seen8b & set(PROMO_IDS)}")
+check(not (set(body_read_ids(g)[reads8:]) & set(PROMO_IDS)), "T5d rerun: grouped bodies not re-read")
+check(len(board._load()) == 23 and groups()[0]["title"] == "Revisar promociones (3)"
+      and groups()[0]["sourceIds"] == t8["sourceIds"] and groups()[0]["description"] == t8["description"],
+      "T5d rerun: group untouched")
+check(ins8 == (len(g.inserts("calendar.events.insert")), len(g.inserts("tasks.tasks.insert"))),
+      "T5d rerun: no Google inserts")
+check("ya tenían tarea" in r8b and "25 ya tenían tarea" in r8b, f"T5d rerun reply: {r8b[-260:]}")
+
+# new promos in a later run append to the SAME open group
+g.messages = {**{r["id"]: to_mail(r) for r in PROMO_LATE}, **g.messages}
+s8c = StubLLM(ALLP)
+r8c = run_job(g, s8c)
+grp = groups()
+check(len(grp) == 1 and grp[0]["title"] == "Revisar promociones (5)"
+      and sorted(grp[0]["sourceIds"]) == sorted(PROMO_IDS + [r["id"] for r in PROMO_LATE]),
+      f"T5d append: {[(t['title'], t['sourceIds']) for t in grp]}")
+check(len(grp[0]["description"].split("\n")) == 5 and grp[0]["description"].startswith(t8["description"])
+      and "Masterclass gratuita este jueves" in grp[0]["description"],
+      f"T5d append: description grows: {grp[0]['description']!r}")
+check(len(board._load()) == 23 and {i for _c, _j, i in s8c.seen} & set(PROMO_IDS) == set(),
+      "T5d append: no extra task; old grouped mails not re-analyzed")
+check("2 promoción(es) agrupadas" in r8c and "(5 en total)" in r8c and "ninguna tarea individual nueva" in r8c,
+      f"T5d append reply: {r8c[:260]}")
+check(len(g.events) == 8 and len(g.tasks) == 14, "T5d append: still nothing in Google")
+
+# group completed -> a later promo starts a NEW group; old ids are not re-added
+old_group = groups()[0]
+board.move_task(old_group["id"], "completada")
+g.messages = {**{r["id"]: to_mail(r) for r in PROMO_NEXT}, **g.messages}
+r8d = run_job(g, StubLLM(ALLP))
+grp = groups()
+open_g = [t for t in grp if t["state"] != "completada"]
+check(len(grp) == 2 and len(open_g) == 1 and open_g[0]["title"] == "Revisar promociones (1)"
+      and open_g[0]["sourceIds"] == ["m230"], f"T5d completed: new group {[(t['title'], t['state']) for t in grp]}")
+done_g = [t for t in grp if t["state"] == "completada"][0]
+check(done_g["title"] == "Revisar promociones (5)" and len(done_g["sourceIds"]) == 5,
+      "T5d completed: closed group is not touched")
+check("1 promoción(es) agrupadas" in r8d, f"T5d completed reply: {r8d[:200]}")
+# group trashed -> promos start a new group again (trashed does not count as handled)
+board.soft_delete([open_g[0]], reason="test")
+run_job(g, StubLLM(ALLP))
+grp = groups()
+check(len(grp) == 2 and sorted(t["state"] for t in grp) == ["completada", "pendiente"]
+      and [t for t in grp if t["state"] == "pendiente"][0]["sourceIds"] == ["m230"],
+      f"T5d trashed: a new group replaces the trashed one: {[(t['title'], t['state']) for t in grp]}")
+forbidden_guard("T5d lifecycle", g)
+
+# urgent mark wins over promo: the marked promo-looking mail is an individual critica task
+fresh()
+g = make_google([PROMO_MARKED] + PROMO)
+r8f = run_job(g, StubLLM(ALLP))
+tm = tasks_by_source()
+g8 = (groups() or [{"sourceIds": [], "title": ""}])[0]
+check(tm.get("m220", {}).get("urgency") == "critica" and tm["m220"]["title"] == PROMO_MARKED["title"]
+      and "m220" not in g8["sourceIds"] and g8["title"] == "Revisar promociones (3)",
+      f"T5d mark wins: {tm.get('m220')} group={g8['sourceIds']}")
+check(len(g.tasks) == 1 and "1 tarea(s) creadas" in r8f,
+      f"T5d mark wins: Google gets only the marked mail: {len(g.tasks)}")
+# even when the model returns nothing for it and only the mark net rescues it
+fresh()
+g = make_google([PROMO_MARKED])
+run_job(g, StubLLM([PROMO_MARKED], faults={0: ("garbage",)}))
+check([t["sourceId"] for t in board._load()] == ["m220"] and groups() == [], "T5d mark net: individual, no group")
+
+# the model omits the key -> old behavior (one task per mail, nothing grouped)
+fresh()
+g = make_google(PROMO)
+r8g = run_job(g, StubLLM(ALLP, omit_promo=True))
+check(groups() == [] and set(tasks_by_source()) == set(PROMO_IDS) and len(g.tasks) + len(g.events) == 3
+      and "promoci" not in r8g, f"T5d no key => old behavior: {sorted(tasks_by_source())}")
+# a promo the model calls NOT actionable is neither a task nor grouped (it stays re-analyzable)
+fresh()
+g = make_google(PROMO)
+run_job(g, StubLLM(ALLP, override={r["subject"]: {"accionable": False} for r in PROMO}))
+check(board._load() == [], "T5d: non-actionable promo makes no task and no group")
+check(gw._es_promocional({"promocional": "true"}) and gw._es_promocional({"promocional": True})
+      and not gw._es_promocional({}) and not gw._es_promocional({"promocional": "false"})
+      and not gw._es_promocional({"promocional": 1}), "T5d: _es_promocional contract")
+PROMPTS: list[str] = []
+
+
+async def _capture(prompt, system=None, **kw):
+    PROMPTS.append(system or "")
+    return "[]", "fake"
+
+
+llm.ask_llm = _capture
+asyncio.run(gw._analyze_batch([{"from": "a", "subject": "b", "body": "c"}]))
+check('"promocional": true|false' in PROMPTS[0] and "NO es promocional" in PROMPTS[0],
+      "T5d: prompt carries the promocional key and its definition")
+
+total = T_BASE
 print(f"\n   total suite time {total:.2f}s; healthy runs "
       + ", ".join(f"{k}={v[0]:.3f}s" for k, v in healthy.items()))
 check(all(v[0] < 5 for v in healthy.values()) and total < 5, f"under 5 s (total {total:.2f}s)")

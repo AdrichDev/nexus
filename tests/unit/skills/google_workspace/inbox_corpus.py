@@ -197,3 +197,46 @@ assert len(CORPUS) == 50 and len(ACTIONABLE) == 22
 assert len({r["id"] for r in CORPUS}) == 50
 assert len({(r["subject"], r["frm"].split("<")[0].strip()) for r in CORPUS + NEW5}) == 55
 assert [r["id"] for r in CORPUS] == [f"m{i:02d}" for i in range(50)]
+
+
+# ---- T5d: promotional mails a model WOULD call actionable --------------------------------
+# Ground truth: promocional=True. They must be grouped into ONE board task, never one task each.
+# They are NOT part of CORPUS (50 / 22 stay as pinned by the older suites).
+def _p(i, frm, subject, body, tipo, urgencia, title, fecha="", urgente=False, importancia="baja"):
+    r = _a(i, frm, subject, body, "promo_actionable", tipo, urgencia, title, fecha=fecha,
+           urgente=urgente, importancia=importancia)
+    r["promocional"] = True
+    return r
+
+
+PROMO: list[dict] = [
+    _p(200, "Academia Marketing Pro <hola@marketingpro.example>", "🎁 Descarga tu plantilla gratis",
+       "Tu regalo del curso de marketing te espera: descarga tu plantilla antes de que caduque.",
+       "hacer", "baja", "Descargar plantilla gratuita del curso"),
+    _p(201, "Academia Marketing Pro <hola@marketingpro.example>", "En 30 minutos abro el directo",
+       "Hoy a las 18:00 abro el directo gratuito. Reserva tu plaza ahora.",
+       "asistir", "critica", "Asistir al directo de Academia Marketing Pro", urgente=True,
+       importancia="alta"),
+    _p(202, "TiendaModa <ofertas@tiendamoda.example>", "Oferta limitada: tu 2x1 termina esta noche",
+       "Solo hoy: 2x1 en toda la colección. Aprovecha la oferta.", "revisar", "baja",
+       "Revisar oferta 2x1 de TiendaModa"),
+]
+# Later arrivals (same marketing world) for the append / new-group scenarios.
+PROMO_LATE: list[dict] = [
+    _p(210, "Coach Digital <hola@coachdigital.example>", "Masterclass gratuita este jueves",
+       "Apúntate a la masterclass gratuita del jueves.", "asistir", "alta",
+       "Asistir a la masterclass gratuita", fecha="2026-06-18", importancia="alta"),
+    _p(211, "Boletín Growth <news@growth.example>", "Último día: curso con 40% de descuento",
+       "Hoy termina el descuento del curso.", "revisar", "baja", "Revisar descuento del curso"),
+]
+PROMO_NEXT: list[dict] = [
+    _p(230, "Escuela Online <hola@escuela.example>", "Regalo: guía gratuita de ventas",
+       "Descarga la guía gratuita de ventas.", "hacer", "baja", "Descargar guía gratuita"),
+]
+# Promo-looking mail that carries a configured urgent mark in its subject: the mark must win.
+PROMO_MARKED = _p(220, "Academia Marketing Pro <hola@marketingpro.example>",
+                  "[URGENTE] Tu acceso al curso caduca hoy",
+                  "Regalo del curso: reclama tu acceso antes de que caduque.", "revisar", "baja",
+                  "Reclamar acceso al curso")
+assert len({r["id"] for r in PROMO + PROMO_LATE + PROMO_NEXT + [PROMO_MARKED]}) == 7
+assert not {r["id"] for r in PROMO + PROMO_LATE + [PROMO_MARKED]} & {r["id"] for r in CORPUS}

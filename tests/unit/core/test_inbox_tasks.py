@@ -176,6 +176,69 @@ check("1 tarea(s) creadas" in r3 and "ya tenían tarea" in r3, f"partial reply: 
 check(analyzed_ids[-1] == ["e3", "e4"], f"F3: partial run analyzes only untasked mails: {analyzed_ids[-1]}")
 check("Alcance: analizados 2 de 4 sin leer" in r3, f"F2 scope in created branch: {r3}")
 
+print("== 5) T5d: grouped tasks (sourceIds, add_to_group) ==")
+import json  # noqa: E402
+
+fresh()
+# migration: a stored task from before sourceIds existed loads with []
+old = {"id": "old1", "title": "viejo", "state": "pendiente", "tag": "correo", "priority": "media",
+       "source": "correo", "sourceId": "m9"}
+board.BOARD_FILE.parent.mkdir(parents=True, exist_ok=True)
+board.BOARD_FILE.write_text(json.dumps([old, {**old, "id": "old2", "sourceIds": "garbage"}]), encoding="utf-8")
+loaded = board._load()
+check(all(t["sourceIds"] == [] for t in loaded), f"old tasks migrate to sourceIds=[]: {loaded}")
+check((board.find_by_source("correo", "m9") or {}).get("id") == "old1", "old tasks still match by sourceId")
+check(board.add_task("x", source="correo", source_id="z")["sourceIds"] == [], "add_task default sourceIds []")
+
+fresh()
+G, T = "promociones", "Revisar promociones"
+t, n = board.add_to_group("correo", G, [("p1", "• A — uno"), ("p2", "• B — dos"), ("", "• sin id"), ("p1", "dup")],
+                          T, task_type="revisar", urgency="baja", tag="correo")
+check(n == 2 and t["title"] == "Revisar promociones (2)" and t["sourceIds"] == ["p1", "p2"]
+      and t["description"] == "• A — uno\n• B — dos" and t["sourceId"] == G and t["source"] == "correo",
+      f"create: {n} {t}")
+check(t["type"] == "revisar" and t["urgency"] == "baja" and t["priority"] == "baja" and t["due"] is None,
+      "group fields revisar/baja, no due")
+check(len(board._load()) == 1, "one stored group")
+check((board.find_by_source("correo", "p2") or {}).get("id") == t["id"], "find_by_source matches a grouped id")
+check(board.find_by_source("correo", "p3") is None, "find_by_source: id not in group misses")
+check(board.find_by_source("manual", "p2") is None, "find_by_source: other source misses")
+t2, n2 = board.add_to_group("correo", G, [("p2", "dup"), ("p3", "• C — tres")], T, task_type="revisar",
+                            urgency="baja")
+check(n2 == 1 and t2["id"] == t["id"] and t2["title"] == "Revisar promociones (3)"
+      and t2["sourceIds"] == ["p1", "p2", "p3"] and t2["description"].endswith("• C — tres")
+      and len(board._load()) == 1, f"append: {n2} {t2['title']} {t2['sourceIds']}")
+_, n3 = board.add_to_group("correo", G, [("p1", "dup"), ("p3", "dup")], T)
+check(n3 == 0 and board._load()[0]["title"] == "Revisar promociones (3)", "nothing new: no change")
+_, n4 = board.add_to_group("correo", "otro", [], T)
+check(n4 == 0 and len(board._load()) == 1, "empty entries never create a group")
+# a closed group (completada) is not appended to; ids stay handled; a NEW group starts
+board.move_task(t["id"], "completada")
+check(board.find_by_source("correo", "p1") is not None, "done group still counts as handled")
+t5, n5 = board.add_to_group("correo", G, [("p4", "• D — cuatro")], T, task_type="revisar", urgency="baja")
+check(n5 == 1 and t5["id"] != t["id"] and t5["title"] == "Revisar promociones (1)"
+      and len(board._load()) == 2 and [x for x in board._load() if x["id"] == t["id"]][0]["sourceIds"] == ["p1", "p2", "p3"],
+      "completed group untouched, new group created")
+for st in ("cancelada", "archivada"):
+    tasks = board._load()
+    for x in tasks:
+        if x["id"] == t5["id"]:
+            x["state"] = st
+    board._save(tasks)
+    t6, n6 = board.add_to_group("correo", G, [("p9", "• Z — nueve")], T)
+    check(n6 == 1 and t6["id"] != t5["id"], f"{st} group is closed too")
+    board.soft_delete([t6], reason="test")
+# trashed group is ignored: not matched, not appended to
+fresh()
+t7, _ = board.add_to_group("correo", G, [("q1", "• Q — uno")], T)
+board.soft_delete([t7], reason="test")
+check(board.find_by_source("correo", "q1") is None, "trashed group: ids no longer count as handled")
+t8, n8 = board.add_to_group("correo", G, [("q1", "• Q — uno")], T, task_type="revisar", urgency="baja")
+check(n8 == 1 and t8["id"] != t7["id"] and t8["title"] == "Revisar promociones (1)", "trashed group ignored: new group")
+# KPIs: the group is ONE open revisar/baja task
+k = board.kpis()
+check(k["open"] == 1 and k["by_type"]["revisar"] == 1 and k["by_urgency"]["baja"] == 1, f"kpis: {k}")
+
 print()
 print(f"test_inbox_tasks: {_ok} OK, {len(_fail)} fallos")
 sys.exit(1 if _fail else 0)

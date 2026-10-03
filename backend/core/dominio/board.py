@@ -144,6 +144,10 @@ def _migrate(t: dict) -> dict:
     if t.get("source") not in SOURCES:
         t["source"] = "correo" if t.get("tag") == "correo" else "manual"
     t.setdefault("sourceId", "")
+    # Grouped tasks (e.g. "Revisar promociones (N)") keep the ids of every grouped mail.
+    # Old tasks have none; a malformed value is reset rather than trusted.
+    if not isinstance(t.get("sourceIds"), list):
+        t["sourceIds"] = []
     return t
 
 
@@ -334,7 +338,7 @@ def add_task(title: str, due: str | None = None, priority: str = "media",
              description: str = "", reminder_at: str = "",
              source_conversation_id: str = "", due_end: str = "",
              task_type: str = "", urgency: str = "", source: str = "",
-             source_id: str = "") -> dict:
+             source_id: str = "", source_ids: list | None = None) -> dict:
     """kind: 'accion' (trabajo a realizar: crear una web) | 'evento' (cita de
     calendario: reunión, mentoría — normalmente con HORA en time_at 'HH:MM').
     No es lo mismo hacer que asistir: se guardan y se muestran distinto.
@@ -350,6 +354,7 @@ def add_task(title: str, due: str | None = None, priority: str = "media",
             "urgency": urg, "type": norm_type(task_type),
             "source": source if source in SOURCES else "manual",
             "sourceId": (source_id or "").strip(),
+            "sourceIds": [str(x).strip() for x in (source_ids or []) if str(x).strip()],
             "time": time_at or None, "kind": kind if kind in ("accion", "evento") else "accion",
             "created": dt.date.today().isoformat(), "nudged": None,
             # Último día del rango, inclusive. None = la tarea ocupa un solo día.
@@ -373,14 +378,55 @@ def find_by_source(source: str, source_id: str) -> dict | None:
     Decisión de dedupe: las tareas HECHAS sí cuentan (un correo ya tratado no debe
     volver a generar tarea en la siguiente pasada); las de la papelera (deletedAt)
     se ignoran, porque borrarla es descartarla y un reproceso puede recrearla.
+    Una tarea AGRUPADA cuenta también por cada id de su lista `sourceIds`.
     Un `source_id` vacío nunca coincide."""
     sid = (source_id or "").strip()
     if not sid:
         return None
     for t in _load():
-        if t.get("source") == source and t.get("sourceId") == sid and not t.get("deletedAt"):
+        if t.get("source") != source or t.get("deletedAt"):
+            continue
+        if t.get("sourceId") == sid or sid in t.get("sourceIds", []):
             return t
     return None
+
+
+_CLOSED_STATES = ("completada", "cancelada", "archivada")
+
+
+def add_to_group(source: str, group_id: str, entries: list[tuple[str, str]], title_base: str,
+                 *, task_type: str = "", urgency: str = "", tag: str = "") -> tuple[dict, int]:
+    """Append (source_id, description line) entries to the OPEN grouped task of `group_id`,
+    creating it when none is open. Open = state not completada/cancelada/archivada and not
+    trashed: once the group is closed, later entries start a new one. Ids already in the
+    group (or empty) are ignored. The title is `"<title_base> (N)"`, N = ids in the group.
+    One `_save` per call. Returns (task, number of entries actually added)."""
+    tasks = _load()
+    group = next((t for t in tasks if t.get("source") == source and t.get("sourceId") == group_id
+                  and not t.get("deletedAt") and t.get("state") not in _CLOSED_STATES), None)
+    known = set(group["sourceIds"]) if group else set()
+    fresh_entries = []
+    for sid, line in entries:
+        sid = (sid or "").strip()
+        if sid and sid not in known:
+            known.add(sid)
+            fresh_entries.append((sid, line))
+    if group is None:
+        if not fresh_entries:
+            return {}, 0
+        task = add_task(f"{title_base} ({len(fresh_entries)})", priority="baja", tag=tag,
+                        description="\n".join(ln for _i, ln in fresh_entries), source=source,
+                        source_id=group_id, task_type=task_type, urgency=urgency,
+                        source_ids=[i for i, _l in fresh_entries])
+        return task, len(fresh_entries)
+    if fresh_entries:
+        group["sourceIds"] = list(group["sourceIds"]) + [i for i, _l in fresh_entries]
+        group["description"] = "\n".join(
+            x for x in [group.get("description", "")] + [ln for _i, ln in fresh_entries] if x)
+        group["title"] = f"{title_base} ({len(group['sourceIds'])})"
+        group["updatedAt"] = _now()
+        _save(tasks)
+    return group, len(fresh_entries)
 
 
 def find_task(query: str) -> dict | None:

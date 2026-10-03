@@ -1074,6 +1074,17 @@ def _create_everywhere(title: str, due_date: str | None, notes: str,
     return " + ".join(dests) if dests else "ningún destino"
 
 
+_PROMO_GROUP_ID = "promociones"
+_PROMO_TITLE = "Revisar promociones"
+
+
+def _es_promocional(a: dict) -> bool:
+    """True only when the classifier says so explicitly. A missing key means False
+    (older model answers keep the old one-task-per-mail behavior)."""
+    v = a.get("promocional")
+    return v is True or (isinstance(v, str) and v.strip().lower() == "true")
+
+
 def _email_task_fields(a: dict) -> tuple[str, str]:
     """(type, urgency) of the board task for one classifier result. Missing or invalid
     model fields fall back to the default type and to urgency derived from the older keys."""
@@ -1180,6 +1191,25 @@ async def _email_actions_job(ctx, channel: str) -> dict:
             # vuelve a crear (ni en Google), aunque se haya colado en el análisis.
             ya_tenian = [(m, a) for m, a in acts if _board.find_by_source("correo", m.get("id", ""))]
             acts = [(m, a) for m, a in acts if (m, a) not in ya_tenian]
+            # Promotional mails never become one task each: they are GROUPED into a single
+            # open board task. Board only (no Google Calendar/Tasks insert for them).
+            # Urgent marks win: _analyze_emails already forces promocional=False on them.
+            promos = [(m, a) for m, a in acts if _es_promocional(a)]
+            acts = [(m, a) for m, a in acts if not _es_promocional(a)]
+            promo_txt = ""
+            if promos:
+                try:
+                    grupo, n_nuevos = await asyncio.to_thread(
+                        _board.add_to_group, "correo", _PROMO_GROUP_ID,
+                        [(m.get("id", ""), f"• {m['from']} — {m['subject']}") for m, _a in promos],
+                        _PROMO_TITLE, task_type="revisar", urgency="baja", tag="correo")
+                    total_grupo = len(grupo.get("sourceIds", []))
+                    promo_txt = (f"\n\n📣 {n_nuevos} promoción(es) agrupadas en UNA sola tarea del "
+                                 f"tablero «{grupo.get('title', _PROMO_TITLE)}» ({total_grupo} en total); "
+                                 "no las he convertido en tareas individuales ni las he creado en Google.")
+                except Exception as exc:                       # noqa: BLE001
+                    promo_txt = (f"\n\n⚠️ {len(promos)} promoción(es) detectadas, pero NO pude "
+                                 f"agruparlas en el tablero ({type(exc).__name__}); sin tarea individual.")
             ya_asuntos = [m["subject"] for m in saltados] + [m["subject"] for m, _a in ya_tenian]
             alcance = _alcance_correos(unread, len(msgs), len(ya_asuntos),
                                        unread - len(msgs) - len(saltados))
@@ -1193,6 +1223,10 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                 reply = (f"❌ No he podido analizar NINGUNO de tus {unread} correos sin leer, "
                          "así que no he creado ninguna tarea. El modelo no devolvió una "
                          "clasificación válida." + alcance)
+            elif not acts and promos:
+                reply = ("Análisis hecho: ninguna tarea individual nueva." + promo_txt
+                         + (f"\n\n{len(ya_asuntos)} correo(s) ya tenían tarea y no se han "
+                            "duplicado." if ya_asuntos else "") + fallo + alcance)
             elif not acts and ya_asuntos:
                 reply = (f"Análisis hecho: ninguna tarea nueva, {len(ya_asuntos)} correo(s) ya "
                          "tenían tarea:\n" + "\n".join(f"• {t}" for t in ya_asuntos)
@@ -1217,7 +1251,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                            if ("tablero interno" in d) or ("Google" in d and "falló" not in d))
                 if n_ok == 0:
                     reply = (f"Análisis hecho, preparé {len(creadas)} tarea(s)… pero NO pude "
-                             "GUARDAR ninguna:\n" + "\n".join(lines) +
+                             "GUARDAR ninguna:\n" + "\n".join(lines) + promo_txt +
                              "\n\nCasi seguro falta aceptar la autorización de ESCRITURA de "
                              "Google en el navegador del PC." + alcance)
                 else:
@@ -1226,7 +1260,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                         aviso = ("\n\n⚠ En Google no pude guardarlas (autorización pendiente); "
                                  "en tu tablero SÍ están.")
                     reply = (f"Análisis de correos terminado — {n_ok} tarea(s) creadas:\n"
-                             + "\n".join(lines) + aviso + fallo
+                             + "\n".join(lines) + aviso + promo_txt + fallo
                              + (f"\n\n{len(ya_asuntos)} correo(s) ya tenían tarea y no se "
                                 "han duplicado." if ya_asuntos else "") + alcance)
     except Exception as exc:                                   # noqa: BLE001
@@ -1428,6 +1462,7 @@ async def _analyze_emails(msgs: list[dict]) -> tuple[list[dict], list[int]]:
             # modelo dijera «no accionable» o «baja». Su tipo se respeta si es válido.
             from backend.core.dominio import board as _b
             a["accionable"] = True
+            a["promocional"] = False           # a mark always wins over the promo grouping
             a["urgencia"] = "critica"
             a["tipo"] = _b.norm_type(a.get("tipo"), "revisar")
 
@@ -1453,9 +1488,13 @@ async def _analyze_batch(msgs: list[dict]) -> list[dict]:
         '"fecha": "YYYY-MM-DD si el correo implica una fecha/plazo, o cadena vacía", '
         '"motivo": "5-10 palabras", '
         '"tipo": "responder"|"hacer"|"pagar"|"asistir"|"revisar"|"esperar", '
-        '"urgencia": "critica"|"alta"|"media"|"baja"}. '
+        '"urgencia": "critica"|"alta"|"media"|"baja", "promocional": true|false}. '
         "urgente = necesita atención hoy/mañana, hay un plazo inminente, o hay consecuencias por no actuar. "
         "accionable = el correo te pide hacer algo concreto (pagar, responder, revisar, confirmar, agendar). "
+        "promocional = marketing o publicidad: boletines con llamadas a la acción, cursos, regalos, "
+        "directos o ventas que un remitente ofrece a toda su lista, y ofertas. NO es promocional: "
+        "una petición personal, una factura o un pago que el usuario debe, seguridad, ni avisos "
+        "de su propia cuenta o servicio. "
         "NO inventes fechas: pon fecha solo si aparece o se implica claramente. Responde ÚNICAMENTE el JSON, sin texto extra."
     )
     try:
