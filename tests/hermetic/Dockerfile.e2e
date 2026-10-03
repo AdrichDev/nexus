@@ -1,0 +1,2 @@
+FROM nexus-hermetic-test
+RUN pip install --no-cache-dir playwright && python -m playwright install --with-deps chromium
