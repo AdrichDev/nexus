@@ -88,6 +88,65 @@ def _now() -> str:
     return dt.datetime.now().isoformat(timespec="seconds")
 
 
+# ═══════════════════ PATRÓN DE TAREA (tipo · urgencia · origen) ═══════════════════
+# Vocabularios CERRADOS: sirven para contar (KPIs), así que un valor desconocido nunca
+# se guarda tal cual — se normaliza o cae al valor por defecto.
+TYPES = ("responder", "hacer", "pagar", "asistir", "revisar", "esperar")
+URGENCIES = ("critica", "alta", "media", "baja")
+SOURCES = ("manual", "correo")
+DEFAULT_TYPE = "hacer"
+DEFAULT_URGENCY = "media"
+
+_TYPE_ALIAS = {
+    "contestar": "responder", "respuesta": "responder", "reply": "responder",
+    "tarea": "hacer", "accion": "hacer", "trabajo": "hacer", "do": "hacer",
+    "pago": "pagar", "abonar": "pagar", "factura": "pagar", "cobro": "pagar",
+    "reunion": "asistir", "cita": "asistir", "evento": "asistir", "ir": "asistir",
+    "revision": "revisar", "comprobar": "revisar", "leer": "revisar", "review": "revisar",
+    "espera": "esperar", "pendiente de otro": "esperar", "seguimiento": "esperar",
+}
+_URG_ALIAS = {
+    "urgente": "critica", "urgentisima": "critica", "critico": "critica", "inmediata": "critica",
+    "importante": "alta", "high": "alta",
+    "normal": "media", "medium": "media",
+    "low": "baja", "poca": "baja",
+}
+
+
+def norm_type(v, default: str | None = DEFAULT_TYPE) -> str | None:
+    """Tipo válido (minúsculas, sin tildes, sinónimos) o `default` si no se reconoce."""
+    k = _norm(str(v or ""))
+    k = _TYPE_ALIAS.get(k, k)
+    return k if k in TYPES else default
+
+
+def norm_urgency(v, default: str | None = DEFAULT_URGENCY) -> str | None:
+    """Urgencia válida o `default` si no se reconoce."""
+    k = _norm(str(v or ""))
+    k = _URG_ALIAS.get(k, k)
+    return k if k in URGENCIES else default
+
+
+def priority_of(urgency: str) -> str:
+    """`priority` (alta|media|baja) es el campo antiguo que sigue leyendo el HUD, los
+    avisos y Eisenhower: crítica y alta cuentan como alta."""
+    return "alta" if urgency in ("critica", "alta") else urgency
+
+
+def _migrate(t: dict) -> dict:
+    """Rellena el patrón en tareas guardadas antes de que existiera. Idempotente y sin
+    perder datos: solo añade lo que falta."""
+    if t.get("urgency") not in URGENCIES:
+        t["urgency"] = norm_urgency(t.get("priority"))
+    t["priority"] = priority_of(t["urgency"])
+    if t.get("type") not in TYPES:
+        t["type"] = "asistir" if t.get("kind") == "evento" else DEFAULT_TYPE
+    if t.get("source") not in SOURCES:
+        t["source"] = "correo" if t.get("tag") == "correo" else "manual"
+    t.setdefault("sourceId", "")
+    return t
+
+
 def _audit(**kw) -> None:
     try:
         from ..comun import audit as _a
@@ -99,7 +158,7 @@ def _audit(**kw) -> None:
 def _load() -> list[dict]:
     if BOARD_FILE.exists():
         try:
-            return json.loads(BOARD_FILE.read_text(encoding="utf-8"))
+            return [_migrate(t) for t in json.loads(BOARD_FILE.read_text(encoding="utf-8"))]
         except Exception:
             pass
     return []
@@ -273,7 +332,9 @@ def purge_trash(batch: str = "") -> int:
 def add_task(title: str, due: str | None = None, priority: str = "media",
              tag: str = "", time_at: str = "", kind: str = "accion",
              description: str = "", reminder_at: str = "",
-             source_conversation_id: str = "", due_end: str = "") -> dict:
+             source_conversation_id: str = "", due_end: str = "",
+             task_type: str = "", urgency: str = "", source: str = "",
+             source_id: str = "") -> dict:
     """kind: 'accion' (trabajo a realizar: crear una web) | 'evento' (cita de
     calendario: reunión, mentoría — normalmente con HORA en time_at 'HH:MM').
     No es lo mismo hacer que asistir: se guardan y se muestran distinto.
@@ -282,8 +343,13 @@ def add_task(title: str, due: str | None = None, priority: str = "media",
     miércoles al domingo»). Va al final de la firma a propósito: hay llamadas
     posicionales y añadirlo antes les cambiaría el significado."""
     tasks = _load()
+    # Patrón: `urgency` manda; un llamador antiguo que solo pasa `priority` sigue valiendo.
+    urg = norm_urgency(urgency, None) or norm_urgency(priority)
     task = {"id": uuid.uuid4().hex[:8], "title": title.strip(),
-            "state": "pendiente", "due": due, "priority": priority, "tag": tag,
+            "state": "pendiente", "due": due, "priority": priority_of(urg), "tag": tag,
+            "urgency": urg, "type": norm_type(task_type),
+            "source": source if source in SOURCES else "manual",
+            "sourceId": (source_id or "").strip(),
             "time": time_at or None, "kind": kind if kind in ("accion", "evento") else "accion",
             "created": dt.date.today().isoformat(), "nudged": None,
             # Último día del rango, inclusive. None = la tarea ocupa un solo día.
@@ -353,7 +419,8 @@ def move_task(query: str, state_raw: str) -> dict | None:
 # análisis de código muerto la delató: no la llamaba nadie, ni el tablero ni las
 # rutas de /api/board. Si necesitas tocar metadatos, usa `edit_task()`.
 def edit_task(query: str, title: str | None = None, due: str | None = None,
-              priority: str | None = None, state: str | None = None) -> dict | None:
+              priority: str | None = None, state: str | None = None,
+              task_type: str | None = None, urgency: str | None = None) -> dict | None:
     """Edita una tarea (por id exacto o por título). Cambia solo lo que llega."""
     tasks = _load()
     q = _norm(query)
@@ -363,8 +430,12 @@ def edit_task(query: str, title: str | None = None, due: str | None = None,
                 t["title"] = title.strip()
             if due is not None:
                 t["due"] = due or None          # "" → sin fecha
-            if priority:
-                t["priority"] = priority
+            new_urg = norm_urgency(urgency, None) or norm_urgency(priority, None)
+            if new_urg:                       # un valor desconocido se ignora, no se guarda
+                t["urgency"], t["priority"] = new_urg, priority_of(new_urg)
+            new_type = norm_type(task_type, None)
+            if new_type:
+                t["type"] = new_type
             if state:
                 st = STATE_ALIAS.get(_norm(state))
                 if st:

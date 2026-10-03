@@ -848,7 +848,8 @@ async def api_board_edit(payload: dict):
     from backend.core.dominio import board
     t = board.edit_task(payload.get("id", ""), title=payload.get("title"),
                         due=payload.get("due"), priority=payload.get("priority"),
-                        state=payload.get("state"))
+                        state=payload.get("state"),
+                        task_type=payload.get("type"), urgency=payload.get("urgency"))
     if t:
         await bus.emit("log", {"level": "ok", "msg": f"Tablero: editada «{t['title']}»"})
     return t or {"error": "not found"}
