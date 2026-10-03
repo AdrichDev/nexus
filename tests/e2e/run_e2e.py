@@ -1,33 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-nexus — PRUEBAS END-TO-END REALES con Playwright (specs v23, TAREAS 22 y 23).
+nexus — nueve flujos E2E de HUD, API y datos de prueba (Playwright).
 
-Regla que impone este runner: una funcionalidad NO se declara terminada porque el
-código compile, la API responda o el componente se renderice. Aquí se arranca
-nexus DE VERDAD (uvicorn), se abre el HUD REAL en Chromium y se hacen los flujos
-como los haría Adri, guardando EVIDENCIAS de cada uno.
+Arranca uvicorn y Chromium; combina comprobaciones de interfaz con peticiones API
+para tareas y trabajos, y usa fixtures para Content OS, reels y competencia.
+Que un flujo pase no acredita integración con proveedores ni dispositivos reales.
+Los pendientes del informe son cobertura ausente, no funcionalidad inexistente.
 
-Qué cubre hoy (P0 de las specs v23):
-  * TAREAS + BORRADO: crear tareas, completarlas, pedir «borra las realizadas»,
-    comprobar que PIDE CONFIRMACIÓN, cancelar, volver a pedirlo, confirmar,
-    comprobar que solo se van las completadas y RESTAURARLAS desde la papelera.
-  * ORQUESTACIÓN / MULTITAREA: lanzar trabajos, ver el indicador del sidebar
-    (En curso → 2 → ✓ → !), comprobar que no hay ejecuciones duplicadas ni
-    respuestas fantasma de trabajos cancelados.
-
-Lo que todavía NO cubre (porque su funcionalidad aún no está hecha) queda listado
-al final del informe como PENDIENTE — nunca como «pasado».
-
-Uso:
-    python tests/e2e/run_e2e.py              (desde la carpeta nexus)
-    python tests/e2e/run_e2e.py --headed     (para verlo con tus ojos)
-
-Requisitos (una sola vez):
-    pip install playwright
-    python -m playwright install chromium
-
-Nunca toca tus datos: arranca nexus con NEXUS_DATA_DIR y NEXUS_CONFIG_DIR
-apuntando a carpetas desechables dentro de data/e2e/.
+ATENCIÓN: no es seguro ejecutar este runner en un checkout con datos/configuración
+reales. Los directorios NEXUS_DATA_DIR y NEXUS_CONFIG_DIR no aíslan todos los
+recursos: la configuración puede importar el .env raíz y el arranque puede acceder
+a otros servicios. Consulte los READMEs y obtenga aprobación para un entorno aislado.
 """
 from __future__ import annotations
 
@@ -81,6 +64,22 @@ def _post(url: str, payload: dict) -> dict:
 def _get(url: str) -> dict:
     with urllib.request.urlopen(url, timeout=30) as r:
         return json.loads(r.read().decode() or "{}")
+
+
+def _job_ids_from_frame(payload: str | bytes) -> set[str]:
+    """Solo IDs de eventos jobs recibidos; ignora tramas ajenas o malformadas."""
+    try:
+        event = json.loads(payload)
+        if not isinstance(event, dict) or event.get("type") != "jobs":
+            return set()
+        data = event.get("data")
+        jobs = data.get("list") if isinstance(data, dict) else None
+        if not isinstance(jobs, list):
+            return set()
+        return {job["id"] for job in jobs
+                if isinstance(job, dict) and isinstance(job.get("id"), str)}
+    except (ValueError, TypeError):
+        return set()
 
 
 def nav(page, view: str) -> None:
@@ -155,7 +154,7 @@ def _report(flows: list[Flow], console: list, network: list, pendientes: list) -
                       f"{json.dumps(f.estado_despues, ensure_ascii=False)}\n```\n</details>")
         if f.shots:
             md.append("\nCapturas: " + ", ".join(f"`{s}`" for s in f.shots))
-    md.append("\n## Pendiente de cubrir (su funcionalidad aún no está hecha)\n")
+    md.append("\n## Pendiente de cobertura E2E (no implica funcionalidad inexistente)\n")
     md += [f"- {p}" for p in pendientes]
     (OUT / "report.md").write_text("\n".join(md), encoding="utf-8")
     print(f"\nEvidencias en: {OUT}")
@@ -231,15 +230,30 @@ def flujo_tareas(page, base: str) -> Flow:
     return f
 
 
-def flujo_multitarea(page, base: str) -> Flow:
+def flujo_multitarea(page, base: str, ws_job_ids: set[str]) -> Flow:
     """Indicador del sidebar y trabajos concurrentes, vistos en el HUD real."""
     f = Flow("multitarea-sidebar", page, base)
     badge = lambda: page.eval_on_selector("#nav-jobs", "e => e.textContent")  # noqa: E731
 
     f.estado_antes = _get(f"{base}/api/jobs")["counts"]
     nav(page, "jobs")
-    _post(f"{base}/api/_e2e/job", {"seconds": 12, "title": "trabajo largo A"})
-    page.wait_for_timeout(1200)
+    # El listener se instaló antes de page.goto; un socket solicitado no prueba
+    # conexión. Solo vale una trama recibida con el ID creado por ESTE POST.
+    first_job = _post(f"{base}/api/_e2e/job", {"seconds": 12, "title": "trabajo largo A"})
+    # Dejar que Playwright despache tramas hasta recibir este ID, con un tope.
+    # Un sleep fijo puede fallar por latencia aunque el WebSocket esté sano.
+    for _ in range(30):
+        if first_job.get("id") in ws_job_ids:
+            break
+        page.wait_for_timeout(100)
+    f.check(bool(first_job.get("id")) and first_job["id"] in ws_job_ids,
+            "el HUD recibió por /ws un evento jobs del primer trabajo controlado")
+    try:
+        page.wait_for_function(
+            "() => document.querySelector('#nav-jobs')?.textContent.trim() === 'En curso'",
+            timeout=3000)
+    except Exception:  # el check siguiente registra el fallo y deja evidencia
+        pass
     f.check(badge().strip() == "En curso", f"1 trabajo → «En curso» (vi «{badge()}»)")
     f.shot("01-en-curso")
 
@@ -1071,7 +1085,8 @@ def main() -> int:
               "    python -m playwright install chromium")
         return 2
 
-    # Datos DESECHABLES: las pruebas jamás tocan el tablero real de Adri.
+    # Sandbox parcial: el proceso puede importar configuración raíz y acceder
+    # a recursos externos. Ejecutar solo en copia aislada y entorno controlado.
     sandbox = OUT / "sandbox"
     if sandbox.exists():
         shutil.rmtree(sandbox, ignore_errors=True)
@@ -1134,18 +1149,21 @@ def main() -> int:
             {"method": r.method, "url": r.url.replace(base, ""), "ok": True})
             if "/api/" in r.url else None)
         page.on("pageerror", lambda e: console.append({"type": "pageerror", "text": str(e)[:300]}))
+        ws_job_ids: set[str] = set()
+        hud_ws_url = base.replace("http://", "ws://", 1) + "/ws"
+        def on_hud_socket(ws):
+            if ws.url == hud_ws_url:
+                ws.on("framereceived", lambda payload: ws_job_ids.update(
+                    _job_ids_from_frame(payload)))
+        page.on("websocket", on_hud_socket)
         page.goto(base, wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
-        if any("WebSocket" in c["text"] for c in console):
-            print("  ⚠ El WebSocket del HUD no conecta (¿falta el paquete «websockets»?).\n"
-                  "    Las pruebas siguen: el HUD también refresca por API, pero en vivo\n"
-                  "    el indicador tardaría más en pintarse.")
-
         for fn in (flujo_tareas, flujo_multitarea, flujo_orquestacion, flujo_sidebar,
                    flujo_cerebro, flujo_apis, flujo_contentos, flujo_reels, flujo_competencia):
             print(f"\n▸ Flujo: {fn.__doc__.splitlines()[0]}")
             try:
-                flows.append(fn(page, base))
+                flows.append(fn(page, base, ws_job_ids) if fn is flujo_multitarea
+                             else fn(page, base))
             except Exception as exc:                      # noqa: BLE001
                 f = Flow(fn.__name__, page, base)
                 f.error = f"{type(exc).__name__}: {exc}"

@@ -1,80 +1,29 @@
-# Pruebas end-to-end de nexus (Playwright)
+# Pruebas E2E de nexus (Playwright)
 
-> Specs v23, TAREAS 22 y 23. Aquí no vale que «el código compile», que «la API
-> responda» ni que «el componente se renderice»: se arranca nexus DE VERDAD, se
-> abre el HUD real en Chromium y se hacen los flujos como los haría Adri.
+**No ejecutar este runner en un checkout activo con datos o configuración reales.** El código define nueve flujos; en esta actualización no se han ejecutado. Un resultado `passed` solo respaldaría las comprobaciones concretas del flujo en el entorno utilizado, no el funcionamiento de todas las integraciones.
 
-## Cómo se ejecuta
+## Antes de cualquier ejecución
 
-```bat
-cd D:\Adrian\22. Proyectos\NEXUS\nexus
-.venv\Scripts\python -m pip install playwright
-.venv\Scripts\python -m playwright install chromium
-.venv\Scripts\python tests\e2e\run_e2e.py
-```
+El runner inicia uvicorn y Chromium, crea y borra `data/e2e/sandbox/` y `data/e2e/evidencias/`, y escribe informes en `data/e2e/`. Define `NEXUS_DATA_DIR`, `NEXUS_CONFIG_DIR` y `NEXUS_E2E=1`, pero **no garantiza aislamiento**: la configuración del backend puede importar el `.env` de la raíz y el arranque puede acceder a otros recursos o servicios. No se puede afirmar que nunca toque configuración o datos reales. Solo considerar instalación de dependencias y ejecución tras aprobación específica, en una copia aislada y un entorno controlado, sin credenciales, datos ni servicios reales expuestos. No hay una receta universal segura para ejecutar este runner tal como está.
 
-Para verlo con tus ojos, en una ventana de navegador:
+## Alcance del código (no resultado de esta sesión)
 
-```bat
-.venv\Scripts\python tests\e2e\run_e2e.py --headed
-```
-
-Sale con código 0 solo si TODOS los flujos quedan en `passed`.
-
-## Qué hace por dentro
-
-1. Crea una caja de arena en `data/e2e/sandbox/` y arranca uvicorn con
-   `NEXUS_DATA_DIR` y `NEXUS_CONFIG_DIR` apuntando ahí: **jamás toca tu tablero,
-   tu memoria ni tu configuración reales**.
-2. Escribe una configuración mínima (`setup_done`, modelo `mock`, voz apagada,
-   Hermes apagado) para que las pruebas no dependan de ningún servicio externo
-   y sean reproducibles en otro equipo.
-3. Registra la ruta de pruebas `POST /api/_e2e/job` — que **solo existe** cuando
-   el servidor arranca con `NEXUS_E2E=1` — para poder lanzar trabajos de duración
-   controlada y comprobar el indicador de Multitarea en la interfaz real.
-4. Abre el HUD en Chromium y ejecuta los flujos.
-5. Guarda las evidencias en `data/e2e/`.
-
-## Evidencias que deja cada ejecución
-
-| Archivo | Qué es |
+| Flujo | Qué comprueba y con qué evidencia |
 |---|---|
-| `report.md` / `report.json` | resultado `passed`/`failed` de cada flujo, paso a paso |
-| `evidencias/*.png` | capturas de cada hito y de CADA fallo |
-| `trace.zip` | traza completa de Playwright (ábrela con `playwright show-trace`) |
-| `consola.json` | log de consola del navegador |
-| `red.json` | peticiones de red a la API |
-| `servidor.log` | salida del nexus arrancado para la prueba |
-| `report.json → estado_antes/estado_despues` | estado del tablero y de los trabajos antes y después |
+| `tareas-borrado-papelera` | Crea, completa, borra con confirmación y restaura tareas; órdenes y estados mediante API, con capturas del tablero HUD. No demuestra todo el recorrido mediante controles de interfaz. |
+| `multitarea-sidebar` | Trabajos sintéticos por `POST /api/_e2e/job`, indicador y panel HUD; exige recibir en `/ws` una trama `jobs` que contenga el ID del primer trabajo creado, además de las comprobaciones de interfaz. La API también se usa para duplicados y estados. |
+| `orquestacion-requestid` | Identidad, cancelación y consulta de trabajos mediante API; no acredita la ejecución de un proveedor externo. |
+| `sidebar-iconos` | SVG, colores, estados activo/hover y temas mediante comprobaciones DOM del HUD. |
+| `cerebro-modelo` | Coherencia entre mensajes, estado de runtime y configuración del modelo; puede intentar consultar el runtime disponible en el entorno. No certifica disponibilidad universal del modelo. |
+| `config-apis` | Menú y campos de configuración visibles en el HUD; no valida claves ni llamadas reales a proveedores. |
+| `content-os` | Secciones y fichas desplegables con un plan sembrado por la prueba, no publicaciones obtenidas de un servicio externo. |
+| `reels` | Visualización de un análisis calculado con datos sintéticos; no consulta Instagram en vivo. |
+| `competencia` | Pestaña, comparativas, límites y fichas con rivales sintéticos; no valida descubrimiento ni consultas reales a Meta. |
 
-## Flujos cubiertos hoy
+La ruta `_e2e/job` se registra solo cuando `NEXUS_E2E=1`. Una petición WebSocket emitida por el navegador no demuestra conexión: el flujo Multitarea requiere una trama entrante `jobs` con el ID recién creado. Las comprobaciones de tareas y orquestación son en gran parte **asistidas por API**; capturas o texto DOM no convierten esas órdenes en interacciones completas de usuario.
 
-- **`tareas-borrado-papelera`** — crear tareas, completar dos, pedir «limpia las
-  tareas ya realizadas», comprobar que **pide confirmación** y no borra nada,
-  decir que no, volver a pedirlo, confirmar, comprobar que **solo se van las
-  completadas**, ver la papelera y **restaurarlas** a su columna. También el
-  borrado por título con su confirmación.
-- **`multitarea-sidebar`** — lanzar trabajos y ver el indicador del sidebar
-  pasar por `En curso` → `2` → `✓` → `!`, que un duplicado se bloquea, que el
-  panel muestra el estado real, el progreso y los archivos creados, y que un
-  trabajo fallido **nunca** aparece como completado.
-- **`orquestacion-requestid`** — cada ejecución nace con su identificador, se
-  registra el agente y la petición original, cancelar mata la publicación del
-  resultado (nada de respuestas fantasma) y el operador puede consultar y
-  cancelar lo que hay en marcha.
+## Evidencias y límites
 
-## Flujos todavía NO cubiertos
+Si se ejecuta en un entorno autorizado, el runner deja `report.md`, `report.json`, `evidencias/*.png`, `trace.zip`, `consola.json`, `red.json` y `servidor.log` bajo `data/e2e/`. El código de salida es 0 cuando todos los flujos registrados pasan, y distinto de 0 si falla alguno. Los pendientes del informe significan **cobertura E2E ausente**, no que la función no exista: memoria tras reinicio, voz con audio del navegador, archivos por interfaz y encargo real contra Hermes. TV funciona según el propietario, pero **no está cubierta** por estos flujos. Tampoco se validan efectos reales de proveedores ni dispositivos mediante las fixtures.
 
-Salen listados al final de `report.md` como **pendientes**, nunca como pasados,
-porque su funcionalidad aún no está hecha: memoria de Engram (T4), voz (T7),
-color de los iconos del sidebar (T17), archivos reales (T18-T21) y un encargo
-real de punta a punta contra el gateway de Hermes.
-
-## Si algo falla
-
-- `nexus no ha llegado a arrancar` → mira `data/e2e/servidor.log`.
-- El navegador no carga el HUD → suele ser un proxy; el runner ya arranca
-  Chromium con `--proxy-server=direct://`.
-- Aviso de WebSocket → falta el paquete `websockets` (`pip install websockets`);
-  las pruebas siguen porque el HUD también refresca por API, pero en el uso real
-  el indicador tarda más en pintarse.
+Un fallo de WebSocket puede tener varias causas; no presuponga que solo falta un paquete. Consultar `servidor.log`, `consola.json` y `report.json` únicamente en el entorno aislado autorizado; un refresco por API no sustituye la recepción de una trama `jobs`.
