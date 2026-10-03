@@ -6,13 +6,15 @@ HONESTOS: que con poca muestra no se sienta cátedra, que la mediana aguanta un
 viral, y que un «outlier» lo es respecto a la propia cuenta y no respecto a nada
 inventado.
 
-Ejecutar:  python tests/test_inteligencia.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_inteligencia.py    (desde la carpeta nexus)
 """
 import importlib.util
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
+# Fail closed: la suite no puede importar backend (config raíz y .env).
+sys.modules["backend"] = None
 _fail = []
 _pass = 0
 

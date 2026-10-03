@@ -13,13 +13,16 @@ Y los módulos completos: retención, distribución, conversión y comparación 
 reels anteriores. Cuando la API no da un dato, el informe tiene que DECIRLO, no
 rellenarlo.
 
-Ejecutar:  python tests/test_instagram_analisis.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_analisis.py    (desde la carpeta nexus)
 """
 import importlib.util
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
+# Fail closed: sin backend, ruta_umbrales() no carga config/.env y usa el
+# config/umbrales.json versionado.
+sys.modules["backend"] = None
 _fail = []
 _pass = 0
 
