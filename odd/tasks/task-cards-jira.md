@@ -26,6 +26,7 @@ Branch: harden-nexus-boundaries. Owner request (2026-10-03): tasks must be descr
   urgency reason, sender, subject, date and Gmail link (`sourceUrl`).
 - [x] J4 (commit 680a9c8) — Promo group title with count and per-sender breakdown, updated on append; description lines per mail with
   sender, subject, date, link.
+- [x] J6 (commit cdd6e69; native review review-08360a59381fb4a1 approved+acknowledged, medium, 1 lens, warnings skill.py:1217 and test_inbox_scale.py:256-257; verifier: run_all green, hermetic E2E 9/9 twice, journeys 20/0, browser keyboard/panel check incl. refresh keeps panel open after a caught regression) — Minor follow-ups (owner, 2026-10-03): word-boundary title cap (~90 chars, ellipsis); `_remitente` cleans 'Name <addr>'; detail panel closes on view change; cards keyboard-focusable (Enter/Space opens panel); generic mail titles made explicit deterministically (append subject/sender when the title names neither).
 - [ ] J5 — Docs, independent verification (run_all, hermetic E2E), native review per commit.
 
 ## Evidence
