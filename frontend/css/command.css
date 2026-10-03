@@ -1678,3 +1678,12 @@ textarea.ha-in{resize:vertical;min-height:40px;font-family:ui-monospace,monospac
 #kn-reset:hover{border-color:var(--cy);color:var(--cy)}
 /* al arrastrar un nodo el cursor lo dice, como en Obsidian */
 .knode:active{cursor:grabbing}
+
+/* franja de KPIs de tareas (vista Tareas) */
+.kpistrip{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px}
+.kpistrip .kchip{border:1px solid var(--line);border-radius:4px;padding:3px 8px;font-size:11px;color:var(--txt-dim);background:var(--panel2)}
+.kpistrip .kchip b{color:#eaf6ff;margin-left:3px;font-variant-numeric:tabular-nums}
+.kpistrip .kmain{font-size:12px}
+.kpistrip .kbad{border-color:var(--err);color:var(--err)}
+.kpistrip .kbad b{color:var(--err)}
+.kpistrip .ksep{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--txt-dim);margin-left:8px}

@@ -715,6 +715,13 @@ async def api_board():
     return board.board()
 
 
+@app.get("/api/board/kpis")
+async def api_board_kpis():
+    """KPIs de las tareas abiertas: por tipo, urgencia, origen y vencimientos."""
+    from backend.core.dominio import board
+    return board.kpis()
+
+
 @app.get("/api/hardware")
 async def api_hardware():
     """Inventario completo del equipo: CPU, GPU, RAM, disco, placa, audio, red.

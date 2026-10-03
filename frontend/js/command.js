@@ -133,6 +133,7 @@ window.orbHTML = orbHTML;
     const [status, skills, config, board] = await Promise.all([
       api('/api/status'), api('/api/skills'), api('/api/config'), api('/api/board')]);
     state.status = status || {}; state.skills = skills || []; state.config = config || {}; state.board = board || {};
+    await refreshKpis(false);                                  // KPIs de tareas: si fallan, la franja no se pinta
     applyBranding();                                        // white-label: nombre y logo del sistema
     window.__sinkId = state.config.output_sink_id || '';   // dispositivo de salida elegido
     if (status?.metrics) { state.metrics = status.metrics; updateMetrics(); }
@@ -907,11 +908,31 @@ window.orbHTML = orbHTML;
       </div>`; }).join('')}
     </div>`;
 
+  // Franja de KPIs sobre el kanban (datos de /api/board/kpis). Sin datos → no se pinta.
+  const KPI_URG = [['critica', 'Crítica'], ['alta', 'Alta'], ['media', 'Media'], ['baja', 'Baja']];
+  function kpiStrip() {
+    const k = state.kpis;
+    if (!k || typeof k !== 'object') return '';
+    const n = (v) => Number(v) || 0;
+    const chips = (map, labels) => labels.filter(([key]) => n((map || {})[key]) > 0)
+      .map(([key, label]) => `<span class="kchip">${esc(label)} <b>${n(map[key])}</b></span>`).join('');
+    const types = Object.keys(k.by_type || {}).map((x) => [x, x.charAt(0).toUpperCase() + x.slice(1)]);
+    return `<div class="kpistrip">
+      <span class="kchip kmain">Abiertas <b>${n(k.open)}</b></span>
+      <span class="kchip kmain${n(k.overdue) ? ' kbad' : ''}">Vencidas <b>${n(k.overdue)}</b></span>
+      <span class="kchip kmain">Vencen pronto <b>${n(k.due_soon)}</b></span>
+      <span class="kchip kmain">Sin fecha <b>${n(k.no_due)}</b></span>
+      <span class="ksep">Urgencia</span>${chips(k.by_urgency, KPI_URG)}
+      <span class="ksep">Tipo</span>${chips(k.by_type, types)}
+    </div>`;
+  }
+
   views.tasks = () => {
     const b = state.board || {}, S = [['pendiente', 'TO DO'], ['progreso', 'IN PROGRESS'], ['revision', 'REVIEW'], ['completada', 'DONE']];
     const today = new Date().toISOString().slice(0, 10);
     return `<div class="section-title">Tareas</div><div class="section-sub">Kanban con toques de atención. <b>Arrastra una tarjeta a otra columna</b>, usa las flechas, o muévelas por voz.</div>
-      <div class="kanban" style="height:calc(100vh - 250px)">
+      ${kpiStrip()}
+      <div class="kanban" style="height:calc(100vh - 300px)">
         ${S.map(([s, label], idx) => `<div class="kcol" data-s="${s}"><h3>${label}<span>${(b[s] || []).length}</span></h3>
           <div class="cards" data-s="${s}">${(b[s] || []).map((t) => {
       const late = t.due && t.due < today && s !== 'completada';
@@ -928,12 +949,25 @@ window.orbHTML = orbHTML;
   // El tablero también cambia por chat/voz/correo: vuelve a pedirlo y repinta solo si cambió
   // (así no se pisa una edición o confirmación inline cuando no hay nada nuevo).
   async function refreshBoard() {
+    const kpiChanged = await refreshKpis(false);
     try {
       const b = await api('/api/board');
-      if (JSON.stringify(b) === JSON.stringify(state.board)) return;
+      if (JSON.stringify(b) === JSON.stringify(state.board) && !kpiChanged) return;
       state.board = b;
       if (current === 'tasks') render('tasks');
     } catch (e) { /* sin red: se queda lo que había */ }
+  }
+
+  // KPIs de tareas: si falla la petición se conservan los últimos datos (el tablero no se rompe).
+  // Devuelve true si cambiaron; con repaint=true repinta la vista Tareas por su cuenta.
+  async function refreshKpis(repaint = true) {
+    try {
+      const k = await api('/api/board/kpis');
+      if (!k || typeof k !== 'object' || JSON.stringify(k) === JSON.stringify(state.kpis)) return false;
+      state.kpis = k;
+      if (repaint && current === 'tasks') render('tasks');
+      return true;
+    } catch (e) { return false; }
   }
 
   // Mueve una tarea de columna (drag&drop o flechas) → persiste en el backend y repinta.
@@ -942,6 +976,7 @@ window.orbHTML = orbHTML;
     try {
       await api('/api/board/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, state: state_ }) });
       state.board = await api('/api/board');
+      await refreshKpis(false);
       render('tasks');
     } catch (e) { /* */ }
   }
@@ -966,7 +1001,7 @@ window.orbHTML = orbHTML;
     km.querySelector('.kno').addEventListener('click', () => render('tasks'));
     km.querySelector('.kyes').addEventListener('click', async () => {
       await api('/api/board/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: card.dataset.id }) });
-      state.board = await api('/api/board'); render('tasks');
+      state.board = await api('/api/board'); await refreshKpis(false); render('tasks');
     });
   }
 
@@ -986,7 +1021,7 @@ window.orbHTML = orbHTML;
     card.querySelector('.kesave').addEventListener('click', async () => {
       const title = ti.value.trim(); if (!title) { ti.focus(); return; }
       await api('/api/board/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, title, due: de.value || '' }) });
-      state.board = await api('/api/board'); render('tasks');
+      state.board = await api('/api/board'); await refreshKpis(false); render('tasks');
     });
     ti.focus();
   }

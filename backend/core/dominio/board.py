@@ -506,22 +506,60 @@ def board() -> dict:
     return {s: [t for t in tasks if t["state"] == s] for s in STATES}
 
 
-def overdue(days_soon: int = 2) -> tuple[list[dict], list[dict]]:
-    """(vencidas, a punto de vencer) entre las no completadas."""
-    today = dt.date.today()
+CLOSED_STATES = ("completada", "cancelada", "archivada")
+
+
+def _parse_due(task: dict) -> dt.date | None:
+    """Fecha de vencimiento de la tarea, o None si falta o no es una fecha ISO válida."""
+    try:
+        return dt.date.fromisoformat(task["due"]) if task.get("due") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _split_due(tasks: list[dict], today: dt.date, days_soon: int):
+    """(vencidas, a punto de vencer) entre las tareas abiertas de `tasks`."""
     late, soon = [], []
-    for t in _load():
-        if t["state"] in ("completada", "cancelada", "archivada") or not t.get("due"):
+    for t in tasks:
+        if t["state"] in CLOSED_STATES:
             continue
-        try:
-            due = dt.date.fromisoformat(t["due"])
-        except ValueError:
+        due = _parse_due(t)
+        if due is None:
             continue
         if due < today:
             late.append(t)
         elif (due - today).days <= days_soon:
             soon.append(t)
     return late, soon
+
+
+def overdue(days_soon: int = 2) -> tuple[list[dict], list[dict]]:
+    """(vencidas, a punto de vencer) entre las no completadas."""
+    return _split_due(_load(), dt.date.today(), days_soon)
+
+
+def kpis(days_soon: int = 2, today: dt.date | None = None) -> dict:
+    """KPIs de las tareas ABIERTAS (ni completada/cancelada/archivada ni en papelera).
+
+    Claves estables: todos los valores de TYPES/URGENCIES/SOURCES salen siempre (con 0).
+    `due_soon` = vence entre hoy y hoy+days_soon, sin estar vencida; una fecha ausente
+    o inválida cuenta en `no_due`. `done` = tareas en 'completada'."""
+    today = today or dt.date.today()
+    tasks = [t for t in _load() if not t.get("deletedAt")]
+    open_ = [t for t in tasks if t["state"] not in CLOSED_STATES]
+    late, soon = _split_due(open_, today, days_soon)
+    by_type = {k: 0 for k in TYPES}
+    by_urgency = {k: 0 for k in URGENCIES}
+    by_source = {k: 0 for k in SOURCES}
+    for t in open_:
+        by_type[t["type"]] += 1
+        by_urgency[t["urgency"]] += 1
+        by_source[t["source"]] += 1
+    return {"open": len(open_),
+            "done": sum(1 for t in tasks if t["state"] == "completada"),
+            "by_type": by_type, "by_urgency": by_urgency, "by_source": by_source,
+            "overdue": len(late), "due_soon": len(soon),
+            "no_due": sum(1 for t in open_ if _parse_due(t) is None)}
 
 
 def snooze(query: str, hours: float = 2.0) -> dict | None:
