@@ -87,7 +87,19 @@ after = {t["id"]: t["key"] for t in raw()}
 check(all(after[k] == v for k, v in first.items()), "migrated keys persisted unchanged on save")
 check(len(set(after.values())) == 5 and "NX-13" in after.values(), f"{after}")
 
-print("== 5) find_task by key ==")
+print("== 5) deleting one migrated keyless task keeps survivor's exposed key ==")
+fresh()
+legacy = [{"id": "old-a", "title": "legacy a", "state": "pendiente", "created": "2026-01-01"},
+          {"id": "old-b", "title": "legacy b", "state": "pendiente", "created": "2026-01-02"}]
+board.BOARD_FILE.parent.mkdir(parents=True, exist_ok=True)
+board.BOARD_FILE.write_text(json.dumps(legacy), encoding="utf-8")
+exposed = {t["id"]: t["key"] for t in board.board()["pendiente"]}
+board.delete_task("old-a")
+survivor = board.find_task("old-b")
+check(survivor and survivor["key"] == exposed["old-b"],
+      f"survivor key changed from {exposed.get('old-b')} to {survivor and survivor.get('key')}")
+
+print("== 6) find_task by key ==")
 fresh()
 t = board.add_task("buscar por clave")
 check(board.find_task("nx-1")["id"] == t["id"], "lowercase key")

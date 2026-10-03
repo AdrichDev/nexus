@@ -208,7 +208,10 @@ def _load() -> list[dict]:
     if BOARD_FILE.exists():
         try:
             tasks = [_migrate(t) for t in json.loads(BOARD_FILE.read_text(encoding="utf-8"))]
+            needs_key = any(not _key_num(t.get("key")) for t in tasks)
             _assign_keys(tasks)
+            if needs_key:
+                _save(tasks)
             return tasks
         except Exception:
             pass
