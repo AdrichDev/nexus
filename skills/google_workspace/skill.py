@@ -450,10 +450,14 @@ def _fetch_emails(limit: int = 5, only_unread: bool = False) -> list[dict]:
     for item in res.get("messages", []):
         msg = svc.users().messages().get(userId="me", id=item["id"],
                                          format="metadata",
-                                         metadataHeaders=["From", "Subject"]).execute()
+                                         metadataHeaders=["From", "Subject", "Date"]).execute()
         headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
+        addr = re.search(r"<([^>]*)>", headers.get("From", ""))
         out.append({"id": item["id"],
                     "from": re.sub(r"<.*?>", "", headers.get("From", "?")).strip(),
+                    "from_addr": addr.group(1).strip() if addr else "",
+                    "date": headers.get("Date", ""),
+                    "internal_ms": msg.get("internalDate", ""),
                     "subject": headers.get("Subject", "(sin asunto)"),
                     "snippet": msg.get("snippet", "")[:120],
                     "unread": "UNREAD" in msg.get("labelIds", [])})
@@ -1127,7 +1131,7 @@ _CAUSE_LABEL = {"api_disabled": "API de {api} desactivada", "auth": "autorizaci�
 def _create_everywhere(title: str, due_date: str | None, notes: str,
                        priority: str = "alta", *, task_type: str = "",
                        urgency: str = "", source_id: str = "",
-                       causes: list | None = None) -> str:
+                       causes: list | None = None, source_url: str = "") -> str:
     """Crea la tarea en GOOGLE (Calendar si hay fecha, si no Tasks) Y en el TABLERO
     INTERNO de nexus. Devuelve un texto con los destinos donde quedó guardada.
     `causes` (opcional): si se pasa una lista, se le añade (code, text_es) por cada fallo
@@ -1151,7 +1155,7 @@ def _create_everywhere(title: str, due_date: str | None, notes: str,
         from backend.core.dominio import board
         board.add_task(title, due=due_date, priority=priority, tag="correo",
                        description=notes, source="correo", source_id=source_id,
-                       task_type=task_type, urgency=urgency)
+                       task_type=task_type, urgency=urgency, source_url=source_url)
         dests.append("tablero interno")
     except Exception as exc:                                   # noqa: BLE001
         dests.append(f"(tablero falló: {type(exc).__name__})")
@@ -1159,7 +1163,67 @@ def _create_everywhere(title: str, due_date: str | None, notes: str,
 
 
 _PROMO_GROUP_ID = "promociones"
-_PROMO_TITLE = "Revisar promociones"
+_PROMO_TITLE = "Revisar promociones"        # call-compatibility label; the real title is built by the board
+_URGENCY_LABEL = {"critica": "CRÍTICA", "alta": "ALTA", "media": "MEDIA", "baja": "BAJA"}
+
+
+def _remitente(m: dict) -> str:
+    """Readable sender of a mail: display name without quotes; the plain address when the
+    mail has no display name; a generic label when there is neither."""
+    from backend.core.dominio import board
+    name = str(m.get("from") or "").replace('"', " ").replace("'", " ").strip()
+    if not name or "@" in name:
+        return name or str(m.get("from_addr") or "").strip() or "remitente desconocido"
+    return board.clean_sender(name, limit=80)
+
+
+def _fmt_plazo(fecha: str | None) -> str:
+    """YYYY-MM-DD -> dd/mm/aaaa; anything else is shown as given; empty -> «sin plazo indicado»."""
+    f = (fecha or "").strip()
+    if not f:
+        return "sin plazo indicado"
+    try:
+        return dt.date.fromisoformat(f).strftime("%d/%m/%Y")
+    except ValueError:
+        return f
+
+
+def _mail_when(m: dict, with_time: bool = True) -> str:
+    """Reception date of a mail (dd/mm/aaaa [HH:MM]) from its Date header, else Gmail's
+    internalDate; "" when neither is usable."""
+    raw = str(m.get("date") or "").strip()
+    d = None
+    if raw:
+        try:
+            from email.utils import parsedate_to_datetime
+            d = parsedate_to_datetime(raw)
+        except (TypeError, ValueError, IndexError):
+            d = None
+    if d is None:
+        try:
+            d = dt.datetime.fromtimestamp(int(m.get("internal_ms")) / 1000)
+        except (TypeError, ValueError, OverflowError, OSError):
+            return ""
+    return d.strftime("%d/%m/%Y %H:%M" if with_time else "%d/%m/%Y")
+
+
+def _email_description(m: dict, a: dict, fecha: str | None, urg: str) -> str:
+    """Structured Spanish description of a mail-born task (also used for Google notes)."""
+    from backend.core.dominio import board
+    que = (a.get("resumen") or "").strip() or (a.get("motivo") or "").strip() or (
+        "el modelo no dio resumen; abre el correo para ver qué se pide")
+    motivo = (a.get("motivo") or "").strip() or "sin motivo indicado"
+    lines = [f"Qué pide: {que}",
+             f"Plazo: {_fmt_plazo(fecha)}",
+             f"Urgencia: {_URGENCY_LABEL.get(urg, urg.upper())} — {motivo}",
+             f"De: {_remitente(m)}",
+             f"Asunto: {m.get('subject', '')}"]
+    recibido = _mail_when(m)
+    if recibido:
+        lines.append(f"Recibido: {recibido}")
+    if m.get("id"):
+        lines.append(f"Correo: {board.gmail_url(m['id'])}")
+    return "\n".join(lines)
 
 
 def _es_promocional(a: dict) -> bool:
@@ -1304,7 +1368,9 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                 try:
                     grupo, n_nuevos = await asyncio.to_thread(
                         _board.add_to_group, "correo", _PROMO_GROUP_ID,
-                        [(m.get("id", ""), f"• {m['from']} — {m['subject']}") for m, _a in promos],
+                        [{"id": m.get("id", ""), "from": m.get("from", ""),
+                          "from_addr": m.get("from_addr", ""), "subject": m.get("subject", ""),
+                          "date": _mail_when(m, with_time=False)} for m, _a in promos],
                         _PROMO_TITLE, task_type="revisar", urgency="baja", tag="correo")
                     convertidos += [m.get("id", "") for m, _a in promos]
                     total_grupo = len(grupo.get("sourceIds", []))
@@ -1342,15 +1408,17 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                 creadas = []
                 causas: list = []
                 for m, a in acts:
-                    titulo = (a.get("tarea") or "").strip() or f"Tratar correo de {m['from']}: {m['subject']}"
+                    titulo = ((a.get("tarea") or "").strip()
+                              or f"Atender correo de {_remitente(m)}: {m['subject']}")[:120]
                     fecha = (a.get("fecha") or "").strip() or None
                     prio = "alta" if (a.get("urgente") or a.get("importancia") == "alta") else "media"
-                    notas = f"De {m['from']} — Asunto: {m['subject']}"
                     tipo, urg = _email_task_fields(a)
+                    notas = _email_description(m, a, fecha, urg)
                     destinos = await asyncio.to_thread(
                         _create_everywhere, titulo, fecha, notas, prio,
                         task_type=tipo, urgency=urg, source_id=m.get("id", ""),
-                        causes=causas)
+                        causes=causas,
+                        source_url=_board.gmail_url(m["id"]) if m.get("id") else "")
                     creadas.append((titulo, fecha, destinos))
                     if "tablero interno" in destinos:       # saved on the board at least
                         convertidos.append(m.get("id", ""))
@@ -1532,6 +1600,13 @@ def _sin_tildes(s: str) -> str:
                    if unicodedata.category(c) != "Mn")
 
 
+def _alerta_titulo(m: dict, marca: str) -> str:
+    """Explicit title of the safety-net task raised by an urgent mark (no model answer)."""
+    seguridad = any(w in _sin_tildes(marca) for w in ("seguridad", "security", "acceso", "sospechosa"))
+    que = "Revisar alerta de seguridad" if seguridad else "Revisar alerta urgente"
+    return f"{que}: {m.get('subject', '')} ({_remitente(m)})"[:120]
+
+
 def _marca_urgente(m: dict) -> str:
     """La marca que dispara en el remitente o el asunto, o "" si ninguna.
     Deliberadamente NO mira el cuerpo: un boletín que cite «alerta de seguridad»
@@ -1568,7 +1643,8 @@ async def _analyze_emails(msgs: list[dict]) -> tuple[list[dict], list[int]]:
         if a is None:                          # el modelo ni lo miró: lo levantamos nosotros
             por_indice[i] = {"i": i, "urgente": True, "importancia": "alta",
                              "accionable": True, "fecha": "",
-                             "tarea": f"Revisar correo de {m.get('from', '')}: {m.get('subject', '')}"[:120],
+                             "tarea": _alerta_titulo(m, marca),
+                             "resumen": "",
                              "motivo": f"marca «{marca}» en el asunto"}
         else:
             if not a.get("urgente"):           # dijo que no; la marca pesa más
@@ -1602,7 +1678,10 @@ async def _analyze_batch(msgs: list[dict]) -> list[dict]:
         "(asunto + contenido), no por palabras sueltas. Devuelve SOLO un JSON válido: un array "
         "con un objeto por correo, en el MISMO orden, con estas claves exactas: "
         '{"i": entero (índice del correo), "urgente": true|false, "importancia": "alta"|"media"|"baja", '
-        '"accionable": true|false, "tarea": "título breve en imperativo de lo que hay que hacer, o cadena vacía", '
+        '"accionable": true|false, "tarea": "título CONCRETO: verbo en imperativo + objeto concreto + contexto o remitente, '
+        'máximo 90 caracteres (p. ej. «Pagar factura de luz de Iberdrola»); NUNCA genérico como '
+        '«Revisar correo»; cadena vacía si no es accionable", '
+        '"resumen": "1-2 frases: qué pide el correo y, si los hay, plazo e importe", '
         '"fecha": "YYYY-MM-DD si el correo implica una fecha/plazo, o cadena vacía", '
         '"motivo": "5-10 palabras", '
         '"tipo": "responder"|"hacer"|"pagar"|"asistir"|"revisar"|"esperar", '

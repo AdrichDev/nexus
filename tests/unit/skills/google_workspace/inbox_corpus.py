@@ -240,3 +240,15 @@ PROMO_MARKED = _p(220, "Academia Marketing Pro <hola@marketingpro.example>",
                   "Reclamar acceso al curso")
 assert len({r["id"] for r in PROMO + PROMO_LATE + PROMO_NEXT + [PROMO_MARKED]}) == 7
 assert not {r["id"] for r in PROMO + PROMO_LATE + [PROMO_MARKED]} & {r["id"] for r in CORPUS}
+
+
+# ---- J3/J4: expected rendering of mail-born tasks (fake Gmail Date header = MAIL_DATE_HDR) ----
+GMAIL_URL = "https://mail.google.com/mail/u/0/#all/"
+MAIL_DATE_HDR = "Fri, 03 Oct 2026 09:30:00 +0200"      # default of fake_gmail.mail()
+MAIL_DAY, MAIL_WHEN = "03/10/2026", "03/10/2026 09:30"
+
+
+def promo_block(row) -> str:
+    """Expected description block of one grouped promo mail (arrival order, with Gmail link)."""
+    sender = row["frm"].split("<")[0].strip()
+    return f"• {sender} — {row['subject']} ({MAIL_DAY})\n  {GMAIL_URL}{row['id']}"

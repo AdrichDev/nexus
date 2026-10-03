@@ -24,6 +24,7 @@ unread, are re-analyzed on every run and keep occupying part of the cap window.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import importlib.util
 import json
 import os
@@ -43,8 +44,13 @@ os.environ["NEXUS_CONFIG_DIR"] = os.path.join(TMP, "config")
 
 from backend.core.dominio import board  # noqa: E402
 from fake_gmail import FakeGoogle, GMAIL_READS, GMAIL_WRITES, mail  # noqa: E402
-from inbox_corpus import (ACTIONABLE, CORPUS, NEW5, PROMO, PROMO_LATE, PROMO_MARKED,  # noqa: E402
-                          PROMO_NEXT, TODAY)
+from inbox_corpus import (ACTIONABLE, CORPUS, GMAIL_URL, MAIL_WHEN, NEW5, PROMO,  # noqa: E402
+                          PROMO_LATE, PROMO_MARKED, PROMO_NEXT, TODAY, promo_block)
+
+PROMO_TITLE_3 = "3 correos promocionales sin leer: Academia Marketing Pro (2), TiendaModa (1)"
+# 4 senders would be 115 chars: cut at the 110 limit with the remainder counted.
+PROMO_TITLE_5 = ("5 correos promocionales sin leer: Academia Marketing Pro (2), Boletín Growth (1)"
+                 " y 2 remitentes más")
 
 board.BOARD_FILE = board.DATA_DIR / "board.json"
 board.TRASH_FILE = board.DATA_DIR / "board_trash.json"
@@ -144,6 +150,7 @@ class StubLLM:
         d = {"i": j, "urgente": row["urgente"], "importancia": row["importancia"],
              "accionable": row["accionable"] and not self.force_noaction,
              "tarea": row["title"], "fecha": row["fecha"], "motivo": "stub",
+             "resumen": f"Resumen stub: {row['subject']}",
              "tipo": row["tipo"], "urgencia": row["urgencia"]}
         if row.get("promocional") and not self.omit_promo:
             d["promocional"] = True             # non-promo rows emit no key at all (old shape)
@@ -247,8 +254,18 @@ def verify_tasks(label, google, expected_rows, *, extra_ids=()):
                 r["title"], r["tipo"], r["urgency_expected"] if "urgency_expected" in r else r["urgencia"],
                 r["fecha"] or None, "correo"):
             bad.append((mid, t["title"], t["type"], t["urgency"], t["due"]))
-        if r["subject"] not in t["description"] or sender_name(r["frm"]) not in t["description"]:
-            bad.append((mid, "notes", t["description"]))
+        # J3: structured description (what it asks, deadline, urgency, sender, subject, date, link)
+        urg = r["urgency_expected"] if "urgency_expected" in r else r["urgencia"]
+        plazo = (dt.date.fromisoformat(r["fecha"]).strftime("%d/%m/%Y") if r["fecha"]
+                 else "sin plazo indicado")
+        want = [f"Qué pide: Resumen stub: {r['subject']}", f"Plazo: {plazo}",
+                f"Urgencia: {urg.upper().replace('CRITICA', 'CRÍTICA')} — stub",
+                f"De: {sender_name(r['frm'])}", f"Asunto: {r['subject']}",
+                f"Recibido: {MAIL_WHEN}", f"Correo: {GMAIL_URL}{mid}"]
+        if t["description"].split("\n") != want:
+            bad.append((mid, "description", t["description"]))
+        if t.get("sourceUrl") != f"{GMAIL_URL}{mid}":
+            bad.append((mid, "sourceUrl", t.get("sourceUrl")))
     check(not bad, f"{label}: wrong task fields {bad[:3]}")
     n_dated = sum(1 for mid, t in got.items() if t["due"])
     n_undated = len(got) - n_dated
@@ -528,7 +545,9 @@ check(set(got) == exp_ids, f"garbage: tasks {sorted(set(got) ^ exp_ids)}")
 check("5 de 30 se han quedado SIN clasificar" in reply, f"garbage: unclassified count: {reply[-200:]}")
 check("11 tarea(s) creadas" in reply, f"garbage: 11 created: {reply[:80]}")
 net = got["m08"]
-check(net["title"] == "Revisar correo de Monitor Infra: [ALERTA] disco al 98% en srv-db01"
+check(net["title"] == "Revisar alerta urgente: [ALERTA] disco al 98% en srv-db01 (Monitor Infra)"
+      and net["sourceUrl"] == GMAIL_URL + "m08" and "Correo: " + GMAIL_URL + "m08" in net["description"]
+      and "Plazo: sin plazo indicado" in net["description"] and "Urgencia: CRÍTICA" in net["description"]
       and net["urgency"] == "critica" and net["type"] == "hacer" and net["due"] is None,
       f"garbage: safety-net task for [ALERTA]: {net}")
 check(not (set(got) & {"m07", "m09", "m10"}), "garbage: nothing invented for unclassified")
@@ -565,7 +584,8 @@ got = tasks_by_source()
 exp_ids = {r["id"] for r in VISIBLE if r["accionable"]} - {"m25"}
 check(set(got) == exp_ids, f"raise: tasks {sorted(set(got) ^ exp_ids)}")
 check("5 de 30 se han quedado SIN clasificar" in reply, f"raise: {reply[-170:]}")
-check(got["m26"]["title"].startswith("Revisar correo de Aguas Municipales: Factura vencida")
+check(got["m26"]["title"].startswith("Revisar alerta urgente: Factura vencida")
+      and got["m26"]["title"].endswith("(Aguas Municipales)")
       and got["m26"]["urgency"] == "critica" and got["m26"]["due"] is None,
       f"raise: net task for m26: {got['m26']}")
 check(got["m23"]["title"] == "Asistir a la demo con el cliente", "raise: previous batches survive")
@@ -754,16 +774,17 @@ grp = groups()
 check(len(grp) == 1 and len(board._load()) == 23, f"T5d: 22 individual + ONE group: {len(board._load())}")
 check(not (set(tasks_by_source()) & set(PROMO_IDS)), "T5d: no promo mail has its own task")
 t8 = grp[0]
-check(t8["title"] == "Revisar promociones (3)" and t8["type"] == "revisar" and t8["urgency"] == "baja"
+check(t8["title"] == PROMO_TITLE_3 and t8["type"] == "revisar" and t8["urgency"] == "baja"
       and t8["due"] is None and t8["source"] == "correo" and t8["state"] == "pendiente",
       f"T5d: group fields {t8['title']} {t8['type']} {t8['urgency']} {t8['due']}")
 check(sorted(t8["sourceIds"]) == sorted(PROMO_IDS), f"T5d: sourceIds {t8['sourceIds']}")
-check(all(f"• {sender_name(r['frm'])} — {r['subject']}" in t8["description"].split("\n") for r in PROMO)
-      and len(t8["description"].split("\n")) == 3, f"T5d: description {t8['description']!r}")
+check(t8["description"] == "\n".join(promo_block(r) for r in PROMO)
+      and len(t8["groupItems"]) == 3 and t8["sourceUrl"] == "",
+      f"T5d: description {t8['description']!r}")
 check(len(g.events) == 8 and len(g.tasks) == 14 and not any("promo" in t["title"].lower() for t in g.tasks),
       f"T5d: NOTHING inserted in Google for the group: {len(g.events)}/{len(g.tasks)}")
 check("22 tarea(s) creadas" in r8 and "3 promoción(es) agrupadas en UNA sola tarea" in r8
-      and "Revisar promociones (3)" in r8 and "no las he convertido en tareas individuales" in r8
+      and PROMO_TITLE_3 in r8 and "no las he convertido en tareas individuales" in r8
       and "ni las he creado en Google" in r8, f"T5d reply: {r8[-420:]}")
 only_indiv = r8.split("tarea(s) creadas:")[1].split("📣")[0]
 check(not any(r["subject"] in only_indiv or "directo" in only_indiv for r in PROMO),
@@ -790,7 +811,7 @@ r8b = run_job(g, s8b)
 seen8b = {i for _c, _j, i in s8b.seen}
 check(not (seen8b & set(PROMO_IDS)), f"T5d rerun: grouped mails never reach the LLM: {seen8b & set(PROMO_IDS)}")
 check(not (set(body_read_ids(g)[reads8:]) & set(PROMO_IDS)), "T5d rerun: grouped bodies not re-read")
-check(len(board._load()) == 23 and groups()[0]["title"] == "Revisar promociones (3)"
+check(len(board._load()) == 23 and groups()[0]["title"] == PROMO_TITLE_3
       and groups()[0]["sourceIds"] == t8["sourceIds"] and groups()[0]["description"] == t8["description"],
       "T5d rerun: group untouched")
 check(ins8 == (len(g.inserts("calendar.events.insert")), len(g.inserts("tasks.tasks.insert"))),
@@ -804,11 +825,12 @@ g.messages = {**{r["id"]: to_mail(r) for r in PROMO_LATE}, **g.messages}
 s8c = StubLLM(ALLP)
 r8c = run_job(g, s8c)
 grp = groups()
-check(len(grp) == 1 and grp[0]["title"] == "Revisar promociones (5)"
+check(len(grp) == 1 and grp[0]["title"] == PROMO_TITLE_5
       and sorted(grp[0]["sourceIds"]) == sorted(PROMO_IDS + [r["id"] for r in PROMO_LATE]),
       f"T5d append: {[(t['title'], t['sourceIds']) for t in grp]}")
-check(len(grp[0]["description"].split("\n")) == 5 and grp[0]["description"].startswith(t8["description"])
-      and "Masterclass gratuita este jueves" in grp[0]["description"],
+check(grp[0]["description"] == "\n".join(promo_block(r) for r in PROMO + PROMO_LATE)
+      and grp[0]["description"].startswith(t8["description"]) and len(grp[0]["groupItems"]) == 5
+      and grp[0]["description"].count(GMAIL_URL) == 5,
       f"T5d append: description grows: {grp[0]['description']!r}")
 check(len(board._load()) == 23 and {i for _c, _j, i in s8c.seen} & set(PROMO_IDS) == set(),
       "T5d append: no extra task; old grouped mails not re-analyzed")
@@ -823,10 +845,10 @@ g.messages = {**{r["id"]: to_mail(r) for r in PROMO_NEXT}, **g.messages}
 r8d = run_job(g, StubLLM(ALLP))
 grp = groups()
 open_g = [t for t in grp if t["state"] != "completada"]
-check(len(grp) == 2 and len(open_g) == 1 and open_g[0]["title"] == "Revisar promociones (1)"
+check(len(grp) == 2 and len(open_g) == 1 and open_g[0]["title"] == "1 correo promocional sin leer: Escuela Online (1)"
       and open_g[0]["sourceIds"] == ["m230"], f"T5d completed: new group {[(t['title'], t['state']) for t in grp]}")
 done_g = [t for t in grp if t["state"] == "completada"][0]
-check(done_g["title"] == "Revisar promociones (5)" and len(done_g["sourceIds"]) == 5,
+check(done_g["title"] == PROMO_TITLE_5 and len(done_g["sourceIds"]) == 5,
       "T5d completed: closed group is not touched")
 check("1 promoción(es) agrupadas" in r8d, f"T5d completed reply: {r8d[:200]}")
 # group trashed -> promos start a new group again (trashed does not count as handled)
@@ -847,7 +869,7 @@ r8f = run_job(g, StubLLM(ALLP))
 tm = tasks_by_source()
 g8 = (groups() or [{"sourceIds": [], "title": ""}])[0]
 check(tm.get("m220", {}).get("urgency") == "critica" and tm["m220"]["title"] == PROMO_MARKED["title"]
-      and "m220" not in g8["sourceIds"] and g8["title"] == "Revisar promociones (3)",
+      and "m220" not in g8["sourceIds"] and g8["title"] == PROMO_TITLE_3,
       f"T5d mark wins: {tm.get('m220')} group={g8['sourceIds']}")
 check(len(g.tasks) == 1 and "1 tarea(s) creadas" in r8f,
       f"T5d mark wins: Google gets only the marked mail: {len(g.tasks)}")

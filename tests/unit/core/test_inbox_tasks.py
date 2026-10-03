@@ -163,6 +163,12 @@ check(a1.get("source") == "correo" and a1.get("type") == "pagar" and a1.get("urg
       f"e1 pattern: {a1}")
 check("Factura" in a1.get("description", "") and "a@x.com" in a1.get("description", ""),
       f"e1 notes kept: {a1.get('description')!r}")
+check(a1.get("description") == chr(10).join([
+    "Qué pide: el modelo no dio resumen; abre el correo para ver qué se pide", "Plazo: 01/08/2026",
+    "Urgencia: CRÍTICA — sin motivo indicado", "De: a@x.com", "Asunto: Factura",
+    "Correo: https://mail.google.com/mail/u/0/#all/e1"]), f"J3 e1 description: {a1.get('description')!r}")
+check(a1.get("sourceUrl") == "https://mail.google.com/mail/u/0/#all/e1"
+      and a2.get("sourceUrl") == "https://mail.google.com/mail/u/0/#all/e2", "J3 sourceUrl stored on the board")
 check(a2.get("type") == "hacer" and a2.get("urgency") == "media" and a2.get("source") == "correo",
       f"e2 defaults/derived: {a2}")
 check(calls == {"event": 1, "task": 1}, f"google calls first run: {calls}")
@@ -229,31 +235,105 @@ check(board.add_task("x", source="correo", source_id="z")["sourceIds"] == [], "a
 
 fresh()
 G, T = "promociones", "Revisar promociones"
-t, n = board.add_to_group("correo", G, [("p1", "• A — uno"), ("p2", "• B — dos"), ("", "• sin id"), ("p1", "dup")],
+URL = "https://mail.google.com/mail/u/0/#all/"
+
+
+def E(i, frm, subj, date="03/10/2026", addr=""):
+    return {"id": i, "from": frm, "from_addr": addr, "subject": subj, "date": date}
+
+
+def block(frm, subj, i, date="03/10/2026"):
+    return f"• {frm} — {subj} ({date})\n  {URL}{i}"
+
+
+t, n = board.add_to_group("correo", G, [E("p1", "A", "uno"), E("p2", "B", "dos"), E("", "Z", "sin id"),
+                                         E("p1", "A", "dup")],
                           T, task_type="revisar", urgency="baja", tag="correo")
-check(n == 2 and t["title"] == "Revisar promociones (2)" and t["sourceIds"] == ["p1", "p2"]
-      and t["description"] == "• A — uno\n• B — dos" and t["sourceId"] == G and t["source"] == "correo",
-      f"create: {n} {t}")
+check(n == 2 and t["title"] == "2 correos promocionales sin leer: A (1), B (1)" and t["sourceIds"] == ["p1", "p2"]
+      and t["description"] == block("A", "uno", "p1") + "\n" + block("B", "dos", "p2")
+      and t["sourceId"] == G and t["source"] == "correo", f"create: {n} {t}")
+check(t["groupItems"] == [{"id": "p1", "from": "A", "subject": "uno", "date": "03/10/2026"},
+                          {"id": "p2", "from": "B", "subject": "dos", "date": "03/10/2026"}],
+      f"groupItems stored: {t['groupItems']}")
 check(t["type"] == "revisar" and t["urgency"] == "baja" and t["priority"] == "baja" and t["due"] is None,
       "group fields revisar/baja, no due")
 check(len(board._load()) == 1, "one stored group")
 check((board.find_by_source("correo", "p2") or {}).get("id") == t["id"], "find_by_source matches a grouped id")
 check(board.find_by_source("correo", "p3") is None, "find_by_source: id not in group misses")
 check(board.find_by_source("manual", "p2") is None, "find_by_source: other source misses")
-t2, n2 = board.add_to_group("correo", G, [("p2", "dup"), ("p3", "• C — tres")], T, task_type="revisar",
-                            urgency="baja")
-check(n2 == 1 and t2["id"] == t["id"] and t2["title"] == "Revisar promociones (3)"
-      and t2["sourceIds"] == ["p1", "p2", "p3"] and t2["description"].endswith("• C — tres")
-      and len(board._load()) == 1, f"append: {n2} {t2['title']} {t2['sourceIds']}")
-_, n3 = board.add_to_group("correo", G, [("p1", "dup"), ("p3", "dup")], T)
-check(n3 == 0 and board._load()[0]["title"] == "Revisar promociones (3)", "nothing new: no change")
+# append: title/description are RECOMPUTED from all items; a duplicate id is not added twice
+t2, n2 = board.add_to_group("correo", G, [E("p2", "B", "dup"), E("p3", "A", "tres", "04/10/2026")], T,
+                            task_type="revisar", urgency="baja")
+check(n2 == 1 and t2["id"] == t["id"] and t2["title"] == "3 correos promocionales sin leer: A (2), B (1)"
+      and t2["sourceIds"] == ["p1", "p2", "p3"]
+      and t2["description"] == "\n".join([block("A", "uno", "p1"), block("B", "dos", "p2"),
+                                          block("A", "tres", "p3", "04/10/2026")])
+      and t2["description"].count(URL) == 3 and len(board._load()) == 1,
+      f"append: {n2} {t2['title']} {t2['sourceIds']} {t2['description']!r}")
+before = board._load()[0]
+_, n3 = board.add_to_group("correo", G, [E("p1", "A", "x"), E("p3", "A", "x")], T)
+check(n3 == 0 and board._load()[0] == before, "nothing new: no change (no duplicate blocks)")
 _, n4 = board.add_to_group("correo", "otro", [], T)
 check(n4 == 0 and len(board._load()) == 1, "empty entries never create a group")
+
+# title: sorted by count desc then name; cleaned names; singular; domain fallback
+ti = board.promo_group_title
+mk = lambda *names: [{"id": f"i{k}", "from": nm} for k, nm in enumerate(names)]
+check(ti(mk("Zeta", "Beta", "Zeta", "Alfa", "Zeta", "Beta"))
+      == "6 correos promocionales sin leer: Zeta (3), Beta (2), Alfa (1)", "title ordering count desc, name asc")
+check(ti(mk("beta", "Alfa")) == "2 correos promocionales sin leer: Alfa (1), beta (1)", "title: name tie-break case-insensitive")
+check(ti(mk("Solo")) == "1 correo promocional sin leer: Solo (1)", "title: singular")
+check(board.clean_sender('"AIlink" <hi@ailink.io>') == "AIlink" and board.clean_sender("'Ana  Gomez'") == "Ana Gomez"
+      and board.clean_sender("news@shop.example") == "shop.example"
+      and board.clean_sender("", "Shop <x@shop.example>") == "shop.example"
+      and board.clean_sender("") == "Remitente desconocido", "clean_sender: quotes/emails/domain fallback")
+check("@" not in board.promo_group_title(
+    board.add_to_group("correo", "g-clean", [E("c1", "<a@b.io>", "s", addr="a@b.io"),
+                                              E("c2", '"Ana" <ana@x.io>', "s")], T)[0]["groupItems"]),
+      "no e-mail leaks into the title")
+many = [f"Remitente largo numero {k:02d}" for k in range(9)]
+long_t = ti(mk(*many))
+check(len(long_t) <= board.PROMO_TITLE_MAX and long_t.startswith("9 correos promocionales sin leer: Remitente largo numero 00 (1)")
+      and long_t.endswith(" remitentes más") and " y " in long_t, f"title truncated: {long_t!r} ({len(long_t)})")
+check(ti(mk("Uno", "Dos", "Tres")) == "3 correos promocionales sin leer: Dos (1), Tres (1), Uno (1)",
+      "title: short lists are not truncated")
+one_more = ti(mk(*(many[:3] + ["Z" * 30, "Y" * 30, "X" * 30])))
+check(len(one_more) <= board.PROMO_TITLE_MAX and "remitentes más" in one_more, f"truncation suffix plural: {one_more!r}")
+
+# legacy group (no groupItems; one description line per id) migrates safely on append
+fresh()
+legacy = {"id": "lg1", "title": "Revisar promociones (2)", "state": "pendiente", "tag": "correo",
+          "priority": "baja", "source": "correo", "sourceId": G, "sourceIds": ["o1", "o2"],
+          "description": "• Vieja — uno\n• Otra — dos", "type": "revisar", "urgency": "baja"}
+board.BOARD_FILE.parent.mkdir(parents=True, exist_ok=True)
+board.BOARD_FILE.write_text(json.dumps([legacy]), encoding="utf-8")
+check(board._load()[0]["groupItems"] == [] and board._load()[0]["sourceUrl"] == "", "legacy group loads with defaults")
+tl, nl = board.add_to_group("correo", G, [E("o1", "Vieja", "dup"), E("o3", "Nueva", "tres")], T)
+check(nl == 1 and tl["id"] == "lg1" and tl["sourceIds"] == ["o1", "o2", "o3"]
+      and tl["title"] == "3 correos promocionales sin leer: Nueva (1), Otra (1), Vieja (1)"
+      and tl["description"] == "\n".join(["• Vieja — uno\n  " + URL + "o1", "• Otra — dos\n  " + URL + "o2",
+                                          block("Nueva", "tres", "o3")])
+      and [x["id"] for x in tl["groupItems"]] == ["o1", "o2", "o3"], f"legacy migrated: {tl}")
+# legacy group whose description does not match the ids: never crashes, keeps every id
+fresh()
+board.BOARD_FILE.write_text(json.dumps([{**legacy, "description": "texto libre"}]), encoding="utf-8")
+tl2, nl2 = board.add_to_group("correo", G, [E("o9", "Nueva", "nueve")], T)
+check(nl2 == 1 and tl2["sourceIds"] == ["o1", "o2", "o9"] and tl2["description"].count(URL) == 3
+      and tl2["title"].startswith("3 correos promocionales sin leer: "), f"legacy mismatch safe: {tl2}")
+
+# source_url: stored when given, empty by default
+fresh()
+check(board.add_task("x", source="correo", source_id="z", source_url=URL + "z")["sourceUrl"] == URL + "z"
+      and board.add_task("y")["sourceUrl"] == "", "add_task source_url stored; default empty")
+
 # a closed group (completada) is not appended to; ids stay handled; a NEW group starts
+fresh()
+t, _ = board.add_to_group("correo", G, [E("p1", "A", "uno"), E("p2", "B", "dos"), E("p3", "A", "tres")], T,
+                          task_type="revisar", urgency="baja")
 board.move_task(t["id"], "completada")
 check(board.find_by_source("correo", "p1") is not None, "done group still counts as handled")
-t5, n5 = board.add_to_group("correo", G, [("p4", "• D — cuatro")], T, task_type="revisar", urgency="baja")
-check(n5 == 1 and t5["id"] != t["id"] and t5["title"] == "Revisar promociones (1)"
+t5, n5 = board.add_to_group("correo", G, [E("p4", "D", "cuatro")], T, task_type="revisar", urgency="baja")
+check(n5 == 1 and t5["id"] != t["id"] and t5["title"] == "1 correo promocional sin leer: D (1)"
       and len(board._load()) == 2 and [x for x in board._load() if x["id"] == t["id"]][0]["sourceIds"] == ["p1", "p2", "p3"],
       "completed group untouched, new group created")
 for st in ("cancelada", "archivada"):
@@ -262,16 +342,22 @@ for st in ("cancelada", "archivada"):
         if x["id"] == t5["id"]:
             x["state"] = st
     board._save(tasks)
-    t6, n6 = board.add_to_group("correo", G, [("p9", "• Z — nueve")], T)
+    t6, n6 = board.add_to_group("correo", G, [E("p9", "Z", "nueve")], T)
     check(n6 == 1 and t6["id"] != t5["id"], f"{st} group is closed too")
     board.soft_delete([t6], reason="test")
 # trashed group is ignored: not matched, not appended to
 fresh()
-t7, _ = board.add_to_group("correo", G, [("q1", "• Q — uno")], T)
+t7, _ = board.add_to_group("correo", G, [E("q1", "Q", "uno")], T)
 board.soft_delete([t7], reason="test")
 check(board.find_by_source("correo", "q1") is None, "trashed group: ids no longer count as handled")
-t8, n8 = board.add_to_group("correo", G, [("q1", "• Q — uno")], T, task_type="revisar", urgency="baja")
-check(n8 == 1 and t8["id"] != t7["id"] and t8["title"] == "Revisar promociones (1)", "trashed group ignored: new group")
+t8, n8 = board.add_to_group("correo", G, [E("q1", "Q", "uno")], T, task_type="revisar", urgency="baja")
+check(n8 == 1 and t8["id"] != t7["id"] and t8["title"] == "1 correo promocional sin leer: Q (1)", "trashed group ignored: new group")
+# legacy (id, line) tuples are still accepted
+fresh()
+tt, nt = board.add_to_group("correo", G, [("l1", "• Viejo — x")], T)
+check(nt == 1 and tt["description"] == "• Viejo — x\n  " + URL + "l1", f"legacy tuple entries: {tt['description']!r}")
+fresh()
+t7, _ = board.add_to_group("correo", G, [E("q1", "Q", "uno")], T, task_type="revisar", urgency="baja")
 # KPIs: the group is ONE open revisar/baja task
 k = board.kpis()
 check(k["open"] == 1 and k["by_type"]["revisar"] == 1 and k["by_urgency"]["baja"] == 1, f"kpis: {k}")

@@ -25,7 +25,8 @@ def b64(text: str) -> str:
     return base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii")
 
 
-def mail(mid, sender, subject, plain, *, multipart=False, unread=True, html_only=False):
+def mail(mid, sender, subject, plain, *, multipart=False, unread=True, html_only=False,
+         date="Fri, 03 Oct 2026 09:30:00 +0200"):
     """A Gmail `users.messages` resource as the API returns it for format=full."""
     if html_only:                 # no text/plain part at all: the reader falls back to the snippet
         payload = {"mimeType": "text/html", "body": {"data": b64("<html><body><p>" + plain + "</p></body></html>")}}
@@ -38,8 +39,11 @@ def mail(mid, sender, subject, plain, *, multipart=False, unread=True, html_only
         payload = {"mimeType": "text/plain", "body": {"data": b64(plain)}}
     payload["headers"] = [{"name": "From", "value": sender},
                           {"name": "Subject", "value": subject}]
+    if date:                       # RFC 2822 Date header; date="" -> absent (internalDate only)
+        payload["headers"].append({"name": "Date", "value": date})
     return {"id": mid, "threadId": "t" + mid, "snippet": plain[:100],
-            "labelIds": ["INBOX"] + (["UNREAD"] if unread else []), "payload": payload}
+            "labelIds": ["INBOX"] + (["UNREAD"] if unread else []), "payload": payload,
+            "internalDate": "1790000000000"}
 
 
 class _Call:
@@ -137,7 +141,8 @@ class FakeGoogle:
             keep = set(kw.get("metadataHeaders") or [])
             hdrs = [h for h in m["payload"]["headers"] if h["name"] in keep]
             return {"id": m["id"], "snippet": m["snippet"], "labelIds": m["labelIds"],
-                    "payload": {"headers": hdrs}}
+                    "payload": {"headers": hdrs},
+                    "internalDate": m.get("internalDate", "")}
         return m
 
     def _insert_event(self, kw):

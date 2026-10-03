@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import unicodedata
 import uuid
 
@@ -150,6 +151,11 @@ def _migrate(t: dict) -> dict:
     # Old tasks have none; a malformed value is reset rather than trusted.
     if not isinstance(t.get("sourceIds"), list):
         t["sourceIds"] = []
+    # Per-mail data of a grouped task (rebuilds title/description) and the origin link.
+    if not isinstance(t.get("groupItems"), list):
+        t["groupItems"] = []
+    if not isinstance(t.get("sourceUrl"), str):
+        t["sourceUrl"] = ""
     return t
 
 
@@ -382,7 +388,8 @@ def add_task(title: str, due: str | None = None, priority: str = "media",
              description: str = "", reminder_at: str = "",
              source_conversation_id: str = "", due_end: str = "",
              task_type: str = "", urgency: str = "", source: str = "",
-             source_id: str = "", source_ids: list | None = None) -> dict:
+             source_id: str = "", source_ids: list | None = None,
+             source_url: str = "", group_items: list | None = None) -> dict:
     """kind: 'accion' (trabajo a realizar: crear una web) | 'evento' (cita de
     calendario: reunión, mentoría — normalmente con HORA en time_at 'HH:MM').
     No es lo mismo hacer que asistir: se guardan y se muestran distinto.
@@ -400,6 +407,8 @@ def add_task(title: str, due: str | None = None, priority: str = "media",
             "source": source if source in SOURCES else "manual",
             "sourceId": (source_id or "").strip(),
             "sourceIds": [str(x).strip() for x in (source_ids or []) if str(x).strip()],
+            "sourceUrl": (source_url or "").strip(),
+            "groupItems": list(group_items or []),
             "time": time_at or None, "kind": kind if kind in ("accion", "evento") else "accion",
             "created": dt.date.today().isoformat(), "nudged": None,
             # Último día del rango, inclusive. None = la tarea ocupa un solo día.
@@ -439,39 +448,153 @@ def find_by_source(source: str, source_id: str) -> dict | None:
 _CLOSED_STATES = ("completada", "cancelada", "archivada")
 
 
-def add_to_group(source: str, group_id: str, entries: list[tuple[str, str]], title_base: str,
+GMAIL_URL = "https://mail.google.com/mail/u/0/#all/"
+PROMO_TITLE_MAX = 110
+_UNKNOWN_SENDER = "Remitente desconocido"
+
+
+def gmail_url(message_id: str) -> str:
+    """Gmail web link of one message."""
+    return GMAIL_URL + str(message_id or "").strip()
+
+
+def clean_sender(name: str, address: str = "", limit: int = 40) -> str:
+    """Display name of a sender without quotes, angle brackets or e-mail addresses. When
+    nothing readable is left, falls back to the address domain, then to a generic label."""
+    n = re.sub(r"<[^>]*>", " ", str(name or ""))
+    n = n.replace('"', " ").replace("'", " ").strip()
+    if "@" in n:                                   # a bare address is not a display name
+        address = address or n
+        n = ""
+    n = re.sub(r"\s+", " ", n).strip(" ,;")
+    if not n:
+        m = re.search(r"@([\w.-]+)", str(address or ""))
+        n = m.group(1) if m else ""
+    return (n[:limit].rstrip() if n else _UNKNOWN_SENDER)
+
+
+def _group_item(entry) -> dict | None:
+    """Normalize an add_to_group entry: a dict {id, from, from_addr, subject, date} or the
+    legacy (id, line) tuple. None when it has no id."""
+    if isinstance(entry, dict):
+        sid = str(entry.get("id") or "").strip()
+        if not sid:
+            return None
+        return {"id": sid,
+                "from": clean_sender(entry.get("from", ""), entry.get("from_addr", "")),
+                "subject": str(entry.get("subject") or "").strip(),
+                "date": str(entry.get("date") or "").strip()}
+    sid, line = entry
+    sid = str(sid or "").strip()
+    if not sid:
+        return None
+    return {"id": sid, "line": str(line or ""), "from": _legacy_sender(str(line or "")),
+            "subject": "", "date": ""}
+
+
+def _legacy_sender(line: str) -> str:
+    m = re.match(r"^\W*(.*?)\s+—\s", line)
+    return clean_sender(m.group(1)) if m else _UNKNOWN_SENDER
+
+
+def _stored_group_items(group: dict) -> list[dict]:
+    """Per-mail items of an existing group. Groups saved before `groupItems` existed are
+    rebuilt from sourceIds and, when there is exactly one description line per id, from it."""
+    ids = [str(i) for i in group.get("sourceIds", [])]
+    items = [dict(x) for x in group.get("groupItems", [])
+             if isinstance(x, dict) and str(x.get("id") or "").strip()]
+    have = {x["id"] for x in items}
+    if items and not [i for i in ids if i not in have]:
+        return items
+    lines = [ln for ln in str(group.get("description") or "").split("\n")
+             if ln.strip() and not ln.startswith(" ")]
+    legacy_ok = (not items) and len(lines) == len(ids)
+    for k, sid in enumerate(ids):
+        if sid in have:
+            continue
+        if legacy_ok:
+            items.append({"id": sid, "line": lines[k], "from": _legacy_sender(lines[k]),
+                          "subject": "", "date": ""})
+        else:
+            items.append({"id": sid, "from": _UNKNOWN_SENDER, "subject": "", "date": ""})
+    return items
+
+
+def promo_group_title(items: list[dict]) -> str:
+    """"<N> correos promocionales sin leer: A (n1), B (n2) y K remitentes más" — senders by
+    count desc then name, cut so the title stays within PROMO_TITLE_MAX characters."""
+    n = len(items)
+    head = "1 correo promocional sin leer" if n == 1 else f"{n} correos promocionales sin leer"
+    counts: dict[str, int] = {}
+    for it in items:
+        counts[it.get("from") or _UNKNOWN_SENDER] = counts.get(it.get("from") or _UNKNOWN_SENDER, 0) + 1
+    ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+    parts = [f"{name} ({c})" for name, c in ordered]
+    if not parts:
+        return head
+    best = 1
+    for k in range(1, len(parts) + 1):
+        rest = len(parts) - k
+        cand = f"{head}: " + ", ".join(parts[:k]) + (f" y {rest} remitente{'s' if rest != 1 else ''} más" if rest else "")
+        if len(cand) <= PROMO_TITLE_MAX:
+            best = k
+    rest = len(parts) - best
+    return (f"{head}: " + ", ".join(parts[:best])
+            + (f" y {rest} remitente{'s' if rest != 1 else ''} más" if rest else ""))
+
+
+def promo_group_description(items: list[dict]) -> str:
+    """One block per mail, in arrival order: bullet line + Gmail link."""
+    blocks = []
+    for it in items:
+        if it.get("line"):
+            head = it["line"]
+        else:
+            head = f"• {it.get('from') or _UNKNOWN_SENDER} — {it.get('subject') or '(sin asunto)'}"
+            if it.get("date"):
+                head += f" ({it['date']})"
+        blocks.append(f"{head}\n  {gmail_url(it['id'])}")
+    return "\n".join(blocks)
+
+
+def add_to_group(source: str, group_id: str, entries: list, title_base: str = "",
                  *, task_type: str = "", urgency: str = "", tag: str = "") -> tuple[dict, int]:
-    """Append (source_id, description line) entries to the OPEN grouped task of `group_id`,
-    creating it when none is open. Open = state not completada/cancelada/archivada and not
-    trashed: once the group is closed, later entries start a new one. Ids already in the
-    group (or empty) are ignored. The title is `"<title_base> (N)"`, N = ids in the group.
-    One `_save` per call. Returns (task, number of entries actually added)."""
+    """Append mails to the OPEN grouped task of `group_id`, creating it when none is open.
+    Open = state not completada/cancelada/archivada and not trashed: once the group is closed,
+    later entries start a new one. Each entry is a dict {id, from, from_addr?, subject, date}
+    (or a legacy (id, line) tuple). Ids already in the group (or empty) are ignored.
+    The title ("N correos promocionales sin leer: Remitente (n), ...") and the description
+    (one block per mail with its Gmail link) are RECOMPUTED from all grouped items on every
+    append; `title_base` is kept only for call compatibility. One `_save` per call.
+    Returns (task, number of entries actually added)."""
     tasks = _load()
     group = next((t for t in tasks if t.get("source") == source and t.get("sourceId") == group_id
                   and not t.get("deletedAt") and t.get("state") not in _CLOSED_STATES), None)
-    known = set(group["sourceIds"]) if group else set()
-    fresh_entries = []
-    for sid, line in entries:
-        sid = (sid or "").strip()
-        if sid and sid not in known:
-            known.add(sid)
-            fresh_entries.append((sid, line))
+    items = _stored_group_items(group) if group else []
+    known = {x["id"] for x in items}
+    fresh_items = []
+    for entry in entries:
+        it = _group_item(entry)
+        if it and it["id"] not in known:
+            known.add(it["id"])
+            fresh_items.append(it)
     if group is None:
-        if not fresh_entries:
+        if not fresh_items:
             return {}, 0
-        task = add_task(f"{title_base} ({len(fresh_entries)})", priority="baja", tag=tag,
-                        description="\n".join(ln for _i, ln in fresh_entries), source=source,
+        task = add_task(promo_group_title(fresh_items), priority="baja", tag=tag,
+                        description=promo_group_description(fresh_items), source=source,
                         source_id=group_id, task_type=task_type, urgency=urgency,
-                        source_ids=[i for i, _l in fresh_entries])
-        return task, len(fresh_entries)
-    if fresh_entries:
-        group["sourceIds"] = list(group["sourceIds"]) + [i for i, _l in fresh_entries]
-        group["description"] = "\n".join(
-            x for x in [group.get("description", "")] + [ln for _i, ln in fresh_entries] if x)
-        group["title"] = f"{title_base} ({len(group['sourceIds'])})"
+                        source_ids=[x["id"] for x in fresh_items], group_items=fresh_items)
+        return task, len(fresh_items)
+    if fresh_items:
+        items += fresh_items
+        group["sourceIds"] = list(group["sourceIds"]) + [x["id"] for x in fresh_items]
+        group["groupItems"] = items
+        group["description"] = promo_group_description(items)
+        group["title"] = promo_group_title(items)
         group["updatedAt"] = _now()
         _save(tasks)
-    return group, len(fresh_entries)
+    return group, len(fresh_items)
 
 
 def find_task(query: str) -> dict | None:

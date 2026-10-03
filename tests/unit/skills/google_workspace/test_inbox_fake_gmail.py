@@ -84,12 +84,13 @@ sys.modules["googleapiclient.discovery"] = _disc
 from backend.core.infraestructura import llm  # noqa: E402
 from backend.core.comun.events import bus  # noqa: E402
 
-LLM = {"raw": "", "calls": 0, "boom": False, "prompts": []}
+LLM = {"raw": "", "calls": 0, "boom": False, "prompts": [], "systems": []}
 
 
 async def _fake_ask_llm(prompt, system=None, **kw):
     LLM["calls"] += 1
     LLM["prompts"].append(prompt)
+    LLM["systems"].append(system or "")
     if LLM["boom"]:
         raise RuntimeError("llm down")
     return LLM["raw"], "fake"
@@ -108,7 +109,7 @@ def fresh(google, raw="", boom=False):
         if f.exists():
             f.unlink()
     CURRENT["google"] = google
-    LLM.update(raw=raw, calls=0, boom=boom, prompts=[])
+    LLM.update(raw=raw, calls=0, boom=boom, prompts=[], systems=[])
 
 
 def run_job():
@@ -130,6 +131,7 @@ def inbox():
 # The model classifies mails 1 and 2 only; the alert (index 0) is left to the mark-based net.
 CANNED = ('Aqui va: ```json\n[{"i": 1, "urgente": false, "importancia": "media", '
           '"accionable": true, "tarea": "Entregar informe trimestral", "fecha": "2026-09-15", '
+          '"resumen": "Pide el informe trimestral antes del 15/09.", '
           '"tipo": "hacer", "urgencia": "alta", "motivo": "plazo"},'
           '{"i": 2, "urgente": false, "importancia": "baja", "accionable": false, '
           '"tarea": "", "fecha": "", "motivo": "boletin"}]\n```')
@@ -159,6 +161,24 @@ check(act.get("title") == "Entregar informe trimestral" and act.get("due") == "2
 check("Ana Gomez" in act.get("description", "") and "Entrega informe" in act.get("description", ""),
       f"actionable notes (From without <addr>, Subject): {act.get('description')!r}")
 check("<" not in act.get("description", ""), "address part stripped from notes")
+GM = "https://mail.google.com/mail/u/0/#all/"
+check(act.get("description") == chr(10).join([
+    "Qué pide: Pide el informe trimestral antes del 15/09.", "Plazo: 15/09/2026",
+    "Urgencia: ALTA — plazo", "De: Ana Gomez", "Asunto: Entrega informe",
+    "Recibido: 03/10/2026 09:30", "Correo: " + GM + "m-act"]), f"J3 description: {act.get('description')!r}")
+check(act.get("sourceUrl") == GM + "m-act" and alert.get("sourceUrl") == GM + "m-alert",
+      f"J3 sourceUrl: {act.get('sourceUrl')} {alert.get('sourceUrl')}")
+check(alert.get("title") == "Revisar alerta urgente: [ALERTA] disco al 98% (Monitor)"
+      and "Qué pide: marca «[alerta]» en el asunto" in alert.get("description", "")
+      and "Plazo: sin plazo indicado" in alert.get("description", "")
+      and "Urgencia: CRÍTICA — marca" in alert.get("description", "")
+      and alert.get("description", "").endswith("Correo: " + GM + "m-alert"),
+      f"J3 safety-net title/description: {alert.get('title')!r} {alert.get('description')!r}")
+check(g.events[0]["description"] == act["description"] and g.tasks[0]["notes"] == alert["description"],
+      f"J3 Google notes carry the same description: {g.events[0].get('description')!r} {g.tasks[0]}")
+sysp = LLM["systems"][0]
+check('"resumen"' in sysp and "verbo en imperativo + objeto concreto" in sysp and "90 caracteres" in sysp
+      and "NUNCA genérico" in sysp, "J3: classifier prompt asks for a concrete title and a summary")
 check(alert.get("source") == "correo" and alert.get("urgency") == "critica",
       f"alert mark forces critica: {alert}")
 check("[ALERTA]" in alert.get("title", ""), f"alert title built from mail: {alert.get('title')!r}")
@@ -228,6 +248,32 @@ check("❌" not in r2 and "falló" not in r2, f"rerun is not an error: {r2}")
 check(sorted(g.marked()[marks_before:]) == ["m-act", "m-alert"] and g.unread_ids() == ["m-news"],
       f"previously tasked mails are marked now (not the newsletter): {g.marked()}")
 check("He marcado como leídos 2 correo(s)" in r2, f"rerun reply states the marking: {r2}")
+
+# ── (b2) J3 fallbacks: model omits tarea/resumen/fecha; mail without Date header ───────────
+print("== b2) J3 fallbacks stay honest ==")
+g = FakeGoogle([mail("m-fb", '"Ana Gomez" <ana@corp.example>', "Contrato", "Firma el contrato.", date="")])
+fresh(g, '[{"i": 0, "urgente": false, "importancia": "media", "accionable": true, "tarea": "", '
+         '"fecha": "", "tipo": "hacer"}]')
+r = run_job()
+fb = board._load()[0]
+check(fb["title"] == "Atender correo de Ana Gomez: Contrato",
+      f"J3 fallback title: {fb['title']!r}")
+lines = fb["description"].split(chr(10))
+check(lines[0] == "Qué pide: el modelo no dio resumen; abre el correo para ver qué se pide"
+      and lines[1] == "Plazo: sin plazo indicado" and lines[2] == "Urgencia: MEDIA — sin motivo indicado"
+      and lines[3] == "De: Ana Gomez" and lines[4] == "Asunto: Contrato" and lines[-1] == "Correo: " + GM + "m-fb",
+      f"J3 fallback description: {lines}")
+import re as _re  # noqa: E402
+check(any(_re.fullmatch(r"Recibido: 2[12]/09/2026 \d\d:\d\d", ln) for ln in lines),
+      f"J3 date falls back to internalDate when no Date header: {lines}")
+check(fb["sourceUrl"] == GM + "m-fb", "J3 fallback keeps sourceUrl")
+# motivo is used as the summary when only the summary is missing
+g = FakeGoogle([mail("m-mo", "Ana <a@b.example>", "Pago", "Paga.")])
+fresh(g, '[{"i": 0, "accionable": true, "tarea": "Pagar cuota", "fecha": "2026-09-01", "motivo": "vence pronto", "urgencia": "baja"}]')
+run_job()
+mo = board._load()[0]
+check(mo["description"].split(chr(10))[0] == "Qué pide: vence pronto"
+      and "Plazo: 01/09/2026" in mo["description"], f"J3 motivo as summary fallback: {mo['description']!r}")
 
 # ── (d) garbage LLM ──────────────────────────────────────────────────────────
 print("== d) garbage LLM ==")

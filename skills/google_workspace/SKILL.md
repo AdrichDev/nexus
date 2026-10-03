@@ -137,7 +137,7 @@ reautorizar: el token que tienes guardado no incluye el permiso de Drive.
 - Al terminar una pasada del triaje con tareas (no la revisión de urgentes, que es solo
   de lectura), Nexus marca como LEÍDOS únicamente los correos ya convertidos: los que
   tienen tarea individual (guardada al menos en el tablero), los agrupados en
-  «Revisar promociones» y los que ya tenían tarea de una pasada anterior. Es una sola
+  la tarea de promociones y los que ya tenían tarea de una pasada anterior. Es una sola
   llamada a Gmail que solo quita la etiqueta UNREAD (nunca borra, añade etiquetas ni
   envía). Nunca marca los no accionables, los que el modelo no pudo clasificar ni los
   que no se pudieron guardar. Si el marcado falla, la respuesta lo dice
@@ -145,11 +145,15 @@ reautorizar: el token que tienes guardado no incluye el permiso de Drive.
   accionables siguen sin leer, así que se vuelven a analizar en cada pasada.
 - Cada tarea creada desde el correo guarda tipo (responder, hacer, pagar, asistir,
   revisar, esperar), urgencia (crítica, alta, media, baja), origen `correo`, el id
-  del correo y las notas (remitente y asunto) en la descripción.
+  del correo y una descripción estructurada (qué pide, plazo, urgencia y motivo,
+  remitente, asunto, fecha de recepción y enlace a Gmail, que también se guarda como
+  `sourceUrl`). El título es concreto: verbo + objeto + contexto o remitente.
 - Las **promociones** (marketing, cursos o regalos, directos, ofertas) no crean una
-  tarea cada una: se juntan en UNA sola tarea del tablero, «Revisar promociones (N)»,
-  urgencia baja y sin fecha, que no se crea en Google. Si la cierras, las nuevas
-  abren otra. Una marca urgente siempre gana a la promoción.
+  tarea cada una: se juntan en UNA sola tarea del tablero, con título explícito
+  «N correos promocionales sin leer: Remitente (n), …», una entrada por correo
+  (remitente, asunto, fecha y enlace) y recalculada en cada pasada; urgencia baja y
+  sin fecha, que no se crea en Google. Si la cierras, las nuevas abren otra. Una
+  marca urgente siempre gana a la promoción.
 - El análisis va **por lotes** (`correos.por_lote` en `config/umbrales.json`, 6 por
   defecto). No es un capricho: mandando los 30 de golpe son 22.000 caracteres,
   ollama corta el prompt a 4096 tokens y el modelo contesta en prosa en vez de
