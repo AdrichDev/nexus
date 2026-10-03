@@ -20,3 +20,6 @@ Run `tests/e2e/run_e2e.py` from a clean `git archive HEAD` copy with `--network 
 Last run: 9/9 flows passed in 58 s; the only console error was the blocked Google Fonts stylesheet
 (external dependency of `frontend/index.html`, harmless offline). Synthetic jobs/analytics fixtures
 apply; this is not provider or device evidence.
+
+## User-journey probe (P0-05)
+`tests/hermetic/probe_user_journeys.py` drives tasks (chat input, card arrows, trash button + inline confirm, restore) and files (create/update/versions/restore, sandbox refusal) through the real HUD in the e2e image. It prints FINDING lines for known UI defects instead of hiding them.
