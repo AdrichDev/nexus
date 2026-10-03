@@ -196,3 +196,6 @@ config/purga_local.json
 # esto no los quiere.
 iniciar-opencode-claude.bat
 iniciar-opencode-claude.ps1
+
+# ── Configuración personal de Pi (perfiles de modelos de subagentes) ─────────
+.pi/
