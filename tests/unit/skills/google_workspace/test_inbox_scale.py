@@ -14,8 +14,12 @@ FINDINGS (found by this suite, now FIXED in skill.py; assertions pin the fixed b
   F2 every reply branch states analyzed-vs-total (and already-tasked / cap) when not all were analyzed.
   F3 mails that already have a board task are skipped BEFORE their body is read or the LLM is called.
   F4 a configured urgent mark forces accionable=True and urgencia="critica" (not only `urgente`).
-Known limitation (pinned below): mails analyzed but NOT actionable have no task, so they are
-re-analyzed on every run and keep occupying the cap window (the job never marks mail read).
+T8: after a successful pass the actions job marks as READ (one batchModify removing UNREAD) ONLY the
+converted mails: individual task created (board at least), added to the promo group, or already
+tasked by an earlier run. Non-actionable / unclassified / failed-creation mails and the whole urgent
+job never write to Gmail.
+Known limitation (pinned below): mails analyzed but NOT actionable have no task, so they stay
+unread, are re-analyzed on every run and keep occupying part of the cap window.
 """
 from __future__ import annotations
 
@@ -38,7 +42,7 @@ os.environ["NEXUS_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["NEXUS_CONFIG_DIR"] = os.path.join(TMP, "config")
 
 from backend.core.dominio import board  # noqa: E402
-from fake_gmail import FakeGoogle, GMAIL_READS, mail  # noqa: E402
+from fake_gmail import FakeGoogle, GMAIL_READS, GMAIL_WRITES, mail  # noqa: E402
 from inbox_corpus import (ACTIONABLE, CORPUS, NEW5, PROMO, PROMO_LATE, PROMO_MARKED,  # noqa: E402
                           PROMO_NEXT, TODAY)
 
@@ -205,6 +209,13 @@ def human_reads(google, ids):
         google.messages[i]["labelIds"].remove("UNREAD")
 
 
+def unread_again(google, ids):
+    """Simulate an EARLIER run whose marking failed (or a human re-marking unread)."""
+    for i in ids:
+        if "UNREAD" not in google.messages[i]["labelIds"]:
+            google.messages[i]["labelIds"].append("UNREAD")
+
+
 def body_read_ids(google):
     """Ids whose full body was read through the fake Gmail (call log)."""
     return [kw.get("id") for n, kw in google.calls
@@ -252,9 +263,19 @@ def verify_tasks(label, google, expected_rows, *, extra_ids=()):
 
 
 def forbidden_guard(label, google):
+    """Gmail: reads + ONLY batchModify(remove UNREAD) (the fake enforces the exact shape), and only
+    for mails that have a board task or sit in a board group."""
     ops = {n for n in google.log if n.startswith("gmail.")}
-    check(ops <= GMAIL_READS, f"{label}: gmail ops {ops - GMAIL_READS}")
+    check(ops <= GMAIL_READS | GMAIL_WRITES, f"{label}: gmail ops {ops - GMAIL_READS - GMAIL_WRITES}")
     check(not [n for n in google.log if n.startswith("FORBIDDEN")], f"{label}: forbidden access")
+    known = set()
+    for t in board._load():
+        known.add(t["sourceId"])
+        known.update(t.get("sourceIds", []))
+    stray = set(google.marked()) - known
+    check(not stray, f"{label}: marked read without a task/group: {sorted(stray)}")
+    calls = [kw["body"]["ids"] for n, kw in google.calls if n == "gmail.messages.batchModify"]
+    check(all(len(c) == len(set(c)) for c in calls), f"{label}: an id repeated inside one batchModify")
 
 
 def expected_kpis(rows, today=TODAY, days_soon=2):
@@ -316,6 +337,11 @@ for label, setter, expect_sizes in (
     check("22 tarea(s) creadas" in reply and "SIN clasificar" not in reply, f"{label}: reply: {reply[:120]}")
     check("Alcance" not in reply, f"{label}: nothing left out -> no scope caveat: {reply[-120:]}")
     check(not set(tasks_by_source()) & set(NONACT_IDS), f"{label}: no task for non-actionable mail")
+    check(sorted(g.marked()) == sorted(r["id"] for r in ACTIONABLE),
+          f"{label}: exactly the 22 converted mails are marked read")
+    check(sorted(g.unread_ids()) == sorted(NONACT_IDS), f"{label}: the 28 non-actionable stay unread")
+    check(len(g.inserts("gmail.messages.batchModify")) == 1, f"{label}: ONE batchModify call")
+    check("He marcado como leídos 22 correo(s)" in reply, f"{label}: reply states the marking: {reply[-120:]}")
     forbidden_guard(label, g)
     healthy[label] = (dt_run, len(board._load()))
     print(f"   {label}: analyzed={analyzed} created={len(board._load())} batches={stub.batch_sizes} "
@@ -340,23 +366,38 @@ check(board._load() == [] and "ninguno pide una acción concreta" in reply_none
       and "Alcance: analizados 30 de 46 sin leer" in reply_none
       and "16 sin mirar por el tope de 30 por pasada" in reply_none,
       f"F2 nothing-actionable branch states scope + cap: {reply_none}")
+check(g.marked() == [] and "gmail.messages.batchModify" not in g.log and len(g.unread_ids()) == 46
+      and "marcado" not in reply_none.lower(), "T8: non-actionable mails are NEVER marked read")
 # skipped branch: 30 unread, 13 already tasked -> 17 analyzed (non-actionable)
 g1 = make_google(VISIBLE)
 fresh()
 run_job(g1, StubLLM(CORPUS))
+check(len(g1.unread_ids()) == 17, "1b: the 13 converted mails of the window were marked read")
+unread_again(g1, g1.marked())                # an earlier run's marking had failed: tasked mails unread again
+n_marks = len(g1.marked())
 r_skip = run_job(g1, StubLLM(CORPUS))
 check("ninguna tarea nueva, 13 correo(s) ya tenían tarea" in r_skip
       and "analizados 17 de 30 sin leer" in r_skip and "13 ya tenían tarea" in r_skip,
       f"F2 skipped branch states analyzed/total/tasked: {r_skip}")
+check(sorted(g1.marked()[n_marks:]) == sorted(r["id"] for r in VISIBLE if r["accionable"])
+      and "He marcado como leídos 13 correo(s)" in r_skip,
+      f"1b: previously tasked mails (skipped branch) get marked: {g1.marked()[n_marks:]} {r_skip[-120:]}")
 # every unread already tasked -> nothing analyzed, still honest (not 'could not analyze NONE')
 fresh()
 g2 = make_google([r for r in CORPUS if r["accionable"]])
 run_job(g2, StubLLM(CORPUS))
+check(g2.unread_ids() == [], "1b: all 22 converted -> inbox fully read")
+unread_again(g2, g2.marked())
 st = StubLLM(CORPUS)
 r_all = run_job(g2, st)
 check(st.calls == 0 and "ninguna tarea nueva, 22 correo(s) ya tenían tarea" in r_all
       and "analizados 0 de 22 sin leer" in r_all and "No he podido analizar" not in r_all,
       f"F2/F3 all-skipped branch: calls={st.calls} {r_all}")
+check(g2.unread_ids() == [] and "He marcado como leídos 22 correo(s)" in r_all,
+      f"1b: the all-skipped branch marks the previously tasked mails: {r_all[-120:]}")
+st_n = StubLLM(CORPUS)
+r_none = run_job(g2, st_n)
+check(st_n.calls == 0 and "sin correos nuevos" in r_none, f"1b: second run sees no unread, no LLM call: {r_none}")
 # urgent job: scope wording + cap only
 set_lote(6, 30)
 g = make_google(CORPUS)
@@ -370,6 +411,10 @@ set_lote(6)
 g = make_google(CORPUS)
 ur4 = run_urgent(g, StubLLM(CORPUS))
 check("Alcance" not in ur4 and "de tus 50 sin leer" in ur4, f"urgent: all 50 analyzed at default cap: {ur4[-150:]}")
+check("gmail.messages.batchModify" not in g.log and g.marked() == [] and len(g.unread_ids()) == 50
+      and {n for n in g.log if n.startswith("gmail.")} <= GMAIL_READS,
+      f"T8: the urgent job makes ZERO Gmail writes: {sorted(set(g.log))}")
+check("marcado" not in ur4.lower() and "marcar" not in ur4.lower(), f"T8: urgent reply never claims marking: {ur4[-150:]}")
 
 # ═════════════════ 2) the cap, successive runs, never-read behaviour ═════════════════
 print("== 2) per-run cap (F1) + skip already-tasked (F3) ==")
@@ -386,38 +431,57 @@ check(set(tasks_by_source()) == exp1 and n1 == len(exp1), f"cap 20: run 1 tasks 
 check("Alcance: analizados 20 de 50 sin leer" in r1 and "30 sin mirar por el tope de 20 por pasada" in r1,
       f"cap 20: honest reply about the rest: {r1[-200:]}")
 check(sorted(set(body_read_ids(g))) == sorted(first20), "cap 20: only the 20 window bodies were read")
-# run 2: tasked ones are skipped, but NON-ACTIONABLE ones keep occupying the window (pinned limitation)
+check(sorted(g.marked()) == sorted(exp1) and len(g.unread_ids()) == 50 - len(exp1),
+      f"cap 20: run 1 marks exactly the converted mails read: {sorted(g.marked())}")
+# run 2: the converted ones are now read, so the cap window ADVANCES to mails beyond the first 20
 reads_before = len(body_read_ids(g))
+win2 = [r["id"] for r in CORPUS if r["id"] not in exp1][:20]
 stub2 = StubLLM(CORPUS)
 r2 = run_job(g, stub2)
-nonact20 = [r["id"] for r in CORPUS[:20] if not r["accionable"]]
 seen2 = sorted(i for _c, _j, i in stub2.seen)
-check(seen2 == sorted(nonact20), f"limitation: run 2 re-analyzes only the non-actionable of the window: {seen2}")
-check(not (set(seen2) & exp1), "F3: run 2 sends NO already-tasked mail to the LLM")
-check(len(body_read_ids(g)) - reads_before == len(nonact20),
-      "F3: run 2 read bodies only for the not-yet-tasked mails")
-check(len(board._load()) == n1 and set(tasks_by_source()) == exp1,
-      "limitation: window never advances past non-actionable mails -> mails 21..50 never reached")
-check("ninguna tarea nueva" in r2 and f"{len(exp1)} correo(s) ya tenían tarea" in r2
-      and "Alcance: analizados" in r2 and "30 sin mirar por el tope de 20 por pasada" in r2,
-      f"run 2 reply honest: {r2[-260:]}")
-check(all("UNREAD" in m["labelIds"] for m in g.messages.values()), "job never marks mail read")
+check(seen2 == sorted(win2), f"run 2 analyzes the next 20 UNREAD mails: {seen2}")
+check(not (set(seen2) & exp1), "marked mails never reach the LLM again (no LLM call for them)")
+check(any(i not in first20 for i in win2), "the window advanced past the first 20 mails")
+check(len(body_read_ids(g)) - reads_before == 20, "run 2 read bodies only for the 20 unread window mails")
+exp2 = exp1 | {i for i in win2 if next(r for r in CORPUS if r["id"] == i)["accionable"]}
+check(set(tasks_by_source()) == exp2 and len(board._load()) == len(exp2),
+      f"run 2 tasks = run 1 + actionable of the new window: {sorted(set(tasks_by_source()) ^ exp2)}")
+check(f"Alcance: analizados 20 de {50 - len(exp1)} sin leer" in r2 and "ya tenían tarea" not in r2,
+      f"run 2 scope: {r2[-260:]}")
+check(sorted(g.marked()) == sorted(exp2), "run 2 marked the newly converted ones too")
+
+
+def simulate(cap):
+    """Ground truth of successive capped passes where converted mails leave the unread list."""
+    unread, tasked = list(CORPUS), set()
+    for _ in range(20):
+        new = {r["id"] for r in unread[:cap] if r["accionable"]}
+        if not new:
+            break
+        tasked |= new
+        unread = [r for r in unread if r["id"] not in tasked]
+    return tasked
+
+
+for _ in range(10):                          # keep running until a pass converts nothing new
+    n_before = len(board._load())
+    run_job(g, StubLLM(CORPUS))
+    if len(board._load()) == n_before:
+        break
+check(set(tasks_by_source()) == simulate(20), "capped passes reach exactly what the simulation predicts")
+check(len(g.events) + len(g.tasks) == len(board._load()), "one Google item per task: no duplicates")
+check(all(r["id"] in NONACT_IDS or r["id"] in tasks_by_source() or r["id"] in g.unread_ids() for r in CORPUS),
+      "every mail is either converted or still visible as unread")
 forbidden_guard("cap20", g)
 
-print("== 2b) the window moves on once the first ones are handled ==")
-human_reads(g, first20)                      # the human reads the 20 newest -> next run reaches the rest
-stub3 = StubLLM(CORPUS)
-r3 = run_job(g, stub3)
-check(sorted(i for _c, _j, i in stub3.seen) == sorted(r["id"] for r in CORPUS[20:40] if True),
-      "after the human read the first 20: next 20 analyzed")
-check(set(tasks_by_source()) == {r["id"] for r in CORPUS[:40] if r["accionable"]},
-      "tasks cover mails 0..39 after run 3")
-check("Alcance: analizados 20 de 30 sin leer" in r3 and "10 sin mirar" in r3, f"run 3 scope: {r3[-200:]}")
+print("== 2b) the non-actionable ones keep the window busy until a human reads them ==")
+human_reads(g, [i for i in g.unread_ids() if i in NONACT_IDS])
 set_lote(6)                                  # default cap: everything remaining at once
 run_job(g, StubLLM(CORPUS))
 check(set(tasks_by_source()) == {r["id"] for r in CORPUS if r["accionable"]} and len(board._load()) == 22,
-      "default cap: remaining mails get their tasks; 22 total, no duplicates")
+      "after the human read the rest: 22 total, no duplicates")
 check(len(g.events) == 8 and len(g.tasks) == 14, f"no duplicate Google items: {len(g.events)}/{len(g.tasks)}")
+check(g.unread_ids() == [], "everything converted or read: inbox empty")
 forbidden_guard("2b", g)
 
 # ═════════════════ 3) KPIs ═════════════════
@@ -468,6 +532,8 @@ check(net["title"] == "Revisar correo de Monitor Infra: [ALERTA] disco al 98% en
       and net["urgency"] == "critica" and net["type"] == "hacer" and net["due"] is None,
       f"garbage: safety-net task for [ALERTA]: {net}")
 check(not (set(got) & {"m07", "m09", "m10"}), "garbage: nothing invented for unclassified")
+check(sorted(g.marked()) == sorted(got) and not (set(g.marked()) & {"m06", "m07", "m09", "m10", "m11"}),
+      "T8: unclassified mails (even actionable ones) are not marked read; only the converted are")
 check(len(g.tasks) == 7 and len(g.events) == 4,
       f"garbage: inserts tasks={len(g.tasks)} events={len(g.events)}")
 others = {i: got[i] for i in got if i != "m08"}
@@ -552,6 +618,18 @@ set_lote(6)
 g = make_google(CORPUS)
 fresh()
 run_job(g, StubLLM(CORPUS))
+# 5a) natural rerun: the 22 converted mails are read, only the 28 non-actionable ones come back
+marks_n = len(g.marked())
+st_a = StubLLM(CORPUS)
+ra = run_job(g, st_a)
+check(sorted(i for _c, _j, i in st_a.seen) == sorted(NONACT_IDS) and sum(st_a.batch_sizes) == 28,
+      "T8 rerun: LLM sees ONLY the 28 unread non-actionable mails (none of the marked ones)")
+check(len(g.marked()) == marks_n and len(board._load()) == 22 and (len(g.events), len(g.tasks)) == (8, 14),
+      "T8 rerun: nothing new marked, nothing new created")
+check("ninguno pide una acción concreta" in ra and "Alcance" not in ra and "marcado" not in ra.lower(),
+      f"T8 rerun reply: {ra[-200:]}")
+# 5b) an earlier run's marking FAILED: the 22 tasked mails are unread again -> dedupe still protects
+unread_again(g, [r["id"] for r in ACTIONABLE])
 before = (len(board._load()), len(g.events), len(g.tasks))
 ins_before = (len(g.inserts("calendar.events.insert")), len(g.inserts("tasks.tasks.insert")))
 reads_before = len(body_read_ids(g))
@@ -582,8 +660,10 @@ check(len(board._load()) == 27 and len(g.events) == 10 and len(g.tasks) == 17,
 got = tasks_by_source()
 check(all(r["id"] in got and got[r["id"]]["title"] == r["title"] for r in NEW5),
       "+5 new: exactly the new mails got their tasks")
-check("5 tarea(s) creadas" in r3 and "22 correo(s) ya tenían tarea" in r3
-      and "Alcance: analizados 33 de 55 sin leer" in r3, f"+5 new reply: {r3[-230:]}")
+check("5 tarea(s) creadas" in r3 and "ya tenían tarea" not in r3 and "Alcance" not in r3,
+      f"+5 new reply (the 22 were marked read by the previous run): {r3[-230:]}")
+check(set(r["id"] for r in NEW5) <= set(g.marked()) and sorted(g.unread_ids()) == sorted(NONACT_IDS),
+      "+5 new: the new converted mails are marked, the 28 non-actionable stay unread")
 check(sum(stub3.batch_sizes) == 33 and stub3.unknown == [], f"+5 new: 33 analyzed {stub3.batch_sizes}")
 verify_tasks("+5 new", g, CORPUS + NEW5)
 forbidden_guard("rerun", g)
@@ -647,12 +727,12 @@ finally:
     gw.CONFIG_DIR = _old_cfg
 
 # ═════════════════ 7) Gmail only read (whole suite) ═════════════════
-print("== 7) Gmail read-only ==")
+print("== 7) Gmail: reads + remove-UNREAD only ==")
 forbidden_guard("full", g)
 body_reads = [kw for n, kw in g.calls if n == "gmail.messages.get" and kw.get("format") == "full"]
 check(len(body_reads) == 50, f"bodies read once per analysed mail: {len(body_reads)}")
-check(len(g.messages) == 50 and sum(1 for m in g.messages.values() if "UNREAD" in m["labelIds"]) == 50,
-      "no mail deleted; job never marked read")
+check(len(g.messages) == 50 and sorted(g.unread_ids()) == sorted(NONACT_IDS),
+      "no mail deleted; only the 22 converted were marked read")
 
 T_BASE = time.perf_counter() - T0          # the 5 s budget covers the pre-T5d scenarios
 # ═════════════════ 8) T5d: promotional mails are grouped, never one task each ═════════════════
@@ -697,6 +777,10 @@ e8["by_source"]["correo"] += 1
 e8["no_due"] += 1
 check(k8 == e8, f"T5d: KPIs count the group as ONE open revisar/baja task: {k8}")
 forbidden_guard("T5d healthy", g)
+check(sorted(g.marked()) == sorted(PROMO_IDS + [r["id"] for r in ACTIONABLE])
+      and "He marcado como leídos 25 correo(s)" in r8 and sorted(g.unread_ids()) == sorted(NONACT_IDS),
+      f"T8: 22 individual + 3 grouped promos are marked read: {len(g.marked())}")
+unread_again(g, g.marked())                  # an earlier run's marking failed -> dedupe must still hold
 
 # rerun: skipped BEFORE the body read, no LLM call for grouped mails, nothing new
 reads8 = len(body_read_ids(g))
@@ -712,6 +796,8 @@ check(len(board._load()) == 23 and groups()[0]["title"] == "Revisar promociones 
 check(ins8 == (len(g.inserts("calendar.events.insert")), len(g.inserts("tasks.tasks.insert"))),
       "T5d rerun: no Google inserts")
 check("ya tenían tarea" in r8b and "25 ya tenían tarea" in r8b, f"T5d rerun reply: {r8b[-260:]}")
+check(sorted(g.marked()[25:]) == sorted(PROMO_IDS + [r["id"] for r in ACTIONABLE])
+      and "He marcado como leídos 25 correo(s)" in r8b, "T8: grouped/tasked mails of an earlier run get marked")
 
 # new promos in a later run append to the SAME open group
 g.messages = {**{r["id"]: to_mail(r) for r in PROMO_LATE}, **g.messages}
@@ -745,6 +831,8 @@ check(done_g["title"] == "Revisar promociones (5)" and len(done_g["sourceIds"]) 
 check("1 promoción(es) agrupadas" in r8d, f"T5d completed reply: {r8d[:200]}")
 # group trashed -> promos start a new group again (trashed does not count as handled)
 board.soft_delete([open_g[0]], reason="test")
+check("m230" not in g.unread_ids(), "T8: the grouped promo was marked read")
+unread_again(g, ["m230"])                    # a human marks it unread again
 run_job(g, StubLLM(ALLP))
 grp = groups()
 check(len(grp) == 2 and sorted(t["state"] for t in grp) == ["completada", "pendiente"]
@@ -768,6 +856,7 @@ fresh()
 g = make_google([PROMO_MARKED])
 run_job(g, StubLLM([PROMO_MARKED], faults={0: ("garbage",)}))
 check([t["sourceId"] for t in board._load()] == ["m220"] and groups() == [], "T5d mark net: individual, no group")
+check(g.marked() == ["m220"], "T8: the mark-net individual task is marked read")
 
 # the model omits the key -> old behavior (one task per mail, nothing grouped)
 fresh()
@@ -780,9 +869,25 @@ fresh()
 g = make_google(PROMO)
 run_job(g, StubLLM(ALLP, override={r["subject"]: {"accionable": False} for r in PROMO}))
 check(board._load() == [], "T5d: non-actionable promo makes no task and no group")
+check(g.marked() == [] and sorted(g.unread_ids()) == sorted(PROMO_IDS), "T8: non-actionable promo is NOT marked read")
 check(gw._es_promocional({"promocional": "true"}) and gw._es_promocional({"promocional": True})
       and not gw._es_promocional({}) and not gw._es_promocional({"promocional": "false"})
       and not gw._es_promocional({"promocional": 1}), "T5d: _es_promocional contract")
+# T8: batchModify raising -> honest warning, every created task still reported, nothing marked
+fresh()
+g = make_google(CORPUS)
+g.fail_on = lambda n: n == "gmail.messages.batchModify"
+r8h = run_job(g, StubLLM(CORPUS))
+check("22 tarea(s) creadas" in r8h and "⚠️ No he podido marcar como leídos 22 correos: HttpError" in r8h
+      and "He marcado" not in r8h and len(board._load()) == 22, f"T8 failure: tasks kept, honest warning: {r8h[-200:]}")
+check(len(g.unread_ids()) == 50, "T8 failure: Gmail untouched when batchModify fails")
+n_failed = len(g.marked())                        # the attempt is logged even though it raised
+g.fail_on = None
+r8i = run_job(g, StubLLM(CORPUS))                 # the next run heals it: previously tasked mails get marked
+check(sorted(g.marked()[n_failed:]) == sorted(r["id"] for r in ACTIONABLE) and len(board._load()) == 22
+      and "He marcado como leídos 22 correo(s)" in r8i, f"T8 failure: next run marks them, no duplicates: {r8i[-200:]}")
+forbidden_guard("T8 heal", g)
+
 PROMPTS: list[str] = []
 
 

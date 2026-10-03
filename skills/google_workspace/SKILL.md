@@ -133,8 +133,16 @@ reautorizar: el token que tienes guardado no incluye el permiso de Drive.
   (threads, como tu app de Gmail). Si no se han mirado todos, la respuesta dice
   cuántos se analizaron, cuántos ya tenían tarea y cuántos quedaron fuera por el tope.
 - Los correos que YA tienen tarea en el tablero no se vuelven a leer ni a mandar
-  al modelo: repetir el análisis no duplica tareas. Nexus nunca marca correos como
-  leídos, así que los no accionables se vuelven a analizar en cada pasada.
+  al modelo: repetir el análisis no duplica tareas.
+- Al terminar una pasada del triaje con tareas (no la revisión de urgentes, que es solo
+  de lectura), Nexus marca como LEÍDOS únicamente los correos ya convertidos: los que
+  tienen tarea individual (guardada al menos en el tablero), los agrupados en
+  «Revisar promociones» y los que ya tenían tarea de una pasada anterior. Es una sola
+  llamada a Gmail que solo quita la etiqueta UNREAD (nunca borra, añade etiquetas ni
+  envía). Nunca marca los no accionables, los que el modelo no pudo clasificar ni los
+  que no se pudieron guardar. Si el marcado falla, la respuesta lo dice
+  («No he podido marcar como leídos N correos») y las tareas se conservan. Los no
+  accionables siguen sin leer, así que se vuelven a analizar en cada pasada.
 - Cada tarea creada desde el correo guarda tipo (responder, hacer, pagar, asistir,
   revisar, esperar), urgencia (crítica, alta, media, baja), origen `correo`, el id
   del correo y las notas (remitente y asunto) en la descripción.

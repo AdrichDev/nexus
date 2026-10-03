@@ -1163,6 +1163,20 @@ async def _email_urgent_job(ctx, channel: str) -> dict:
     return {"reply": reply}
 
 
+async def _mark_converted_read(ids: list[str]) -> str:
+    """Mark the converted mails as read (only removes UNREAD). Returns the line to append to
+    the reply ("" if nothing to mark). A failure NEVER raises: it is reported honestly."""
+    ids = list(dict.fromkeys(i for i in ids if i))          # dedupe, keep order
+    if not ids:
+        return ""
+    try:
+        n = await asyncio.to_thread(_mark_read, ids)
+    except Exception as exc:                                   # noqa: BLE001
+        return (f"\n\n⚠️ No he podido marcar como leídos "
+                f"{len(ids)} correos: {type(exc).__name__}")
+    return f"\n\n📬 He marcado como leídos {n} correo(s) ya convertidos en tarea."
+
+
 async def _email_actions_job(ctx, channel: str) -> dict:
     """ANÁLISIS DE CORREOS EN SEGUNDO PLANO (orden de Adri: «analiza» = hazlo por
     detrás y ACTÚA). Lee no-leídos, decide accionables con el LLM, crea tareas
@@ -1182,6 +1196,10 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                      "analizarlo, así que no he creado tareas. No es que no haya nada.")
         else:
             _last_emails = msgs
+            # Ids of the mails CONVERTED (they have a task or sit in the promo group, here or
+            # in an earlier run). Only these are marked as read at the end; never the
+            # non-actionable, unclassified or failed-creation ones.
+            convertidos: list[str] = [m.get("id", "") for m in saltados]
             if msgs:
                 analysis, sin_clasificar = await _analyze_emails(msgs)
             else:
@@ -1191,6 +1209,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
             # vuelve a crear (ni en Google), aunque se haya colado en el análisis.
             ya_tenian = [(m, a) for m, a in acts if _board.find_by_source("correo", m.get("id", ""))]
             acts = [(m, a) for m, a in acts if (m, a) not in ya_tenian]
+            convertidos += [m.get("id", "") for m, _a in ya_tenian]
             # Promotional mails never become one task each: they are GROUPED into a single
             # open board task. Board only (no Google Calendar/Tasks insert for them).
             # Urgent marks win: _analyze_emails already forces promocional=False on them.
@@ -1203,6 +1222,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                         _board.add_to_group, "correo", _PROMO_GROUP_ID,
                         [(m.get("id", ""), f"• {m['from']} — {m['subject']}") for m, _a in promos],
                         _PROMO_TITLE, task_type="revisar", urgency="baja", tag="correo")
+                    convertidos += [m.get("id", "") for m, _a in promos]
                     total_grupo = len(grupo.get("sourceIds", []))
                     promo_txt = (f"\n\n📣 {n_nuevos} promoción(es) agrupadas en UNA sola tarea del "
                                  f"tablero «{grupo.get('title', _PROMO_TITLE)}» ({total_grupo} en total); "
@@ -1212,7 +1232,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                                  f"agruparlas en el tablero ({type(exc).__name__}); sin tarea individual.")
             ya_asuntos = [m["subject"] for m in saltados] + [m["subject"] for m, _a in ya_tenian]
             alcance = _alcance_correos(unread, len(msgs), len(ya_asuntos),
-                                       unread - len(msgs) - len(saltados))
+                                       unread - len(msgs) - len(saltados), marca_leidos=True)
             # Igual que en la revisión de urgentes: lo que no se ha mirado se dice.
             # Aquí encima duele el doble, porque «no accionable» = no se crea tarea.
             fallo = ("" if not sin_clasificar else
@@ -1246,6 +1266,8 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                         _create_everywhere, titulo, fecha, notas, prio,
                         task_type=tipo, urgency=urg, source_id=m.get("id", ""))
                     creadas.append((titulo, fecha, destinos))
+                    if "tablero interno" in destinos:       # saved on the board at least
+                        convertidos.append(m.get("id", ""))
                 lines = [f"• {t}" + (f" (para {f})" if f else "") + f"  → {d}" for t, f, d in creadas]
                 n_ok = sum(1 for _t2, _f2, d in creadas
                            if ("tablero interno" in d) or ("Google" in d and "falló" not in d))
@@ -1263,6 +1285,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                              + "\n".join(lines) + aviso + promo_txt + fallo
                              + (f"\n\n{len(ya_asuntos)} correo(s) ya tenían tarea y no se "
                                 "han duplicado." if ya_asuntos else "") + alcance)
+            reply += await _mark_converted_read(convertidos)
     except Exception as exc:                                   # noqa: BLE001
         reply = f"El análisis de correos ha fallado: {type(exc).__name__}: {exc}"
     await bus.emit("chat", {"user": "[análisis de correos]", "reply": reply,
@@ -1392,7 +1415,8 @@ def _max_por_pasada() -> int:
     return n if n else _CORREOS_RESERVA["max_por_pasada"]
 
 
-def _alcance_correos(unread: int, analizados: int, ya_con_tarea: int, sin_mirar: int) -> str:
+def _alcance_correos(unread: int, analizados: int, ya_con_tarea: int, sin_mirar: int,
+                     marca_leidos: bool = False) -> str:
     """Frase de ALCANCE para la respuesta: cuántos se analizaron de cuántos sin leer, cuántos
     ya tenían tarea y cuántos no se miraron por el tope. "" si se miró todo y nada se saltó.
     NO SABER no es NO HAY: que no se analizaran todos se dice, en cada rama."""
@@ -1404,6 +1428,8 @@ def _alcance_correos(unread: int, analizados: int, ya_con_tarea: int, sin_mirar:
     if sin_mirar > 0:
         txt += (f" · {sin_mirar} sin mirar por el tope de {_max_por_pasada()} por pasada "
                 "(«max_por_pasada»); se ven en la siguiente")
+        if marca_leidos:
+            txt += " (los ya convertidos en tarea se marcan como leídos y dejan hueco)"
     return txt
 
 

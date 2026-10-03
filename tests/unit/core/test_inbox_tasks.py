@@ -129,6 +129,17 @@ def fake_task(*a, **k):
     calls["task"] += 1
 
 
+marked_batches = []
+
+
+def fake_mark_read(ids=None):
+    """T8: the job marks CONVERTED mails read through this seam (never the real Gmail)."""
+    assert isinstance(ids, list), "the job must pass an explicit id list, never None (= whole inbox)"
+    marked_batches.append(list(ids))
+    return len(ids)
+
+
+gw._mark_read = fake_mark_read
 gw._load_unread_scope = fake_load
 gw._analyze_emails = fake_analyze
 gw._create_event = fake_event
@@ -156,6 +167,8 @@ check(a2.get("type") == "hacer" and a2.get("urgency") == "media" and a2.get("sou
       f"e2 defaults/derived: {a2}")
 check(calls == {"event": 1, "task": 1}, f"google calls first run: {calls}")
 check("2 tarea(s) creadas" in r1, f"reply first run: {r1}")
+check(marked_batches == [["e1", "e2"]], f"T8: only the 2 converted mails are marked read (not e3): {marked_batches}")
+check("He marcado como leídos 2 correo(s)" in r1, f"T8: reply states the marking: {r1}")
 
 r2 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
 check(len(board._load()) == 2, "second run creates 0 new tasks")
@@ -164,6 +177,8 @@ check("ya tenían tarea" in r2 and "creadas" not in r2.replace("ninguna tarea nu
       f"second reply reports skipped, not created: {r2}")
 check("falló" not in r2 and "NO pude" not in r2 and "❌" not in r2, f"all-skipped is not an error: {r2}")
 check(analyzed_ids[-1] == ["e3"], f"F3: only the not-yet-tasked mail is analyzed on rerun: {analyzed_ids[-1]}")
+check(marked_batches[-1] == ["e1", "e2"] and len(marked_batches) == 2,
+      f"T8: mails already tasked by an earlier run are marked, e3 is not: {marked_batches}")
 check("Alcance: analizados 1 de 3 sin leer" in r2 and "2 ya tenían tarea" in r2, f"F2 scope in all-skipped branch: {r2}")
 
 print("== 4) partial: one new email among known ones ==")
@@ -173,8 +188,30 @@ r3 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
 check(len(board._load()) == 3, "only the new email creates a task")
 check(calls["event"] + calls["task"] == 3, f"google called once more: {calls}")
 check("1 tarea(s) creadas" in r3 and "ya tenían tarea" in r3, f"partial reply: {r3}")
+check(sorted(marked_batches[-1]) == ["e1", "e2", "e4"] and len(set(marked_batches[-1])) == 3,
+      f"T8: tasked + new converted, deduped, e3 never: {marked_batches[-1]}")
+
 check(analyzed_ids[-1] == ["e3", "e4"], f"F3: partial run analyzes only untasked mails: {analyzed_ids[-1]}")
 check("Alcance: analizados 2 de 4 sin leer" in r3, f"F2 scope in created branch: {r3}")
+
+print("== 6) T8: marking failure never hides the created tasks ==")
+emails.append({"id": "e5", "from": "e@x.com", "subject": "Otro", "body": "y"})
+analysis.append({"i": 4, "accionable": True, "tarea": "Hacer E", "tipo": "hacer", "importancia": "baja"})
+
+
+def boom(ids=None):
+    raise PermissionError("insufficient scope")
+
+
+gw._mark_read = boom
+r4 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+check("1 tarea(s) creadas" in r4 and "Hacer E" in r4 and len(board._load()) == 4, f"T8: task reported: {r4}")
+check("⚠️ No he podido marcar como leídos 4 correos: PermissionError" in r4 and "He marcado" not in r4,
+      f"T8: honest warning with the exception type: {r4}")
+gw._mark_read = lambda ids=None: (_ for _ in ()).throw(AssertionError("must not be called"))
+emails[:] = [m for m in emails if m["id"] == "e3"]            # only a non-actionable mail is unread
+r5 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+check("marcado" not in r5.lower() and "No he podido marcar" not in r5, f"T8: nothing converted -> no marking: {r5}")
 
 print("== 5) T5d: grouped tasks (sourceIds, add_to_group) ==")
 import json  # noqa: E402

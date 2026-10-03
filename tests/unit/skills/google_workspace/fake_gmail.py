@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Shared read-only FAKE Gmail / Calendar / Tasks provider (Google client shapes).
+"""Shared FAKE Gmail / Calendar / Tasks provider (Google client shapes).
 
 Used by test_inbox_fake_gmail.py and test_inbox_scale.py. Pure Python, no network, no
-credentials. Any Gmail method outside GMAIL_READS is recorded as FORBIDDEN and raises.
+credentials. Gmail allows the reads in GMAIL_READS plus EXACTLY ONE write:
+`messages.batchModify` with body {"ids": [...], "removeLabelIds": ["UNREAD"]} (mark as read),
+applied to the in-memory unread state. Every other Gmail method, and any other
+batchModify shape (addLabelIds, other labels, extra keys), is recorded as FORBIDDEN and raises.
 """
 from __future__ import annotations
 
@@ -71,6 +74,11 @@ class _Res:
         return method
 
 
+def _forbid(fake, what):
+    fake.log.append("FORBIDDEN:" + what)
+    raise AttributeError(what)
+
+
 class FakeGoogle:
     """Fake Gmail v1 / Calendar v3 / Tasks v1 service objects over one in-memory mailbox."""
 
@@ -99,6 +107,30 @@ class FakeGoogle:
                              for m in out[:kw.get("maxResults", 100)]],
                 "resultSizeEstimate": len(out)}          # single page: no nextPageToken
 
+    def _batch_modify(self, kw):
+        """Mark-as-read only. Anything else is FORBIDDEN and raises (state untouched)."""
+        body = kw.get("body")
+        ok = (set(kw) == {"userId", "body"} and kw["userId"] == "me"
+              and isinstance(body, dict) and set(body) == {"ids", "removeLabelIds"}
+              and body["removeLabelIds"] == ["UNREAD"]
+              and isinstance(body["ids"], list) and 0 < len(body["ids"]) <= 1000
+              and all(isinstance(i, str) and i for i in body["ids"]))
+        if not ok:
+            _forbid(self, "gmail.messages.batchModify:" + repr(kw)[:200])
+        for mid in body["ids"]:
+            m = self.messages.get(mid)
+            if m and "UNREAD" in m["labelIds"]:
+                m["labelIds"].remove("UNREAD")
+        return {}
+
+    def marked(self):
+        """Ids sent to batchModify, in order (each call already validated by the fake)."""
+        return [i for name, kw in self.calls if name == "gmail.messages.batchModify"
+                for i in kw.get("body", {}).get("ids", [])]
+
+    def unread_ids(self):
+        return [m["id"] for m in self.messages.values() if "UNREAD" in m["labelIds"]]
+
     def _get(self, kw):
         m = self.messages[kw["id"]]
         if kw.get("format", "full") == "metadata":
@@ -121,7 +153,8 @@ class FakeGoogle:
         if api == "gmail":
             class Users:
                 def messages(_s):
-                    return _Res(f, "gmail.messages", {"list": f._list, "get": f._get})
+                    return _Res(f, "gmail.messages", {"list": f._list, "get": f._get,
+                                                          "batchModify": f._batch_modify})
 
                 def labels(_s):
                     return _Res(f, "gmail.labels", {"get": f._labels_get})
@@ -144,3 +177,4 @@ class FakeGoogle:
 
 
 GMAIL_READS = {"gmail.labels.get", "gmail.messages.list", "gmail.messages.get"}
+GMAIL_WRITES = {"gmail.messages.batchModify"}      # the ONLY allowed write: remove UNREAD
