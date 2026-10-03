@@ -9,3 +9,6 @@ Notes:
 - `test_skill_system_pc` runs 320 checks here versus 322 on Windows (platform-dependent branches).
 - Without Postgres some DB checks are skipped; they remain unproven in this profile.
 - This is not proof of device, browser/E2E or provider behavior.
+
+## Startup probe
+`docker run ... python tests/hermetic/probe_startup.py` (see script header) starts the real backend inside the container and checks the core journey. Run it through the same clean-copy mechanism as `run.sh`.
