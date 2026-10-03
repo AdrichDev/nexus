@@ -143,6 +143,10 @@ cualquier nodo y se abre su panel de acciones de un clic.
   `crea la tarea X para el viernes prioridad alta`, `mueve X a revisión`,
   `organiza mis tareas por urgencia` (Eisenhower), `qué tareas van retrasadas`.
   Toques de atención automáticos por HUD y Telegram si te retrasas.
+  Encima del kanban, una franja de KPIs (`GET /api/board/kpis`): abiertas, vencidas,
+  vencen pronto, sin fecha y desglose por urgencia y tipo. Las tareas que nacen del
+  correo guardan tipo, urgencia y el id del correo, y no se duplican al repetir el
+  análisis.
 * **Project manager**: `planifica el proyecto X` → spec interna (Diseño /
   Propuesta / Tareas / Validaciones) revisada por el abogado del diablo,
   guardada en `data/specs/` y con las tareas metidas en el tablero.

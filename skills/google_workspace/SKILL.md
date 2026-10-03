@@ -128,8 +128,20 @@ reautorizar: el token que tienes guardado no incluye el permiso de Drive.
   «localhost»; Google lo rechaza para loopback).
 - Si cambias de cliente en ⚙ (otro Client ID), nexus regenera las credenciales y
   fuerza reautorización sola.
-- El triaje analiza hasta 30 no-leídos con cuerpo; el total reportado es siempre
-  el REAL de la bandeja (threads, como tu app de Gmail).
+- El triaje analiza hasta `correos.max_por_pasada` no-leídos por pasada (100 por
+  defecto, entre 1 y 500); el total reportado es siempre el REAL de la bandeja
+  (threads, como tu app de Gmail). Si no se han mirado todos, la respuesta dice
+  cuántos se analizaron, cuántos ya tenían tarea y cuántos quedaron fuera por el tope.
+- Los correos que YA tienen tarea en el tablero no se vuelven a leer ni a mandar
+  al modelo: repetir el análisis no duplica tareas. Nexus nunca marca correos como
+  leídos, así que los no accionables se vuelven a analizar en cada pasada.
+- Cada tarea creada desde el correo guarda tipo (responder, hacer, pagar, asistir,
+  revisar, esperar), urgencia (crítica, alta, media, baja), origen `correo`, el id
+  del correo y las notas (remitente y asunto) en la descripción.
+- Las **promociones** (marketing, cursos o regalos, directos, ofertas) no crean una
+  tarea cada una: se juntan en UNA sola tarea del tablero, «Revisar promociones (N)»,
+  urgencia baja y sin fecha, que no se crea en Google. Si la cierras, las nuevas
+  abren otra. Una marca urgente siempre gana a la promoción.
 - El análisis va **por lotes** (`correos.por_lote` en `config/umbrales.json`, 6 por
   defecto). No es un capricho: mandando los 30 de golpe son 22.000 caracteres,
   ollama corta el prompt a 4096 tokens y el modelo contesta en prosa en vez de
