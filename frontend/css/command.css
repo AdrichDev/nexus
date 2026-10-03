@@ -1713,3 +1713,6 @@ textarea.ha-in{resize:vertical;min-height:40px;font-family:ui-monospace,monospac
 .kpistrip .kbad{border-color:var(--err);color:var(--err)}
 .kpistrip .kbad b{color:var(--err)}
 .kpistrip .ksep{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--txt-dim);margin-left:8px}
+
+/* Keyboard focus ring for task cards (opened with Enter/Space). */
+.kcard:focus-visible { outline: 2px solid var(--accent, #4fd1ff); outline-offset: 2px; }

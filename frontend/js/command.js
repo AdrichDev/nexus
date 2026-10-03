@@ -948,7 +948,7 @@ window.orbHTML = orbHTML;
       const pr = `<span class="badge-u badge-u-${urg}${urg === 'critica' ? ' badge-critical' : ''}">${TASK_URGENCY[urg]}</span>`;
       const hora = t.time ? ` ${esc(t.time)}` : '';
       const src = t.source === 'correo' ? '<span class="tsrc" title="Creada desde un correo">correo</span>' : '';
-      return `<div class="kcard" data-id="${esc(t.id)}" draggable="true"><div class="kkey">${esc(t.key || '')}</div><div class="kti"><span class="kty" title="${esc(ty)}">${kindIcon}</span> ${esc(t.title)}</div>
+      return `<div class="kcard" data-id="${esc(t.id)}" draggable="true" tabindex="0" role="button" aria-label="${esc((t.key || '') + ' ' + (t.title || ''))}"><div class="kkey">${esc(t.key || '')}</div><div class="kti"><span class="kty" title="${esc(ty)}">${kindIcon}</span> ${esc(t.title)}</div>
               <div class="tags">${src}${t.tag ? `<span>${esc(t.tag)}</span>` : ''}${t.due ? `<span style="${late ? 'color:var(--err)' : ''}">📅 ${esc(t.due)}${hora}</span>` : (hora ? `<span>🕐${hora}</span>` : '')}</div>
               <div class="km">${pr}<span class="mv">${idx > 0 ? `<button data-id="${esc(t.id)}" data-to="${S[idx - 1][0]}">◀</button>` : ''}${idx < 3 ? `<button data-id="${esc(t.id)}" data-to="${S[idx + 1][0]}">▶</button>` : ''}</span><span class="kact"><button class="kedit" data-id="${esc(t.id)}" title="Editar tarea">✎</button><button class="kdel" data-id="${esc(t.id)}" title="Eliminar tarea">🗑</button></span></div></div>`;
     }).join('')}</div></div>`).join('')}
@@ -1515,6 +1515,7 @@ window.orbHTML = orbHTML;
        información vive donde toca (tiempo en el header, tareas en Tareas,
        trabajos en Multitarea, agenda en Agenda). La ruta antigua redirige. */
     if (view === 'today') view = 'command';
+    if (view !== current) closeTaskDetail();     // the task detail panel does not outlive its view (a re-render of the same view keeps it)
     current = view;
     $('#node-panel')?.classList.add('hidden');   // al cambiar de panel, cierra la info del nodo
     $('#mini-wins')?.replaceChildren();          // y TODAS las ventanitas emergentes
@@ -1573,6 +1574,12 @@ window.orbHTML = orbHTML;
         // Clic en la tarjeta (no en sus botones, no tras arrastrar, no editando) → detalle.
         card.addEventListener('click', (e) => {
           if (_dragging || e.target.closest('button, input, a') || card.querySelector('.ket')) return;
+          openTaskDetail(card.dataset.id);
+        });
+        card.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          if (e.target !== card || e.target.closest('button, input, a') || card.querySelector('.ket')) return;
+          e.preventDefault();
           openTaskDetail(card.dataset.id);
         });
         card.addEventListener('dragstart', (e) => {

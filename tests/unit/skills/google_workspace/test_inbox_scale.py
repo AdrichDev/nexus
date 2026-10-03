@@ -250,8 +250,11 @@ def verify_tasks(label, google, expected_rows, *, extra_ids=()):
         t = got.get(mid)
         if not t:
             continue
-        if (t["title"], t["type"], t["urgency"], t["due"], t["source"]) != (
-                r["title"], r["tipo"], r["urgency_expected"] if "urgency_expected" in r else r["urgencia"],
+        # J6: a generic model title gets "— <subject> (<sender>)" appended and the 90-char cap
+        base = r["title"]
+        title_ok = t["title"] == base or t["title"].startswith(base + " — ")
+        if not title_ok or len(t["title"]) > 90 or (t["type"], t["urgency"], t["due"], t["source"]) != (
+                r["tipo"], r["urgency_expected"] if "urgency_expected" in r else r["urgencia"],
                 r["fecha"] or None, "correo"):
             bad.append((mid, t["title"], t["type"], t["urgency"], t["due"]))
         # J3: structured description (what it asks, deadline, urgency, sender, subject, date, link)
@@ -585,7 +588,7 @@ exp_ids = {r["id"] for r in VISIBLE if r["accionable"]} - {"m25"}
 check(set(got) == exp_ids, f"raise: tasks {sorted(set(got) ^ exp_ids)}")
 check("5 de 30 se han quedado SIN clasificar" in reply, f"raise: {reply[-170:]}")
 check(got["m26"]["title"].startswith("Revisar alerta urgente: Factura vencida")
-      and got["m26"]["title"].endswith("(Aguas Municipales)")
+      and len(got["m26"]["title"]) <= 90 and got["m26"]["title"].endswith("…")
       and got["m26"]["urgency"] == "critica" and got["m26"]["due"] is None,
       f"raise: net task for m26: {got['m26']}")
 check(got["m23"]["title"] == "Asistir a la demo con el cliente", "raise: previous batches survive")

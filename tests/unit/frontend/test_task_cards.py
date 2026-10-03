@@ -65,6 +65,16 @@ check("white-space:pre-wrap" in CSS.replace(" ", "") or "white-space:pre-wrap" i
 check("#task-detail" in CSS, "css for #task-detail")
 check("closest('button, input, a')" in JS, "card click ignores its buttons")
 
+print("== keyboard / navigation ==")
+render_src = JS[JS.index("function render(view)"): JS.index("function mount(view)")]
+check("closeTaskDetail()" in render_src, "render(view) closes the task detail panel")
+check("if (view !== current) closeTaskDetail()" in render_src,
+      "render(view) closes the panel only on a view change (board refresh re-renders the same view)")
+check('tabindex="0"' in tasks_view and 'role="button"' in tasks_view and "aria-label=" in tasks_view,
+      "task card is focusable with role=button and aria-label")
+check("e.key !== 'Enter' && e.key !== ' '" in JS, "Enter/Space open the card")
+check(".kcard:focus-visible" in CSS, "visible focus style for task cards")
+
 print()
 print(f"test_task_cards: {_ok} OK, {len(_fail)} fallos")
 sys.exit(1 if _fail else 0)

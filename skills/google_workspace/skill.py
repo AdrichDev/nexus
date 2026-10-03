@@ -1171,10 +1171,58 @@ def _remitente(m: dict) -> str:
     """Readable sender of a mail: display name without quotes; the plain address when the
     mail has no display name; a generic label when there is neither."""
     from backend.core.dominio import board
-    name = str(m.get("from") or "").replace('"', " ").replace("'", " ").strip()
-    if not name or "@" in name:
-        return name or str(m.get("from_addr") or "").strip() or "remitente desconocido"
+    raw = str(m.get("from") or "").strip()
+    addr_m = re.search(r"[\w.+%-]+@[\w.-]+", raw)
+    if addr_m:                       # "Name <a@b>", "<a@b>" or a bare "a@b"
+        shown = board.clean_sender(re.sub(r"<[^>]*>", " ", raw).replace(addr_m.group(0), " "), limit=80)
+        if shown and shown != board._UNKNOWN_SENDER:
+            return shown
+        return addr_m.group(0)
+    name = raw.replace('"', " ").replace("'", " ").strip()
+    if not name:
+        return str(m.get("from_addr") or "").strip() or "remitente desconocido"
     return board.clean_sender(name, limit=80)
+
+
+TASK_TITLE_MAX = 90
+
+
+def _cap_title(title: str, limit: int = TASK_TITLE_MAX) -> str:
+    """Cap a task title at `limit` chars on a word boundary, adding an ellipsis."""
+    t = re.sub(r"\s+", " ", str(title or "")).strip()
+    if len(t) <= limit:
+        return t
+    cut = t[:limit - 1]
+    if t[limit - 1] != " " and " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:.-—") + "…"
+
+
+# Words too generic to make a title specific even when the mail repeats them.
+_GENERIC_TITLE_TOKENS = frozenset({
+    "oferta", "ofertas", "aviso", "avisos", "correo", "correos", "mensaje", "mensajes",
+    "notificacion", "notificaciones", "novedad", "novedades", "informacion", "alerta",
+    "alertas", "recordatorio", "sugerida", "sugerido", "nuevo", "nueva", "nuevos", "nuevas"})
+
+
+def _title_tokens(text: str) -> set[str]:
+    """Meaningful tokens: >=4 letters, accent/case-insensitive, minus generic words."""
+    return {w for w in re.findall(r"[^\W\d_]{4,}", _sin_tildes(text))} - _GENERIC_TITLE_TOKENS
+
+
+def _contextual_title(title: str, m: dict) -> str:
+    """Cap the title; when it shares no meaningful token with the subject or sender, append
+    the context deterministically: "<title> — <subject> (<sender>)"."""
+    title = str(title or "").strip()
+    subject = str(m.get("subject") or "").strip()
+    sender = _remitente(m)
+    if title and (subject or sender) and not (
+            _title_tokens(title) & (_title_tokens(subject) | _title_tokens(sender))):
+        ctx = subject if subject else ""
+        if sender:
+            ctx = f"{ctx} ({sender})" if ctx else f"({sender})"
+        title = f"{title} — {ctx}"
+    return _cap_title(title)
 
 
 def _fmt_plazo(fecha: str | None) -> str:
@@ -1408,8 +1456,9 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                 creadas = []
                 causas: list = []
                 for m, a in acts:
-                    titulo = ((a.get("tarea") or "").strip()
-                              or f"Atender correo de {_remitente(m)}: {m['subject']}")[:120]
+                    _t = (a.get("tarea") or "").strip()
+                    titulo = (_contextual_title(_t, m) if _t else
+                              _cap_title(f"Atender correo de {_remitente(m)}: {m['subject']}"))
                     fecha = (a.get("fecha") or "").strip() or None
                     prio = "alta" if (a.get("urgente") or a.get("importancia") == "alta") else "media"
                     tipo, urg = _email_task_fields(a)
@@ -1604,7 +1653,7 @@ def _alerta_titulo(m: dict, marca: str) -> str:
     """Explicit title of the safety-net task raised by an urgent mark (no model answer)."""
     seguridad = any(w in _sin_tildes(marca) for w in ("seguridad", "security", "acceso", "sospechosa"))
     que = "Revisar alerta de seguridad" if seguridad else "Revisar alerta urgente"
-    return f"{que}: {m.get('subject', '')} ({_remitente(m)})"[:120]
+    return _cap_title(f"{que}: {m.get('subject', '')} ({_remitente(m)})")
 
 
 def _marca_urgente(m: dict) -> str:

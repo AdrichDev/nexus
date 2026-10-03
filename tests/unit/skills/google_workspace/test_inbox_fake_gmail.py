@@ -529,6 +529,42 @@ fresh(FakeGoogle([]))
 out = gw._create_everywhere("t", None, "n", "alta")
 check("Google Tasks" in out and "tablero interno" in out, f"r1: positional contract: {out}")
 
+# ── J6: sender cleaning, title cap and contextual titles ──
+for raw_from, want in (("Ana Gomez <ana@corp.example>", "Ana Gomez"),
+                       ('"Alerta de empleo InfoJobs" <no-reply@infojobs.net>', "Alerta de empleo InfoJobs"),
+                       ("<solo@corp.example>", "solo@corp.example"),
+                       ("solo@corp.example", "solo@corp.example")):
+    got = gw._remitente({"from": raw_from})
+    check(got == want and "<" not in got and ">" not in got, f"j6: _remitente({raw_from!r}) = {got!r}")
+
+long_t = "Responder al cliente sobre la renovación del contrato de mantenimiento anual de la plataforma interna"
+capped = gw._cap_title(long_t)
+check(len(capped) <= 90 and capped.endswith("…") and long_t.startswith(capped[:-1]) and
+      long_t[len(capped) - 1] == " ", f"j6: cap on word boundary: {capped!r}")
+check(gw._cap_title("Titulo corto") == "Titulo corto", "j6: short title untouched")
+
+ctx = gw._contextual_title("Revisa la oferta laboral sugerida",
+                           {"from": "Alerta de empleo InfoJobs <a@infojobs.net>",
+                            "subject": "1 oferta de empleo en Madrid"})
+check(ctx.startswith("Revisa la oferta laboral sugerida — 1 oferta de empleo en Madrid (Alerta de")
+      and len(ctx) <= 90, f"j6: generic title gets context: {ctx!r}")
+spec = gw._contextual_title("Pagar la factura de Iberdrola",
+                            {"from": "Iberdrola <x@i.es>", "subject": "Factura disponible"})
+check(spec == "Pagar la factura de Iberdrola", f"j6: specific title kept: {spec!r}")
+acc = gw._contextual_title("Revisar éxito", {"from": "X <x@y.es>", "subject": "EXITO total"})
+check("—" not in acc, f"j6: accent/case-insensitive token match: {acc!r}")
+check(len(gw._alerta_titulo({"from": "x@y.es", "subject": "palabra " * 30}, "seguridad")) <= 90,
+      "j6: safety-net title capped")
+
+fresh(FakeGoogle([mail("m-j6", "Alerta de empleo InfoJobs <n@infojobs.net>",
+                       "1 oferta de empleo en Madrid", "Hay una oferta nueva para ti.")]),
+      raw='[{"i":0,"urgente":false,"importancia":"media","accionable":true,'
+          '"tarea":"Revisa la oferta laboral sugerida","fecha":"","resumen":"","motivo":""}]')
+run_job()
+j6_titles = [x.get("title", "") for x in board._load()]
+check(any(x.startswith("Revisa la oferta laboral sugerida — 1 oferta de empleo en Madrid")
+          and len(x) <= 90 for x in j6_titles), f"j6: job title end-to-end: {j6_titles}")
+
 print()
 for k, v in _saved_mods.items():
     if v is None:
