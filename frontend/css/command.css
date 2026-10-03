@@ -360,6 +360,32 @@ body::after{
 .kcard .mv button{background:transparent;border:1px solid var(--line2);color:var(--cy);
   width:22px;height:19px;border-radius:5px;cursor:pointer;margin-left:3px}
 .badge-alta{color:var(--warn)}.badge-critical{color:var(--err)}
+/* Tarjeta de tarea: clave, tipo, urgencia (4 niveles) y origen */
+.kcard{cursor:pointer}
+.kcard .kkey,#task-detail .kkey{font-size:10px;letter-spacing:1px;color:var(--txt-dim);margin-bottom:3px}
+.kcard .kty{margin-right:2px}
+.badge-u{font-size:9px;letter-spacing:.8px;font-weight:700;padding:1px 7px;border-radius:6px;border:1px solid currentColor}
+.badge-u-critica{color:var(--err);background:rgba(255,93,108,.12)}
+.badge-u-alta{color:var(--warn);background:rgba(255,178,62,.10)}
+.badge-u-media{color:var(--cy);background:rgba(34,211,238,.08)}
+.badge-u-baja{color:var(--txt-dim)}
+.tsrc{font-size:9px;padding:1px 6px;border:1px solid var(--cy);border-radius:6px;color:var(--cy)}
+.kcard .tags span.tsrc{color:var(--cy);border-color:var(--cy)}
+/* Panel de detalle de tarea */
+#task-detail{position:fixed;top:0;right:0;bottom:0;width:min(440px,94vw);z-index:86;overflow-y:auto;
+  background:var(--bg2);border-left:2px solid var(--cy);box-shadow:-14px 0 40px rgba(0,0,0,.5);padding:16px 18px}
+#task-detail .td-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+#task-detail #td-close{background:transparent;border:1px solid var(--line2);color:var(--txt-dim);font-family:inherit;
+  font-size:13px;width:30px;height:30px;border-radius:6px;cursor:pointer}
+#task-detail #td-close:hover{border-color:var(--err);color:var(--err)}
+#task-detail .td-title{font-size:16px;line-height:1.35;margin:4px 0 10px;word-break:break-word}
+#task-detail .td-badges{display:flex;gap:6px;align-items:center;margin-bottom:12px}
+#task-detail .tdrow{display:flex;gap:10px;font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}
+#task-detail .tdk{flex:0 0 120px;color:var(--txt-dim)}
+#task-detail .tdv{word-break:break-word}
+#task-detail a{color:var(--cy)}
+#task-detail .td-desc-k{font-size:10px;letter-spacing:1px;color:var(--txt-dim);margin:14px 0 4px;text-transform:uppercase}
+#task-detail .td-desc{font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;user-select:text}
 /* ===== Acciones por tarjeta: editar (✎) / eliminar — integradas en el HUD =====
    Se apoyan en las clases que ya emite el JS (kact/kedit/kdel/kconfirm/kyes/kno/
    ket/ked/kesave/kecancel). Los !important ANULAN los estilos en línea del JS para

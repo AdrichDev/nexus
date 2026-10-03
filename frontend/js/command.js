@@ -927,24 +927,103 @@ window.orbHTML = orbHTML;
     </div>`;
   }
 
+  // ── Tarjeta de tarea estilo Jira: tipo, urgencia, origen, clave estable (NX-n) ──
+  const TASK_TYPE_ICON = { responder: '✉', hacer: '🛠', pagar: '💳', asistir: '📅', revisar: '🔎', esperar: '⏳' };
+  const TASK_URGENCY = { critica: 'CRÍTICA', alta: 'ALTA', media: 'MEDIA', baja: 'BAJA' };
+  const TASK_STATE_LABEL = { pendiente: 'Por hacer', progreso: 'En progreso', revision: 'En revisión', completada: 'Completada', cancelada: 'Cancelada', archivada: 'Archivada' };
+  const taskType = (t) => (TASK_TYPE_ICON[t.type] ? t.type : (t.kind === 'evento' ? 'asistir' : 'hacer'));
+  // Urgencia efectiva: `urgency` manda; las tareas antiguas solo traen `priority` (alta|media|baja).
+  const taskUrgency = (t) => (TASK_URGENCY[t.urgency] ? t.urgency : (TASK_URGENCY[t.priority] ? t.priority : 'media'));
+
   views.tasks = () => {
     const b = state.board || {}, S = [['pendiente', 'TO DO'], ['progreso', 'IN PROGRESS'], ['revision', 'REVIEW'], ['completada', 'DONE']];
     const today = new Date().toISOString().slice(0, 10);
-    return `<div class="section-title">Tareas</div><div class="section-sub">Kanban con toques de atención. <b>Arrastra una tarjeta a otra columna</b>, usa las flechas, o muévelas por voz.</div>
+    return `<div class="section-title">Tareas</div><div class="section-sub">Kanban con toques de atención. <b>Arrastra una tarjeta a otra columna</b>, usa las flechas, o muévelas por voz. Pulsa una tarjeta para ver su detalle.</div>
       ${kpiStrip()}
       <div class="kanban" style="height:calc(100vh - 300px)">
         ${S.map(([s, label], idx) => `<div class="kcol" data-s="${s}"><h3>${label}<span>${(b[s] || []).length}</span></h3>
           <div class="cards" data-s="${s}">${(b[s] || []).map((t) => {
       const late = t.due && t.due < today && s !== 'completada';
-      const pr = t.priority === 'alta' ? '<span class="badge-alta">⚡ ALTA</span>' : '';
-      const kindIcon = t.kind === 'evento' ? '📅' : '🛠';
-      const hora = t.time ? ` ${t.time}` : '';
-      return `<div class="kcard" data-id="${t.id}" draggable="true"><div class="kti">${kindIcon} ${esc(t.title)}</div>
-              <div class="tags">${t.tag ? `<span>${esc(t.tag)}</span>` : ''}${t.due ? `<span style="${late ? 'color:var(--err)' : ''}">📅 ${t.due}${hora}</span>` : (hora ? `<span>🕐${hora}</span>` : '')}</div>
-              <div class="km">${pr}<span class="mv">${idx > 0 ? `<button data-id="${t.id}" data-to="${S[idx - 1][0]}">◀</button>` : ''}${idx < 3 ? `<button data-id="${t.id}" data-to="${S[idx + 1][0]}">▶</button>` : ''}</span><span class="kact"><button class="kedit" data-id="${t.id}" title="Editar tarea">✎</button><button class="kdel" data-id="${t.id}" title="Eliminar tarea">🗑</button></span></div></div>`;
+      const urg = taskUrgency(t), ty = taskType(t), kindIcon = TASK_TYPE_ICON[ty];
+      const pr = `<span class="badge-u badge-u-${urg}${urg === 'critica' ? ' badge-critical' : ''}">${TASK_URGENCY[urg]}</span>`;
+      const hora = t.time ? ` ${esc(t.time)}` : '';
+      const src = t.source === 'correo' ? '<span class="tsrc" title="Creada desde un correo">correo</span>' : '';
+      return `<div class="kcard" data-id="${esc(t.id)}" draggable="true"><div class="kkey">${esc(t.key || '')}</div><div class="kti"><span class="kty" title="${esc(ty)}">${kindIcon}</span> ${esc(t.title)}</div>
+              <div class="tags">${src}${t.tag ? `<span>${esc(t.tag)}</span>` : ''}${t.due ? `<span style="${late ? 'color:var(--err)' : ''}">📅 ${esc(t.due)}${hora}</span>` : (hora ? `<span>🕐${hora}</span>` : '')}</div>
+              <div class="km">${pr}<span class="mv">${idx > 0 ? `<button data-id="${esc(t.id)}" data-to="${S[idx - 1][0]}">◀</button>` : ''}${idx < 3 ? `<button data-id="${esc(t.id)}" data-to="${S[idx + 1][0]}">▶</button>` : ''}</span><span class="kact"><button class="kedit" data-id="${esc(t.id)}" title="Editar tarea">✎</button><button class="kdel" data-id="${esc(t.id)}" title="Eliminar tarea">🗑</button></span></div></div>`;
     }).join('')}</div></div>`).join('')}
       </div>`;
   };
+
+  // URL segura para href: SOLO http/https (nada de javascript:, data:, etc.). '' si no vale.
+  function safeHttpUrl(u) {
+    const v = String(u == null ? '' : u).trim();
+    return /^https?:\/\/[^\s"'<>]+$/i.test(v) ? v : '';
+  }
+
+  // Texto → HTML escapado, con saltos de línea conservados (CSS pre-wrap) y las URLs
+  // http(s) como enlaces. Se escapa cada trozo por separado: nada del texto llega como HTML.
+  function linkifyText(text) {
+    const raw = String(text == null ? '' : text);
+    let out = '', last = 0, m;
+    const re = /https?:\/\/[^\s"'<>]+/gi;
+    while ((m = re.exec(raw)) !== null) {
+      let url = m[0], tail = '';
+      const trail = url.match(/[.,;:!?)\]]+$/);
+      if (trail) { tail = trail[0]; url = url.slice(0, -tail.length); }
+      out += esc(raw.slice(last, m.index));
+      const ok = safeHttpUrl(url);
+      out += ok ? `<a href="${esc(ok)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>${esc(tail)}` : esc(m[0]);
+      last = m.index + m[0].length;
+    }
+    return out + esc(raw.slice(last));
+  }
+
+  // ── Panel de detalle de una tarea (cajón lateral) ──
+  let openTaskId = null;
+
+  function taskDetailHtml(t) {
+    const row = (k, v) => (v ? `<div class="tdrow"><span class="tdk">${esc(k)}</span><span class="tdv">${v}</span></div>` : '');
+    const ty = taskType(t), urg = taskUrgency(t);
+    const grouped = Array.isArray(t.sourceIds) ? t.sourceIds.length : 0;
+    const gmail = safeHttpUrl(t.sourceUrl);
+    const due = t.due ? `${esc(t.due)}${t.time ? ` ${esc(t.time)}` : ''}${t.dueEnd ? ` → ${esc(t.dueEnd)}` : ''}` : (t.time ? esc(t.time) : '');
+    return `<div class="td-head"><span class="kkey">${esc(t.key || '')}</span><button type="button" id="td-close" title="Cerrar (Esc)">✕</button></div>
+      <h3 class="td-title">${esc(t.title)}</h3>
+      <div class="td-badges"><span class="badge-u badge-u-${urg}${urg === 'critica' ? ' badge-critical' : ''}">${TASK_URGENCY[urg]}</span><span class="tsrc">${TASK_TYPE_ICON[ty]} ${esc(ty)}</span></div>
+      ${row('Estado', esc(TASK_STATE_LABEL[t.state] || t.state || ''))}
+      ${row('Origen', esc(t.source === 'correo' ? 'correo' : 'manual'))}
+      ${row('Correos agrupados', grouped ? String(grouped) : '')}
+      ${row('Vence', due)}
+      ${row('Recordatorio', esc(t.reminderAt || ''))}
+      ${row('Creada', esc(t.createdAt || t.created || ''))}
+      ${row('Actualizada', esc(t.updatedAt || ''))}
+      ${row('Completada', esc(t.completedAt || t.completed || ''))}
+      ${gmail ? row('Correo', `<a href="${esc(gmail)}" target="_blank" rel="noopener noreferrer">Abrir en Gmail</a>`) : ''}
+      <div class="td-desc-k">Descripción</div>
+      <div class="td-desc">${t.description ? linkifyText(t.description) : '<i>Sin descripción</i>'}</div>`;
+  }
+
+  function closeTaskDetail() {
+    openTaskId = null;
+    document.getElementById('task-detail')?.remove();
+  }
+
+  function openTaskDetail(id) {
+    const t = findBoardTask(id);
+    if (!t) { closeTaskDetail(); return; }
+    openTaskId = id;
+    let p = document.getElementById('task-detail');
+    if (!p) { p = document.createElement('aside'); p.id = 'task-detail'; document.body.appendChild(p); }
+    p.innerHTML = taskDetailHtml(t);
+    p.querySelector('#td-close').addEventListener('click', closeTaskDetail);
+  }
+
+  // Si el tablero se refresca con el panel abierto: se repinta, o se cierra si la tarea ya no está.
+  function refreshTaskDetail() {
+    if (openTaskId) openTaskDetail(openTaskId);
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openTaskId) closeTaskDetail(); });
 
   // El tablero también cambia por chat/voz/correo: vuelve a pedirlo y repinta solo si cambió
   // (así no se pisa una edición o confirmación inline cuando no hay nada nuevo).
@@ -954,6 +1033,7 @@ window.orbHTML = orbHTML;
       const b = await api('/api/board');
       if (JSON.stringify(b) === JSON.stringify(state.board) && !kpiChanged) return;
       state.board = b;
+      refreshTaskDetail();
       if (current === 'tasks') render('tasks');
     } catch (e) { /* sin red: se queda lo que había */ }
   }
@@ -1480,6 +1560,7 @@ window.orbHTML = orbHTML;
       api('/api/knowledge').then((k) => { const c = $('#kn-count'); if (c) c.textContent = (k?.count || 0).toLocaleString('es'); });
     }
     if (view === 'tasks') {
+      refreshTaskDetail();                    // el repintado no debe dejar el panel con datos viejos
       refreshBoard();                         // al entrar: lo que haya cambiado fuera de la vista
       $$('.kcard .mv button').forEach((b) => b.addEventListener('click', (ev) => {
         ev.stopPropagation(); moveTask(b.dataset.id, b.dataset.to);
@@ -1487,14 +1568,19 @@ window.orbHTML = orbHTML;
       $$('.kcard .kdel').forEach((b) => b.addEventListener('click', () => confirmDeleteTask(b)));
       $$('.kcard .kedit').forEach((b) => b.addEventListener('click', () => startEditTask(b.dataset.id)));
       // DRAG & DROP: arrastrar una tarjeta a otra columna la mueve (petición de Adri).
-      let _dragId = null;
+      let _dragId = null, _dragging = false;
       $$('.kcard').forEach((card) => {
+        // Clic en la tarjeta (no en sus botones, no tras arrastrar, no editando) → detalle.
+        card.addEventListener('click', (e) => {
+          if (_dragging || e.target.closest('button, input, a') || card.querySelector('.ket')) return;
+          openTaskDetail(card.dataset.id);
+        });
         card.addEventListener('dragstart', (e) => {
-          _dragId = card.dataset.id;
+          _dragId = card.dataset.id; _dragging = true;
           card.classList.add('dragging');
           try { e.dataTransfer.setData('text/plain', card.dataset.id); e.dataTransfer.effectAllowed = 'move'; } catch (err) { /* */ }
         });
-        card.addEventListener('dragend', () => { card.classList.remove('dragging'); $$('.cards.drop-hint').forEach((c) => c.classList.remove('drop-hint')); });
+        card.addEventListener('dragend', () => { setTimeout(() => { _dragging = false; }, 0); card.classList.remove('dragging'); $$('.cards.drop-hint').forEach((c) => c.classList.remove('drop-hint')); });
       });
       $$('.kanban .cards').forEach((col) => {
         col.addEventListener('dragover', (e) => { e.preventDefault(); try { e.dataTransfer.dropEffect = 'move'; } catch (err) { /* */ } col.classList.add('drop-hint'); });

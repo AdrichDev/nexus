@@ -28,6 +28,8 @@ from ..comun.config import DATA_DIR
 
 BOARD_FILE = DATA_DIR / "board.json"
 TRASH_FILE = DATA_DIR / "board_trash.json"
+SEQ_FILE = DATA_DIR / "board_seq.json"     # high-water mark of task keys (never reused)
+KEY_PREFIX = "NX-"
 
 # Columnas del kanban (contrato del HUD y de /api/board: NO se tocan).
 STATES = ["pendiente", "progreso", "revision", "completada"]
@@ -151,6 +153,43 @@ def _migrate(t: dict) -> dict:
     return t
 
 
+def _key_num(key) -> int:
+    """n of a well-formed "NX-<n>" key, else 0."""
+    k = str(key or "").strip().upper()
+    if k.startswith(KEY_PREFIX) and k[len(KEY_PREFIX):].isdigit():
+        return int(k[len(KEY_PREFIX):])
+    return 0
+
+
+def _seq_mark() -> int:
+    try:
+        data = json.loads(SEQ_FILE.read_text(encoding="utf-8")) if SEQ_FILE.exists() else {}
+        return int(data.get("last", 0)) if isinstance(data, dict) else 0
+    except Exception:
+        return 0
+
+
+def _max_key(tasks: list[dict]) -> int:
+    """Highest key number among live tasks, trashed tasks and the persisted high-water
+    mark: a key is never handed out twice, even after the task was trashed or purged."""
+    nums = [_key_num(t.get("key")) for t in list(tasks) + _load_trash()]
+    return max(nums + [_seq_mark()])
+
+
+def _assign_keys(tasks: list[dict]) -> None:
+    """Give a key to every task lacking one, oldest first (createdAt/created, then id).
+    Deterministic and idempotent: tasks that already have a key are never touched."""
+    missing = [t for t in tasks if not _key_num(t.get("key"))]
+    if not missing:
+        return
+    n = _max_key(tasks)
+    missing.sort(key=lambda t: (str(t.get("createdAt") or t.get("created") or ""),
+                                str(t.get("id") or "")))
+    for t in missing:
+        n += 1
+        t["key"] = f"{KEY_PREFIX}{n}"
+
+
 def _audit(**kw) -> None:
     try:
         from ..comun import audit as _a
@@ -162,7 +201,9 @@ def _audit(**kw) -> None:
 def _load() -> list[dict]:
     if BOARD_FILE.exists():
         try:
-            return [_migrate(t) for t in json.loads(BOARD_FILE.read_text(encoding="utf-8"))]
+            tasks = [_migrate(t) for t in json.loads(BOARD_FILE.read_text(encoding="utf-8"))]
+            _assign_keys(tasks)
+            return tasks
         except Exception:
             pass
     return []
@@ -170,6 +211,9 @@ def _load() -> list[dict]:
 
 def _save(tasks: list[dict]) -> None:
     BOARD_FILE.parent.mkdir(parents=True, exist_ok=True)
+    top = max([_key_num(t.get("key")) for t in tasks] + [0])
+    if top > _seq_mark():
+        SEQ_FILE.write_text(json.dumps({"last": top}), encoding="utf-8")
     BOARD_FILE.write_text(json.dumps(tasks, ensure_ascii=False, indent=1),
                           encoding="utf-8")
 
@@ -349,7 +393,8 @@ def add_task(title: str, due: str | None = None, priority: str = "media",
     tasks = _load()
     # Patrón: `urgency` manda; un llamador antiguo que solo pasa `priority` sigue valiendo.
     urg = norm_urgency(urgency, None) or norm_urgency(priority)
-    task = {"id": uuid.uuid4().hex[:8], "title": title.strip(),
+    task = {"id": uuid.uuid4().hex[:8], "key": f"{KEY_PREFIX}{_max_key(tasks) + 1}",
+            "title": title.strip(),
             "state": "pendiente", "due": due, "priority": priority_of(urg), "tag": tag,
             "urgency": urg, "type": norm_type(task_type),
             "source": source if source in SOURCES else "manual",
@@ -435,6 +480,11 @@ def find_task(query: str) -> dict | None:
     for t in tasks:                       # id exacto
         if t["id"] == query.strip():
             return t
+    qk = query.strip().upper()
+    if _key_num(qk):                      # clave estable "NX-12" (sin mayúsculas/minúsculas)
+        for t in tasks:
+            if str(t.get("key", "")).upper() == qk:
+                return t
     for t in tasks:                       # título contiene
         if q in _norm(t["title"]):
             return t
