@@ -1048,11 +1048,90 @@ def _create_task(title: str, due_date: str | None = None, notes: str = "") -> st
     return t.get("id", "")
 
 
+_AUTH_ADVICE = ("falta aceptar la autorización de ESCRITURA de Google en el navegador del PC")
+_AUTH_REASONS = {"insufficientpermissions", "autherror", "invalid_grant", "unauthenticated",
+                 "access_token_scope_insufficient", "invalid_token", "invalidcredentials"}
+_QUOTA_REASONS = {"ratelimitexceeded", "userratelimitexceeded", "quotaexceeded",
+                  "resource_exhausted", "dailylimitexceeded"}
+_DISABLED_REASONS = {"accessnotconfigured", "service_disabled"}
+
+
+def _error_tokens(exc: BaseException) -> set[str]:
+    """Lower-cased machine reasons/statuses carried by an HttpError-like exception.
+    Tolerates any missing attribute; never returns free text from the message."""
+    import json as _json
+    toks: set[str] = set()
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("reason", "status", "error") and isinstance(v, str):
+                    toks.add(v.strip().lower())
+                walk(v)
+        elif isinstance(o, (list, tuple)):
+            for v in o:
+                walk(v)
+
+    try:
+        walk(getattr(exc, "error_details", None))
+    except Exception:                                          # noqa: BLE001
+        pass
+    try:
+        content = getattr(exc, "content", None)
+        if isinstance(content, (bytes, bytearray)):
+            content = content.decode("utf-8", "replace")
+        if isinstance(content, str) and content.strip():
+            walk(_json.loads(content))
+    except Exception:                                          # noqa: BLE001
+        pass
+    return toks
+
+
+def _google_error_cause(exc: BaseException, api: str = "") -> tuple[str, str]:
+    """Classify a Google API failure -> (code, text_es). Codes: api_disabled, auth, quota,
+    server, other. The raw message is never echoed (it carries the project number)."""
+    status = None
+    for obj, attr in ((getattr(exc, "resp", None), "status"), (exc, "status_code"), (exc, "status")):
+        try:
+            v = getattr(obj, attr, None)
+            if v is not None:
+                status = int(v)
+                break
+        except Exception:                                      # noqa: BLE001
+            continue
+    toks = _error_tokens(exc)
+    try:
+        msg = str(exc).lower()
+    except Exception:                                          # noqa: BLE001
+        msg = ""
+    if not api:
+        api = "Tasks" if "tasks" in msg else ("Calendar" if "calendar" in msg else "")
+    if toks & _DISABLED_REASONS or "has not been used in project" in msg:
+        name = f"Google {api}" if api else "Google"
+        return "api_disabled", (f"la API de {name} no está activada en tu proyecto de Google "
+                                "Cloud; actívala en la consola")
+    if status == 401 or toks & _AUTH_REASONS or type(exc).__name__ == "RefreshError" \
+            or "invalid_grant" in msg:
+        return "auth", _AUTH_ADVICE
+    if status == 429 or toks & _QUOTA_REASONS:
+        return "quota", "Google limitó las peticiones (cuota excedida); reintenta más tarde"
+    if status is not None and 500 <= status <= 599:
+        return "server", "el servidor de Google falló; reintenta más tarde"
+    return "other", f"error inesperado de Google ({type(exc).__name__})"
+
+
+_CAUSE_LABEL = {"api_disabled": "API de {api} desactivada", "auth": "autorización pendiente",
+                "quota": "cuota excedida", "server": "servidor de Google"}
+
+
 def _create_everywhere(title: str, due_date: str | None, notes: str,
                        priority: str = "alta", *, task_type: str = "",
-                       urgency: str = "", source_id: str = "") -> str:
+                       urgency: str = "", source_id: str = "",
+                       causes: list | None = None) -> str:
     """Crea la tarea en GOOGLE (Calendar si hay fecha, si no Tasks) Y en el TABLERO
-    INTERNO de nexus. Devuelve un texto con los destinos donde quedó guardada."""
+    INTERNO de nexus. Devuelve un texto con los destinos donde quedó guardada.
+    `causes` (opcional): si se pasa una lista, se le añade (code, text_es) por cada fallo
+    de Google."""
     dests = []
     try:
         if due_date:
@@ -1062,7 +1141,12 @@ def _create_everywhere(title: str, due_date: str | None, notes: str,
             _create_task(title, None, notes)
             dests.append("Google Tasks (To-Do)")
     except Exception as exc:                                   # noqa: BLE001
-        dests.append(f"(Google falló: {type(exc).__name__})")
+        api = "Calendar" if due_date else "Tasks"
+        code, text = _google_error_cause(exc, api)
+        if causes is not None:
+            causes.append((code, text))
+        label = _CAUSE_LABEL.get(code, "{t}").format(api=api, t=type(exc).__name__)
+        dests.append(f"(Google falló: {label})")
     try:
         from backend.core.dominio import board
         board.add_task(title, due=due_date, priority=priority, tag="correo",
@@ -1256,6 +1340,7 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                          "una acción concreta: no he creado tareas." + fallo + alcance)
             else:
                 creadas = []
+                causas: list = []
                 for m, a in acts:
                     titulo = (a.get("tarea") or "").strip() or f"Tratar correo de {m['from']}: {m['subject']}"
                     fecha = (a.get("fecha") or "").strip() or None
@@ -1264,22 +1349,29 @@ async def _email_actions_job(ctx, channel: str) -> dict:
                     tipo, urg = _email_task_fields(a)
                     destinos = await asyncio.to_thread(
                         _create_everywhere, titulo, fecha, notas, prio,
-                        task_type=tipo, urgency=urg, source_id=m.get("id", ""))
+                        task_type=tipo, urgency=urg, source_id=m.get("id", ""),
+                        causes=causas)
                     creadas.append((titulo, fecha, destinos))
                     if "tablero interno" in destinos:       # saved on the board at least
                         convertidos.append(m.get("id", ""))
+                has_auth = any(c == "auth" for c, _t in causas)
+                otras_txt = "; ".join(dict.fromkeys(t for c, t in causas if c != "auth"))
+                causa_txt = "; ".join(filter(None, [otras_txt, "autorización pendiente" if has_auth else ""]))
                 lines = [f"• {t}" + (f" (para {f})" if f else "") + f"  → {d}" for t, f, d in creadas]
                 n_ok = sum(1 for _t2, _f2, d in creadas
                            if ("tablero interno" in d) or ("Google" in d and "falló" not in d))
                 if n_ok == 0:
                     reply = (f"Análisis hecho, preparé {len(creadas)} tarea(s)… pero NO pude "
-                             "GUARDAR ninguna:\n" + "\n".join(lines) + promo_txt +
-                             "\n\nCasi seguro falta aceptar la autorización de ESCRITURA de "
-                             "Google en el navegador del PC." + alcance)
+                             "GUARDAR ninguna:\n" + "\n".join(lines) + promo_txt
+                             + ("\n\nCasi seguro falta aceptar la autorización de ESCRITURA de "
+                                "Google en el navegador del PC." + (f" Además: {otras_txt}." if otras_txt else "")
+                                if has_auth else
+                                f"\n\nCausa en Google: {causa_txt}." if causa_txt else
+                                "\n\nNo pude determinar la causa.") + alcance)
                 else:
                     aviso = ""
                     if not any("Google" in d and "falló" not in d for _t2, _f2, d in creadas):
-                        aviso = ("\n\n⚠ En Google no pude guardarlas (autorización pendiente); "
+                        aviso = (f"\n\n⚠ En Google no pude guardarlas ({causa_txt or 'causa desconocida'}); "
                                  "en tu tablero SÍ están.")
                     reply = (f"Análisis de correos terminado — {n_ok} tarea(s) creadas:\n"
                              + "\n".join(lines) + aviso + promo_txt + fallo

@@ -389,6 +389,100 @@ check(len([n for n in g.log if n.startswith("FORBIDDEN")]) == len(bad), f"k: eac
 check(sorted(g.unread_ids()) == ["m-act", "m-alert", "m-news"] and all(
     m["labelIds"] == ["INBOX", "UNREAD"] for m in g.messages.values()), "k: state untouched by forbidden calls")
 
+# ── (r1) real Google failure causes are reported, not a fake "authorization" diagnosis ──
+print("== r1) Google error classification ==")
+import json as _json  # noqa: E402
+
+PROJECT = "519934480123"
+
+
+class _Resp:
+    def __init__(self, status):
+        self.status, self.reason = status, "x"
+
+
+class GErr(Exception):
+    """googleapiclient HttpError shape: resp.status, content (JSON bytes), error_details."""
+
+    def __init__(self, status, reason=None, gstatus=None, api="Tasks", details=None):
+        msg = (f"Google {api} API has not been used in project {PROJECT} before or it is disabled. "
+               f"Enable it by visiting https://console.developers.google.com/apis/api/x?project={PROJECT}"
+               if reason == "accessNotConfigured" or (details and details[0]["reason"] == "SERVICE_DISABLED") else f"Request failed for project {PROJECT}")
+        body = {"error": {"code": status, "message": msg, "status": gstatus or "",
+                          "errors": [{"reason": reason}] if reason else []}}
+        super().__init__(f'<HttpError {status} "{msg}">')
+        self.resp = _Resp(status)
+        self.content = _json.dumps(body).encode()
+        self.error_details = details
+
+
+def cause(e, api=""):
+    return gw._google_error_cause(e, api)
+
+
+check(cause(GErr(403, "accessNotConfigured"), "Tasks")[0] == "api_disabled", "r1: accessNotConfigured")
+check(cause(GErr(403, None, "PERMISSION_DENIED", details=[{"reason": "SERVICE_DISABLED"}]))[0] == "api_disabled",
+      "r1: SERVICE_DISABLED via error_details")
+check("Calendar" in cause(GErr(403, "accessNotConfigured"), "Calendar")[1], "r1: names Calendar")
+check("Tasks" in cause(GErr(403, "accessNotConfigured"), "Tasks")[1]
+      and "consola" in cause(GErr(403, "accessNotConfigured"), "Tasks")[1], "r1: names Tasks + console")
+check(cause(GErr(403, "insufficientPermissions"))[0] == "auth", "r1: insufficientPermissions")
+check(cause(GErr(403, None, details=[{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]))[0] == "auth",
+      "r1: scope insufficient")
+check(cause(GErr(401))[0] == "auth", "r1: 401")
+check(cause(type("RefreshError", (Exception,), {})("invalid_grant: Bad Request"))[0] == "auth", "r1: invalid_grant")
+check(cause(GErr(429))[0] == "quota" and cause(GErr(403, "rateLimitExceeded"))[0] == "quota"
+      and cause(GErr(403, "quotaExceeded"))[0] == "quota", "r1: quota")
+check(cause(GErr(500))[0] == "server" and cause(GErr(503))[0] == "server", "r1: 5xx")
+code, txt = cause(ValueError("boom"))
+check(code == "other" and "ValueError" in txt, f"r1: other keeps type: {txt}")
+check(cause(GErr(404))[0] == "other", "r1: generic 404")
+check(cause(HttpError())[0] == "server", "r1: fake_gmail HttpError (status attr only)")
+check(all(PROJECT not in cause(GErr(403, "accessNotConfigured"), a)[1] and "http" not in cause(
+    GErr(403, "accessNotConfigured"), a)[1] for a in ("Tasks", "Calendar", "")), "r1: no project/url leak")
+
+
+def run_failing(make_err):
+    g2 = FakeGoogle(inbox())
+
+    def boom(kw):
+        raise make_err()
+    g2._insert_event = boom
+    g2._insert_task = boom
+    fresh(g2, CANNED)
+    return run_job(), g2
+
+
+r1, g2 = run_failing(lambda: GErr(403, "accessNotConfigured"))
+check("autorización" not in r1 and "Casi seguro" not in r1, f"r1: api_disabled has no auth text: {r1}")
+check("no está activada" in r1 and "consola" in r1 and "API de Tasks desactivada" in r1
+      and "API de Calendar desactivada" in r1, f"r1: api_disabled cause shown: {r1}")
+check(PROJECT not in r1 and "http" not in r1, "r1: no project number/url in reply")
+check("tablero interno" in r1 and len(board._load()) == 2, "r1: board still saves (T8 literal)")
+check(r1.count("la API de Google Tasks no está activada") == 1, f"r1: causes deduped: {r1}")
+
+r2, _ = run_failing(lambda: GErr(403, "insufficientPermissions"))
+check("autorización" in r2, f"r1: auth keeps advice: {r2}")
+for mk, needle in ((lambda: GErr(429), "cuota"), (lambda: GErr(500), "servidor de Google"),
+                   (lambda: ValueError("x"), "ValueError")):
+    rr, _ = run_failing(mk)
+    check(needle in rr and "autorización" not in rr, f"r1: {needle} reply: {rr}")
+
+# all-Google-and-board-failed branch: "nothing could be saved" uses the real cause too
+_real_add = board.add_task
+board.add_task = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("board down"))
+try:
+    r3, _ = run_failing(lambda: GErr(403, "accessNotConfigured"))
+finally:
+    board.add_task = _real_add
+check("NO pude" in r3 and "no está activada" in r3 and "autorización" not in r3 and PROJECT not in r3,
+      f"r1: nothing-saved branch uses real cause: {r3}")
+
+# positional callers keep working; causes is an optional out-param
+fresh(FakeGoogle([]))
+out = gw._create_everywhere("t", None, "n", "alta")
+check("Google Tasks" in out and "tablero interno" in out, f"r1: positional contract: {out}")
+
 print()
 for k, v in _saved_mods.items():
     if v is None:
