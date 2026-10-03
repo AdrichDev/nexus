@@ -677,11 +677,14 @@ def test_la_marca_de_origen_sigue_mandando():
     with _CorpusTemporal() as c:
         c.nota("doc Colmenar del Cerro Bermejo.md", _NOTA_APICULTURA)
         orig_l, orig_h = mem.pg.filas_ligadas_a_nota, purga._huerfanas_con_terminos
+        orig_online = type(mem.pg).online  # the test must not depend on a live Postgres
         try:
+            type(mem.pg).online = property(lambda self: True)
             mem.pg.filas_ligadas_a_nota = lambda nombre_fichero: [{"id": 800}]
             purga._huerfanas_con_terminos = lambda cfg: [_huerfana(901, _FILA_PROPIA)]
             plan = purga.previsualizar()
         finally:
+            type(mem.pg).online = orig_online
             mem.pg.filas_ligadas_a_nota, purga._huerfanas_con_terminos = orig_l, orig_h
         cats = {x["id"]: x for x in plan["categorias"]}
         filas = cats["estudios-dam"]["items"][0]["filas"]

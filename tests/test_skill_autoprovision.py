@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -119,6 +120,8 @@ check("no está instalado" in r["reply"] and "Docker Desktop" in r["reply"],
 check("Traceback" not in r["reply"], "el fallo de docker suelta traceback")
 
 MOD._has = lambda b: True
+# The real compose file is generated and git-ignored; do not depend on it being present.
+MOD._compose_file = lambda: Path("docker-compose.test.yml")
 _cmds.clear()
 asyncio.run(MOD.handle("docker_up", "levanta docker", None, _ctx()))
 up = [c for c in _cmds if "up" in c]

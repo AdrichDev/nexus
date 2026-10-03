@@ -577,6 +577,12 @@ with (patch.object(MOD.sys, "platform", "win32"),
       patch("shutil.which", _fake_which),
       patch.dict(sys.modules, {"winreg": _fake_winreg}),
       patch.object(MOD.os.path, "isfile", lambda p: p == _CHROME_PATH),
+      # These launch paths are Windows-only; keep the checks meaningful on other hosts.
+      patch.object(MOD.sys, "platform", "win32"),
+      patch.object(MOD.os.path, "isabs",
+                   lambda p, _isabs=os.path.isabs: _isabs(p) or p[1:3] == ":\\"),
+      patch.dict(os.environ, {"LOCALAPPDATA": os.environ.get("LOCALAPPDATA")
+                              or "C:\\Users\\test\\AppData\\Local"}),
       patch.object(MOD.webbrowser, "open", lambda url: launches.append(("web", url)))):
     # Rejection precedes web aliases, fuzzy index matching and Steam lookup.
     for name in ("harmless & calc", "harmless | calc", "harmless > output",
