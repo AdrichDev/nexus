@@ -23,7 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("NEXUS_DATA_DIR", tempfile.mkdtemp(prefix="nexus_puertas_"))
 
@@ -160,9 +160,9 @@ def test_las_suites_del_aprendizaje_estan_en_run_all():
     # de la tupla sin que nadie se enterase: medido, sacarla dejaba las 81 suites
     # verdes. Una suite que no corre no protege nada, y esa es exactamente la
     # puerta que este caso existe para cerrar.
-    for suite in ("test_reglas_contrato.py", "test_aprendizaje_puertas.py",
-                  "test_aprendizaje_no_robo.py", "test_reglas_valores.py",
-                  "test_aprendizaje_ciclo.py",
+    for suite in ("unit/core/learning/test_reglas_contrato.py", "unit/core/learning/test_aprendizaje_puertas.py",
+                  "unit/core/learning/test_aprendizaje_no_robo.py", "unit/core/learning/test_reglas_valores.py",
+                  "unit/core/learning/test_aprendizaje_ciclo.py",
                   "test_capas_backend.py", "unit/conversation/test_regresion_conversacion.py",
                   "unit/routing/test_lo_prometido.py"):
         check(f'"{suite}"' in tupla,
@@ -246,10 +246,10 @@ def test_ficheros_nuevos_sin_datos_personales():
         ROOT / "backend" / "core" / "dominio" / "reglas.py",
         ROOT / "backend" / "core" / "aplicacion" / "aprendizaje.py",
         ROOT / "config" / "corpus_regresion.json",
-        ROOT / "tests" / "test_reglas_valores.py",
-        ROOT / "tests" / "test_reglas_contrato.py",
-        ROOT / "tests" / "test_aprendizaje_no_robo.py",
-        ROOT / "tests" / "test_aprendizaje_puertas.py",
+        ROOT / "tests" / "unit/core/learning/test_reglas_valores.py",
+        ROOT / "tests" / "unit/core/learning/test_reglas_contrato.py",
+        ROOT / "tests" / "unit/core/learning/test_aprendizaje_no_robo.py",
+        ROOT / "tests" / "unit/core/learning/test_aprendizaje_puertas.py",
     ]
     # Las palabras se arman por trozos: este fichero se escanea a si mismo y
     # escribirlas enteras lo pondria rojo por su propia guarda.

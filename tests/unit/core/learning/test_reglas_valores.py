@@ -31,7 +31,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("NEXUS_DATA_DIR", tempfile.mkdtemp(prefix="nexus_reglas_"))
 
@@ -738,7 +738,7 @@ def test_los_ficheros_nuevos_no_llevan_datos_personales():
     print("== los ficheros nuevos no llevan nada del duenno ==")
     import re as _re
     nuevos = [ROOT / "backend" / "core" / "dominio" / "reglas.py",
-              ROOT / "tests" / "test_reglas_valores.py"]
+              ROOT / "tests" / "unit/core/learning/test_reglas_valores.py"]
     # Las palabras se arman por trozos a proposito: este fichero se escanea a si
     # mismo, y escribirlas enteras lo pondria rojo por su propia guarda.
     prohibidas = ("ad" + "ri", "maq" + "ueda", "ach" + "oz")

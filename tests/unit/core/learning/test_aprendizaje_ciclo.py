@@ -23,7 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("NEXUS_DATA_DIR", tempfile.mkdtemp(prefix="nexus_ciclo_"))
 
@@ -587,7 +587,7 @@ def test_ficheros_nuevos_de_c1_sin_datos_personales():
     # `generaliza_patron()`, y la guarda de B4.6 no lo miraba. Al meterlo salio
     # rojo a la primera por el nombre del duenno escrito en su cabecera, que
     # llevaba ahi desde antes de este cambio y no vigilaba nadie.
-    for f in (ROOT / "tests" / "test_aprendizaje_ciclo.py",
+    for f in (ROOT / "tests" / "unit/core/learning/test_aprendizaje_ciclo.py",
               ROOT / "backend" / "core" / "dominio" / "selflearn.py"):
         check(f.exists(), f"{f.name} no existe: la guarda no esta mirando nada")
         if not f.exists():

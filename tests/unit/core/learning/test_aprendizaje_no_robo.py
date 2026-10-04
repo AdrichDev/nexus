@@ -36,7 +36,7 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("NEXUS_DATA_DIR", tempfile.mkdtemp(prefix="nexus_norobo_"))
 
@@ -600,7 +600,7 @@ def test_las_suites_de_enrutado_aislan_data_dir():
     # `NEXUS_DATA_DIR` apuntando a una carpeta temporal, eso son los datos REALES
     # del duenno. Medido: quitarle la linea del aislamiento dejaba todo verde.
     for nombre in ("unit/conversation/test_regresion_conversacion.py", "unit/routing/test_lo_prometido.py",
-                   "test_aprendizaje_ciclo.py"):
+                   "unit/core/learning/test_aprendizaje_ciclo.py"):
         src = (ROOT / "tests" / nombre).read_text(encoding="utf-8")
         i = src.find("NEXUS_DATA_DIR")
         check(i != -1,

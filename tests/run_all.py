@@ -85,9 +85,9 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/skills/backup/test_skill_backup.py", "unit/skills/telefono/test_skill_telefono.py",
               "unit/skills/small_skills/test_skills_pequenas_1.py", "unit/skills/small_skills/test_skills_pequenas_2.py",
               "unit/frontend/test_modules.py", "test_capas_backend.py",
-              "test_reglas_valores.py", "test_reglas_contrato.py",
-              "test_aprendizaje_puertas.py", "test_aprendizaje_no_robo.py",
-              "test_aprendizaje_ciclo.py",
+              "unit/core/learning/test_reglas_valores.py", "unit/core/learning/test_reglas_contrato.py",
+              "unit/core/learning/test_aprendizaje_puertas.py", "unit/core/learning/test_aprendizaje_no_robo.py",
+              "unit/core/learning/test_aprendizaje_ciclo.py",
               "unit/routing/test_lo_prometido.py", "unit/memory/test_grafo_solo_conocimiento.py",
               "unit/conversation/test_saludo_una_vez.py", "unit/conversation/test_calla_al_escribir.py", "unit/conversation/test_no_promete_trabajo.py", "unit/conversation/test_apunta_no_es_siempre_memoria.py", "unit/conversation/test_regresion_conversacion.py", "unit/conversation/test_que_sabes_de_mi.py",
               "unit/memory/test_grafo_vista.py"):
