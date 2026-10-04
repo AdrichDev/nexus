@@ -15,7 +15,7 @@ medianas, Wilson, la aritmética de las cestas. Esta mira lo de antes:
 
 Se ejecuta sin token, sin ID de cuenta y sin red.
 
-Ejecutar:  python tests/test_skill_instagram_conexion.py   (desde nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_skill_instagram_conexion.py   (desde nexus)
 """
 import asyncio
 import json
@@ -25,7 +25,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 _fail = []
 _pass = 0
 
@@ -63,6 +63,7 @@ ig = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ig)
 from backend.core.comun.config import settings                         # noqa: E402
 from backend.core.aplicacion.skills_loader import load_skills, route        # noqa: E402
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 CTX = {"settings": settings, "bus": None}

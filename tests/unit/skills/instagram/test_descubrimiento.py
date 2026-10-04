@@ -6,14 +6,14 @@ descubrir es amplio y difuso (páginas web), validar es exacto (API de Meta).
 Lo que NO puede pasar nunca es que una cuenta llegue a un informe sin que Meta
 la haya confirmado, o que se caiga sin decir por qué.
 
-Ejecutar:  python tests/test_descubrimiento.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_descubrimiento.py    (desde la carpeta nexus)
 """
 import importlib.util
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 _fail = []
 _pass = 0
 

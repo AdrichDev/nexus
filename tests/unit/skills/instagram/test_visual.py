@@ -6,14 +6,15 @@ el código NO se cree lo que le den: que descarta valores inventados, que no
 concluye con dos publicaciones, que la mediana aguanta un viral, y que el género
 aparente sale marcado como lo que es — una estimación, no un dato.
 
-Ejecutar:  python tests/test_visual.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_visual.py    (desde la carpeta nexus)
 """
 import importlib.util
 import sys
 from pathlib import Path
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 _fail = []
 _pass = 0
 

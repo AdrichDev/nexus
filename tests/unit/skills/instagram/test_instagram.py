@@ -13,7 +13,7 @@ Lo que se exige aquí:
     (sentimiento sin triggers; leads CON triggers)
   * sus patrones no le roban órdenes a las demás skills
 
-Ejecutar:  python tests/test_instagram.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_instagram.py    (desde la carpeta nexus)
 """
 import asyncio
 import json
@@ -23,7 +23,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 _fail = []
 _pass = 0
 

@@ -11,7 +11,7 @@ lo lanza el usuario, que es tarde.
 Instagram y el buscador se sustituyen por dobles: aquí no se llama a ninguna red.
 Lo que se prueba es NUESTRO código, no el de Meta.
 
-Ejecutar:  python tests/test_descubrimiento_flujo.py   (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_descubrimiento_flujo.py   (desde la carpeta nexus)
 """
 import asyncio
 import importlib.util
@@ -22,7 +22,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 _fail = []
 _pass = 0
