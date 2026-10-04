@@ -27,7 +27,7 @@ import tempfile
 import types
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 try:                      # consola de Windows en cp1252: «✔» reventaba la suite
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
