@@ -798,6 +798,54 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             return {"reply": _conf_reply, "skill": "tasks_board",
                     "provider": "confirmacion", "data": None}
 
+    # WRONG-ANSWER FEEDBACK: «esa respuesta no es correcta» makes nexus search NEW
+    # sources and contrast its previous answer (never learned as a fact or rule);
+    # a correction is stored as a fact only after explicit confirmation.
+    if source in ("text", "voice"):
+        from ..dominio import correcciones
+        try:
+            async def _verificador(system: str, user: str) -> str:
+                prov = await llm.get_provider()
+                if prov.name == "mock":
+                    return ""
+                return await prov.chat([{"role": "system", "content": system},
+                                        {"role": "user", "content": user}]) or ""
+
+            if correcciones.es_queja_respuesta(text):
+                await bus.emit("log", {"level": "info", "msg":
+                               "\U0001f50e Respuesta cuestionada: contrasto con fuentes nuevas\u2026"})
+            _corr_reply = await asyncio.wait_for(correcciones.handle(
+                text, channel, list(_history[-2 * MAX_TURNS:]),
+                search=lambda q, n=6: websearch.search(q, n, news=False),
+                fetch=websearch.fetch_page, ask=_verificador,
+                store=rag.add, rechazada=websearch._rejected_source_evidence), timeout=120)
+            _diag = correcciones.diagnostico(channel)
+            if _corr_reply and _diag:
+                await bus.emit("log", {"level": "info", "msg":
+                               f"\U0001f50e Contraste: {_diag['veredicto']} \u00b7 fuentes: "
+                               f"{', '.join(u[:80] for u in _diag['fuentes'])} \u00b7 "
+                               f"modelo: {_diag['modelo'][:200]}"})
+        except Exception as _exc:                       # noqa: BLE001
+            _corr_reply = None
+            await bus.emit("log", {"level": "warn",
+                                   "msg": f"Correcci\u00f3n: no pude procesarla ({_exc!r})"})
+            if correcciones.es_queja_respuesta(text):
+                # Never fall through to ordinary routing: say the review failed.
+                _corr_reply = ("No he podido completar la revisi\u00f3n con fuentes nuevas "
+                               "(la b\u00fasqueda ha fallado o ha tardado demasiado). No doy "
+                               "mi respuesta anterior por buena; vuelve a indic\u00e1rmelo en "
+                               "un momento y lo reintento.")
+        if _corr_reply:
+            _history.append({"role": "user", "content": text})
+            _history.append({"role": "assistant", "content": _corr_reply})
+            del _history[:-2 * MAX_TURNS]
+            await bus.emit("chat", {"user": text, "reply": _corr_reply,
+                                    "provider": "correccion", "skill": None,
+                                    "channel": channel})
+            await bus.emit("state", "idle")
+            return {"reply": _corr_reply, "skill": None,
+                    "provider": "correccion", "data": None}
+
     # CONTEXTO MULTI-TURNO (v20): «llama al segundo», «borra la 3», «el último»…
     # Si la última respuesta fue una LISTA, la referencia se traduce a la orden
     # completa ANTES del router (y se explica en el log).

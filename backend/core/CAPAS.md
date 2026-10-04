@@ -41,7 +41,7 @@ detalle de estilo.
 | --- | --- |
 | **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice` |
 | **infraestructura** | `llm`, `llm_runtime`, `tts`, `stt`, `remote`, `files_io`, `engram_bridge`, `websearch`, `telegram_bridge`, `spotify`, `hardware`, `app_index` |
-| **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `briefing`, `profile`, `review`, `ingesta`, `pm`, `reglas` |
+| **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `correcciones`, `briefing`, `profile`, `review`, `ingesta`, `pm`, `reglas` |
 | **aplicación** | `brain`, `skills_loader`, `scheduler`, `background`, `jobs`, `wake`, `hotkey`, `voice_cycle`, `aprendizaje` |
 
 Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
