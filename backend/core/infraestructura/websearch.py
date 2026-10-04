@@ -24,6 +24,7 @@ titulares h1-h3 y listas, no solo <p>.
 from __future__ import annotations
 
 import re
+import time
 from urllib.parse import quote, urlparse
 
 from ..comun import net
@@ -107,10 +108,11 @@ def cache_put(key: str, data) -> None:
 
 
 def _clean(s: str) -> str:
+    import html as _html
     s = re.sub(r"<[^>]+>", "", s or "")
-    s = (s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-          .replace("&quot;", '"').replace("&#x27;", "'").replace("&#39;", "'")
-          .replace("&nbsp;", " ").replace("&#x2019;", "'"))
+    # Every entity (&#xF1; &oacute; ...), not a hand-picked few: undecoded
+    # entities broke literal quotes from sources such as RTVE.
+    s = _html.unescape(s).replace("\xa0", " ")
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -184,6 +186,207 @@ async def _ddg_html(query: str, n: int) -> list[dict]:
     return out
 
 
+# --------------------- Google through a real (headless) browser ---------------------
+# The operator wants Nexus to search "normal Google, as if it opened a browser".
+# A persistent Chromium profile keeps the consent decision; CAPTCHA / "unusual
+# traffic" pages are never treated as results: they start a cooldown and the
+# search falls back to the other sources.
+
+class GoogleBlocked(RuntimeError):
+    """Google answered with a CAPTCHA / unusual-traffic page."""
+
+
+_GOOGLE_COOLDOWN = 30 * 60
+_google_cooldown_until = [0.0]
+_GOOGLE_BROWSER: dict = {"pw": None, "ctx": None, "lock": None}
+_CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
+
+
+def _google_blocked(url: str, html: str) -> bool:
+    low = (html or "")[:20000].lower()
+    return ("/sorry/" in (url or "") or "unusual traffic" in low
+            or "tr\u00e1fico inusual" in low or "trafico inusual" in low)
+
+
+def _google_host(url: str) -> bool:
+    return bool(re.search(r"(^|\.)google\.[a-z.]+$", urlparse(url or "").netloc.lower()))
+
+
+def _is_google_goto(url: str) -> bool:
+    """Google now links results through opaque /goto?url=<token> redirects."""
+    return _google_host(url) and urlparse(url).path == "/goto"
+
+
+async def _resolve_google_results(items: list[dict], resolver, n: int) -> list[dict]:
+    """Replace /goto links by their real destination (resolver -> URL or None).
+    Unresolvable links, or ones pointing back into Google, are dropped: a
+    source the operator cannot open is not a source."""
+    out, seen = [], set()
+    for it in items:
+        url = it["url"]
+        if _is_google_goto(url):
+            try:
+                url = await resolver(url) or ""
+            except Exception:
+                url = ""
+        if not url.startswith("http") or _google_host(url) or url in seen:
+            continue
+        seen.add(url)
+        out.append({**it, "url": url})
+        if len(out) >= n:
+            break
+    return out
+
+
+def _google_page_state(url: str, html: str) -> str:
+    """"blocked" (CAPTCHA / unusual traffic), "consent" or "ok". The block is
+    checked FIRST: a /sorry/ page carries continue= and looked like consent."""
+    if _google_blocked(url, html):
+        return "blocked"
+    if _is_google_consent_url(url):
+        return "consent"
+    return "ok"
+
+
+def _google_launch_options() -> list[dict]:
+    """Measured 2026-10-04: Google answers headless Chromium (bundled or Chrome)
+    with a CAPTCHA, but serves results to the installed Chrome with a normal
+    window. So the window exists but is placed off-screen ("behind")."""
+    args = ["--disable-blink-features=AutomationControlled",
+            "--window-position=-2400,-2400", "--window-size=1200,900"]
+    return [{"channel": "chrome", "headless": False, "args": args},
+            {"headless": False, "args": args}]
+
+
+def _parse_google_results(html: str, n: int) -> list[dict]:
+    """Organic results [{title, snippet, url}] from a Google result page:
+    anchors that wrap an <h3>, with /url?q= unwrapped and Google's own links,
+    non-http links and duplicates dropped. Snippet = the following VwiC3b block."""
+    from html.parser import HTMLParser
+    from urllib.parse import parse_qs
+
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.items, self.href, self.h3, self.in_h3 = [], None, "", False
+            self.snip_depth, self.snip = 0, None
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if self.snip_depth:
+                self.snip_depth += 1
+            elif tag == "a":
+                self.href, self.h3 = a.get("href") or "", ""
+            elif tag == "h3" and self.href is not None:
+                self.in_h3 = True
+            elif "VwiC3b" in (a.get("class") or "") and self.items and self.snip is None:
+                self.snip_depth, self.snip = 1, []
+
+        def handle_endtag(self, tag):
+            if self.snip_depth:
+                self.snip_depth -= 1
+                if not self.snip_depth:
+                    self.items[-1]["snippet"] = _clean(" ".join(self.snip))
+                    self.snip = None
+            elif tag == "h3":
+                self.in_h3 = False
+            elif tag == "a" and self.href is not None:
+                if self.h3.strip():
+                    self.items.append({"title": _clean(self.h3), "snippet": "",
+                                       "url": self.href})
+                    self.snip = None
+                self.href = None
+
+        def handle_data(self, data):
+            if self.snip_depth and self.snip is not None:
+                self.snip.append(data)
+            elif self.in_h3:
+                self.h3 += data
+
+    p = _P()
+    try:
+        p.feed(html or "")
+    except Exception:
+        pass
+    out, seen = [], set()
+    for it in p.items:
+        url = it["url"]
+        if url.startswith("/url?"):
+            url = (parse_qs(url.split("?", 1)[1]).get("q") or [""])[0]
+        elif url.startswith("/goto?"):
+            url = "https://www.google.com" + url   # opaque redirect: resolved later
+        if not url.startswith("http") or url in seen or \
+                (_google_host(url) and not _is_google_goto(url)):
+            continue
+        seen.add(url)
+        out.append({**it, "url": url})
+        if len(out) >= n:
+            break
+    return out
+
+
+async def _google_context():
+    import asyncio as _aio
+    from playwright.async_api import async_playwright
+    from ..comun.config import DATA_DIR
+    if _GOOGLE_BROWSER["ctx"] is None:
+        pw = await async_playwright().start()
+        ctx, err = None, None
+        for opts in _google_launch_options():
+            try:
+                ctx = await pw.chromium.launch_persistent_context(
+                    str(DATA_DIR / "browser_google"), locale="es-ES", **opts)
+                break
+            except Exception as exc:          # Chrome not installed -> bundled
+                err = exc
+        if ctx is None:
+            await pw.stop()
+            raise RuntimeError(f"no pude abrir el navegador para Google: {err}")
+        _GOOGLE_BROWSER.update(pw=pw, ctx=ctx)
+    if _GOOGLE_BROWSER["lock"] is None:
+        _GOOGLE_BROWSER["lock"] = _aio.Lock()
+    return _GOOGLE_BROWSER["ctx"]
+
+
+async def _google_browser(query: str, n: int) -> list[dict]:
+    """Google web results via headless Chromium. Raises GoogleBlocked on CAPTCHA."""
+    from ..comun.config import settings
+    if not settings.get("google_browser_search", True):
+        return []
+    ctx = await _google_context()
+    async with _GOOGLE_BROWSER["lock"]:
+        page = await ctx.new_page()
+        try:
+            await page.goto("https://www.google.com/search?hl=es&q=" + quote(query),
+                            wait_until="domcontentloaded", timeout=20000)
+            state = _google_page_state(page.url, await page.content())
+            if state == "consent":
+                for label in ("Rechazar todo", "Reject all"):
+                    btn = page.get_by_role("button", name=label)
+                    if await btn.count():
+                        await btn.first.click()
+                        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                        break
+                state = _google_page_state(page.url, await page.content())
+            if state == "blocked":
+                raise GoogleBlocked("Google pide CAPTCHA / tr\u00e1fico inusual")
+            if state == "consent":
+                return []
+            try:
+                await page.wait_for_selector("#search h3", timeout=8000)
+            except Exception:
+                pass
+            items = _parse_google_results(await page.content(), n * 2)
+
+            async def _resolver(url: str):
+                r = await ctx.request.get(url, max_redirects=0, timeout=10000)
+                return r.headers.get("location") if r.status in (301, 302, 303, 307, 308) else None
+            return await _resolve_google_results(items, _resolver, n)
+        finally:
+            await page.close()
+
+
 # Wikimedia's robot policy rejects generic browser user agents (HTTP 403).
 _WIKI_HDRS = {"User-Agent": "NexusAssistant/1.0 (local personal assistant; "
                             "https://github.com/AdrichDev/nexus)"}
@@ -227,15 +430,20 @@ async def search(query: str, n: int = 6, news: bool | None = None) -> list[dict]
     if hit:
         return hit
     if is_news:
-        sources = (_google_news, _ddg_lite, _ddg_html)
+        sources = (_google_news, _google_browser, _ddg_lite, _ddg_html)
     else:
-        sources = (_ddg_lite, _ddg_html, _wikipedia, _google_news)
+        sources = (_google_browser, _ddg_lite, _ddg_html, _wikipedia, _google_news)
     for src in sources:
+        if src is _google_browser and time.time() < _google_cooldown_until[0]:
+            continue                       # blocked recently: do not hammer Google
         try:
             res = await src(query, n)
             if res:
                 cache_put(key, res)
                 return res
+        except GoogleBlocked:
+            _google_cooldown_until[0] = time.time() + _GOOGLE_COOLDOWN
+            continue
         except Exception:
             continue
     return []

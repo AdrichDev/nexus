@@ -129,6 +129,7 @@ def _afirmacion(respuesta: str) -> str:
         partes.pop(0)
     limpio = re.sub(r"https?://\S+|\s*\u2014\s*\w+\s*$", "", "\n\n".join(partes))
     limpio = re.sub(r"[*_`#>]+", "", limpio).strip()      # markdown is not part of the claim
+    limpio = re.sub(r"^nexus\s*:\s*", "", limpio, flags=re.IGNORECASE)   # speaker label
     frase = re.split(r"[.;:!?](?:\s|$)", limpio, maxsplit=1)[0]
     return " ".join(frase.split()[:14]).strip(" .,")   # short: search engines choke on long claims
 

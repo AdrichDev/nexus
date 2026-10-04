@@ -237,6 +237,8 @@ def main():
                                 "largo que discurre \u00edntegramente por Espa\u00f1a, es el Ebro. \u2014nexus")
     check(long_claim == "El r\u00edo m\u00e1s largo de Espa\u00f1a es el Tajo", f"claim cut at first clause: {long_claim!r}")
     check(len(c._afirmacion("palabra " * 40).split()) <= 14, "claim length bounded")
+    check(c._afirmacion("nexus: El **Tajo** es el r\u00edo m\u00e1s largo. M\u00e1s texto.")
+          == "El Tajo es el r\u00edo m\u00e1s largo", "assistant-name prefix is not part of the claim")
     job = ("\u2714 Trabajo #26 terminado (#27: dime la capital de Mongolia):\n\n"
            "Ya lo tengo #27 \u2014 \u00abdime la capital de Mongolia\u00bb:\n\n"
            "Ul\u00e1n Bator es la capital de Mongolia.")

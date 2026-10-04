@@ -163,6 +163,17 @@ async def test_full_report_preserves_query_and_no_sources_when_fetches_rejected(
           "zero useful sources is reported as a limitation")
 
 
+def test_extract_text_decodes_html_entities():
+    mod = load_websearch()
+    html = ("<article><p>El camino de Espa&#xF1;a hasta ganar su primer Mundial femenino, "
+            "en datos. La selecci&oacute;n gan&#243; 1-0 &amp; celebr&oacute; en S&iacute;dney "
+            "con miles de aficionados presentes en el estadio.</p></article>")
+    txt = mod.extract_text(html)
+    check("El camino de Espa\u00f1a hasta ganar" in txt and "gan\u00f3 1-0 & celebr\u00f3 en S\u00eddney" in txt
+          and "&#x" not in txt and "&oacute;" not in txt,
+          f"page text has HTML entities decoded (literal quotes must match): {txt[:120]!r}")
+
+
 async def test_search_news_override_prefers_general_web():
     order = []
 
@@ -195,6 +206,7 @@ async def test_search_news_override_prefers_general_web():
 
 
 def main():
+    test_extract_text_decodes_html_entities()
     asyncio.run(test_search_news_override_prefers_general_web())
     print("· source evidence rejects consent without rejecting normal articles")
     asyncio.run(test_fetch_page_rejects_consent_cache_request_final_and_html())
