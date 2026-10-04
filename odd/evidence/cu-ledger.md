@@ -18,7 +18,7 @@ Verified at commit `9904803` (main), 2026-10-04. Evidence levels: **S** source e
 | Files and versions | Works: I (create/update/versions/restore, sandbox refusal) | real OS trash; `crea el archivo /ruta/x.md` mangles absolute paths (use `x.md en /ruta`) |
 | Inbox → tasks / KPIs | Works: M + real read-only Gmail dry run (board side) | Google Tasks API disabled in the GCP project (HTTP 403): Google-side creation fails until the owner enables it |
 | TV / home | Works for one TV: M + F (Habitación Maqueda on/off, owner present) | other TV and Roku, unreachable/timeout on hardware; `on?` state is ambiguous by design |
-| Memory, knowledge graph, learning rules | M (suites; DB checks skipped without Postgres) | persistence/restart/recall against a real database (P1-07 open) |
+| Memory, knowledge graph, learning rules | Works: I against a disposable pgvector DB (store, dedup, restart survival, retire/restore, schema idempotent) + M (suites, DB checks no longer skipped) | real embeddings (no Ollama), migration of a populated DB, backups |
 | Google mail/calendar/drive | M (fake provider contracts) | real provider results beyond the read-only mail run; no mail is sent by default |
 | Instagram, Content OS | I for UI rendering with synthetic data; M for analysis | real Graph API results; third-party reel ingestion is unsupported |
 | PC, media, Chrome, voice | M (app-launch decisions) | real desktop launch, audio, browser control |
@@ -26,4 +26,4 @@ Verified at commit `9904803` (main), 2026-10-04. Evidence levels: **S** source e
 | Research, weather, places, watches, billing | M | live data provenance; billing produces a draft only, no email delivery |
 
 ## Open
-P1-07 persistence, P1-08 external integrations, P1-09 local PC/media/voice, P2-10 product-claim audit. Each needs an owner-approved scope (sandbox accounts, devices, or a disposable database) before it can move past M.
+P1-08 external integrations, P1-09 local PC/media/voice, P2-10 product-claim audit. Each needs an owner-approved scope (sandbox accounts, devices, or a disposable database) before it can move past M.
