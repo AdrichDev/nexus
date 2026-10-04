@@ -6,9 +6,16 @@ import ast
 import os
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fails = 0
+
+# The battery never touches the operator's real data directory: the runner and
+# every suite get a throwaway NEXUS_DATA_DIR (logs, caches, jobs, inbox...).
+# Without it, suites wrote fake jobs and documents into data/nexus.log.
+_DATA_SANDBOX = tempfile.mkdtemp(prefix="nexus_suite_data_")
+os.environ["NEXUS_DATA_DIR"] = _DATA_SANDBOX
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -85,7 +92,7 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/skills/research/test_source_evidence.py",
               "unit/skills/backup/test_skill_backup.py", "unit/skills/telefono/test_skill_telefono.py",
               "unit/skills/small_skills/test_skills_pequenas_1.py", "unit/skills/small_skills/test_skills_pequenas_2.py",
-              "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py",
+              "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py", "unit/core/runtime/test_log_aislado.py",
               "unit/core/learning/test_reglas_valores.py", "unit/core/learning/test_reglas_contrato.py",
               "unit/core/learning/test_aprendizaje_puertas.py", "unit/core/learning/test_aprendizaje_no_robo.py",
               "unit/core/learning/test_aprendizaje_ciclo.py", "unit/core/learning/test_correcciones_confirmadas.py",
@@ -95,7 +102,8 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.
-    _env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    _env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+            "NEXUS_DATA_DIR": tempfile.mkdtemp(prefix="nexus_suite_data_")}
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tests", suite)],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=_env)

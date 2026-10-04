@@ -26,3 +26,9 @@ Native R1 risk: medium; one reliability reviewer with host-resolved consent. `re
 
 ## Next step
 R2 implemented inline (subagent runtime failed on every launch, including health checks; owner authorized inline fallback). Pending native review and work-unit commit. Live R3 recheck remains pending. No push or merge.
+
+## Follow-up tasks (owner order: verify, check and commit each in order; native review of everything deferred to the end by owner decision)
+- [x] 1. Close R2 contrast flow. Commits 9096dfc (websearch fact-check sources) and c67585f (re-research disputed answers). Native review deferred: reviewer routing moved to openrouter/~google/gemini-pro-latest (repo-pinned profile 'current' in ~/.pi/gentle-ai/profiles.json was overriding models.json) but OpenRouter has no credit (402).
+- [x] 2. Tests must not write into production data. Root cause: backend/core/comun/events.py persisted logs to a hardcoded <repo>/data/nexus.log, ignoring NEXUS_DATA_DIR and test sandboxes; run_all.py ran suites with the real data dir. Fix: log path follows config.DATA_DIR on every write; run_all.py gives the runner and each suite a throwaway NEXUS_DATA_DIR. RED 2/5 -> GREEN 7/0 (tests/unit/core/runtime/test_log_aislado.py). Full battery: real data/nexus.log size identical before/after (61514 bytes); only known test_inbox_scale timing flake failed. Memory DB was NOT polluted (inbox tests use fake pg/graph); earlier pollution was log lines only (left in place as history).
+- [ ] 3. Hermes results: keep them in the conversation, replay on reconnect, no truncation.
+- [ ] 4. Google search through a headless browser (Playwright already installed), detecting CAPTCHA/blocks honestly.

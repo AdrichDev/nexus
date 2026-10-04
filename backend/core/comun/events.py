@@ -158,12 +158,14 @@ def _persist_log(data) -> None:
     Antes los logs solo vivían en la memoria del HUD: al cerrar, imposible
     diagnosticar nada («los modelos fallan» y ni rastro del porqué)."""
     try:
-        if _LOGF[0] is None:
-            from pathlib import Path
-            f = Path(__file__).resolve().parents[3] / "data" / "nexus.log"
+        # The configured data dir (NEXUS_DATA_DIR / test sandboxes), resolved on
+        # every write: a hardcoded <repo>/data path made tests pollute the
+        # operator's real log.
+        from . import config
+        f = config.DATA_DIR / "nexus.log"
+        if _LOGF[0] != f:
             f.parent.mkdir(parents=True, exist_ok=True)
             _LOGF[0] = f
-        f = _LOGF[0]
         try:
             if f.exists() and f.stat().st_size > 1_000_000:
                 f.replace(f.with_name("nexus.log.1"))
