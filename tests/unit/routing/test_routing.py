@@ -3,7 +3,7 @@
 (no copias). Cubren: patrones de las skills (routing por regex), el objeto
 _LLMMatch del planificador y el parseo JSON de plan_action.
 
-Ejecutar:  python tests/test_routing.py        (desde la carpeta nexus)
+Ejecutar:  python tests/unit/routing/test_routing.py        (desde la carpeta nexus)
 Salida:    "N pasados, 0 fallados" y código de salida 0 si todo OK.
 """
 import ast
@@ -12,7 +12,7 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 
@@ -28,6 +28,7 @@ def check(cond, msg):
 
 # ---------- utilidades: cargar código REAL del disco ----------
 import types
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 

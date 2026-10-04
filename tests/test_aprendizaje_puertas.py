@@ -164,7 +164,7 @@ def test_las_suites_del_aprendizaje_estan_en_run_all():
                   "test_aprendizaje_no_robo.py", "test_reglas_valores.py",
                   "test_aprendizaje_ciclo.py",
                   "test_capas_backend.py", "unit/conversation/test_regresion_conversacion.py",
-                  "test_lo_prometido.py"):
+                  "unit/routing/test_lo_prometido.py"):
         check(f'"{suite}"' in tupla,
               f"«{suite}» no esta en la tupla de suites de run_all.py: no la ejecuta "
               "nadie, y una suite que no corre no protege nada")

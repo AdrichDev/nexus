@@ -67,7 +67,7 @@ except Exception:
     _cfg_antes = None
 
 # 3) lanzar las suites unitarias
-for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
+for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/routing/test_verificaciones.py",
               "test_renovacion.py", "test_mejoras_v19.py", "test_specs_v20.py",
               "test_v21_fixes.py", "test_specs_v23.py", "test_specs_v23_orq.py", "test_specs_v23_mem.py", "test_specs_v23_files.py", "test_specs_v23_ui.py", "test_specs_v23_hermes.py", "test_specs_v24.py", "test_llm_runtime.py", "integration/http/test_acceso_remoto.py", "test_tunel_adoptado.py", "unit/skills/instagram/test_instagram.py", "unit/skills/instagram/test_analisis.py", "unit/skills/instagram/test_spec.py", "unit/skills/instagram/test_competencia.py", "unit/skills/instagram/test_skill_instagram_conexion.py", "test_nucleo.py", "test_umbrales.py", "unit/skills/instagram/test_descubrimiento.py", "unit/skills/instagram/test_descubrimiento_flujo.py", "unit/skills/instagram/test_inteligencia.py", "unit/conversation/test_frases_reales.py", "unit/skills/instagram/test_visual.py", "test_apis_config.py", "integration/http/test_entrega_real.py", "unit/skills/domotica/test_dispositivos.py", "unit/skills/domotica/test_tv_power.py", "unit/core/test_board_pattern.py", "unit/core/test_board_kpis.py", "unit/core/test_board_keys.py", "unit/frontend/test_task_cards.py", "unit/core/test_inbox_tasks.py", "unit/skills/google_workspace/test_inbox_fake_gmail.py", "unit/skills/google_workspace/test_inbox_scale.py", "unit/memory/test_engram.py", "unit/memory/test_hermes_engram.py", "unit/memory/test_memoria_embeddings.py", "unit/memory/test_purga.py", "unit/memory/test_ingesta_documentos.py",
               "test_openrouter_privacidad.py", "unit/skills/content_os/test_content_os_honestidad.py", "unit/skills/google_workspace/test_drive.py",
@@ -88,7 +88,7 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_reglas_valores.py", "test_reglas_contrato.py",
               "test_aprendizaje_puertas.py", "test_aprendizaje_no_robo.py",
               "test_aprendizaje_ciclo.py",
-              "test_lo_prometido.py", "unit/memory/test_grafo_solo_conocimiento.py",
+              "unit/routing/test_lo_prometido.py", "unit/memory/test_grafo_solo_conocimiento.py",
               "unit/conversation/test_saludo_una_vez.py", "unit/conversation/test_calla_al_escribir.py", "unit/conversation/test_no_promete_trabajo.py", "unit/conversation/test_apunta_no_es_siempre_memoria.py", "unit/conversation/test_regresion_conversacion.py", "unit/conversation/test_que_sabes_de_mi.py",
               "unit/memory/test_grafo_vista.py"):
     print(f"== 3) suite {suite} ==")

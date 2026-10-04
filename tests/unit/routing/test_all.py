@@ -3,7 +3,7 @@
 Cubre: routing de TODAS las skills + colisiones entre skills, planificador
 (_LLMMatch), anti-eco, delegación a Hermes, helpers de TTS, domótica, memoria.
 
-Ejecutar:  python tests/test_all.py       (desde la carpeta nexus)
+Ejecutar:  python tests/unit/routing/test_all.py       (desde la carpeta nexus)
 """
 import importlib
 import importlib.util
@@ -12,7 +12,7 @@ import re
 import sys
 import types
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 

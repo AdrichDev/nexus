@@ -363,7 +363,7 @@ def valor(clave: str):
 # ═══════════════════════════════════════════════════════════════════════════
 # No hay artefacto nuevo que mantener al dia: `installer/nexus.spec` YA empaqueta
 # `skills/` entero, y las frases prometidas salen de las listas de activacion de
-# los propios `SKILL.md`. El extractor que vivia en `tests/test_lo_prometido.py`
+# los propios `SKILL.md`. El extractor que vivia en `tests/unit/routing/test_lo_prometido.py`
 # baja aqui y el test pasa a importarlo, para que no puedan discrepar.
 
 # Frases entrecomilladas en una vinneta que NO son ordenes: son trozos de prosa

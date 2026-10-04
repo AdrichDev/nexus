@@ -145,7 +145,7 @@ def test_corpus_prometido_259_distintas():
           f"prometidas ({len(frases)})")
 
     # Y la suite que vigila lo prometido usa ESTE extractor, no una copia suya.
-    src = (ROOT / "tests" / "test_lo_prometido.py").read_text(encoding="utf-8")
+    src = (ROOT / "tests" / "unit/routing/test_lo_prometido.py").read_text(encoding="utf-8")
     check("reglas.corpus_prometido" in src,
           "test_lo_prometido.py ha vuelto a tener extractor propio: dos extractores "
           "pueden discrepar sin que nadie se entere")
@@ -599,7 +599,7 @@ def test_las_suites_de_enrutado_aislan_data_dir():
     # `reglas_aprendidas.json` y uno de sus casos borra `interactions.jsonl`. Sin
     # `NEXUS_DATA_DIR` apuntando a una carpeta temporal, eso son los datos REALES
     # del duenno. Medido: quitarle la linea del aislamiento dejaba todo verde.
-    for nombre in ("unit/conversation/test_regresion_conversacion.py", "test_lo_prometido.py",
+    for nombre in ("unit/conversation/test_regresion_conversacion.py", "unit/routing/test_lo_prometido.py",
                    "test_aprendizaje_ciclo.py"):
         src = (ROOT / "tests" / nombre).read_text(encoding="utf-8")
         i = src.find("NEXUS_DATA_DIR")
