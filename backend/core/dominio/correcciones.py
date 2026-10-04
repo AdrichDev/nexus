@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections import deque
 from itertools import zip_longest
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -63,10 +64,12 @@ _SISTEMA = (
     '"cita": "frase copiada LITERALMENTE de una de esas fuentes que lo demuestra"}')
 
 _estado: dict[str, dict] = {}
+_RESPUESTAS_FLUJO: deque = deque(maxlen=64)   # replies this flow produced
 
 
 def reset() -> None:
     _estado.clear()
+    _RESPUESTAS_FLUJO.clear()
 
 
 def estado(channel: str) -> dict | None:
@@ -114,7 +117,10 @@ def _ultimo_par(history: list[dict]) -> tuple[str, str] | None:
         a, u = history[i], history[i - 1]
         if a.get("role") == "assistant" and u.get("role") == "user":
             q = (u.get("content") or "").strip()
-            if q and not es_queja_respuesta(q) and not extraer_correccion(q):
+            # Turns of this feedback flow (complaints, hints, and the flow's own
+            # replies such as "Guardada") are never the answer under review.
+            if q and not es_queja_respuesta(q) and not extraer_correccion(q) \
+                    and (a.get("content") or "").strip() not in _RESPUESTAS_FLUJO:
                 return q, (a.get("content") or "").strip()
     return None
 
@@ -257,7 +263,17 @@ async def _contrastar(st: dict, search, fetch, ask, rechazada) -> str:
 
 async def handle(text: str, channel: str, history: list[dict], *, search, store,
                  ask, fetch=None, rechazada=_rechazada_basica) -> str | None:
-    """Return a reply when this message belongs to the correction flow, else None."""
+    """Return a reply when this message belongs to the correction flow, else None.
+    `rechazada(url=, text=)` rejects non-evidence pages (consent walls)."""
+    reply = await _handle(text, channel, history, search=search, store=store,
+                          ask=ask, fetch=fetch, rechazada=rechazada)
+    if reply:
+        _RESPUESTAS_FLUJO.append(reply.strip())
+    return reply
+
+
+async def _handle(text: str, channel: str, history: list[dict], *, search, store,
+                  ask, fetch, rechazada) -> str | None:
     st = estado(channel)
     if st and st["estado"] == "propuesta":
         if _SI_RX.match(text):

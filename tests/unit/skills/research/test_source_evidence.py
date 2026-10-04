@@ -183,26 +183,37 @@ async def test_search_news_override_prefers_general_web():
             return [{"title": name, "snippet": name, "url": f"https://{name}.test"}]
         return f
 
+    async def blocked(q, n):
+        order.append(name_of_blocked[0])
+        return []
+    name_of_blocked = [""]
+
+    def empty(name):
+        async def f(q, n):
+            order.append(name)
+            return []
+        return f
+
+    # Every source is stubbed explicitly (review R3-003): the browser source is
+    # never left to fail by accident inside the fake package.
     mod = load_websearch()
+    mod._google_browser = empty("google")
     mod._google_news, mod._ddg_lite, mod._ddg_html = src("news"), src("lite"), src("html")
     got = await mod.search("Mundial femenino 2023 final", 4, news=False)
-    check(order == ["lite"] and got[0]["title"] == "lite",
-          f"news=False searches general web first even for news-like queries: {order}")
+    check(order == ["google", "lite"] and got[0]["title"] == "lite",
+          f"news=False: Google first, then general web, even for news-like queries: {order}")
     order.clear()
     await mod.search("Mundial femenino 2023 final", 4)
     check(order == ["news"], f"default auto mode still routes news-like queries to news: {order}")
 
     order.clear()
     mod = load_websearch()
-
-    async def blocked(q, n):
-        order.append("ddg-blocked")
-        return []
-    mod._ddg_lite = mod._ddg_html = blocked
+    mod._google_browser = empty("google")
+    mod._ddg_lite, mod._ddg_html = empty("ddg-lite"), empty("ddg-html")
     mod._wikipedia, mod._google_news = src("wiki"), src("news")
     got = await mod.search("rio mas largo de Espana", 4, news=False)
-    check(order == ["ddg-blocked", "ddg-blocked", "wiki"] and got[0]["title"] == "wiki",
-          f"DuckDuckGo blocked -> Wikipedia before unreadable news links: {order}")
+    check(order == ["google", "ddg-lite", "ddg-html", "wiki"] and got[0]["title"] == "wiki",
+          f"Google and DuckDuckGo empty -> Wikipedia before unreadable news links: {order}")
 
 
 def main():

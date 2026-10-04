@@ -145,7 +145,51 @@ def main():
         (w._google_browser, w._ddg_lite, w._ddg_html, w._wikipedia, w._google_news) = orig
 
 
+def browser_lifecycle():
+    print("== browser context: single launch under concurrency, recovery after close (review R3-002) ==")
+    launches = []
+
+    class FakePage:
+        def __init__(self, ctx):
+            self.ctx = ctx
+
+    class FakeCtx:
+        def __init__(self):
+            self.closed = False
+
+        async def new_page(self):
+            if self.closed:
+                raise RuntimeError("Target page, context or browser has been closed")
+            return FakePage(self)
+
+    async def fake_launch():
+        await asyncio.sleep(0.05)          # a slow launch exposes the race
+        ctx = FakeCtx()
+        launches.append(ctx)
+        return ctx
+
+    orig = w._launch_google_context
+    w._launch_google_context = fake_launch
+    w._GOOGLE_BROWSER.update(pw=None, ctx=None, lock=None, start_lock=None)
+    try:
+        async def both():
+            return await asyncio.gather(w._google_context(), w._google_context())
+        a, b = asyncio.run(both())
+        check(len(launches) == 1 and a is b, f"concurrent first searches launch ONE browser ({len(launches)})")
+
+        async def after_close():
+            launches[0].closed = True
+            return await w._google_page()
+        page = asyncio.run(after_close())
+        check(len(launches) == 2 and page.ctx is launches[1],
+              "a closed/crashed browser is relaunched instead of failing forever")
+    finally:
+        w._launch_google_context = orig
+        w._GOOGLE_BROWSER.update(pw=None, ctx=None, lock=None, start_lock=None)
+
+
 if __name__ == "__main__":
+    browser_lifecycle()
     main()
     print("\n" + "=" * 50)
     print(f"{_pass} pasados, {len(_fail)} fallados")

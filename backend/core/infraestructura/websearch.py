@@ -198,7 +198,7 @@ class GoogleBlocked(RuntimeError):
 
 _GOOGLE_COOLDOWN = 30 * 60
 _google_cooldown_until = [0.0]
-_GOOGLE_BROWSER: dict = {"pw": None, "ctx": None, "lock": None}
+_GOOGLE_BROWSER: dict = {"pw": None, "ctx": None, "lock": None, "start_lock": None}
 _CHROME_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36")
 
@@ -326,37 +326,64 @@ def _parse_google_results(html: str, n: int) -> list[dict]:
     return out
 
 
-async def _google_context():
-    import asyncio as _aio
+async def _launch_google_context():
     from playwright.async_api import async_playwright
     from ..comun.config import DATA_DIR
-    if _GOOGLE_BROWSER["ctx"] is None:
-        pw = await async_playwright().start()
-        ctx, err = None, None
-        for opts in _google_launch_options():
-            try:
-                ctx = await pw.chromium.launch_persistent_context(
-                    str(DATA_DIR / "browser_google"), locale="es-ES", **opts)
-                break
-            except Exception as exc:          # Chrome not installed -> bundled
-                err = exc
-        if ctx is None:
-            await pw.stop()
-            raise RuntimeError(f"no pude abrir el navegador para Google: {err}")
-        _GOOGLE_BROWSER.update(pw=pw, ctx=ctx)
+    pw = await async_playwright().start()
+    err = None
+    for opts in _google_launch_options():
+        try:
+            ctx = await pw.chromium.launch_persistent_context(
+                str(DATA_DIR / "browser_google"), locale="es-ES", **opts)
+            _GOOGLE_BROWSER["pw"] = pw
+            return ctx
+        except Exception as exc:              # Chrome not installed -> bundled
+            err = exc
+    await pw.stop()
+    raise RuntimeError(f"no pude abrir el navegador para Google: {err}")
+
+
+async def _google_context():
+    """The shared browser context, launched ONCE even if two searches start
+    together (two launches on one profile fail: the profile is locked)."""
+    import asyncio as _aio
+    if _GOOGLE_BROWSER.get("start_lock") is None:
+        _GOOGLE_BROWSER["start_lock"] = _aio.Lock()
     if _GOOGLE_BROWSER["lock"] is None:
         _GOOGLE_BROWSER["lock"] = _aio.Lock()
+    async with _GOOGLE_BROWSER["start_lock"]:
+        if _GOOGLE_BROWSER["ctx"] is None:
+            _GOOGLE_BROWSER["ctx"] = await _launch_google_context()
     return _GOOGLE_BROWSER["ctx"]
 
 
+async def _google_page():
+    """A new tab; if the browser was closed or crashed, relaunch it once instead
+    of failing every Google search until Nexus restarts."""
+    ctx = await _google_context()
+    try:
+        return await ctx.new_page()
+    except Exception:
+        dead_pw = _GOOGLE_BROWSER.get("pw")
+        _GOOGLE_BROWSER.update(ctx=None, pw=None)
+        try:
+            if dead_pw is not None:
+                await dead_pw.stop()
+        except Exception:
+            pass
+        return await (await _google_context()).new_page()
+
+
 async def _google_browser(query: str, n: int) -> list[dict]:
-    """Google web results via headless Chromium. Raises GoogleBlocked on CAPTCHA."""
+    """Google web results via the installed Chrome (off-screen window). Raises
+    GoogleBlocked on CAPTCHA."""
     from ..comun.config import settings
     if not settings.get("google_browser_search", True):
         return []
-    ctx = await _google_context()
+    await _google_context()
     async with _GOOGLE_BROWSER["lock"]:
-        page = await ctx.new_page()
+        page = await _google_page()
+        ctx = page.context
         try:
             await page.goto("https://www.google.com/search?hl=es&q=" + quote(query),
                             wait_until="domcontentloaded", timeout=20000)

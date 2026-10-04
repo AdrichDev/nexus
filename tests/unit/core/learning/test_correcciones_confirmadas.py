@@ -161,6 +161,22 @@ def main():
     check("correcciones.diagnostico(channel)" in BRAIN.read_text(encoding="utf-8"),
           "brain logs the contrast diagnostics")
 
+    print("== a complaint never binds to a confirmation/rejection turn (review R3-001) ==")
+    c.reset()
+    f = Fakes()
+    prop = h(c, "esa respuesta no es correcta", f)
+    saved = h(c, "s\u00ed", f)
+    hist_flow = HISTORY + [{"role": "user", "content": "esa respuesta no es correcta"},
+                           {"role": "assistant", "content": prop},
+                           {"role": "user", "content": "s\u00ed"},
+                           {"role": "assistant", "content": saved}]
+    check(c._ultimo_par(hist_flow) == (Q, OLD),
+          "pair ('s\u00ed', 'Guardada') is skipped; the real question/answer is reviewed")
+    hist_normal = HISTORY + [{"role": "user", "content": "s\u00ed"},
+                             {"role": "assistant", "content": "El Tajo mide 1007 km."}]
+    check(c._ultimo_par(hist_normal) == ("s\u00ed", "El Tajo mide 1007 km."),
+          "an ordinary 's\u00ed' that led to a real answer is still reviewable")
+
     print("== rejection discards ==")
     c.reset()
     f = Fakes()
