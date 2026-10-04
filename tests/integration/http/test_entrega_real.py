@@ -16,7 +16,7 @@ HUD, comprobando que lo que llega:
 No necesita navegador: son peticiones HTTP. Se ejecuta en la suite normal, así
 que corre en el equipo de Adri sin instalar nada.
 
-Ejecutar:  python tests/test_entrega_real.py    (desde la carpeta nexus)
+Ejecutar:  python tests/integration/http/test_entrega_real.py    (desde la carpeta nexus)
 """
 import json
 import os
@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 _fail = []
 _pass = 0
 

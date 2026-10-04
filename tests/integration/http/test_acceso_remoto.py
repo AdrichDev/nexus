@@ -18,7 +18,7 @@ Aquí se arranca nexus DE VERDAD y se llama por HTTP como lo harían:
   * el QR recién escaneado       → /m tiene que cargar sin token (si no, no habría
                                    forma de vincularse nunca)
 
-Ejecutar:  python tests/test_acceso_remoto.py    (desde la carpeta nexus)
+Ejecutar:  python tests/integration/http/test_acceso_remoto.py    (desde la carpeta nexus)
 """
 import ast
 import asyncio
@@ -34,9 +34,10 @@ import types
 import urllib.error
 import urllib.request
 from pathlib import Path
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 _fail = []
 _pass = 0
 

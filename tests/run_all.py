@@ -69,7 +69,7 @@ except Exception:
 # 3) lanzar las suites unitarias
 for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
               "test_renovacion.py", "test_mejoras_v19.py", "test_specs_v20.py",
-              "test_v21_fixes.py", "test_specs_v23.py", "test_specs_v23_orq.py", "test_specs_v23_mem.py", "test_specs_v23_files.py", "test_specs_v23_ui.py", "test_specs_v23_hermes.py", "test_specs_v24.py", "test_llm_runtime.py", "test_acceso_remoto.py", "test_tunel_adoptado.py", "test_instagram.py", "unit/skills/instagram/test_analisis.py", "unit/skills/instagram/test_spec.py", "unit/skills/instagram/test_competencia.py", "test_skill_instagram_conexion.py", "test_nucleo.py", "test_umbrales.py", "test_descubrimiento.py", "test_descubrimiento_flujo.py", "unit/skills/instagram/test_inteligencia.py", "test_frases_reales.py", "test_visual.py", "test_apis_config.py", "test_entrega_real.py", "test_dispositivos.py", "unit/skills/domotica/test_tv_power.py", "unit/core/test_board_pattern.py", "unit/core/test_board_kpis.py", "unit/core/test_board_keys.py", "unit/frontend/test_task_cards.py", "unit/core/test_inbox_tasks.py", "unit/skills/google_workspace/test_inbox_fake_gmail.py", "unit/skills/google_workspace/test_inbox_scale.py", "test_engram.py", "test_hermes_engram.py", "test_memoria_embeddings.py", "test_purga.py", "test_ingesta_documentos.py",
+              "test_v21_fixes.py", "test_specs_v23.py", "test_specs_v23_orq.py", "test_specs_v23_mem.py", "test_specs_v23_files.py", "test_specs_v23_ui.py", "test_specs_v23_hermes.py", "test_specs_v24.py", "test_llm_runtime.py", "integration/http/test_acceso_remoto.py", "test_tunel_adoptado.py", "test_instagram.py", "unit/skills/instagram/test_analisis.py", "unit/skills/instagram/test_spec.py", "unit/skills/instagram/test_competencia.py", "test_skill_instagram_conexion.py", "test_nucleo.py", "test_umbrales.py", "test_descubrimiento.py", "test_descubrimiento_flujo.py", "unit/skills/instagram/test_inteligencia.py", "test_frases_reales.py", "test_visual.py", "test_apis_config.py", "integration/http/test_entrega_real.py", "test_dispositivos.py", "unit/skills/domotica/test_tv_power.py", "unit/core/test_board_pattern.py", "unit/core/test_board_kpis.py", "unit/core/test_board_keys.py", "unit/frontend/test_task_cards.py", "unit/core/test_inbox_tasks.py", "unit/skills/google_workspace/test_inbox_fake_gmail.py", "unit/skills/google_workspace/test_inbox_scale.py", "test_engram.py", "test_hermes_engram.py", "test_memoria_embeddings.py", "test_purga.py", "test_ingesta_documentos.py",
               "test_openrouter_privacidad.py", "test_content_os_honestidad.py", "test_drive.py",
               "test_skill_google_workspace.py", "test_skill_domotica.py",
               "test_skill_hermes.py", "test_skill_files.py",
@@ -103,7 +103,7 @@ for suite in ("test_all.py", "test_routing.py", "test_verificaciones.py",
     # suite fallaba por impaciencia: un rojo que no era un fallo real y que
     # obligaba a repetir a mano para saber si era verdad. Si falla, se repite una
     # vez; si vuelve a fallar, ES un fallo y cuenta como tal.
-    if r.returncode != 0 and suite in ("test_entrega_real.py", "test_acceso_remoto.py"):
+    if r.returncode != 0 and suite in ("integration/http/test_entrega_real.py", "integration/http/test_acceso_remoto.py"):
         print("  (arranca un servidor y ha fallado; repito una vez por si fue lentitud)")
         r = subprocess.run([sys.executable, os.path.join(ROOT, "tests", suite)],
                            capture_output=True, text=True, encoding="utf-8",
