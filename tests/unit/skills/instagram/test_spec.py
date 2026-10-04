@@ -8,14 +8,16 @@ No comprueban que exista el código: comprueban que el resultado es el que la
 especificación exige. Un test que solo mira si un fichero contiene una palabra
 no prueba nada.
 
-Ejecutar:  python tests/test_instagram_spec.py   (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_spec.py   (desde la carpeta nexus)
 """
 import importlib.util
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
+# Fail closed: this suite must not import backend/config/.env.
+sys.modules["backend"] = None
 _fail = []
 _pass = 0
 

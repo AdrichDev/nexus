@@ -9,13 +9,15 @@ comentarios, sus compartidos, sus guardados y su alcance son privados.
 Un análisis de competencia que enseñe «sentimiento de sus comentarios» se lo
 está inventando o lo ha sacado por scraping. Ninguna de las dos cosas vale.
 
-Ejecutar:  python tests/test_instagram_competencia.py   (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/instagram/test_competencia.py   (desde la carpeta nexus)
 """
 import importlib.util
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
+# Fail closed: this suite must not import backend/config/.env.
+sys.modules["backend"] = None
 _fail = []
 _pass = 0
 
