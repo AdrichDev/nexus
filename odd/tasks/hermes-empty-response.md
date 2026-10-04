@@ -15,8 +15,8 @@ The pure `respuesta_es_error()` classifier returns an empty reason for the obser
 - Delivery strategy: ask-on-risk; forecast 80–180 authored diff lines; one coherent fix commit expected.
 
 ## Tasks
-- [ ] H1 — Reject provider empty-content failures; observe deterministic regression RED, minimal GREEN, negative controls and focused suite checks. Route: delegated writer, multi-file/preparation trigger.
-- [ ] H2 — Independently verify fix as required by native assessment; map the smallest safe live-probe boundary read-only. Route: delegated verification/exploration. Resume live queries only when safe.
+- [x] H1 — Reject provider empty-content failures; deterministic regression RED (2 failures), GREEN (4 tests), negative controls and focused Hermes suite (202 OK/0 failures). Route: delegated writer, multi-file/preparation trigger. Work-unit commit: `b71d301`.
+- [x] H2 — Independent verification completed; mapped the smallest safe probe boundary read-only. Route: delegated verifier. This closes verification/mapping, not broad live skill testing. Included evidence in `b71d301`; final ledger follows as passive documentation.
 
 ## Acceptance
 Observed warning must produce a nonempty error reason and enter existing failed path rather than success wrapping. Successful answers must not be rejected merely for discussing empty responses. Check both classifier behavior and admission-path wiring. No real provider error text may be reported as successfully completed.
@@ -27,8 +27,10 @@ Observed warning must produce a nonempty error reason and enter existing failed 
 - Writer observed RED (2 intended failures), then GREEN (4 tests); successful prose and existing auth/quota controls passed.
 - Independent verifier: 4 regression tests passed; existing Hermes suite 202 OK/0 failures in a no-network Docker snapshot containing the current candidate. First verification mount was read-only and failed to create data; adding only a disposable data tmpfs resolved that environmental setup failure. Python AST/whitespace checks passed.
 - H2 mapping: city-specific public weather uses wttr.in without Google/Hermes; research additionally invokes configured LLM and writes reports. Further broad live queries remain paused; do not claim full connector isolation.
-- Assessment initially unassessable because untracked selection was undeclared; independent verification therefore ran. Native review and work-unit commit: pending.
+- Assessment initially unassessable because untracked selection was undeclared; independent verification therefore ran. Native review tier: medium, one reliability reviewer, consent granted through the host. `review-aebb9c4e660d48ad` approved and exact acknowledgement burned authority for the candidate committed as `b71d301`.
+- Native nonblocking advisories: R3-001 at skills/hermes/skill.py:918 and R3-002 at tests/unit/skills/hermes/test_empty_response.py:79-99. The closure exposed IDs/locations only, not finding prose; no cause or remediation is invented. No correction was requested.
+- No whole-suite run, live Hermes/provider trial, push or merge occurred in this work unit.
 - Isolated restart/file-backup/persistence work and earlier CI/chat fixes are outside this candidate.
 
 ## Next step
-Implement H1 with test-first evidence, then native assessment/review and required independent verification. No live questions during correction.
+Correction complete on the feature branch. Continue the larger skill audit using isolated public-web/weather probes; generic routing/research requires additional connector controls before live execution. Push/merge remains a separate owner decision.
