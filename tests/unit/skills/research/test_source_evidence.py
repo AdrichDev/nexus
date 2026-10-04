@@ -23,9 +23,10 @@ def check(c, m):
 
 
 class Resp:
-    def __init__(self, text, url=None):
+    def __init__(self, text, url=None, status_code=200):
         self.text = text
         self.url = url
+        self.status_code = status_code
 
 
 class FakeHTTP:
@@ -86,6 +87,13 @@ async def test_fetch_page_rejects_consent_cache_request_final_and_html():
     mod = load_websearch(Resp(html, url="https://example.test/a"))
     got = await mod.fetch_page("https://example.test/a")
     check(got == "", "Spanish Google consent/interstitial HTML is rejected")
+
+    mod = load_websearch(Resp("Please respect our robot policy https://w.wiki/4wJS when crawling us.",
+                              status_code=403))
+    got = await mod.fetch_page("https://es.wikipedia.org/wiki/Tajo")
+    check(got == "" and mod._MEM == {}, "HTTP error/block pages are neither evidence nor cached")
+    check("NexusAssistant" in mod._TEST_FAKE_HTTP.calls[-1][1]["headers"]["User-Agent"],
+          "Wikipedia pages are fetched with the descriptive User-Agent its policy requires")
 
     mod = load_websearch(Resp("<main>" + "This ordinary article discusses cookie consent banners in Europe. " * 8 + "</main>"))
     got = await mod.fetch_page("https://example.test/article")
@@ -155,7 +163,39 @@ async def test_full_report_preserves_query_and_no_sources_when_fetches_rejected(
           "zero useful sources is reported as a limitation")
 
 
+async def test_search_news_override_prefers_general_web():
+    order = []
+
+    def src(name):
+        async def f(q, n):
+            order.append(name)
+            return [{"title": name, "snippet": name, "url": f"https://{name}.test"}]
+        return f
+
+    mod = load_websearch()
+    mod._google_news, mod._ddg_lite, mod._ddg_html = src("news"), src("lite"), src("html")
+    got = await mod.search("Mundial femenino 2023 final", 4, news=False)
+    check(order == ["lite"] and got[0]["title"] == "lite",
+          f"news=False searches general web first even for news-like queries: {order}")
+    order.clear()
+    await mod.search("Mundial femenino 2023 final", 4)
+    check(order == ["news"], f"default auto mode still routes news-like queries to news: {order}")
+
+    order.clear()
+    mod = load_websearch()
+
+    async def blocked(q, n):
+        order.append("ddg-blocked")
+        return []
+    mod._ddg_lite = mod._ddg_html = blocked
+    mod._wikipedia, mod._google_news = src("wiki"), src("news")
+    got = await mod.search("rio mas largo de Espana", 4, news=False)
+    check(order == ["ddg-blocked", "ddg-blocked", "wiki"] and got[0]["title"] == "wiki",
+          f"DuckDuckGo blocked -> Wikipedia before unreadable news links: {order}")
+
+
 def main():
+    asyncio.run(test_search_news_override_prefers_general_web())
     print("· source evidence rejects consent without rejecting normal articles")
     asyncio.run(test_fetch_page_rejects_consent_cache_request_final_and_html())
     print("· snippets from rejected pages are not evidence")

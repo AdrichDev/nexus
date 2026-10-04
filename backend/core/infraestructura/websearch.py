@@ -24,7 +24,7 @@ titulares h1-h3 y listas, no solo <p>.
 from __future__ import annotations
 
 import re
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from ..comun import net
 
@@ -184,6 +184,26 @@ async def _ddg_html(query: str, n: int) -> list[dict]:
     return out
 
 
+# Wikimedia's robot policy rejects generic browser user agents (HTTP 403).
+_WIKI_HDRS = {"User-Agent": "NexusAssistant/1.0 (local personal assistant; "
+                            "https://github.com/AdrichDev/nexus)"}
+
+
+async def _wikipedia(query: str, n: int) -> list[dict]:
+    """Wikipedia (es) search API: keyless, stable, readable pages. General-web
+    fallback when DuckDuckGo answers with its anti-bot 202 page."""
+    r = await net.client().get("https://es.wikipedia.org/w/api.php", params={
+        "action": "query", "list": "search", "srsearch": query, "srlimit": n,
+        "format": "json", "utf8": 1}, headers=_WIKI_HDRS, timeout=_TIMEOUT)
+    out: list[dict] = []
+    for hit in ((r.json() or {}).get("query") or {}).get("search") or []:
+        title = _clean(hit.get("title", ""))
+        if title:
+            out.append({"title": title, "snippet": _clean(hit.get("snippet", "")),
+                        "url": "https://es.wikipedia.org/wiki/" + quote(title.replace(" ", "_"))})
+    return out[:n]
+
+
 # Palabras que delatan una pregunta de NOTICIAS/actualidad → probar Google News primero.
 _NEWS_RX = re.compile(
     r"\b(noticia|resultado|marcador|final|gan[oó]|mundial|champions|liga|partido|"
@@ -191,23 +211,25 @@ _NEWS_RX = re.compile(
     r"muri[oó]|fichaj|derbi|clasific)", re.IGNORECASE)
 
 
-async def search(query: str, n: int = 6) -> list[dict]:
+async def search(query: str, n: int = 6, news: bool | None = None) -> list[dict]:
     """Resultados web [{title, snippet, url}]. Prueba varias fuentes hasta que una
     responda; [] solo si TODAS fallan. Para noticias antepone Google News.
     Con CACHÉ: repetir la misma búsqueda dentro del TTL no vuelve a la web."""
     query = (query or "").strip()
     if not query:
         return []
-    is_news = bool(_NEWS_RX.search(query))
+    # news=None decides by the query; False forces general web first (fact checks
+    # need readable pages, and Google News links are unreadable RSS wrappers).
+    is_news = bool(_NEWS_RX.search(query)) if news is None else news
     ttl = TTL_NEWS if is_news else TTL_SEARCH
-    key = f"q::{query.lower()}::{n}"
+    key = f"q::{query.lower()}::{n}" + ("" if news is None else f"::news={news}")
     hit = cache_get(key, ttl)
     if hit:
         return hit
     if is_news:
         sources = (_google_news, _ddg_lite, _ddg_html)
     else:
-        sources = (_ddg_lite, _ddg_html, _google_news)
+        sources = (_ddg_lite, _ddg_html, _wikipedia, _google_news)
     for src in sources:
         try:
             res = await src(query, n)
@@ -301,12 +323,16 @@ async def fetch_page(url: str, max_chars: int = 3500) -> str:
         return "" if _rejected_source_evidence(url=url, text=hit) else hit[:max_chars]
     if _rejected_source_evidence(url=url):
         return ""
+    host = urlparse(url).netloc.lower()
+    hdrs = _WIKI_HDRS if host.endswith("wikipedia.org") else _HDRS
     try:
-        r = await net.client().get(url, headers=_HDRS, timeout=_TIMEOUT)
+        r = await net.client().get(url, headers=hdrs, timeout=_TIMEOUT)
         final_url = str(getattr(r, "url", "") or "")
         html = (r.text or "")[:1_500_000]          # tope de descarga procesada
     except Exception:
         return ""
+    if int(getattr(r, "status_code", 200) or 200) >= 400:
+        return ""                                  # error/block pages are not evidence
     if _rejected_source_evidence(url=url, final_url=final_url, text=html):
         return ""
     text = await _aio.to_thread(extract_text, html, max_chars)
