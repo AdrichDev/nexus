@@ -9,7 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
