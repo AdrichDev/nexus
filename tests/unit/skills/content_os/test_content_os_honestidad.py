@@ -40,7 +40,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 _fail = []
 _pass = 0
 
@@ -84,6 +84,7 @@ _spec.loader.exec_module(co)
 
 from backend.core.comun.config import settings                           # noqa: E402
 from backend.core.aplicacion.skills_loader import load_skills, route          # noqa: E402
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
 CTX = {"settings": settings, "graph": None, "pg": None, "bus": None}
