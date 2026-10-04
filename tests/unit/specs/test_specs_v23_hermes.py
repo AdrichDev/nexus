@@ -12,7 +12,7 @@
      sola vez y garantizada (specs v23 T12).
   4. TOCHO REPETIDO: cada pregunta devolvía los cuatro últimos encargos enteros.
 
-Ejecutar:  python tests/test_specs_v23_hermes.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v23_hermes.py    (desde la carpeta nexus)
 """
 import asyncio
 import importlib.util
@@ -22,7 +22,7 @@ import tempfile
 import time
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

@@ -7,7 +7,7 @@
   T20 guardar en la ubicación indicada, con verificación física y ruta real
   T21 versionado y copias de seguridad, con restauración
 
-Ejecutar:  python tests/test_specs_v23_files.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v23_files.py    (desde la carpeta nexus)
 """
 import asyncio
 import importlib.util
@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

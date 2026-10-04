@@ -9,7 +9,7 @@ Cubren:
       + intent profile de memory_graph)
   M9  panel HOY (briefing.today_payload + /api/today + vista del HUD)
 
-Ejecutar:  python tests/test_specs_v20.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v20.py    (desde la carpeta nexus)
 """
 import ast
 import asyncio
@@ -22,9 +22,10 @@ import tempfile
 import time
 import types
 from pathlib import Path
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

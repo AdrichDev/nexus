@@ -9,7 +9,7 @@
   T17 iconos del sidebar en SVG con currentColor
   T24 auditoría consultable de lo que hacen nexus y Hermes
 
-Ejecutar:  python tests/test_specs_v23_ui.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v23_ui.py    (desde la carpeta nexus)
 """
 import datetime as dt
 import os
@@ -18,7 +18,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

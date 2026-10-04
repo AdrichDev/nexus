@@ -10,7 +10,7 @@ las 15 tareas del tablero) y comprueban que ya no puede repetirse:
   T3  papelera y restauración (board.trash / restore / purge_trash)
   T24 auditoría de las operaciones destructivas (backend/core/audit.py)
 
-Ejecutar:  python tests/test_specs_v23.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v23.py    (desde la carpeta nexus)
 """
 import ast
 import asyncio
@@ -21,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

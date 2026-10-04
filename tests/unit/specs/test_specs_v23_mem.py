@@ -7,14 +7,14 @@
   T6  recuperación con relevancia, ámbito, tope y deduplicado → se acabaron las
       respuestas repetitivas; y se puede inspeccionar qué memoria se usó
 
-Ejecutar:  python tests/test_specs_v23_mem.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v23_mem.py    (desde la carpeta nexus)
 """
 import os
 import sys
 import tempfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

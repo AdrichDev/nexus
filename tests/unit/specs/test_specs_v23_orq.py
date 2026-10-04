@@ -8,7 +8,7 @@
   T11 modelo de estados real y persistido de cada ejecución
   T12 notificación única al terminar, con el estado y los archivos afectados
 
-Ejecutar:  python tests/test_specs_v23_orq.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v23_orq.py    (desde la carpeta nexus)
 """
 import asyncio
 import os
@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

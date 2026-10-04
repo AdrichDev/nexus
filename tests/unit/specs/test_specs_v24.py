@@ -8,7 +8,7 @@
   T7  rate limit ≠ saldo ≠ autenticación ≠ modelo ≠ infraestructura
   T17 comprobación automática de términos prohibidos en la voz pública
 
-Ejecutar:  python tests/test_specs_v24.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_specs_v24.py    (desde la carpeta nexus)
 """
 import asyncio
 import os
@@ -16,7 +16,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

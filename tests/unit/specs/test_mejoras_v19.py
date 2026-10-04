@@ -8,7 +8,7 @@ Cubren:
   M5  informes: md_to_docx real (python-docx) + histórico y reapertura
   M10 backup: zip de data/ + rotación + archivado verificado de .bak
 
-Ejecutar:  python tests/test_mejoras_v19.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_mejoras_v19.py    (desde la carpeta nexus)
 """
 import asyncio
 import datetime as dt
@@ -22,7 +22,7 @@ import types
 import zipfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 

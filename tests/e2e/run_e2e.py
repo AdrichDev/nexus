@@ -655,7 +655,7 @@ def flujo_contentos(page, base: str) -> Flow:
 PENDIENTES = [
     "Memoria (Engram): guardar una preferencia, reiniciar y comprobar que se aplica "
     "— pendiente de la TAREA 4 (Engram como memoria operativa).",
-    "Voz: el filtro está hecho y probado en unitarias (tests/test_specs_v23_files.py); "
+    "Voz: el filtro está hecho y probado en unitarias (tests/unit/specs/test_specs_v23_files.py); "
     "falta la comprobación e2e con audio real del navegador.",
     "Archivos: cubierto en unitarias (crear, leer .docx/.pdf, sobrescribir con "
     "confirmación, versionar y restaurar); falta el flujo por la interfaz.",

@@ -2,7 +2,7 @@
 """Tests v21 — 3 arreglos reales pedidos por Adri, contra el CÓDIGO REAL del disco:
 
   1) backend/core/profile.py: «quién soy» ya no es una ficha de estadísticas
-     (cubierto en tests/test_specs_v20.py::test_profile_build /
+     (cubierto en tests/unit/specs/test_specs_v20.py::test_profile_build /
      test_perfil_natural_helper — se dejó ahí porque profile.py es v20).
   2) skills/n8n_flows/skill.py: WhatsApp con webhook de n8n CONFIGURADO PERO
      CAÍDO (404, timeout...) ya NO devuelve un error técnico plano — cae al
@@ -14,7 +14,7 @@
      de skills (el bug real: delegaba en Hermes solo porque su descripción
      menciona "arrancado", sin relación con el WhatsApp que se venía hablando).
 
-Ejecutar:  python tests/test_v21_fixes.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_v21_fixes.py    (desde la carpeta nexus)
 """
 import asyncio
 import importlib.util
@@ -22,7 +22,7 @@ import os
 import sys
 import types
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 _fail = []

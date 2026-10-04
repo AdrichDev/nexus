@@ -194,7 +194,7 @@ def read_any(path, *, limite: int | None = None) -> dict:
     `limite` (002-memoria-y-conocimiento, bloque C, C1.3):
     - None (por defecto): comportamiento IDÉNTICO al de siempre, corta a
       _MAX_CHARS. Así ningún llamador existente (skills/files/skill.py,
-      tests/test_specs_v23_files.py) cambia de comportamiento.
+      tests/unit/specs/test_specs_v23_files.py) cambia de comportamiento.
     - 0: sin límite -- el texto entra ENTERO. Lo usa la ingesta de
       documentos, que necesita el documento completo o nada (rechaza si
       meta['truncado'] sale True).

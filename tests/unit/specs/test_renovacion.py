@@ -9,7 +9,7 @@ Cubren lo añadido/cambiado ese día:
   * skills renovadas a mano (comms, games, datos, research, mcp_hands,
     autoprovision): frases nuevas y anti-robo en el router global
 
-Ejecutar:  python tests/test_renovacion.py     (desde la carpeta nexus)
+Ejecutar:  python tests/unit/specs/test_renovacion.py     (desde la carpeta nexus)
 Salida:    "N pasados, 0 fallados" y código de salida 0 si todo OK.
 """
 import asyncio
@@ -21,7 +21,7 @@ import tempfile
 import time
 import types
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _fail = []
 _pass = 0
 
