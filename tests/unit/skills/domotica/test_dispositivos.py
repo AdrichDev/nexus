@@ -15,7 +15,7 @@ Dos causas, las dos cubiertas aquí:
   2. El estado no se guardaba en ningún sitio, así que el botón seguía diciendo
      «Encender» después de encenderla.
 
-Ejecutar:  python tests/test_dispositivos.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/skills/domotica/test_dispositivos.py    (desde la carpeta nexus)
 """
 import asyncio
 import importlib.util
@@ -23,9 +23,10 @@ import re
 import sys
 import time
 from pathlib import Path
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 _fail = []
 _pass = 0
 
