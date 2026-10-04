@@ -332,6 +332,11 @@ def flujo_orquestacion(page, base: str) -> Flow:
     f.check(job["request"] == "investiga proveedores de algodón",
             "se guarda la petición original")
 
+    # La cancelacion se prueba con un trabajo controlado y LARGO: el de arriba
+    # llama al orquestador real y, sin proveedor de IA (contenedor sin red), falla
+    # al instante, asi que la peticion de cancelar llegaba a un trabajo ya
+    # terminado y el resultado dependia de la carrera (flaky, medido 2 de 3).
+    jid = _post(f"{base}/api/_e2e/job", {"seconds": 30, "title": "trabajo largo a cancelar"})["id"]
     _post(f"{base}/api/jobs/{jid}/cancel", {})
     page.wait_for_timeout(1200)
     snap = _get(f"{base}/api/jobs")

@@ -16,7 +16,7 @@ Notes:
 ## Browser E2E
 `Dockerfile.e2e` extends the image with Playwright + Chromium (network only at build time).
 Run `tests/e2e/run_e2e.py` from a clean `git archive HEAD` copy with `--network none --read-only
---tmpfs /tmp --tmpfs /work:exec --shm-size=512m`, mounting a volume to collect `data/e2e`.
+--tmpfs /tmp:uid=10001 --tmpfs /work:exec,uid=10001 --shm-size=512m` (the image runs as non-root user 10001), mounting a volume to collect `data/e2e`.
 Last run: 9/9 flows passed in 58 s; the only console error was the blocked Google Fonts stylesheet
 (external dependency of `frontend/index.html`, harmless offline). Synthetic jobs/analytics fixtures
 apply; this is not provider or device evidence.
