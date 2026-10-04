@@ -113,7 +113,7 @@ en el dict**. Gana la PRIMERA regex que case. Consecuencias:
   `skills/nucleo/skill.py`: qué modelo hay puesto sale de `settings`, no del LLM.
 - **Prueba con las frases del usuario, no con las tuyas.** El patrón de fallo que
   más se repite: escribir un regex, probarlo con la frase que se te ocurrió a ti,
-  y que el usuario diga la misma cosa de otra manera. `tests/test_frases_reales.py`
+  y que el usuario diga la misma cosa de otra manera. `tests/unit/conversation/test_frases_reales.py`
   guarda frases literales suyas; añade las nuevas ahí.
 - **UTF-8 en todo.** El código y los mensajes van en español con tildes. Los `.bat`
   van en ASCII sin tildes (problemas de codepage en cmd).

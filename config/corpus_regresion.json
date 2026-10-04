@@ -2,7 +2,7 @@
   "_lee_esto": [
     "Las frases que fallaron usando nexus de verdad la tarde del 03/08/2026, con",
     "quien tiene que quedarselas. Vivian escritas dentro de",
-    "tests/test_regresion_conversacion.py, que no viaja en el instalador.",
+    "tests/unit/conversation/test_regresion_conversacion.py, que no viaja en el instalador.",
     "",
     "POR QUE SALEN DE AHI (cambio 004): la puerta de 'no robo' compara quien",
     "atiende cada frase antes y despues de aplicar una regla aprendida, y se",
@@ -19,7 +19,7 @@
     "lo que se comprueba es que NO vuelva a caer en memory_graph.",
     "",
     "Este fichero no lo escribe nexus nunca. Anadir una frase aqui es anadir una",
-    "regresion vigilada, y tests/test_regresion_conversacion.py la lee de aqui."
+    "regresion vigilada, y tests/unit/conversation/test_regresion_conversacion.py la lee de aqui."
   ],
   "frases": [
     {"frase": "apaga la tele", "dueno": "skill:domotica/tv_off", "bloque": 1},

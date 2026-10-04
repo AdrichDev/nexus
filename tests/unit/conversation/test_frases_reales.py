@@ -13,7 +13,7 @@ La lección: probar los patrones con MIS frases no prueba nada. Aquí van las
 suyas, tal cual las escribió, y las variantes naturales de cada orden. Cada vez
 que una orden falle en producción, su frase se añade aquí.
 
-Ejecutar:  python tests/test_frases_reales.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/conversation/test_frases_reales.py    (desde la carpeta nexus)
 """
 import asyncio
 import importlib
@@ -22,9 +22,10 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 os.environ["NEXUS_DATA_DIR"] = tempfile.mkdtemp(prefix="nexus_frases_")
 _fail = []

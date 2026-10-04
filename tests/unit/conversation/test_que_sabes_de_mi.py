@@ -31,7 +31,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from backend.core.aplicacion.skills_loader import load_skills, route      # noqa: E402

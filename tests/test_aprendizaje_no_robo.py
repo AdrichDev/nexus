@@ -599,7 +599,7 @@ def test_las_suites_de_enrutado_aislan_data_dir():
     # `reglas_aprendidas.json` y uno de sus casos borra `interactions.jsonl`. Sin
     # `NEXUS_DATA_DIR` apuntando a una carpeta temporal, eso son los datos REALES
     # del duenno. Medido: quitarle la linea del aislamiento dejaba todo verde.
-    for nombre in ("test_regresion_conversacion.py", "test_lo_prometido.py",
+    for nombre in ("unit/conversation/test_regresion_conversacion.py", "test_lo_prometido.py",
                    "test_aprendizaje_ciclo.py"):
         src = (ROOT / "tests" / nombre).read_text(encoding="utf-8")
         i = src.find("NEXUS_DATA_DIR")
@@ -629,7 +629,7 @@ def test_el_escalon_de_las_reglas_sigue_declarado_en_la_suite_de_regresion():
     # abajo en las dos comprobaciones de ORDEN, asi que buscar en todo el texto
     # daba por buena una lista a la que se le hubiera quitado la guarda — el
     # mismo escalon por debajo que este caso existe para impedir.
-    src = (ROOT / "tests" / "test_regresion_conversacion.py").read_text(encoding="utf-8")
+    src = (ROOT / "tests" / "unit/conversation/test_regresion_conversacion.py").read_text(encoding="utf-8")
     i = src.find("for guarda in (")
     check(i != -1,
           "test_regresion_conversacion.py ya no recorre una lista de guardas: "
