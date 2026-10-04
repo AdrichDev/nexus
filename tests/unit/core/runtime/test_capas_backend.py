@@ -22,7 +22,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 CORE = ROOT / "backend" / "core"
 
 try:
@@ -142,7 +142,7 @@ print("== 1) todos los modulos tienen capa asignada ==")
 MODS = modulos()
 for m in MODS:
     check(m in NIVEL,
-          f"«{m}» no esta en ninguna capa: clasificalo en tests/test_capas_backend.py "
+          f"«{m}» no esta en ninguna capa: clasificalo en tests/unit/core/runtime/test_capas_backend.py "
           "y en backend/core/CAPAS.md")
 for m in NIVEL:
     check(m in MODS, f"«{m}» esta clasificado pero ya no existe en backend/core/")

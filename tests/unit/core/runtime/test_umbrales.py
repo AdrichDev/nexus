@@ -7,7 +7,7 @@ CAMBIANDO UN NÚMERO EN EL ARCHIVO, EL INFORME DICE OTRA COSA. Y, al revés, que
 con el archivo tal y como se entrega el comportamiento es EXACTAMENTE el de
 antes de que existiera.
 
-Ejecutar:  python tests/test_umbrales.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/core/runtime/test_umbrales.py    (desde la carpeta nexus)
 """
 import importlib.util
 import json
@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 _fail = []
 _pass = 0
 

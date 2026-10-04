@@ -25,7 +25,7 @@ comportamiento en los casos que le pasaron a Adri:
 Y además: que ningún mensaje de estos se le escape al usuario con jerga interna,
 y que NINGUNO se pierda al pasar por el filtro de voz pública.
 
-Ejecutar:  python tests/test_llm_runtime.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/core/runtime/test_llm_runtime.py    (desde la carpeta nexus)
 """
 import asyncio
 import json
@@ -39,7 +39,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _fail = []
 _pass = 0
 
@@ -74,6 +74,7 @@ os.environ["NEXUS_CONFIG_DIR"] = str(_SANDBOX / "config")
 
 from backend.core.infraestructura import llm as _llm  # noqa: E402
 from backend.core.infraestructura import llm_runtime as rt  # noqa: E402
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 from backend.core.comun import publicvoice as pv  # noqa: E402
 from backend.core.comun.config import settings                  # noqa: E402

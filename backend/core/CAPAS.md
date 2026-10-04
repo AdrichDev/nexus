@@ -9,7 +9,7 @@ abriendo `core/`**: cuatro carpetas en vez de cuarenta y dos ficheros. Antes la
 capa de un módulo era una lista dentro de una prueba — se podía leer el fichero
 sin enterarse de dónde estaba.
 
-`tests/test_capas_backend.py` comprueba en cada ejecución que lo escrito aquí, lo
+`tests/unit/core/runtime/test_capas_backend.py` comprueba en cada ejecución que lo escrito aquí, lo
 que hay en disco y lo que importa cada módulo dicen lo mismo. Y que nadie deje un
 módulo suelto en la raíz: volver a la carpeta plana por la puerta de atrás no se
 notaría hasta tener veinte otra vez.

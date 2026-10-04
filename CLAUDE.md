@@ -46,7 +46,7 @@ arrancar. Editar un `skill.py` con nexus abierto no cambia nada.
 
 ```bat
 .venv\Scripts\python.exe tests\run_all.py      REM suite completa, tiene que salir TODO VERDE
-.venv\Scripts\python.exe tests\test_nucleo.py  REM una suelta
+.venv\Scripts\python.exe tests\unit\core\runtime\test_nucleo.py  REM una suelta
 .venv\Scripts\python.exe tests\e2e\run_e2e.py  REM interfaz real (necesita Playwright)
 ```
 

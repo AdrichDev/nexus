@@ -630,7 +630,7 @@ def test_el_selector_distingue_disponible_de_en_disco():
     Antes estos textos los escribía el JavaScript con su propio criterio; desde
     el runtime v24 los decide el BACKEND (una sola clasificación para todos) y
     el navegador solo los pinta. La comprobación de comportamiento real —con un
-    Ollama simulado— está en tests/test_llm_runtime.py::test_catalogo."""
+    Ollama simulado— está en tests/unit/core/runtime/test_llm_runtime.py::test_catalogo."""
     js = js_hud()
     rt = (ROOT / "backend" / "core" / "infraestructura" / "llm_runtime.py").read_text(encoding="utf-8")
     check("Ollama no lo está sirviendo" in rt,

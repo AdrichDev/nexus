@@ -110,7 +110,7 @@ def test_aprendizaje_no_importa_brain():
           "aprendizaje.py ya no consulta skills_loader: sin el no sabe que destinos existen")
 
     # Y los dos modulos estan dados de alta en la suite de capas Y en CAPAS.md.
-    capas = (ROOT / "tests" / "test_capas_backend.py").read_text(encoding="utf-8")
+    capas = (ROOT / "tests" / "unit/core/runtime/test_capas_backend.py").read_text(encoding="utf-8")
     doc = (ROOT / "backend" / "core" / "CAPAS.md").read_text(encoding="utf-8")
     # SE PARSEA LA FILA DE LA TABLA, NO EL DOCUMENTO ENTERO. Debajo de la tabla
     # hay prosa que nombra `reglas` y `aprendizaje` entre comillas invertidas
@@ -163,7 +163,7 @@ def test_las_suites_del_aprendizaje_estan_en_run_all():
     for suite in ("unit/core/learning/test_reglas_contrato.py", "unit/core/learning/test_aprendizaje_puertas.py",
                   "unit/core/learning/test_aprendizaje_no_robo.py", "unit/core/learning/test_reglas_valores.py",
                   "unit/core/learning/test_aprendizaje_ciclo.py",
-                  "test_capas_backend.py", "unit/conversation/test_regresion_conversacion.py",
+                  "unit/core/runtime/test_capas_backend.py", "unit/conversation/test_regresion_conversacion.py",
                   "unit/routing/test_lo_prometido.py"):
         check(f'"{suite}"' in tupla,
               f"«{suite}» no esta en la tupla de suites de run_all.py: no la ejecuta "
