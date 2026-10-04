@@ -16,7 +16,7 @@ docker run -d --name "$PG" --network "$NET" -v "$VOL:/var/lib/postgresql/data" \
 wait_pg() { for i in $(seq 1 40); do docker exec "$PG" pg_isready -U nexus_probe -d probe >/dev/null 2>&1 && return 0; sleep 1; done; return 1; }
 wait_pg || { echo "postgres did not start"; exit 2; }
 sleep 2
-run() { MSYS_NO_PATHCONV=1 docker run --rm --network "$NET" --read-only --tmpfs /tmp --tmpfs /work:exec \
+run() { MSYS_NO_PATHCONV=1 docker run --rm --network "$NET" --read-only --tmpfs /tmp:uid=10001 --tmpfs /work:exec,uid=10001 \
   -e NEXUS_DB_URL="postgresql://nexus_probe:probe@$PG:5432/probe" -e NEXUS_DATA_DIR=/tmp/nexus_data \
   -v "$W:/src:ro" -w /work nexus-hermetic-test sh -c "cp -r /src/. /work/ && $1"; }
 rc=0

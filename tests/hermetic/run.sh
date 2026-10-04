@@ -7,6 +7,6 @@ ROOT="$(git rev-parse --show-toplevel)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 git -C "$ROOT" archive HEAD | tar -x -C "$TMP"
 docker build -q -t nexus-hermetic-test -f "$ROOT/tests/hermetic/Dockerfile" "$ROOT/tests/hermetic"
-MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only --tmpfs /tmp \
-  --tmpfs /work:exec -v "$(cd "$TMP" && pwd -W 2>/dev/null || pwd):/src:ro" -w /work \
+MSYS_NO_PATHCONV=1 docker run --rm --network none --read-only --tmpfs /tmp:uid=10001 \
+  --tmpfs /work:exec,uid=10001 -v "$(cd "$TMP" && pwd -W 2>/dev/null || pwd):/src:ro" -w /work \
   nexus-hermetic-test sh -c "cp -r /src/. /work/ && python ${1:-tests/run_all.py}"

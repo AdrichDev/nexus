@@ -1,7 +1,7 @@
 FROM nexus-hermetic-test
+USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN pip install --no-cache-dir playwright && python -m playwright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright
-# Run as an unprivileged user (Trivy DS-0002). /work is a tmpfs mounted at run time.
-RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin e2e
+# Back to the unprivileged user (Trivy DS-0002).
 USER 10001
