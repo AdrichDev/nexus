@@ -987,7 +987,7 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
             # el gateway respondió 200 pero el contenido ES un error: NO es «hecho»
             raise RuntimeError(motivo)
         if jid:
-            _reg_set(jid, estado="hecho", resultado=out[:4000], t1=time.time())
+            _reg_set(jid, estado="hecho", resultado=out[:8000], t1=time.time())
     except Exception as exc:                                   # noqa: BLE001
         error = True
         out = (f"{type(exc).__name__}: {exc}. "
@@ -1007,7 +1007,7 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
         reply = (f"No he podido terminar «{orden[:70]}». No lo doy por hecho ni he "
                  "cambiado nada.")
     else:
-        reply = f"Ya lo tengo{tag} — «{orden[:80]}»:\n\n" + out[:3500]
+        reply = f"Ya lo tengo{tag} — «{orden[:80]}»:\n\n" + out[:8000]
     # PUENTE DE MEMORIA: lo que Hermes averigua queda TAMBIÉN en la memoria de
     # nexus (Postgres) — nexus es el hub y su memoria, la fuente de verdad.
     try:

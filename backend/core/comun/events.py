@@ -69,6 +69,15 @@ class EventBus:
     def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
 
+    def replay(self, n: int = 30, chats: int = 20) -> list[dict]:
+        """Events for a reconnecting client: the last `n` events plus the most
+        recent chat replies (up to `chats`) that logs/metrics pushed out of that
+        window, in chronological order. A job result that finished while the HUD
+        was disconnected must not be lost among log lines."""
+        tail = self.history[-n:]
+        older = [e for e in self.history[:-n] if e.get("type") == "chat"][-chats:]
+        return older + tail
+
     def register(self, ws) -> None:
         self._clients.add(ws)
 

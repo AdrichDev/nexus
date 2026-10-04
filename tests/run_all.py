@@ -92,7 +92,7 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/skills/research/test_source_evidence.py",
               "unit/skills/backup/test_skill_backup.py", "unit/skills/telefono/test_skill_telefono.py",
               "unit/skills/small_skills/test_skills_pequenas_1.py", "unit/skills/small_skills/test_skills_pequenas_2.py",
-              "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py", "unit/core/runtime/test_log_aislado.py",
+              "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py", "unit/core/runtime/test_log_aislado.py", "unit/core/test_resultados_trabajos.py",
               "unit/core/learning/test_reglas_valores.py", "unit/core/learning/test_reglas_contrato.py",
               "unit/core/learning/test_aprendizaje_puertas.py", "unit/core/learning/test_aprendizaje_no_robo.py",
               "unit/core/learning/test_aprendizaje_ciclo.py", "unit/core/learning/test_correcciones_confirmadas.py",

@@ -61,6 +61,15 @@ def _audit(**kw) -> None:
         pass
 
 
+# Who records finished results in the conversation (brain registers itself).
+# A callable (request, text, channel) or None; failures never block a notice.
+_RESULT_LISTENER: list = [None]
+
+
+def set_result_listener(fn) -> None:
+    _RESULT_LISTENER[0] = fn
+
+
 class JobManager:
     def __init__(self, max_concurrent: int = 4):
         self.max = max_concurrent
@@ -276,7 +285,7 @@ class JobManager:
                         job.setdefault("files", []).append(
                             f if isinstance(f, dict) else {"path": str(f), "action": "creado"})
                     res = res.get("reply", "") or "Hecho."
-                job["result"] = str(res)[:2000]
+                job["result"] = str(res)[:8000]
                 job["status"] = "completed"
                 job["progress"] = 100
             except asyncio.CancelledError:
@@ -326,6 +335,14 @@ class JobManager:
         await bus.emit("chat", {"user": f"[trabajo #{job['num']}]", "reply": texto,
                                 "provider": "multitarea", "skill": None,
                                 "channel": job.get("channel", "pc")})
+        # The result also enters the conversation, so follow-ups refer to it and
+        # not to the "working on it" placeholder the user got first.
+        if _RESULT_LISTENER[0] is not None:
+            try:
+                _RESULT_LISTENER[0](job.get("request") or job["title"], texto,
+                                    job.get("channel", "pc"))
+            except Exception:
+                pass
         if job.get("channel") == "telegram":
             try:
                 from ..infraestructura.telegram_bridge import send_telegram

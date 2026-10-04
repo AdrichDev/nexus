@@ -239,7 +239,7 @@ async def websocket_endpoint(ws: WebSocket):
     bus.register(ws)
     # Reenvía historial reciente para que el HUD reconecte con contexto
     import json
-    for evt in bus.history[-30:]:
+    for evt in bus.replay(30):
         await ws.send_text(json.dumps(evt, ensure_ascii=False, default=str))
     my_device = None      # ficha del móvil si este WS se presenta como tal
     try:

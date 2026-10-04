@@ -24,7 +24,7 @@ from ..dominio import opmem, rag
 from ..infraestructura import llm, websearch
 from ..comun.config import DATA_DIR, settings
 from ..comun.config import assistant_name as _aname
-from .jobs import jobs as job_mgr
+from .jobs import jobs as job_mgr, set_result_listener
 from ..comun.events import bus
 from ..dominio.memory import graph, pg
 from .skills_loader import get_skills, route
@@ -504,6 +504,18 @@ def es_memoria_explicita(text: str) -> bool:
 
 _history: list[dict] = []
 MAX_TURNS = 12
+
+
+def _registrar_resultado_trabajo(request: str, texto: str, channel: str) -> None:
+    """A finished background job (Hermes...) enters the conversation as the
+    answer to its own request, so "eso no es correcto" and other follow-ups
+    review the real result, not the "working on it" placeholder."""
+    _history.append({"role": "user", "content": request})
+    _history.append({"role": "assistant", "content": texto})
+    del _history[:-2 * MAX_TURNS]
+
+
+set_result_listener(_registrar_resultado_trabajo)
 
 
 def _recent_context(n_pairs: int = 1) -> str:

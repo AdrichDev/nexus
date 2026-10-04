@@ -121,7 +121,13 @@ def _ultimo_par(history: list[dict]) -> tuple[str, str] | None:
 
 def _afirmacion(respuesta: str) -> str:
     """The disputed claim: first sentence of the previous answer, no URLs."""
-    limpio = re.sub(r"https?://\S+|\s*\u2014\s*\w+\s*$", "", respuesta or "")
+    # Job/Hermes results start with header paragraphs ("\u2714 Trabajo #N terminado
+    # (...):", "Ya lo tengo #N \u2014 \u00ab...\u00bb:"); the claim is the first real paragraph.
+    partes = [p for p in re.split(r"\n\s*\n", respuesta or "") if p.strip()]
+    while len(partes) > 1 and (partes[0].rstrip().endswith(":")
+                               or partes[0].lstrip().startswith(("\u2714", "\U0001fab6"))):
+        partes.pop(0)
+    limpio = re.sub(r"https?://\S+|\s*\u2014\s*\w+\s*$", "", "\n\n".join(partes))
     limpio = re.sub(r"[*_`#>]+", "", limpio).strip()      # markdown is not part of the claim
     frase = re.split(r"[.;:!?](?:\s|$)", limpio, maxsplit=1)[0]
     return " ".join(frase.split()[:14]).strip(" .,")   # short: search engines choke on long claims
