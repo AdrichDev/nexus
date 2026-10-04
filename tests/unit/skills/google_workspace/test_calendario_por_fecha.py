@@ -25,7 +25,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 os.environ.setdefault("NEXUS_DATA_DIR", tempfile.mkdtemp(prefix="nexus_cal_"))

@@ -29,7 +29,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[4]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
@@ -255,6 +255,7 @@ check(F2_INI in res.get("reply", "") and F2_FIN in res.get("reply", ""),
 
 # ═══════════ 5) la agenda del HUD pinta TODOS los días del evento ═══════════
 print("== 5) la agenda del HUD reparte el evento por todos sus días ==")
+import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "..")))
 from _frontend_js import js_hud                            # noqa: E402
 
 JS = js_hud()

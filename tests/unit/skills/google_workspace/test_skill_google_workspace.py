@@ -12,7 +12,7 @@ REGLA ABSOLUTA: NI UNA llamada real a Google. Ningún test lee las credenciales
 reales, ninguno abre el navegador, ninguno envía, crea ni borra nada. Sin
 credenciales y sin red, esta suite pasa entera.
 
-Lo de Drive lo cubre tests/test_drive.py (251 comprobaciones); aquí está lo que
+Lo de Drive lo cubre tests/unit/skills/google_workspace/test_drive.py (251 comprobaciones); aquí está lo que
 faltaba: correo, calendario, tareas, las colisiones con `comms`/`files` y la
 honestidad del error cuando falta una credencial.
 
@@ -25,7 +25,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 try:
