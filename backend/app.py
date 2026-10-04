@@ -400,6 +400,16 @@ if os.environ.get("NEXUS_E2E") == "1":
                                 dedupe_key=title, notify=bool(payload.get("notify")))
         return {"ok": True, "id": jid}
 
+    @app.post("/api/_e2e/chat")
+    async def api_e2e_chat(payload: dict):
+        """Emite un evento `chat` con una respuesta de la IA larga y controlada, para
+        comprobar en la interfaz real que la ventana del chat no la corta."""
+        from backend.core.comun.events import bus
+        await bus.emit("chat", {"user": str(payload.get("user", "prueba")),
+                                "reply": str(payload.get("reply", "")),
+                                "provider": "e2e", "skill": None})
+        return {"ok": True}
+
 
 @app.get("/api/skills")
 async def api_skills():

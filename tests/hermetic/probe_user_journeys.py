@@ -131,24 +131,24 @@ def main() -> int:
             check(not Path("/etc/p05_fuera.md").exists() and "permiso" in r.lower(),
                   "write outside the sandbox is refused and nothing is written")
             # Chat window must never cut what the AI returns (was sliced to 220 chars).
-            long_cmd = long_reply = None
-            for cand in ("qué puedes hacer", "ayuda", "qué skills tienes", "qué sabes hacer", "cuéntame un chiste largo"):
-                rep = (api(base, "/api/command", {"text": cand}).get("reply") or "")
-                print(f"  info candidate {cand!r}: {len(rep)} chars")
-                if len(rep) > 450:
-                    long_cmd, long_reply = cand, rep; break
-            check(long_cmd is not None, "found a command whose reply is longer than 450 chars")
-            if long_cmd:
-                shown = say(long_cmd)
-                norm = lambda t: " ".join(t.replace("nexus", "", 1).split())
-                check(len(shown) > 450 and norm(shown).endswith(norm(long_reply)[-120:]),
-                      f"compact chat shows the whole reply, including its last words ({len(shown)} vs {len(long_reply)} chars)")
-                box = page.evaluate("() => { const e=document.querySelector('#cc-chat'); const r=e.getBoundingClientRect();"
-                                    " return {h:r.height, sh:e.scrollHeight, oy:getComputedStyle(e).overflowY}; }")
-                check(box["h"] >= 240 and box["oy"] in ("auto", "scroll"), f"chat window is tall and scrollable ({box})")
-                nav("chat"); page.wait_for_timeout(500)
-                full = page.locator("#chat-log .msg.ai").last.inner_text()
-                check(norm(full).endswith(norm(long_reply)[-120:]), "full chat view also shows the whole reply")
+            long_reply = "\n".join(f"Parrafo {i:02d}: " + "texto de la respuesta de la IA " * 8 for i in range(25)) + "\nFINAL_DEL_TEXTO"
+            nav("command")
+            api(base, "/api/_e2e/chat", {"user": "pregunta larga", "reply": long_reply})
+            page.wait_for_function("() => [...document.querySelectorAll('#cc-chat .ccm.ai')].some(e => e.innerText.includes('Parrafo 00'))", timeout=15000)
+            shown = page.locator("#cc-chat .ccm.ai").last.inner_text()
+            check(len(long_reply) > 5000 and "FINAL_DEL_TEXTO" in shown and "Parrafo 24" in shown,
+                  f"compact chat holds the whole {len(long_reply)}-char reply, last words included ({len(shown)} shown)")
+            box = page.evaluate("() => { const e=document.querySelector('#cc-chat'); const r=e.getBoundingClientRect();"
+                                " return {h:Math.round(r.height), sh:e.scrollHeight, oy:getComputedStyle(e).overflowY}; }")
+            check(box["h"] >= 240 and box["oy"] in ("auto", "scroll") and box["sh"] > box["h"],
+                  f"chat window is tall, and scrolls to reach the rest ({box})")
+            page.evaluate("() => { const e=document.querySelector('#cc-chat'); e.scrollTop = e.scrollHeight; }")
+            vis = page.evaluate("() => { const e=document.querySelector('#cc-chat'); const last=[...e.querySelectorAll('.ccm.ai')].pop();"
+                                " const a=last.getBoundingClientRect(), b=e.getBoundingClientRect(); return a.bottom <= b.bottom + 2; }")
+            check(vis, "scrolled to the bottom, the end of the reply is inside the window")
+            page.click('.cc-chat-panel .link[data-view="chat"]'); page.wait_for_timeout(700)
+            full = page.locator("#chat-log .msg.ai").last.inner_text()
+            check("FINAL_DEL_TEXTO" in full and "Parrafo 24" in full, "full chat view also shows the whole reply")
             check(not errs, f"no page errors ({errs[:2]})")
             print("  FINDINGS:", len(FINDINGS))
             br.close()
