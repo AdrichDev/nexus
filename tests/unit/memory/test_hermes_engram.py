@@ -18,7 +18,7 @@ nexus»). Aquí se prueba esa provisión:
   * ensure_up — llama a provision_engram_mcp aunque Hermes ya esté vivo (para dejar
     la config en disco de cara al próximo arranque).
 
-Ejecutar:  python tests/test_hermes_engram.py    (desde la carpeta nexus)
+Ejecutar:  python tests/unit/memory/test_hermes_engram.py    (desde la carpeta nexus)
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ import tempfile
 import types
 from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 _fail = []
