@@ -430,7 +430,7 @@ body::after{
 /* chat */
 .chat-wrap{display:flex;flex-direction:column;height:100%}
 .chat-log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:6px}
-.msg{max-width:72%;padding:11px 14px;border-radius:12px;font-size:13.5px;line-height:1.5;white-space:pre-wrap}
+.msg{max-width:72%;overflow-wrap:anywhere;padding:11px 14px;border-radius:12px;font-size:13.5px;line-height:1.5;white-space:pre-wrap}
 /* Texto SELECCIONABLE en chat, logs, feed y vistas (se puede copiar). */
 .msg,.chat-log,#cc-chat,.logbox,.feed,.hw-name,.ns-doc{-webkit-user-select:text;user-select:text}
 .msg.user{align-self:flex-end;background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.3)}
@@ -684,7 +684,7 @@ a.ext:hover{text-shadow:0 0 8px var(--cy)}
   padding:3px 9px;border-radius:5px;cursor:pointer;font-family:inherit;flex:0 0 auto}
 .job-x:hover{border-color:var(--err);color:var(--err)}
 .jobc-r{margin-top:8px;font-size:12px;color:var(--txt);line-height:1.5;white-space:pre-wrap;
-  word-break:break-word;max-height:220px;overflow-y:auto}
+  word-break:break-word;max-height:60vh;overflow-y:auto}
 .jobc-e{margin-top:8px;font-size:12px;color:var(--err,#ff5470)}
 #nav-jobs.busy{color:var(--cy);animation:jpulse 1.2s infinite}
 #nav-jobs.okmark{color:var(--ok,#59ff9c)}
@@ -774,11 +774,12 @@ a.ext:hover{text-shadow:0 0 8px var(--cy)}
 
 /* chat bucket en el Command Center */
 .chat-bucket{margin-top:14px;display:flex;flex-direction:column}
-#cc-chat{max-height:170px;overflow-y:auto;display:flex;flex-direction:column;gap:7px;margin-bottom:9px}
-.ccm{font-size:12px;line-height:1.45;padding:7px 10px;border-radius:8px;border:1px solid var(--line)}
+#cc-chat{max-height:clamp(240px,52vh,640px);overflow-y:auto;display:flex;flex-direction:column;gap:7px;margin-bottom:9px}
+.ccm{font-size:12px;line-height:1.45;padding:7px 10px;border-radius:8px;border:1px solid var(--line);
+  white-space:pre-wrap;overflow-wrap:anywhere}
 .ccm b{font-size:9px;letter-spacing:1px;color:var(--txt-dim);display:block;margin-bottom:2px}
 .ccm.user{background:rgba(59,130,246,.14);align-self:flex-end;max-width:88%}
-.ccm.ai{background:var(--panel2);align-self:flex-start;max-width:92%}
+.ccm.ai{background:var(--panel2);align-self:flex-start;max-width:100%}
 .ccm.ai b{color:var(--cy)}
 .cc-chat-in{display:flex;gap:7px}
 .cc-chat-in input{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--txt);

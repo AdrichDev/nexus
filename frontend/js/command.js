@@ -1649,7 +1649,7 @@ window.orbHTML = orbHTML;
     const el = $('#cc-chat'); if (!el) return;
     const msgs = state.chat.slice(-6);
     el.innerHTML = msgs.length
-      ? msgs.map((m) => `<div class="ccm ${m.who}"><b>${m.who === 'user' ? (state.config.operator_name || 'TÚ') : 'nexus'}</b> ${linkify(String(m.text).slice(0, 220))}</div>`).join('')
+      ? msgs.map((m) => `<div class="ccm ${m.who}"><b>${m.who === 'user' ? (state.config.operator_name || 'TÚ') : 'nexus'}</b> ${linkify(String(m.text))}</div>`).join('')
       : '<div class="ccm ai"><b>nexus</b> A sus órdenes. Di algo o pulsa TALK.</div>';
     el.scrollTop = el.scrollHeight;
   }

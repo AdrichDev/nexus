@@ -65,7 +65,7 @@ def main() -> int:
                 page.wait_for_function(
                     "b => { const e=[...document.querySelectorAll('#cc-chat .ccm.ai')].pop();"
                     " return e && e.innerText !== b; }", arg=before, timeout=30000)
-                return last()  # the panel shows at most 220 chars per message
+                return last()
 
             FINDINGS: list[str] = []
 
@@ -130,6 +130,25 @@ def main() -> int:
             r = say("crea el archivo p05_fuera.md en /etc que diga hola")
             check(not Path("/etc/p05_fuera.md").exists() and "permiso" in r.lower(),
                   "write outside the sandbox is refused and nothing is written")
+            # Chat window must never cut what the AI returns (was sliced to 220 chars).
+            long_cmd = long_reply = None
+            for cand in ("qué puedes hacer", "ayuda", "qué skills tienes", "qué sabes hacer", "cuéntame un chiste largo"):
+                rep = (api(base, "/api/command", {"text": cand}).get("reply") or "")
+                print(f"  info candidate {cand!r}: {len(rep)} chars")
+                if len(rep) > 450:
+                    long_cmd, long_reply = cand, rep; break
+            check(long_cmd is not None, "found a command whose reply is longer than 450 chars")
+            if long_cmd:
+                shown = say(long_cmd)
+                norm = lambda t: " ".join(t.replace("nexus", "", 1).split())
+                check(len(shown) > 450 and norm(shown).endswith(norm(long_reply)[-120:]),
+                      f"compact chat shows the whole reply, including its last words ({len(shown)} vs {len(long_reply)} chars)")
+                box = page.evaluate("() => { const e=document.querySelector('#cc-chat'); const r=e.getBoundingClientRect();"
+                                    " return {h:r.height, sh:e.scrollHeight, oy:getComputedStyle(e).overflowY}; }")
+                check(box["h"] >= 240 and box["oy"] in ("auto", "scroll"), f"chat window is tall and scrollable ({box})")
+                nav("chat"); page.wait_for_timeout(500)
+                full = page.locator("#chat-log .msg.ai").last.inner_text()
+                check(norm(full).endswith(norm(long_reply)[-120:]), "full chat view also shows the whole reply")
             check(not errs, f"no page errors ({errs[:2]})")
             print("  FINDINGS:", len(FINDINGS))
             br.close()
