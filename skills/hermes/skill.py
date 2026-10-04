@@ -915,6 +915,8 @@ def _is_upstream_auth_error(status: int, body: str) -> bool:
 # se cantaría como terminado.
 _RESPUESTA_ES_ERROR = re.compile(
     r"^\s*HTTP\s+[45]\d\d\b"
+    r"|^\s*⚠?\s*No reply:\s*the model returned empty content\b"
+    r"|\bmodel returned empty content after retries\b"
     r"|\bmust\s+be\s+verified\b"
     r"|\binvalid_api_key\b|\bincorrect\s+api\s+key\b"
     r"|\binsufficient_quota\b|\brate[_\s]limit\b"
@@ -961,7 +963,6 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
                                          "messages": [{"role": "user", "content": orden}]})
             if r.status_code < 400:
                 out = (r.json().get("choices") or [{}])[0].get("message", {}).get("content", "")
-                out = out or "He terminado, pero sin texto de respuesta."
                 break
             detalle = (r.text or "")[:400]
             # 401/403 del CEREBRO interno de Hermes (sin credenciales) → mensaje claro, sin reintento
