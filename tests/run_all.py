@@ -82,6 +82,7 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/skills/datos/test_skill_datos.py", "unit/skills/vigilancias/test_skill_vigilancias.py",
               "unit/memory/test_skill_memory_graph.py", "unit/skills/coach/test_skill_coach.py",
               "unit/skills/tools/test_skill_tools.py", "unit/skills/research/test_skill_research.py",
+              "unit/skills/research/test_source_evidence.py",
               "unit/skills/backup/test_skill_backup.py", "unit/skills/telefono/test_skill_telefono.py",
               "unit/skills/small_skills/test_skills_pequenas_1.py", "unit/skills/small_skills/test_skills_pequenas_2.py",
               "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py",

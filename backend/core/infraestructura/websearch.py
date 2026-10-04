@@ -24,6 +24,7 @@ titulares h1-h3 y listas, no solo <p>.
 from __future__ import annotations
 
 import re
+from urllib.parse import urlparse
 
 from ..comun import net
 
@@ -218,6 +219,50 @@ async def search(query: str, n: int = 6) -> list[dict]:
     return []
 
 
+def _is_google_consent_url(url: str) -> bool:
+    """Detecta URLs de consentimiento/intersticial de Google, no artículos normales."""
+    try:
+        p = urlparse(str(url or ""))
+    except Exception:
+        return False
+    host = (p.netloc or "").split("@")[-1].split(":")[0].lower()
+    path = (p.path or "").lower()
+    if host.startswith("consent.google."):
+        return True
+    if ((host == "google.com" or host.startswith("www.google.") or host.startswith("google."))
+            and path.startswith("/sorry")):
+        return True
+    return False
+
+
+def _looks_like_google_consent(text: str) -> bool:
+    """Detecta pantallas reales de consentimiento/bloqueo Google sin vetar artículos sobre cookies."""
+    s = _clean((text or "")[:8000]).lower()
+    if not s:
+        return False
+    explicit = (
+        "before you continue to google",
+        "antes de continuar a google",
+        "consent.google.",
+        "our systems have detected unusual traffic",
+        "nuestros sistemas han detectado tráfico inusual",
+    )
+    if any(x in s for x in explicit):
+        return True
+    has_google = "google" in s
+    consent_actions = sum(x in s for x in (
+        "accept all", "reject all", "more options", "aceptar todo",
+        "rechazar todo", "más opciones", "mas opciones"))
+    policy_words = sum(x in s for x in (
+        "cookies", "privacy", "privacidad", "terms", "términos", "terminos"))
+    return has_google and consent_actions >= 2 and policy_words >= 1
+
+
+def _rejected_source_evidence(url: str = "", final_url: str = "", text: str = "") -> bool:
+    return (_is_google_consent_url(url) or _is_google_consent_url(final_url)
+            or _looks_like_google_consent(text))
+
+
 def extract_text(html: str, max_chars: int = 3500) -> str:
     """Extrae el TEXTO legible de un HTML (sin red). LINEAL a propósito: nada de
     patrones «<p>.*?</p>» que con etiquetas sin cerrar (HTML5 minificado las
@@ -253,13 +298,20 @@ async def fetch_page(url: str, max_chars: int = 3500) -> str:
     key = f"p::{url}"
     hit = cache_get(key, TTL_PAGE)
     if hit is not None:
-        return hit[:max_chars]
+        return "" if _rejected_source_evidence(url=url, text=hit) else hit[:max_chars]
+    if _rejected_source_evidence(url=url):
+        return ""
     try:
         r = await net.client().get(url, headers=_HDRS, timeout=_TIMEOUT)
+        final_url = str(getattr(r, "url", "") or "")
         html = (r.text or "")[:1_500_000]          # tope de descarga procesada
     except Exception:
         return ""
+    if _rejected_source_evidence(url=url, final_url=final_url, text=html):
+        return ""
     text = await _aio.to_thread(extract_text, html, max_chars)
+    if _rejected_source_evidence(url=url, final_url=final_url, text=text):
+        return ""
     if text:
         await _aio.to_thread(cache_put, key, text)
     return text
@@ -274,6 +326,8 @@ async def research(question: str, n_results: int = 6, n_pages: int = 3) -> str:
     res = await search(question, n_results)
     if not res:
         return ""
+    res = [r for r in res if not _rejected_source_evidence(
+        url=str(r.get("url", "")), text=f"{r.get('title', '')} {r.get('snippet', '')}")]
     dossier: list[str] = []
     for i, r in enumerate(res[:n_results]):
         head = f"[FUENTE {i + 1}] {r.get('title') or '(sin título)'}"

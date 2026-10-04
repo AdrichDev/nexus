@@ -90,7 +90,7 @@ def _save_report(title: str, body_md: str) -> Path:
 
 async def _full_report(topic: str, angle: str) -> dict:
     from backend.core.infraestructura.llm import ask_llm
-    results = await _ddg_search(f"{topic} 2026", 6)
+    results = await _ddg_search(topic, 6)
     sources_txt, cited = "", []
     for res in results[:4]:
         content = await _fetch_text(res["url"])
