@@ -169,6 +169,7 @@ def test_el_ejecutor_no_se_ve_en_la_tarjeta_de_multitarea():
 
     # El HUD sigue pintando el agente: si algún día deja de hacerlo, este test
     # sobra, pero mientras lo pinte hace falta.
+    sys.path.insert(0, os.path.join(ROOT, "tests"))
     from _frontend_js import js_hud
     check("j.agent" in js_hud(),
           "el HUD ya no pinta el agente del trabajo: revisa si este enmascarado "
