@@ -12,7 +12,7 @@ Fix research retrieval and make repeated wrong-answer feedback lead to explicit 
 - Delivery: ask-on-risk; initial forecast 250–400 authored diff lines for retrieval and correction slices, revise after bounded learning mapping. No push/merge without fresh decision.
 
 ## Tasks and acceptance
-- [ ] R1 — Remove forced year; filter consent URLs/redirects/content and cached consent pages; deterministic RED/GREEN, ordinary content negative controls, no-source behavior remains honest. Delegated writer (multi-file/preparation trigger). Commit as one retrieval work unit.
+- [x] R1 — Removed forced year; filtered consent URLs/redirects/content and cached consent pages; observed RED/GREEN and independent regression checks. Delegated writer (multi-file/preparation trigger). Work-unit commit: `803347c`.
 - [ ] R2 — Map existing feedback context/persistence and implement verified correction learning with isolated deterministic regressions. Delegated exploration then writer. Pending feedback must never count as verified; repetition must not trigger action/route theft.
 - [ ] R3 — Independently verify applicable checks, repeat the historical/current factual probes once under safe boundaries and record unresolved evidence gaps. Delegated verifier. No plausible-answer-only PASS.
 
@@ -21,7 +21,7 @@ Earlier real skill audit: voting-age debate had relevant nonprimary sources; his
 R1 writer observed RED (6 failures/5 passes), then GREEN (11 passes). Independent verifier confirmed 11/0, existing research suite 75/0 and v19 suite 69/0 in a no-network Docker snapshot containing current candidate bytes. Several verification setup attempts failed (missing temp directory, MSYS path conversion, copy timestamp permissions) before the successful isolated checks. A sibling verification scratch directory named `nexus-r1-verify.yepVbI;C` was reported left behind; do not delete arbitrary temporary paths.
 R1 authored estimate approximately 226 diff lines plus task documentation; broader correction-learning estimate would exceed the initial combined 400-line forecast, so delivery strategy must be resolved before a larger next slice.
 R2 mapping: pending feedback can reuse selflearn storage but must not be saved as global factual/operational correction. Full verified promotion requires a concrete source-support rule (human-confirmed vs excerpt-supported); do not silently label any URL or model judgment verified.
-Native review/risk, work-unit commits and live recheck: pending.
+Native R1 risk: medium; one reliability reviewer with host-resolved consent. `review-9c8be927588359c4` approved and exact acknowledgement burned authority for the candidate committed as `803347c`. Nonblocking warnings R3-001 websearch.py:329 and R3-002 websearch.py:253; only IDs/locations exposed, no finding prose or cause invented. No correction requested. Live recheck remains pending.
 
 ## Next step
-R1 implemented and independently checked, awaiting native review and work-unit commit. R2 is blocked on how source-supported verification is confirmed; keep it pending rather than mislabel user claims verified. Live R3 recheck remains pending.
+R1 reviewed, independently checked and committed. R2 is blocked on how source-supported verification is confirmed; keep it pending rather than mislabel user claims verified. Resolve the larger delivery strategy before R2 creates an oversized slice. Live R3 recheck remains pending. No push or merge.
