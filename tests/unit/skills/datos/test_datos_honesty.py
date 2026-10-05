@@ -90,13 +90,13 @@ ESCRITURAS = [
     "DELETE FROM t",
     "DROP TABLE t",
     "CREATE TABLE nueva (a INTEGER)",
-    f"ATTACH DATABASE '{(TMP / 'adjunta.db').as_posix()}' AS x",
+    f"ATTACH DATABASE '{(TMP / 'adjunta.db').as_posix()}' AS otra",
     f"VACUUM INTO '{(TMP / 'copia.db').as_posix()}'",
     "PRAGMA user_version = 42",
     "SELECT 1; DELETE FROM t",
     "WITH x AS (SELECT 1) INSERT INTO t SELECT 1, 'x'",
     "SELECT * INTO copia FROM t",
-    "COPY t TO '/tmp/salida.csv'",
+    "COPY t TO 'salida.csv'",
 ]
 for sql in ESCRITURAS:
     reply, _ = correr(f"consulta: {sql}")

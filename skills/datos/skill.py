@@ -35,12 +35,21 @@ FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|truncate|alter|create|gran
 # sentencia, que empiece por una orden de lectura, sin órdenes de escritura ni efectos
 # laterales fuera de los textos entre comillas y de los comentarios.
 _INICIOS_LECTURA = {"select", "with", "show", "explain", "values", "table", "describe", "desc"}
+# Órdenes que escriben o cambian el estado de la sesión. Solo cuentan fuera de textos y comentarios.
+_ORDENES_NO_LECTURA = (
+    "insert", "update", "delete", "drop", "truncate", "alter", "create", "grant", "revoke", "merge",
+    "copy", "attach", "detach", "vacuum", "pragma", "load", "into", "exec", "execute", "call",
+    "set", "reset", "lock", "do",
+)
+# Funciones del servidor que actúan fuera de la consulta (configuración, ficheros, otras conexiones).
+_FUNCIONES_DE_SERVIDOR = (
+    "set_config", "load_file",
+    "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_terminate_backend", "pg_cancel_backend",
+    "pg_reload_conf", "lo_import", "lo_export",
+)
 _PELIGROSAS = re.compile(
-    r"\b(insert|update|delete|drop|truncate|alter|create|grant|revoke|merge|copy|attach|detach|"
-    r"vacuum|pragma|load|into|exec|execute|call|set|reset|lock|do)\b"
-    r"|\bset_config\b|\bpg_(read_file|read_binary_file|ls_dir|terminate_backend|cancel_backend|reload_conf)\b"
-    r"|\blo_(import|export)\b|\bdblink\w*\b|\bload_file\b",
-    re.I)
+    r"\b(?:" + "|".join(_ORDENES_NO_LECTURA) + r")\b|\b(?:" + "|".join(_FUNCIONES_DE_SERVIDOR) + r")\b"
+    r"|\bdblink\w*\b", re.I)
 
 
 def _sin_textos(sql: str) -> str:
