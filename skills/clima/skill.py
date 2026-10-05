@@ -81,6 +81,21 @@ def _extract_city(text: str) -> str:
     return city
 
 
+async def _servicio_responde() -> bool:
+    """Consulta de control con una ciudad conocida: ¿wttr.in está sirviendo datos?"""
+    try:
+        async with httpx.AsyncClient(timeout=10,
+                                     headers={"User-Agent": "curl/8.0"}) as cli:
+            r = await cli.get(f"https://wttr.in/{_CIUDAD_CONTROL}?format=j1&lang=es")
+            r.raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
+_CIUDAD_CONTROL = "Madrid"
+
+
 async def handle(intent: str, text: str, match, ctx) -> dict:
     city = _extract_city(text)
     loc = quote(city) if city else ""
@@ -92,14 +107,12 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             r.raise_for_status()
             d = r.json()
     except httpx.HTTPStatusError as exc:
-        # wttr.in SÍ respondió: no es un problema de red. Con ciudad explícita lo más
-        # probable es un nombre que no reconoce (devuelve 404/500), pero no se puede
-        # distinguir de una caída del servicio solo por el código, así que se dice ambas.
         code = exc.response.status_code
-        if city:
-            return {"reply": f"⚠ wttr.in no me devolvió datos para «{city}» (HTTP {code}). "
-                             "Puede que no reconozca ese nombre o que el servicio falle: "
-                             "revisa el nombre de la ciudad o prueba otra."}
+        if city and await _servicio_responde():
+            # wttr.in contesta bien para una ciudad de control: el servicio está vivo,
+            # así que el fallo es el nombre. El usuario no tiene que saber de proveedores.
+            return {"reply": f"No encuentro «{city}»: esa localidad no existe o no la "
+                             "reconozco. Revisa el nombre o dime otra ciudad."}
         return {"reply": f"⚠ wttr.in respondió con un error (HTTP {code}) y no pude "
                          "obtener el tiempo. Repítemelo en un momento."}
     except Exception as exc:

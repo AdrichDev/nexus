@@ -24,11 +24,14 @@ def check(c, m):
     else: _fail.append(m); print("  FALLO:", m)
 
 
-def fake_client(status=None, exc=None):
+def fake_client(routes):
+    """routes: {substring_of_url: status_int | Exception}. Default 200 with empty JSON."""
+    calls = []
+
     class _Resp:
-        def __init__(self, url):
+        def __init__(self, url, status):
             self.request = httpx.Request("GET", url)
-            self.status_code = status or 200
+            self.status_code = status
         def raise_for_status(self):
             if self.status_code >= 400:
                 raise httpx.HTTPStatusError(
@@ -42,32 +45,47 @@ def fake_client(status=None, exc=None):
         async def __aenter__(self): return self
         async def __aexit__(self, *a): return False
         async def get(self, url):
-            if exc: raise exc
-            return _Resp(url)
-    return _Client
+            calls.append(url)
+            for key, val in routes.items():
+                if key in url:
+                    if isinstance(val, Exception): raise val
+                    return _Resp(url, val)
+            return _Resp(url, 200)
+    return _Client, calls
 
 
-def run(text, **kw):
+def run(text, routes):
     orig = clima.httpx.AsyncClient
-    clima.httpx.AsyncClient = fake_client(**kw)
+    cls, calls = fake_client(routes)
+    clima.httpx.AsyncClient = cls
     try:
-        return asyncio.run(clima.handle("weather", text, None, None))["reply"]
+        return asyncio.run(clima.handle("weather", text, None, None))["reply"], calls
     finally:
         clima.httpx.AsyncClient = orig
 
 
+# Unknown city: wttr.in errors for it, but a control city answers -> the city does not exist.
 for code in (404, 500):
-    r = run("clima en Ciudadinexistentexyz", status=code)
-    check("ciudadinexistentexyz" in r.lower(), f"HTTP {code} names the city")
-    check(str(code) in r, f"HTTP {code} reports the status code")
-    check("nombre" in r.lower(), f"HTTP {code} suggests checking the city name")
-    check("cosa de red" not in r.lower(), f"HTTP {code} does not blame the network")
+    r, calls = run("clima en Ciudadinexistentexyz", {"Ciudadinexistentexyz": code})
+    low = r.lower()
+    check("ciudadinexistentexyz" in low, f"HTTP {code} names the city")
+    check("no existe" in low or "no encuentro" in low, f"HTTP {code} says the city does not exist")
+    check("red" not in low and "wttr" not in low and "http" not in low,
+          f"HTTP {code} exposes no network/provider/status jargon")
+    check(len(calls) == 2, f"HTTP {code} does one control request")
 
-r = run("que tiempo hace", status=500)
-check("wttr.in" in r and "nombre" not in r.lower(), "HTTP error without city does not ask about a name")
+# Provider down: city error AND control error -> cannot claim the city is wrong.
+r, _ = run("clima en Sevilla", {"wttr.in": 503})
+check("no existe" not in r.lower() and "no encuentro" not in r.lower(), "provider down is not reported as unknown city")
+check("wttr.in" in r, "provider down is reported as provider problem")
 
-r = run("clima en Sevilla", exc=httpx.ConnectError("down"))
+# Network down.
+r, _ = run("clima en Sevilla", {"wttr.in": httpx.ConnectError("down")})
 check("wttr.in" in r and "cosa de red" in r.lower(), "ConnectError still reports the network")
+
+# No city + HTTP error: no control request, no claim about a name.
+r, calls = run("que tiempo hace", {"wttr.in": 500})
+check(len(calls) == 1 and "no existe" not in r.lower(), "no-city HTTP error makes no existence claim")
 
 print(f"\nclima errors: {_pass} OK, {len(_fail)} FAIL")
 sys.exit(1 if _fail else 0)
