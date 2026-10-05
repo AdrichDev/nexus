@@ -195,7 +195,7 @@ def ingerir_carpeta(ruta: str) -> dict:
         # 2) trocear y guardar en Postgres (idempotente por huella — SIN esto
         # ingerir la carpeta dos veces duplicaría cada trozo, como le pasó al
         # bloque A con las 3 filas huérfanas 804/805/807).
-        trozos_nuevos, trozos_dup = 0, 0
+        trozos_nuevos, trozos_dup, trozos_fallidos = 0, 0, 0
         if f.suffix.lower() == ".xlsx":
             hojas = files_io.leer_xlsx_estructurado(f)
             trozos = rag.trocear_xlsx_estructurado(hojas)
@@ -208,10 +208,19 @@ def ingerir_carpeta(ruta: str) -> dict:
             res = pg.remember(contenido, kind="knowledge",
                                tags=[dominio, f.stem], origen=str(f), origen_tipo="documento",
                                dominio=dominio, etiqueta=etiqueta, peso=peso)
-            if res.get("duplicado"):
+            if not res.get("id"):
+                trozos_fallidos += 1         # ni guardado ni ya existente: sin confirmar
+            elif res.get("duplicado"):
                 trozos_dup += 1
             else:
                 trozos_nuevos += 1
+        if trozos_fallidos:
+            # Si lo nuevo no está confirmado, lo viejo NO se retira (el archivo queda fuera
+            # de `contenidos`): mejor conocimiento viejo que ninguno.
+            documentos.append({"archivo": f.name, "ruta": ruta_rel, "ok": False,
+                                "error": f"No pude guardar {trozos_fallidos} trozo(s) en memoria; "
+                                         "dejé lo anterior intacto."})
+            continue
         contenidos[str(f)] = vigentes_f
         entrada = {"archivo": f.name, "ruta": ruta_rel, "ok": True, "etiqueta": etiqueta,
                    "trozos_nuevos": trozos_nuevos, "trozos_duplicados": trozos_dup,

@@ -692,6 +692,25 @@ def test_lotes_y_espejos_no_colisionan():
           "lotes: dos retiros en el mismo segundo no comparten lote (si no, revertir uno revertiría ambos)")
 
 
+def test_guardado_fallido_no_retira_lo_anterior():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_fallo_guardado_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    a = origen / "a.md"
+    a.write_text("VERSION-UNO", encoding="utf-8")
+    pg = _FakePg()
+    _ingerir_en_tmp(origen, pg)
+    a.write_text("VERSION-DOS", encoding="utf-8")
+    original = pg.remember
+    pg.remember = lambda content, **kw: {"id": None, "duplicado": False}   # el INSERT no devolvió fila
+    r, _ = _ingerir_en_tmp(origen, pg)
+    pg.remember = original
+    check(any(f["vivo"] and "VERSION-UNO" in f["content"] for f in pg.filas),
+          "guardado fallido: si lo nuevo NO se pudo guardar, lo anterior NO se retira")
+    d = {x["ruta"]: x for x in r["documentos"]}.get("a.md", {})
+    check(d.get("ok") is False and r.get("retirados", 0) == 0,
+          "guardado fallido: se informa como error y retirados = 0")
+
+
 # =============================== runner =====================================
 if __name__ == "__main__":
     for name, t in sorted(globals().items()):

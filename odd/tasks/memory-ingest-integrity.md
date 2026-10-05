@@ -20,3 +20,4 @@ Decision (owner + agent): documents are OVERWRITTEN per source (`origen`): when 
 
 - T6 checks: RED 8 failures -> GREEN 93/0 locally, Linux hermetic container run included; purga, memory graph, capas_backend, runner profiles unchanged green.
 - Known limitation kept open (review advisory): identical chunk text ingested from two different folders (e.g. two README.md) is a single row owned by the first origin; if that folder's file later changes, the second folder loses the row until re-ingested.
+- T7 (second review advisory): if `remember` does not confirm a chunk (no id), the file is reported as error and its previous chunks are NOT retired. RED 2 failures -> GREEN 95/0.
