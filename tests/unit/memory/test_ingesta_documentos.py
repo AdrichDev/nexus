@@ -68,15 +68,37 @@ permissions = importlib.import_module("backend.core.comun.permissions")
 class _FakePg:
     """Sustituye a memory.pg en los tests que NO necesitan Postgres real:
     graba las llamadas a remember() para poder comprobar qué texto llegó,
-    sin tocar el contenedor."""
+    sin tocar el contenedor. Simula filas vivas/retiradas y la deduplicación
+    por contenido para probar la sobrescritura por origen."""
 
     def __init__(self):
         self.online = True
         self.llamadas = []
+        self.filas = []
+        self.retiradas = []
 
     def remember(self, content, kind="note", tags=None, **kw):
         self.llamadas.append({"content": content, "kind": kind, "tags": tags, **kw})
-        return {"id": len(self.llamadas), "duplicado": False}
+        for f in self.filas:
+            if f["vivo"] and f["content"] == content and f["kind"] == kind:
+                return {"id": f["id"], "duplicado": True}
+        fila = {"id": len(self.filas) + 1, "content": content, "kind": kind, "vivo": True,
+                "origen": kw.get("origen"), "origen_tipo": kw.get("origen_tipo")}
+        self.filas.append(fila)
+        return {"id": fila["id"], "duplicado": False}
+
+    def filas_documento_bajo(self, prefijo):
+        return [dict(f) for f in self.filas if f["vivo"] and f["origen_tipo"] == "documento"
+                and (f["origen"] or "").startswith(prefijo)]
+
+    def retirar_filas(self, ids, lote):
+        n = 0
+        for f in self.filas:
+            if f["id"] in ids and f["vivo"]:
+                f["vivo"] = False
+                n += 1
+        self.retiradas.append((list(ids), lote))
+        return n
 
 
 class _FakeGraph:
@@ -471,6 +493,137 @@ def test_ingerir_carpeta_omite_secretos():
         ingesta.DOCUMENTOS_DIR = orig_documentos_dir
         mem.pg = orig_pg
         permissions.path_allowed = orig_allowed
+
+
+def _ingerir_en_tmp(origen, pg):
+    """Ingiere `origen` con espejos en un tmp y permisos abiertos; devuelve (r, dir_espejos)."""
+    tmp = Path(tempfile.mkdtemp(prefix="nexus_ingerir_integridad_test_"))
+    orig_dir, orig_pg, orig_allowed = ingesta.DOCUMENTOS_DIR, mem.pg, permissions.path_allowed
+    try:
+        ingesta.DOCUMENTOS_DIR = tmp / "documentos"
+        mem.pg = pg
+        permissions.path_allowed = lambda p: True
+        return ingesta.ingerir_carpeta(str(origen)), tmp / "documentos"
+    finally:
+        ingesta.DOCUMENTOS_DIR, mem.pg, permissions.path_allowed = orig_dir, orig_pg, orig_allowed
+
+
+def test_espejos_unicos_por_archivo():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_espejos_test_")) / "Docs"
+    (origen / "sub1").mkdir(parents=True)
+    (origen / "sub2").mkdir(parents=True)
+    (origen / "sub1" / "notas.md").write_text("CONTENIDO-A", encoding="utf-8")
+    (origen / "sub2" / "notas.md").write_text("CONTENIDO-B", encoding="utf-8")
+    (origen / "notas.txt").write_text("CONTENIDO-C", encoding="utf-8")
+    r, dir_espejos = _ingerir_en_tmp(origen, _FakePg())
+    espejos = [f.read_text(encoding="utf-8") for f in (dir_espejos / "docs").glob("*.md")]
+    check(len(espejos) == 3, f"espejos: 3 archivos distintos -> 3 espejos (hubo {len(espejos)})")
+    for marca in ("CONTENIDO-A", "CONTENIDO-B", "CONTENIDO-C"):
+        check(any(marca in e for e in espejos), f"espejos: {marca} sobrevive en su espejo")
+
+
+def test_postgres_caido_falla_en_voz_alta():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_pgoff_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    (origen / "a.md").write_text("TEXTO", encoding="utf-8")
+    pg = _FakePg()
+    pg.online = False
+    r, dir_espejos = _ingerir_en_tmp(origen, pg)
+    check(r["ok"] is False, "pg caído: ok = False (no finge éxito)")
+    check("no está disponible" in r["error"].lower(),
+          "pg caído: el error explica que la memoria no está disponible")
+    check(not pg.llamadas, "pg caído: no intenta guardar nada")
+    check(not dir_espejos.exists() or not list(dir_espejos.rglob("*.md")),
+          "pg caído: tampoco deja espejos a medias")
+
+
+def test_enlace_simbolico_fuera_de_la_carpeta_se_omite():
+    raiz = Path(tempfile.mkdtemp(prefix="nexus_symlink_test_"))
+    origen = raiz / "Docs"
+    origen.mkdir()
+    fuera = raiz / "fuera.txt"
+    fuera.write_text("TEXTO-DE-FUERA", encoding="utf-8")
+    (origen / "dentro.md").write_text("TEXTO-DE-DENTRO", encoding="utf-8")
+    try:
+        (origen / "enlace.txt").symlink_to(fuera)
+    except (OSError, NotImplementedError):
+        skip("enlace simbólico: este sistema no deja crear symlinks")
+        return
+    pg = _FakePg()
+    r, _ = _ingerir_en_tmp(origen, pg)
+    guardado = " ".join(c["content"] for c in pg.llamadas)
+    check("TEXTO-DE-FUERA" not in guardado, "symlink: el contenido de fuera de la carpeta NO entra")
+    check("TEXTO-DE-DENTRO" in guardado, "symlink: el contenido de dentro sí entra")
+    d = {x["archivo"]: x for x in r["documentos"]}.get("enlace.txt", {})
+    check(d.get("ok") is False and d.get("omitido") == "fuera_de_la_carpeta",
+          "symlink: se informa como omitido por estar fuera de la carpeta")
+
+
+def test_sobrescritura_por_origen():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_sobrescribe_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    a, b = origen / "a.md", origen / "b.md"
+    a.write_text("VERSION-UNO de a", encoding="utf-8")
+    b.write_text("TEXTO de b", encoding="utf-8")
+    pg = _FakePg()
+
+    r1, _ = _ingerir_en_tmp(origen, pg)
+    check(len([f for f in pg.filas if f["vivo"]]) == 2, "sobrescribe: 1ª ingesta guarda 2 trozos vivos")
+    check(r1.get("retirados", 0) == 0, "sobrescribe: 1ª ingesta no retira nada")
+
+    r2, _ = _ingerir_en_tmp(origen, pg)
+    check(len([f for f in pg.filas if f["vivo"]]) == 2 and len(pg.filas) == 2,
+          "sobrescribe: re-ingerir SIN cambios no duplica ni retira")
+    check(r2.get("retirados", 0) == 0, "sobrescribe: sin cambios -> retirados = 0")
+
+    a.write_text("VERSION-DOS de a", encoding="utf-8")
+    r3, _ = _ingerir_en_tmp(origen, pg)
+    vivos = [f["content"] for f in pg.filas if f["vivo"]]
+    check(any("VERSION-DOS" in c for c in vivos), "sobrescribe: la versión nueva está viva")
+    check(not any("VERSION-UNO" in c for c in vivos), "sobrescribe: la versión vieja ya NO está viva")
+    check(any("TEXTO de b" in c for c in vivos), "sobrescribe: el archivo sin cambios se conserva")
+    check(r3.get("retirados") == 1 and r3.get("lote", "").startswith("ingesta-"),
+          "sobrescribe: informa 1 retirado y el lote para poder revertir")
+    check(pg.retiradas and pg.retiradas[-1][1] == r3.get("lote"), "sobrescribe: retira con ese mismo lote")
+
+    b.unlink()
+    r4, _ = _ingerir_en_tmp(origen, pg)
+    vivos = [f["content"] for f in pg.filas if f["vivo"]]
+    check(not any("TEXTO de b" in c for c in vivos), "sobrescribe: archivo borrado de la carpeta -> sus trozos se retiran")
+    check(any("VERSION-DOS" in c for c in vivos), "sobrescribe: lo que sigue existiendo se conserva")
+    check(r4.get("retirados") == 1, "sobrescribe: borrado -> 1 retirado")
+
+
+def test_sobrescritura_archivo_ilegible_no_pierde_lo_guardado():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_ilegible_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    a = origen / "a.md"
+    a.write_text("CONOCIMIENTO-PREVIO", encoding="utf-8")
+    pg = _FakePg()
+    _ingerir_en_tmp(origen, pg)
+    orig_read = files_io.read_any
+    try:
+        files_io.read_any = lambda *a_, **k: {"ok": False, "error": "disco ocupado", "texto": "", "meta": {}}
+        r, _ = _ingerir_en_tmp(origen, pg)
+    finally:
+        files_io.read_any = orig_read
+    check(any("CONOCIMIENTO-PREVIO" in f["content"] and f["vivo"] for f in pg.filas),
+          "ilegible: si el archivo existe pero no se pudo leer, NO se retira lo ya guardado")
+    check(r.get("retirados", 0) == 0, "ilegible: retirados = 0")
+
+
+def test_archivo_que_pasa_a_ser_secreto_se_retira():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_pasa_secreto_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    a = origen / "notas.txt"
+    a.write_text("NOTAS-NORMALES", encoding="utf-8")
+    pg = _FakePg()
+    _ingerir_en_tmp(origen, pg)
+    a.write_text("-----BEGIN RSA PRIVATE KEY-----\nCLAVE\n-----END RSA PRIVATE KEY-----", encoding="utf-8")
+    r, _ = _ingerir_en_tmp(origen, pg)
+    check(not any(f["vivo"] and "NOTAS-NORMALES" in f["content"] for f in pg.filas),
+          "pasa a secreto: lo guardado antes de ese archivo se retira")
+    check(r.get("retirados") == 1, "pasa a secreto: 1 retirado")
 
 
 # =============================== runner =====================================

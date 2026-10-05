@@ -919,6 +919,15 @@ class PgMemory:
             (lote, ids))
         return len(rows)
 
+    def filas_documento_bajo(self, prefijo: str) -> list[dict]:
+        """SOLO LECTURA. Filas VIVAS de documentos ingeridos cuyo `origen` empieza
+        por `prefijo` (una carpeta). `left()` en vez de LIKE: no hay que escapar
+        `%`/`_` de la ruta. Lo usa la ingesta para sobrescribir por origen."""
+        return self._rows(
+            "SELECT id, origen, content FROM memories "
+            "WHERE origen_tipo = 'documento' AND retirado_en IS NULL "
+            "AND left(origen, %s) = %s ORDER BY id", (len(prefijo), prefijo))
+
     def restaurar_filas(self, lote: str) -> int:
         """Revertir un lote entero es OTRO `UPDATE` — nunca hace falta
         reconstruir nada (memoria-purga, escenario «Restaurar desde la

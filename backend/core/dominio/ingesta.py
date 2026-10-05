@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
 from pathlib import Path
 
@@ -95,8 +96,11 @@ def _pesos() -> dict:
 
 
 def ingerir_carpeta(ruta: str) -> dict:
-    """Ingiere TODOS los archivos legibles de una carpeta (recursivo).
-    Devuelve {"ok", "dominio", "documentos": [...], "error"}."""
+    """Ingiere TODOS los archivos legibles de una carpeta (recursivo) y deja la
+    memoria IGUAL que la carpeta: lo que cambió se SOBRESCRIBE por origen (los
+    trozos viejos de ese archivo se retiran a la papelera, reversible) y lo que
+    se borró de la carpeta también se retira. Los trozos sin cambios no se tocan.
+    Devuelve {"ok", "dominio", "documentos": [...], "retirados", "lote", "error"}."""
     if not ruta:
         return {"ok": False, "error": "falta «ruta»", "documentos": []}
     if not permissions.path_allowed(ruta):
@@ -110,12 +114,33 @@ def ingerir_carpeta(ruta: str) -> dict:
 
     from .memory import pg  # import diferido: evita ciclo de import al cargar el módulo
 
+    if not pg.online:
+        # Sin memoria no hay ingesta: escribir solo el espejo y decir «ok» sería mentir.
+        return {"ok": False, "documentos": [],
+                "error": "La memoria (Postgres) no está disponible: no ingerí nada. "
+                         "Arranca la base de datos y repite."}
+
     dominio = _slug(base.name)
     marcas = _config_ingesta()["marcas_historico"]
     pesos = _pesos()
     documentos = []
+    existentes: set[str] = set()                 # archivos que siguen en la carpeta y no son secretos
+    contenidos: dict[str, set[str]] = {}         # origen -> trozos vigentes (solo si se procesó bien)
     for f in sorted(base.rglob("*")):
         if not f.is_file():
+            continue
+        # Contención POR ARCHIVO: un enlace simbólico dentro de la carpeta puede
+        # apuntar fuera; se comprueba la ruta REAL, no la que se ve.
+        try:
+            real = f.resolve()
+            real.relative_to(base)
+            dentro = permissions.path_allowed(real)
+        except (ValueError, OSError):
+            dentro = False
+        if not dentro:
+            documentos.append({"archivo": f.name, "ok": False, "omitido": "fuera_de_la_carpeta",
+                                "error": f"«{f.name}» apunta fuera de la carpeta o de lo permitido. "
+                                         "No lo leí."})
             continue
         motivo_secreto = _motivo_secreto(f)
         if motivo_secreto:
@@ -125,6 +150,7 @@ def ingerir_carpeta(ruta: str) -> dict:
         ok, _motivo = files_io.puede_leer(f)
         if not ok:
             continue
+        existentes.add(str(f))
         leido = files_io.read_any(f, limite=0)
         if not leido.get("ok") or leido.get("meta", {}).get("truncado"):
             documentos.append({"archivo": f.name, "ok": False,
@@ -133,6 +159,7 @@ def ingerir_carpeta(ruta: str) -> dict:
         texto = leido["texto"]
         motivo_secreto = _motivo_secreto(f, texto)
         if motivo_secreto:
+            existentes.discard(str(f))           # pasó a ser secreto: lo ya guardado se retira
             documentos.append({"archivo": f.name, "ok": False, "omitido": "secreto",
                                 "error": motivo_secreto + " No lo guardé en memoria."})
             continue
@@ -140,33 +167,70 @@ def ingerir_carpeta(ruta: str) -> dict:
         etiqueta = "historico" if historico else "normal"
         peso = pesos["historico"] if historico else pesos["normal"]
 
-        # 1) espejo .md CON cabecera de metadatos — nunca en la carpeta origen
+        # 1) espejo .md CON cabecera de metadatos — nunca en la carpeta origen.
+        # El nombre sale de la ruta relativa COMPLETA (con extensión): dos archivos
+        # distintos nunca comparten espejo (antes `f.stem` hacía que se pisaran).
         destino_dir = DOCUMENTOS_DIR / dominio
         destino_dir.mkdir(parents=True, exist_ok=True)
         cabecera = (f"---\norigen: {f}\ndominio: {dominio}\netiqueta: {etiqueta}\n"
                     f"ingerido: {dt.datetime.now(dt.timezone.utc).isoformat()}\n---\n\n")
-        destino = destino_dir / f"{f.stem}.md"
+        destino = destino_dir / (f.relative_to(base).as_posix().replace("/", "__") + ".md")
         destino.write_text(cabecera + texto, encoding="utf-8")
 
         # 2) trocear y guardar en Postgres (idempotente por huella — SIN esto
         # ingerir la carpeta dos veces duplicaría cada trozo, como le pasó al
         # bloque A con las 3 filas huérfanas 804/805/807).
         trozos_nuevos, trozos_dup = 0, 0
-        if pg.online:
-            if f.suffix.lower() == ".xlsx":
-                hojas = files_io.leer_xlsx_estructurado(f)
-                trozos = rag.trocear_xlsx_estructurado(hojas)
+        if f.suffix.lower() == ".xlsx":
+            hojas = files_io.leer_xlsx_estructurado(f)
+            trozos = rag.trocear_xlsx_estructurado(hojas)
+        else:
+            trozos = rag.trocear(texto)
+        vigentes_f: set[str] = set()
+        for trozo in trozos:
+            contenido = f"[{f.name}] {trozo['texto']}"
+            vigentes_f.add(contenido)
+            res = pg.remember(contenido, kind="knowledge",
+                               tags=[dominio, f.stem], origen=str(f), origen_tipo="documento",
+                               dominio=dominio, etiqueta=etiqueta, peso=peso)
+            if res.get("duplicado"):
+                trozos_dup += 1
             else:
-                trozos = rag.trocear(texto)
-            for trozo in trozos:
-                res = pg.remember(f"[{f.name}] {trozo['texto']}", kind="knowledge",
-                                   tags=[dominio, f.stem], origen=str(f), origen_tipo="documento",
-                                   dominio=dominio, etiqueta=etiqueta, peso=peso)
-                if res.get("duplicado"):
-                    trozos_dup += 1
-                else:
-                    trozos_nuevos += 1
+                trozos_nuevos += 1
+        contenidos[str(f)] = vigentes_f
         documentos.append({"archivo": f.name, "ok": True, "etiqueta": etiqueta,
                             "trozos_nuevos": trozos_nuevos, "trozos_duplicados": trozos_dup,
-                            "espejo": str(destino)})
-    return {"ok": True, "dominio": dominio, "documentos": documentos, "error": ""}
+                            "trozos_retirados": 0, "espejo": str(destino)})
+
+    # 3) SOBRESCRIBIR por origen. Se hace DESPUÉS de guardar lo nuevo (si algo falla
+    # antes, lo viejo sigue ahí) y retira, nunca borra: `restaurar_filas(lote)` lo revierte.
+    # Se retira un trozo si (a) su archivo ya no existe / pasó a ser secreto, o (b) su
+    # archivo se procesó bien y ese trozo ya no está en su contenido NI en el de ningún
+    # otro archivo de esta ingesta. Un archivo que existe pero no se pudo leer NO se toca.
+    vigentes_todos = set().union(*contenidos.values()) if contenidos else set()
+    prefijo = str(base) + os.sep
+    obsoletas: list[int] = []
+    por_origen: dict[str, int] = {}
+    for fila in pg.filas_documento_bajo(prefijo):
+        origen = fila["origen"]
+        sigue = origen in existentes
+        if sigue and (origen not in contenidos or fila["content"] in contenidos[origen]
+                      or fila["content"] in vigentes_todos):
+            continue
+        obsoletas.append(fila["id"])
+        por_origen[origen] = por_origen.get(origen, 0) + 1
+    lote = ""
+    retirados = 0
+    if obsoletas:
+        lote = f"ingesta-{dt.datetime.now(dt.timezone.utc):%Y%m%dT%H%M%SZ}-{dominio}"
+        retirados = pg.retirar_filas(obsoletas, lote)
+        por_nombre = {d["archivo"]: d for d in documentos if d.get("ok")}
+        for origen, n in por_origen.items():
+            nombre = Path(origen).name
+            if origen in contenidos and nombre in por_nombre:
+                por_nombre[nombre]["trozos_retirados"] += n
+            else:
+                documentos.append({"archivo": nombre, "ok": True, "eliminado": True,
+                                    "trozos_retirados": n})
+    return {"ok": True, "dominio": dominio, "documentos": documentos,
+            "retirados": retirados, "lote": lote, "error": ""}
