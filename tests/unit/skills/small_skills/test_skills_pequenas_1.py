@@ -63,14 +63,8 @@ DESTINOS = [
     ("contexto del proyecto", "engram/context"),
     ("qué se decidió sobre el whatsapp", "engram/search"),
     # ---- ai_media
-    ("genera una imagen de un dragón", "ai_media/gen_image"),
-    ("diséñame un póster de verano", "ai_media/gen_image"),
-    ("dibújame un logo para la marca", "ai_media/gen_image"),
-    ("créame una ilustración de un bosque", "ai_media/gen_image"),
-    ("analiza la imagen D:\\fotos\\logo.png", "ai_media/analyze_image"),
-    ("analízame la imagen D:\\y.png", "ai_media/analyze_image"),
-    ("descríbeme la foto D:\\a.jpg", "ai_media/analyze_image"),
     ("transcribe el audio D:\\notas\\r.mp3", "ai_media/transcribe"),
+    ("transcribe el vídeo D:\\clases\\tema1.mp4", "ai_media/transcribe"),
     ("pásame a texto la grabación D:\\c.wav", "ai_media/transcribe"),
     ("busca en internet quién ganó la liga", "ai_media/web_search"),
     ("googléame la receta de la paella", "ai_media/web_search"),
@@ -171,6 +165,12 @@ NO_TOCAR = [
     ("busca X en google maps", "ai_media"),
     ("haz una foto con la webcam", "ai_media"),
     ("apaga el ordenador", "games"),
+    # ai_media ya NO genera ni describe imágenes (era un SVG de relleno y metadatos): no debe cazarlas
+    ("genera una imagen de un dragón", "ai_media"),
+    ("dibújame un logo para la marca", "ai_media"),
+    ("créame una ilustración de un bosque", "ai_media"),
+    ("analiza la imagen D:\\fotos\\logo.png", "ai_media"),
+    ("descríbeme la foto D:\\a.jpg", "ai_media"),
 ]
 
 

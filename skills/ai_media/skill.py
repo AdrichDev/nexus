@@ -1,47 +1,33 @@
-"""Minion IA/Multimedia — imágenes, visión, transcripción Whisper y búsqueda web.
+"""Minion Audio y búsqueda web — transcribe audios/vídeos con Whisper y responde con la web.
 
-OJO ROUTER: esta carpeta es la PRIMERA en orden alfabético, así que sus
-patrones se prueban antes que los de TODAS las demás skills. Toda regex
-lleva ancla de dominio (imagen/foto, audio, «en internet»...) para no robar
-frases ajenas: «haz una foto» (webcam, system_pc), «busca X en google maps»
-(places), «investiga X» (research)... quedan fuera a propósito.
+Hace SOLO dos cosas, las dos reales:
+  * transcribir un audio o vídeo local con Whisper (marcas de tiempo, análisis, memoria);
+  * responder una pregunta con búsqueda web: lee las mejores páginas y cita las fuentes.
+(La generación de imágenes y la «visión» se eliminaron: eran un SVG de relleno y metadatos.)
+
+OJO ROUTER: esta carpeta es la PRIMERA en orden alfabético, así que sus patrones se prueban
+antes que los de TODAS las demás skills. Toda regex lleva ancla de dominio (audio, «en
+internet»...) para no robar frases ajenas: «busca X en google maps» (places), «investiga X»
+(research)... quedan fuera a propósito.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import hashlib
-import html
 from pathlib import Path
 from urllib.parse import urlparse
 
-
-OUT_DIR = Path(__file__).resolve().parents[2] / "data" / "captures"
-
 SKILL = {
-    "name": "IA / Multimedia",
-    "description": "Bocetos de imagen IA, análisis de fotos, transcripción de audios con Whisper y respuestas con búsqueda web real multi-fuente",
+    "name": "Audio y búsqueda web",
+    "description": "Transcribe audios y vídeos con Whisper local (marcas de tiempo y análisis) y responde con búsqueda web leyendo las páginas y citando las fuentes",
     # ORDEN: específico arriba, amplio abajo (web_search es el más ancho y va último).
     "patterns": {
-        # Generar imagen: exige un sustantivo de imagen tras el verbo. El lookahead
-        # evita robar «haz una foto con la webcam» (system_pc) o «...de la pantalla».
-        "gen_image": r"(?:g[eé]n[eé]ra(?:me)?|cr[eé]a(?:me)?|dib[uú]ja(?:me)?|dis[eé][ñn]a(?:me)?|haz(?:me)?)\s+"
-                     r"(?:una?\s+)?(?:imagen|ilustraci[oó]n|dibujo|logo(?:tipo)?|cartel|p[oó]ster|foto)\s+"
-                     r"(?:de|con|sobre|para)\s+"
-                     r"(?!(?:la\s+)?(?:webcam|c[aá]mara|pantalla)\b)(?P<prompt>.+)",
-        # Analizar imagen: necesita la RUTA del archivo (named group path).
-        "analyze_image": r"(?:anal[ií]za(?:me)?|descr[ií]be(?:me)?|exam[ií]na(?:me)?|interpreta(?:me)?|qu[eé]\s+(?:hay|ves|sale))\s+"
-                         r"(?:en\s+)?(?:la\s+|esta\s+|el\s+)?(?:imagen|foto(?:graf[ií]a)?|captura)\s+(?P<path>.+)",
-        # Transcribir audio (Whisper local): ruta obligatoria, coletilla opcional.
+        # Transcribir audio/vídeo (Whisper local): la ruta es TODO lo que sigue (puede llevar
+        # espacios); `_resolver_ruta` recorta coletillas («... y guárdala») hasta dar con el archivo.
         "transcribe": r"(?:transcr[ií]be(?:me)?|p[aá]sa(?:me)?\s+a\s+texto)\s+"
-                      r"(?:el\s+|la\s+|este\s+|esta\s+)?(?:audio|nota\s+de\s+voz|grabaci[oó]n|memo\s+de\s+voz)\s+"
+                      r"(?:el\s+|la\s+|este\s+|esta\s+)?(?:audio|nota\s+de\s+voz|grabaci[oó]n|memo\s+de\s+voz|v[ií]deo)\s+"
                       r"(?P<path>.+)$",
-        # Búsqueda web: con ancla explícita («en internet/la web/google»,
-        # «googlea», «qué dice internet de...»). google(?!\s*maps) deja los mapas
-        # a la skill places; «investiga...» se queda en research (informes).
-        # La cuarta alternativa se ancla en el SUSTANTIVO («busca información
-        # sobre X»): sin ella esa frase, que es de las normales, caía al
-        # planificador. El lookahead devuelve a su dueño lo que se busca en un
-        # sitio concreto: carpetas (files), notas (memory_graph) y mapas (places).
         "web_search": r"(?:\b(?:busca|b[uú]scame|buscar|consulta(?:me)?|mira(?:me)?)\s+(?:r[aá]pido\s+)?"
                       r"en\s+(?:internet|la\s+web|la\s+red|google(?!\s*maps)|el\s+buscador|duckduckgo)\s+"
                       r"|\bgoogl[eé]a(?:me)?\s+"
@@ -54,24 +40,17 @@ SKILL = {
     },
 }
 
-SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512">
-<rect width="512" height="512" fill="#02120a"/>
-<circle cx="256" cy="256" r="140" fill="none" stroke="#00ff9c" stroke-width="3" opacity="0.8"/>
-<circle cx="256" cy="256" r="90" fill="none" stroke="#00ff9c" stroke-width="1.5" opacity="0.5"/>
-<text x="50%" y="47%" fill="#00ff9c" font-family="monospace" font-size="20"
- text-anchor="middle">nexus IMAGE ENGINE</text>
-<text x="50%" y="55%" fill="#7dffce" font-family="monospace" font-size="13"
- text-anchor="middle">{prompt}</text>
-<text x="50%" y="92%" fill="#0a7d55" font-family="monospace" font-size="11"
- text-anchor="middle">boceto — conecta SD/DALL-E en skills/ai_media</text></svg>"""
-
-
+# ----------------------------------------------------------------------------------------------
+#  Rutas
+# ----------------------------------------------------------------------------------------------
 _COMILLAS = "\"'“”‘’"
+_EXT_AUDIO = {".mp3", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".flac", ".wma",
+              ".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v"}
 
 
 def _resolver_ruta(raw: str) -> tuple[Path | None, str]:
     """(archivo existente, ruta tal como se escribió). Admite comillas y espacios en la ruta, y
-    recorta coletillas («... por favor», «... y guárdala») hasta dar con un archivo que exista."""
+    recorta coletillas («… por favor», «… y guárdala») hasta dar con un archivo que exista."""
     escrito = raw.strip().strip(_COMILLAS).strip()
     palabras = escrito.split(" ")
     for n in range(len(palabras), 0, -1):
@@ -83,145 +62,187 @@ def _resolver_ruta(raw: str) -> tuple[Path | None, str]:
     return None, escrito
 
 
-_EXT_IMAGEN = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".ico", ".svg"}
+def _mmss(segundos: float) -> str:
+    s = int(max(0, segundos))
+    h, resto = divmod(s, 3600)
+    m, s = divmod(resto, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
 
 
-def _tam(n: int) -> str:
-    if n < 1024:
-        return f"{n} bytes"
-    if n < 1024 * 1024:
-        return f"{n / 1024:.1f} KB"
-    return f"{n / (1024 * 1024):.1f} MB"
+def _dominio(url: str | None) -> str:
+    return urlparse(url or "").netloc.removeprefix("www.")
 
 
-def _fuentes(results: list[dict]) -> str:
-    """Dominios de las fuentes, sin repetir (lo que el usuario puede VER; `data` no se muestra)."""
-    vistos: list[str] = []
-    for r in results:
-        d = urlparse(r.get("url") or "").netloc.removeprefix("www.")
-        if d and d not in vistos:
-            vistos.append(d)
-    return ", ".join(vistos[:5])
+# ----------------------------------------------------------------------------------------------
+#  Búsqueda web: lee las páginas, cita las fuentes
+# ----------------------------------------------------------------------------------------------
+_PAGINAS_A_LEER = 3          # cuántas de las primeras páginas se leen de verdad
+_CHARS_PAGINA = 1800         # cuánto de cada página se le pasa al modelo
+_TIMEOUT_PAGINA = 8.0        # segundos máximos por página: una lenta no bloquea la respuesta
+
+
+async def _leer_paginas(results: list[dict]) -> list[str]:
+    from backend.core.infraestructura import websearch
+
+    async def una(r: dict) -> str:
+        url = r.get("url") or ""
+        if not url:
+            return ""
+        try:
+            return await asyncio.wait_for(websearch.fetch_page(url, max_chars=_CHARS_PAGINA),
+                                          _TIMEOUT_PAGINA)
+        except Exception:
+            return ""
+
+    return list(await asyncio.gather(*[una(r) for r in results[:_PAGINAS_A_LEER]]))
+
+
+def _lista_fuentes(results: list[dict]) -> str:
+    return "\n".join(f"[{i}] {_dominio(r.get('url')) or 'web'} — {(r.get('title') or r.get('url') or '').strip()}"
+                     for i, r in enumerate(results, 1))
+
+
+async def _buscar_y_responder(q: str) -> dict:
+    from backend.core.infraestructura import websearch
+    from backend.core.infraestructura.llm import ask_llm
+    results = await websearch.search(q, 6)
+    if not results:
+        return {"reply": f"✖ No he podido buscar «{q}»: o no hay conexión o los buscadores que pruebo "
+                         "no han respondido. Reintenta en un momento; si persiste, revisa la red."}
+    paginas = await _leer_paginas(results)
+    fuentes_prompt = []
+    for i, r in enumerate(results, 1):
+        leido = paginas[i - 1] if i - 1 < len(paginas) else ""
+        cuerpo = leido or (r.get("snippet") or "")      # si la página no se pudo leer, su fragmento
+        fuentes_prompt.append(f"[{i}] {r.get('title') or ''} ({_dominio(r.get('url'))})\n{cuerpo}")
+    answer, prov = await ask_llm(
+        f"Hoy es {dt.date.today():%d/%m/%Y}. Responde a la pregunta «{q}» usando SOLO las FUENTES "
+        "numeradas de abajo. Cita cada dato con su número entre corchetes, p. ej. [1]. Si las fuentes "
+        "no contienen la respuesta, di claramente que no la has encontrado en ellas en lugar de "
+        "suponer. Sé breve (máximo 6 líneas) y responde en español.\n\nFUENTES:\n"
+        + "\n\n".join(fuentes_prompt))
+    urls = [r.get("url") for r in results if r.get("url")][:6]
+    if prov == "ninguno":
+        # Sin modelo no hay respuesta: se enseña lo que SÍ se encontró, no solo el error.
+        lista = "\n".join(f"• {r.get('title') or r.get('url')} — {r.get('url')}" for r in results[:5])
+        return {"reply": f"No pude redactar la respuesta (el modelo no está disponible), pero esto es lo "
+                         f"que encontré sobre «{q}»:\n{lista}\nMotivo: {answer}",
+                "data": {"sources": urls}}
+    return {"reply": f"{answer}\n\nFuentes:\n{_lista_fuentes(results)}", "speak": True,
+            "data": {"sources": urls}}
+
+
+# ----------------------------------------------------------------------------------------------
+#  Transcripción: audio ENTERO, análisis por bloques, memoria sin duplicados
+# ----------------------------------------------------------------------------------------------
+_BLOQUE = 6000               # caracteres de transcripción por llamada de análisis
+_MAX_BLOQUES = 6             # tope de bloques analizados (el resto se guarda, pero no se analiza)
+_PEDIDO = ("extrae en español: **Ideas principales** (3-5 puntos), **Tareas detectadas** (si las "
+           "hay) y **Lluvia de ideas** (2-3 ideas que se derivan de lo dicho)")
+
+
+async def _analizar(texto: str) -> tuple[str, str, int]:
+    """(análisis, proveedor, caracteres analizados). Recorre el texto por bloques y consolida."""
+    from backend.core.infraestructura.llm import ask_llm
+    cuerpo = texto[:_BLOQUE * _MAX_BLOQUES]
+    bloques = [cuerpo[i:i + _BLOQUE] for i in range(0, len(cuerpo), _BLOQUE)]
+    if len(bloques) == 1:
+        analisis, prov = await ask_llm(f"De esta transcripción {_PEDIDO}:\n\n{bloques[0]}")
+        return analisis, prov, len(cuerpo)
+    parciales = []
+    for i, b in enumerate(bloques, 1):
+        a, prov = await ask_llm(f"Parte {i} de {len(bloques)} de una transcripción larga. De esta parte "
+                                f"{_PEDIDO}:\n\n{b}")
+        if prov == "ninguno":
+            return a, prov, len(cuerpo)
+        parciales.append(f"Parte {i}:\n{a}")
+    final, prov = await ask_llm("Estos son los análisis parciales de una misma transcripción. "
+                                f"Consolídalos sin repetir: {_PEDIDO}.\n\n" + "\n\n".join(parciales))
+    return final, prov, len(cuerpo)
+
+
+async def _transcribir(match) -> dict:
+    path, escrito = _resolver_ruta(match.group("path"))
+    if path is None:
+        return {"reply": f"✖ No encuentro el audio {escrito}. Dame la ruta completa "
+                         "(«transcribe el audio D:\\notas\\reunion.mp3») y lo paso a texto."}
+    if path.suffix.lower() not in _EXT_AUDIO:
+        return {"reply": f"✖ El formato «{path.suffix or 'sin extensión'}» de {path.name} no es de audio ni "
+                         f"de vídeo que sepa transcribir ({', '.join(sorted(_EXT_AUDIO))})."}
+    try:
+        from faster_whisper import WhisperModel  # noqa: F401
+    except ImportError:
+        return {"reply": "⚠ Me falta el motor de transcripción. Se arregla en un minuto: "
+                         "«pip install faster-whisper» en el entorno de nexus y repite "
+                         "la orden — el resto ya está listo."}
+
+    def _run():
+        from backend.core.infraestructura.stt import _get_model
+        segmentos, info = _get_model().transcribe(str(path), language="es", vad_filter=True)
+        return [(s.start, s.text.strip()) for s in segmentos if s.text.strip()], getattr(info, "duration", None)
+
+    try:
+        segs, duracion = await asyncio.to_thread(_run)
+    except Exception as exc:                                    # noqa: BLE001
+        return {"reply": f"✖ No pude transcribir {path.name}: el archivo no se pudo decodificar "
+                         f"({type(exc).__name__}). ¿Está dañado o falta un códec (ffmpeg)?"}
+    if not segs:
+        return {"reply": f"El audio {path.name} no contiene voz reconocible. Si es música "
+                         "o ruido, ahí no hay nada que transcribir."}
+    texto = " ".join(t for _, t in segs)
+    con_tiempos = "\n".join(f"[{_mmss(ini)}] {t}" for ini, t in segs)
+    dur_txt = f", {_mmss(duracion)}" if duracion else ""
+
+    analisis, prov, analizados = await _analizar(texto)
+    con_analisis = prov != "ninguno"       # proveedor «ninguno» = el texto es un error, no un análisis
+
+    # Memoria: nota con la transcripción ENTERA (y marcas de tiempo) + base de datos en trozos.
+    from backend.core.comun.secretos import redactar
+    from backend.core.dominio import rag
+    from backend.core.dominio.memory import graph, pg
+    origen = str(path.resolve())
+    huella = hashlib.sha1(origen.encode("utf-8")).hexdigest()[:6]
+    titulo = f"audio {path.stem[:28]} {huella}"            # la huella evita que dos audios se pisen
+    cuerpo_analisis = (f"---\n{analisis}\n\n" if con_analisis
+                       else "---\n(sin análisis: el modelo no estaba disponible)\n\n")
+    graph.write_note(titulo, f"Transcripción de {path.name}{dur_txt}:\n\n{con_tiempos}\n\n"
+                             f"{cuerpo_analisis}Enlaces: [[audios]] [[conocimiento]]")
+    trozos, sustituidas = 0, 0
+    if pg.online:
+        nuevos = set()
+        for t in rag.trocear(texto):
+            contenido = redactar(f"[audio {path.name}] {t['texto']}")[0]    # como se guarda de verdad
+            nuevos.add(contenido)
+            pg.remember(contenido, kind="knowledge", tags=["audio"], origen=origen, origen_tipo="audio")
+            trozos += 1
+        # Retranscribir el mismo archivo SUSTITUYE lo anterior (se retira a la papelera, no se borra).
+        viejas = [f["id"] for f in pg.filas_por_origen(origen, "audio") if f["content"] not in nuevos]
+        if viejas:
+            lote = f"audio-{dt.datetime.now(dt.timezone.utc):%Y%m%dT%H%M%SZ}-{huella}"
+            sustituidas = pg.retirar_filas(viejas, lote)
+    donde = (f"en la nota «{titulo}» y en la memoria de conocimiento ({trozos} trozo(s))" if trozos
+             else f"en la nota «{titulo}» (la base de datos no está disponible: solo quedó la nota)")
+    cabecera = f"✔ Transcrito {path.name}{dur_txt} ({len(texto):,} caracteres) y guardado {donde}".replace(",", ".")
+    if sustituidas:
+        cabecera += f"; sustituye a la transcripción anterior de este archivo ({sustituidas} trozo(s) retirados)"
+    aviso = ""
+    if analizados < len(texto):
+        aviso = (f"\n(Analicé los primeros {analizados:,} caracteres; la transcripción completa está "
+                 "guardada.)").replace(",", ".")
+    if not con_analisis:
+        return {"reply": f"{cabecera}.\n\nNo pude analizarlo (el modelo no está disponible): "
+                         f"{analisis}\nCuando lo esté, di «qué recuerdas de {path.stem[:20]}»."}
+    return {"reply": f"{cabecera}:\n\n{analisis[:900]}{aviso}\n\nDi «qué recuerdas de "
+                     f"{path.stem[:20]}» cuando quieras volver sobre esto."}
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
-    if intent == "gen_image":
-        prompt = match.group("prompt").strip().rstrip(".")
-        OUT_DIR.mkdir(parents=True, exist_ok=True)
-        out = OUT_DIR / f"gen-{dt.datetime.now():%Y%m%d-%H%M%S}.svg"
-        out.write_text(SVG.format(prompt=html.escape(prompt[:48])), encoding="utf-8")   # el texto del usuario NO es SVG
-        return {"reply": f"🎨 Boceto de «{prompt}» listo en data/captures/{out.name}.\n"
-                         "Aún no tengo un motor de imagen real conectado: es una tarjeta SVG "
-                         "de previsualización. Para arte de verdad, conecta Stable Diffusion "
-                         "(API de Automatic1111) o DALL·E en skills/ai_media/skill.py — el "
-                         "hueco está marcado. Di «analiza la imagen <ruta>» y te examino "
-                         "cualquier archivo que ya tengas.",
-                "data": {"file": str(out)}}
-
-    if intent == "analyze_image":
-        path, escrito = _resolver_ruta(match.group("path"))
-        if path is None:
-            return {"reply": f"✖ No encuentro la imagen {escrito}. Pásame la ruta completa "
-                             "(p. ej. «analiza la imagen D:\\fotos\\logo.png») y voy."}
-        tam = _tam(path.stat().st_size)
-        dims = ""
-        try:
-            from PIL import Image
-            with Image.open(path) as im:
-                dims = f", {im.width}×{im.height}px, modo {im.mode}"
-        except ImportError:
-            pass                                    # sin Pillow: solo el tamaño
-        except Exception:
-            if path.suffix.lower() not in _EXT_IMAGEN:
-                return {"reply": f"📄 {path.name} ({tam}) no es una imagen que pueda abrir. Con "
-                                 "imágenes (png, jpg, gif, webp…) te doy tamaño y dimensiones."}
-            dims = " (no he podido abrirla como imagen: ¿archivo dañado?)"
-        return {"reply": f"🖼 {path.name}: {tam}{dims}.\n"
-                         "Eso es lo que veo sin ojos: metadatos. Para describir el CONTENIDO "
-                         "necesito un modelo de visión — instala llava en Ollama "
-                         "(«ollama pull llava») y conéctalo en skills/ai_media/skill.py. "
-                         "Mientras, si es un audio lo que tienes, di «transcribe el audio "
-                         "<ruta>» y eso sí lo hago entero."}
-
     if intent == "transcribe":
-        # Transcripción de archivos de audio (wav/mp3/ogg/m4a) + ideas principales
-        import asyncio
-        path, escrito = _resolver_ruta(match.group("path"))
-        if path is None:
-            return {"reply": f"✖ No encuentro el audio {escrito}. Dame la ruta completa "
-                             "(«transcribe el audio D:\\notas\\reunion.mp3») y lo paso a texto."}
-        try:
-            from faster_whisper import WhisperModel
-        except ImportError:
-            return {"reply": "⚠ Me falta el motor de transcripción. Se arregla en un minuto: "
-                             "«pip install faster-whisper» en el entorno de nexus y repite "
-                             "la orden — el resto ya está listo."}
-
-        def _run():
-            from backend.core.infraestructura.stt import _get_model
-            segments, info = _get_model().transcribe(str(path), language="es",
-                                                     vad_filter=True)
-            return " ".join(s.text.strip() for s in segments)
-
-        texto = await asyncio.to_thread(_run)
-        if not texto.strip():
-            return {"reply": f"El audio {path.name} no contiene voz reconocible. Si es música "
-                             "o ruido, ahí no hay nada que transcribir."}
-
-        from backend.core.infraestructura.llm import ask_llm
-        analysis, prov = await ask_llm(
-            "De esta transcripción extrae en español: **Ideas principales** (3-5 puntos), "
-            "**Tareas detectadas** (si las hay) y **Lluvia de ideas** (2-3 ideas que se "
-            f"derivan de lo dicho):\n\n{texto[:5000]}")
-        # Proveedor «ninguno» = NO hay respuesta del modelo: su mensaje de error no es un análisis.
-        con_analisis = prov != "ninguno"
-        # Persistir en memoria: el audio ENTERO (nota completa y base de datos en trozos).
-        from backend.core.dominio import rag
-        from backend.core.dominio.memory import graph, pg
-        huella = hashlib.sha1(str(path.resolve()).encode("utf-8")).hexdigest()[:6]
-        titulo = f"audio {path.stem[:28]} {huella}"      # la huella evita que dos audios se pisen
-        cuerpo_analisis = f"---\n{analysis}\n\n" if con_analisis else "---\n(sin análisis: el modelo no estaba disponible)\n\n"
-        graph.write_note(titulo, f"Transcripción de {path.name}:\n\n{texto}\n\n"
-                                 f"{cuerpo_analisis}Enlaces: [[audios]] [[conocimiento]]")
-        trozos = 0
-        if pg.online:
-            for t in rag.trocear(texto):
-                pg.remember(f"[audio {path.name}] {t['texto']}", kind="knowledge", tags=["audio"])
-                trozos += 1
-        donde = (f"en la nota «{titulo}» y en la memoria de conocimiento ({trozos} trozo(s))"
-                 if trozos else f"en la nota «{titulo}» (la base de datos no está disponible: "
-                                "solo quedó la nota)")
-        cabecera = f"✔ Transcrito {path.name} ({len(texto)} caracteres) y guardado {donde}"
-        if not con_analisis:
-            return {"reply": f"{cabecera}.\n\nNo pude analizarlo (el modelo no está disponible): "
-                             f"{analysis}\nCuando lo esté, di «qué recuerdas de {path.stem[:20]}»."}
-        return {"reply": f"{cabecera}:\n\n{analysis[:900]}\n\nDi «qué recuerdas de "
-                         f"{path.stem[:20]}» cuando quieras volver sobre esto."}
+        return await _transcribir(match)
 
     if intent == "web_search":
         q = match.group("q").strip().rstrip("?¿.")
-        from backend.core.infraestructura import websearch
-        results = await websearch.search(q, 6)
-        if not results:
-            return {"reply": f"✖ No he podido buscar «{q}»: o no hay conexión o los tres "
-                             "buscadores que pruebo (Google News, DDG Lite, DDG HTML) no han "
-                             "respondido. Reintenta en un momento; si persiste, revisa la red."}
-        from backend.core.infraestructura.llm import ask_llm
-        answer, prov = await ask_llm(
-            "Con estos RESULTADOS DE BÚSQUEDA WEB responde de forma concreta y ACTUAL a la "
-            f"pregunta: «{q}». Da nombres, fechas y datos si los hay; no digas que no se sabe "
-            f"si la información está en los resultados. Sé breve.\n\nRESULTADOS:\n"
-            + websearch.summarize(results))
-        fuentes = [r.get("url") for r in results if r.get("url")][:5]
-        if prov == "ninguno":
-            # Sin modelo no hay respuesta: se enseña lo que SÍ se encontró, no solo el error.
-            lista = "\n".join(f"• {r.get('title') or r.get('url')} — {r.get('url')}" for r in results[:5])
-            return {"reply": f"No pude redactar la respuesta (el modelo no está disponible), pero "
-                             f"esto es lo que encontré sobre «{q}»:\n{lista}\nMotivo: {answer}",
-                    "data": {"sources": fuentes}}
-        return {"reply": f"{answer}\n\nFuentes: {_fuentes(results)}", "speak": True,
-                "data": {"sources": fuentes}}
+        return await _buscar_y_responder(q)
 
-    return {"reply": "Orden multimedia no reconocida. Prueba «genera una imagen de X», "
-                     "«analiza la imagen <ruta>», «transcribe el audio <ruta>» o "
+    return {"reply": "Orden no reconocida. Prueba «transcribe el audio <ruta>» o "
                      "«busca en internet X»."}

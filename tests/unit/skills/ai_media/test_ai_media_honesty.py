@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
-"""ai_media: salidas honestas, archivos seguros y rutas reales.
+"""ai_media: solo lo que hace de verdad (transcripción y búsqueda web), y bien hecho.
 
-Encontrado auditando la ruta real de comandos (Docker) y leyendo el código:
-  * el boceto SVG metía el texto del usuario sin escapar (XML roto y <script> en claro);
-  * las rutas con espacios no se encontraban y el error nombraba una ruta recortada;
-  * un .txt se respondía como si fuera una imagen («0 KB»);
-  * la búsqueda web sin LLM tiraba los resultados encontrados y las fuentes no se veían;
-  * la transcripción ignoraba que el LLM no estuviera disponible (el mensaje de error se
-    guardaba como «análisis»), truncaba en silencio y dos audios con el mismo prefijo de
-    nombre se pisaban en la memoria.
+Cubre: que ya NO ofrece generar ni describir imágenes (era un SVG de relleno y metadatos);
+la búsqueda web (lee las páginas, fuentes numeradas, admite cuándo no hay respuesta, sin LLM
+enseña lo encontrado) y la transcripción (tipo de archivo, errores del decodificador, duración,
+marcas de tiempo, análisis por bloques para audios largos, retranscribir sustituye lo anterior,
+nada se guarda recortado ni con el error del modelo como si fuera un análisis).
 
 Todo simulado (websearch, LLM, Whisper, memoria); ficheros en un directorio temporal. Nivel M.
 Ejecutar: python tests/unit/skills/ai_media/test_ai_media_honesty.py
@@ -16,9 +13,9 @@ Ejecutar: python tests/unit/skills/ai_media/test_ai_media_honesty.py
 import asyncio
 import sys
 import tempfile
+import time
 import types
 from pathlib import Path
-from xml.dom import minidom
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
@@ -50,7 +47,6 @@ def check(cond, msg):
 
 
 TMP = Path(tempfile.mkdtemp(prefix="nexus_media_test_"))
-media.OUT_DIR = TMP / "captures"
 
 
 def correr(frase):
@@ -60,102 +56,141 @@ def correr(frase):
     return asyncio.run(skill.module.handle(intent, frase, m, None))
 
 
-# 1) SVG seguro ----------------------------------------------------------------------------------
-res = correr("genera una imagen de <script>alert(1)</script> & R&D")
-svg = Path(res["data"]["file"]).read_text(encoding="utf-8")
+# 0) ya no ofrece lo que no hacía -------------------------------------------------------------------
+check(set(media.SKILL["patterns"]) == {"transcribe", "web_search"},
+      f"intents: solo transcribe y web_search (hay {sorted(media.SKILL['patterns'])})")
+for frase in ("genera una imagen de un dragón", "dibújame un logo para la marca",
+              "analiza la imagen D:\\fotos\\logo.png", "descríbeme la foto D:\\a.jpg"):
+    r = sl.route(frase)
+    check(not (r and r[0].folder == "ai_media"), f"«{frase}» ya no se enruta a ai_media")
+doc = (ROOT / "skills" / "ai_media" / "SKILL.md").read_text(encoding="utf-8")
+check("gen_image" not in doc and "analyze_image" not in doc and "SVG" not in doc,
+      "SKILL.md: ya no documenta la generación ni el análisis de imágenes")
+check("Imágenes" not in media.SKILL["name"] and "Multimedia" not in media.SKILL["name"],
+      "nombre visible: describe lo que hace ahora")
+catalogo = (ROOT / "frontend" / "js" / "core" / "catalog.js").read_text(encoding="utf-8")
+check("Generar imagen" not in catalogo and "genera una imagen" not in catalogo,
+      "frontend: ya no ofrece la acción «Generar imagen…»")
+
+# 1) búsqueda web ------------------------------------------------------------------------------------
+RESULTADOS = [
+    {"title": "Chelsea gana el Mundial de Clubes", "url": "https://www.uno.example/a", "snippet": "final en Nueva Jersey"},
+    {"title": "Crónica de la final", "url": "https://dos.example/b", "snippet": "resumen del partido"},
+    {"title": "Reacciones", "url": "https://tres.example/c", "snippet": "opiniones"},
+]
+PAGINAS = {"https://www.uno.example/a": "TEXTO-LARGO-UNO: el Chelsea venció 3-0 al PSG en la final.",
+           "https://dos.example/b": "TEXTO-LARGO-DOS: crónica detallada del partido."}
+prompts, estado = [], {"proveedor": "ollama", "respuesta": "Ganó el Chelsea [1]."}
+
+
+async def _buscar(q, n=6, news=None):
+    return [dict(r) for r in RESULTADOS]
+
+
+async def _pagina(url, max_chars=3500):
+    return PAGINAS.get(url, "")[:max_chars]
+
+
+async def _ask(texto, *a, **k):
+    prompts.append(texto)
+    return estado["respuesta"], estado["proveedor"]
+
+
+orig = (websearch.search, websearch.fetch_page, llm.ask_llm)
+websearch.search, websearch.fetch_page, llm.ask_llm = _buscar, _pagina, _ask
 try:
-    minidom.parseString(svg.encode("utf-8"))
-    valido = True
-except Exception:
-    valido = False
-check(valido, "SVG: el boceto es XML válido aunque el texto lleve < > &")
-check("<script>" not in svg, "SVG: el texto del usuario no puede inyectar un <script>")
-check("R&amp;D" in svg, "SVG: el texto se conserva, escapado")
-
-# 2) rutas ------------------------------------------------------------------------------------------
-from PIL import Image  # noqa: E402
-
-carpeta = TMP / "mi carpeta"
-carpeta.mkdir()
-png = carpeta / "foto roja.png"
-Image.new("RGB", (64, 48), (200, 30, 30)).save(png)
-for frase, nombre in [(f'analiza la imagen "{png}"', "con comillas"),
-                      (f"analiza la imagen {png}", "sin comillas"),
-                      (f"analiza la imagen {png} por favor", "con coletilla")]:
-    reply = correr(frase)["reply"]
-    check("64×48" in reply and "foto roja.png" in reply, f"ruta con espacios {nombre}: la encuentra")
-reply = correr(f"analiza la imagen {TMP}/no existe/falta.png")["reply"]
-check("falta.png" in reply and "no existe" in reply, "ruta inexistente: el error nombra la ruta completa tal como se escribió")
-
-# 3) archivo que no es imagen ------------------------------------------------------------------
-txt = TMP / "notas.txt"
-txt.write_text("esto no es una imagen", encoding="utf-8")
-reply = correr(f"analiza la imagen {txt}")["reply"]
-check("no es una imagen" in reply.lower() or "no puedo abrir" in reply.lower(), "no imagen: lo dice")
-check("0 KB" not in reply and "metadatos" not in reply.lower(), "no imagen: no lo presenta como una imagen con metadatos")
-reply_png = correr(f"analiza la imagen {png}")["reply"]
-check("bytes" in reply_png or "KB" in reply_png, "tamaños legibles (bytes/KB, nunca «0 KB» para algo pequeño)")
-check("0 KB" not in reply_png, "tamaño: un archivo pequeño no se redondea a «0 KB»")
-
-# 4) búsqueda web ---------------------------------------------------------------------------------
-RESULTADOS = [{"title": "Chelsea gana el Mundial de Clubes", "url": "https://uno.example/a", "snippet": "final"},
-              {"title": "Crónica de la final", "url": "https://dos.example/b", "snippet": "resumen"}]
-
-
-async def _buscar(q, n=6):
-    return list(RESULTADOS)
-
-
-orig_search, orig_ask = websearch.search, llm.ask_llm
-websearch.search = _buscar
-try:
-    async def _ask_ok(*a, **k):
-        return ("Ganó el Chelsea.", "ollama")
-    llm.ask_llm = _ask_ok
     res = correr("busca en internet quién ganó el mundial de clubes")
-    check("Ganó el Chelsea." in res["reply"], "búsqueda: devuelve la respuesta del modelo")
-    check("uno.example" in res["reply"] and "dos.example" in res["reply"] and "Fuentes" in res["reply"],
-          "búsqueda: las fuentes se VEN en la respuesta, no solo en data")
-    check(res.get("speak") is True, "búsqueda: con respuesta real, se puede locutar")
+    prompt = prompts[-1]
+    check("TEXTO-LARGO-UNO" in prompt and "TEXTO-LARGO-DOS" in prompt, "búsqueda: el modelo recibe el CONTENIDO de las páginas, no solo títulos")
+    check("[1]" in prompt and "[2]" in prompt and "[3]" in prompt, "búsqueda: las fuentes van numeradas")
+    check("resumen del partido" in prompt or "opiniones" in prompt, "búsqueda: si una página no se pudo leer, usa su fragmento")
+    check("no" in prompt.lower() and "fuentes" in prompt.lower() and "cita" in prompt.lower(),
+          "búsqueda: el prompt pide citar y admitir cuando las fuentes no responden")
+    check("Ganó el Chelsea [1]." in res["reply"], "búsqueda: devuelve la respuesta del modelo")
+    check("[1] uno.example — Chelsea gana el Mundial de Clubes" in res["reply"]
+          and "[2] dos.example" in res["reply"] and "[3] tres.example" in res["reply"],
+          "búsqueda: lista de fuentes compacta (dominio — título), sin URLs larguísimas")
+    check(res.get("speak") is True and (res.get("data") or {}).get("sources"), "búsqueda: data.sources sigue disponible")
 
-    async def _ask_caido(*a, **k):
-        return ("Ollama no está en marcha, así que no puedo cargar ningún modelo local.", "ninguno")
-    llm.ask_llm = _ask_caido
+    # una página lentísima no cuelga la respuesta
+    async def _lenta(url, max_chars=3500):
+        await asyncio.sleep(30)
+        return "nunca"
+    websearch.fetch_page = _lenta
+    media._TIMEOUT_PAGINA = 0.2
+    t0 = time.time()
     res = correr("busca en internet quién ganó el mundial de clubes")
-    check("Chelsea gana el Mundial de Clubes" in res["reply"] and "uno.example/a" in res["reply"],
-          "búsqueda sin LLM: enseña los resultados que SÍ encontró")
-    check("no pude redactar" in res["reply"].lower(), "búsqueda sin LLM: dice que no pudo redactar la respuesta")
+    check(time.time() - t0 < 5, "búsqueda: una página lenta no bloquea (tiempo máximo por página)")
+    check("Ganó el Chelsea [1]." in res["reply"], "búsqueda: responde igualmente con los fragmentos")
+    websearch.fetch_page = _pagina
+
+    # sin LLM: enseña lo encontrado, sin locutar el error
+    estado.update(proveedor="ninguno", respuesta="Ollama no está en marcha.")
+    res = correr("busca en internet quién ganó el mundial de clubes")
+    check("no pude redactar" in res["reply"].lower() and "Chelsea gana el Mundial de Clubes" in res["reply"]
+          and "uno.example/a" in res["reply"], "búsqueda sin LLM: enseña los resultados encontrados")
     check(not res.get("speak"), "búsqueda sin LLM: no locuta un mensaje de error")
-    check((res.get("data") or {}).get("sources"), "búsqueda sin LLM: sigue devolviendo las fuentes en data")
-finally:
-    websearch.search, llm.ask_llm = orig_search, orig_ask
 
-# 5) transcripción ----------------------------------------------------------------------------------
+    # sin resultados
+    async def _vacio(q, n=6, news=None):
+        return []
+    websearch.search = _vacio
+    res = correr("busca en internet algo rarísimo")
+    check("No he podido buscar" in res["reply"] or "no he podido buscar" in res["reply"].lower(),
+          "búsqueda sin resultados: lo dice")
+finally:
+    websearch.search, websearch.fetch_page, llm.ask_llm = orig
+    estado.update(proveedor="ollama", respuesta="Ganó el Chelsea [1].")
+
+# 2) transcripción ------------------------------------------------------------------------------------
 class _Seg:
-    def __init__(self, text):
-        self.text = text
+    def __init__(self, start, text):
+        self.start, self.end, self.text = start, start + 5, text
+
+
+class _Info:
+    def __init__(self, duration):
+        self.duration, self.language = duration, "es"
 
 
 class _Modelo:
-    def __init__(self, texto):
-        self.texto = texto
+    def __init__(self, segmentos, duracion=60.0, error=None):
+        self.segmentos, self.duracion, self.error, self.llamadas = segmentos, duracion, error, 0
 
     def transcribe(self, path, language="es", vad_filter=True):
-        return [_Seg(self.texto)], object()
+        self.llamadas += 1
+        if self.error:
+            raise self.error
+        return list(self.segmentos), _Info(self.duracion)
 
 
 class _PgFalso:
     online = True
 
     def __init__(self):
-        self.guardado = []
+        self.filas = []
+        self.retiradas = []
 
     def remember(self, content, kind="note", tags=None, **kw):
-        self.guardado.append(content)
-        return {"id": len(self.guardado), "duplicado": False}
+        for f in self.filas:
+            if f["vivo"] and f["content"] == content:
+                return {"id": f["id"], "duplicado": True}
+        self.filas.append({"id": len(self.filas) + 1, "content": content, "vivo": True,
+                           "origen": kw.get("origen"), "origen_tipo": kw.get("origen_tipo")})
+        return {"id": len(self.filas), "duplicado": False}
+
+    def filas_por_origen(self, origen, tipo):
+        return [dict(f) for f in self.filas if f["vivo"] and f["origen"] == origen and f["origen_tipo"] == tipo]
+
+    def retirar_filas(self, ids, lote):
+        for f in self.filas:
+            if f["id"] in ids:
+                f["vivo"] = False
+        self.retiradas.append((list(ids), lote))
+        return len(ids)
 
 
-notas = []
+notas, prompts_llm = [], []
 
 
 class _GrafoFalso:
@@ -164,47 +199,96 @@ class _GrafoFalso:
         return "x.md"
 
 
-def transcribir(ruta, texto, llm_ok=True):
+def transcribir(ruta, segmentos, *, pg=None, proveedor="ollama", duracion=60.0, error=None):
     notas.clear()
-    pg = _PgFalso()
+    prompts_llm.clear()
+    pg = pg or _PgFalso()
+    modelo = _Modelo(segmentos, duracion, error)
 
-    async def _ask(*a, **k):
-        return (("Ideas: A, B, C", "ollama") if llm_ok else ("Ollama no está en marcha.", "ninguno"))
+    async def _llm(texto, *a, **k):
+        prompts_llm.append(texto)
+        return (("Ideas: A, B, C" if proveedor != "ninguno" else "Ollama no está en marcha."), proveedor)
 
-    o_ask, o_model, o_graph, o_pg = llm.ask_llm, stt._get_model, memory.graph, memory.pg
+    o = (llm.ask_llm, stt._get_model, memory.graph, memory.pg)
     sys.modules["faster_whisper"] = types.SimpleNamespace(WhisperModel=object)
-    llm.ask_llm, stt._get_model, memory.graph, memory.pg = _ask, (lambda: _Modelo(texto)), _GrafoFalso(), pg
+    llm.ask_llm, stt._get_model, memory.graph, memory.pg = _llm, (lambda: modelo), _GrafoFalso(), pg
     try:
         res = correr(f"transcribe el audio {ruta}")
     finally:
-        llm.ask_llm, stt._get_model, memory.graph, memory.pg = o_ask, o_model, o_graph, o_pg
+        llm.ask_llm, stt._get_model, memory.graph, memory.pg = o
         sys.modules.pop("faster_whisper", None)
-    return res, pg
+    return res, pg, modelo
 
 
-audio = TMP / "reunión larga.mp3"
+audio = TMP / "mi carpeta" / "reunión larga.mp3"
+audio.parent.mkdir()
 audio.write_bytes(b"x")
-largo = "INICIO " + ("palabra " * 3500) + "FINAL-DEL-AUDIO"          # ~28.000 caracteres
-res, pg = transcribir(audio, largo)
-contenido_nota = notas[0][1] if notas else ""
-check("INICIO" in contenido_nota and "FINAL-DEL-AUDIO" in contenido_nota, "transcripción: la nota guarda el audio ENTERO, sin recortar")
-todo_pg = " ".join(pg.guardado)
-check("INICIO" in todo_pg and "FINAL-DEL-AUDIO" in todo_pg and len(pg.guardado) > 1,
-      "transcripción: la base de datos recibe el texto entero, en trozos")
-check("Ideas: A, B, C" in res["reply"] and "trozo" in res["reply"].lower(),
-      "transcripción: la respuesta dice dónde quedó guardado")
 
-res, pg = transcribir(audio, "hola mundo transcrito", llm_ok=False)
-check("Ollama no está en marcha" not in (notas[0][1] if notas else ""), "sin LLM: el mensaje de error NO se guarda como análisis")
+# ruta con espacios (el archivo vive en «mi carpeta») y vídeo
+res, pg, modelo = transcribir(audio, [_Seg(0, "hola"), _Seg(65, "adiós")], duracion=754.0)
+check("reunión larga.mp3" in res["reply"] and modelo.llamadas == 1, "ruta con espacios: transcribe el archivo correcto")
+check("12:34" in res["reply"], "transcripción: informa de la duración del audio (mm:ss)")
+contenido = notas[0][1] if notas else ""
+check("[00:00] hola" in contenido and "[01:05] adiós" in contenido, "transcripción: la nota lleva marcas de tiempo")
+check("[00:00]" not in " ".join(f["content"] for f in pg.filas), "transcripción: la base de datos recibe texto limpio, sin marcas")
+video = TMP / "clase.mp4"
+video.write_bytes(b"x")
+r = sl.route(f"transcribe el vídeo {video}")
+check(bool(r) and r[0].folder == "ai_media" and r[1] == "transcribe", "transcripción: acepta «transcribe el vídeo …»")
+
+# tipo de archivo no soportado
+txt = TMP / "notas.txt"
+txt.write_text("no es audio", encoding="utf-8")
+res, pg, modelo = transcribir(txt, [_Seg(0, "x")])
+check("formato" in res["reply"].lower() and modelo.llamadas == 0 and not notas,
+      "tipo no soportado: lo dice y no intenta transcribir ni guarda nada")
+
+# el decodificador falla
+res, pg, modelo = transcribir(audio, [], error=RuntimeError("codec no soportado"))
+check("no pude" in res["reply"].lower() and not notas and not pg.filas,
+      "error del decodificador: mensaje honesto y no se guarda nada")
+
+# audio sin voz
+res, pg, modelo = transcribir(audio, [])
+check("no contiene voz" in res["reply"].lower() and not notas, "audio sin voz: se dice y no se guarda nada")
+
+# análisis por bloques en audios largos
+parrafo = ("palabra " * 750)                                    # ~6.000 caracteres
+medio = [_Seg(i * 10, parrafo) for i in range(4)]                # ~24.000 caracteres
+res, pg, modelo = transcribir(audio, medio)
+check(len(prompts_llm) >= 4, f"audio largo: el análisis recorre TODO el texto por bloques ({len(prompts_llm)} llamadas)")
+check(any("Ideas: A, B, C" in p for p in prompts_llm[-1:]), "audio largo: hay una consolidación final de los análisis parciales")
+check("primeros" not in res["reply"].lower(), "audio largo (dentro del tope): no dice que dejó algo fuera")
+enorme = [_Seg(i * 10, parrafo) for i in range(14)]             # ~84.000 caracteres
+res, pg, modelo = transcribir(audio, enorme)
+check("primeros 36.000 caracteres" in res["reply"], "audio enorme: avisa de hasta dónde llegó el análisis")
+check(len(notas[0][1]) > 80000, "audio enorme: aun así la transcripción se guarda ENTERA")
+
+# sin LLM: no se guarda el error como análisis
+res, pg, modelo = transcribir(audio, [_Seg(0, "hola mundo transcrito")], proveedor="ninguno")
+check("Ollama no está en marcha" not in (notas[0][1] if notas else ""), "sin LLM: el error NO se guarda como análisis")
 check("no pude analizar" in res["reply"].lower() and "hola mundo transcrito" in (notas[0][1] if notas else ""),
-      "sin LLM: avisa de que no analizó y conserva la transcripción")
+      "sin LLM: avisa y conserva la transcripción")
 
-a1 = TMP / ("grabacion_reunion_equipo_ventas_2026_01_resumen_A" + ".mp3")
-a2 = TMP / ("grabacion_reunion_equipo_ventas_2026_01_resumen_B" + ".mp3")
+# retranscribir sustituye lo anterior (sin duplicados ni restos)
+pg = _PgFalso()
+transcribir(audio, [_Seg(0, "primera versión del texto")], pg=pg)
+vivas1 = [f["content"] for f in pg.filas if f["vivo"]]
+transcribir(audio, [_Seg(0, "primera versión del texto")], pg=pg)
+check([f["content"] for f in pg.filas if f["vivo"]] == vivas1 and not pg.retiradas,
+      "retranscribir lo mismo: no duplica ni retira")
+transcribir(audio, [_Seg(0, "segunda versión distinta")], pg=pg)
+vivas2 = " ".join(f["content"] for f in pg.filas if f["vivo"])
+check("segunda versión distinta" in vivas2 and "primera versión" not in vivas2 and pg.retiradas,
+      "retranscribir distinto: sustituye lo anterior (lo viejo se retira, no se borra)")
+
+# dos audios con el mismo prefijo de nombre no se pisan
+a1 = TMP / "grabacion_reunion_equipo_ventas_2026_01_resumen_A.mp3"
+a2 = TMP / "grabacion_reunion_equipo_ventas_2026_01_resumen_B.mp3"
 a1.write_bytes(b"1"); a2.write_bytes(b"2")
-transcribir(a1, "contenido del primero"); t1 = notas[0][0]
-transcribir(a2, "contenido del segundo"); t2 = notas[0][0]
-check(t1 != t2, "notas: dos audios con el mismo prefijo de nombre NO comparten nota (no se pisan)")
+transcribir(a1, [_Seg(0, "contenido del primero")]); t1 = notas[0][0]
+transcribir(a2, [_Seg(0, "contenido del segundo")]); t2 = notas[0][0]
+check(t1 != t2, "notas: dos audios con el mismo prefijo de nombre NO comparten nota")
 
-print(f"\nai_media honesty: {_pass} OK, {len(_fail)} FAIL")
+print(f"\nai_media: {_pass} OK, {len(_fail)} FAIL")
 sys.exit(1 if _fail else 0)

@@ -932,6 +932,14 @@ class PgMemory:
             "WHERE origen_tipo = 'documento' AND retirado_en IS NULL "
             "AND left(origen, %s) = %s ORDER BY id", (len(prefijo), prefijo))
 
+    def filas_por_origen(self, origen: str, tipo: str) -> list[dict]:
+        """SOLO LECTURA. Filas VIVAS de un origen exacto (p. ej. un audio ya transcrito), para
+        poder sustituirlas cuando se vuelve a guardar el mismo origen."""
+        return self._rows(
+            "SELECT id, content FROM memories "
+            "WHERE origen = %s AND origen_tipo = %s AND retirado_en IS NULL ORDER BY id",
+            (origen, tipo))
+
     def restaurar_filas(self, lote: str) -> int:
         """Revertir un lote entero es OTRO `UPDATE` — nunca hace falta
         reconstruir nada (memoria-purga, escenario «Restaurar desde la

@@ -261,7 +261,6 @@ def main():
                               ("manda a discord: hola", "discord"),
                               ("qué modelo de IA estás usando", "nucleo"),
                               ("busca en internet el tema", "ai_media"),
-                              ("analiza la imagen D:\\x.png", "ai_media"),
                               ("transcribe el audio D:\\x.mp3", "ai_media"),
                               ("abogado del diablo: mi idea", "devils_advocate"),
                               ("qué skills de dev tienes", "dev_knowledge"),
@@ -299,20 +298,6 @@ def main():
     r = asyncio.run(devk.handle("list", "qué skills de dev tienes", None, {}))
     check("vacía" in r["reply"] and "knowledge/" in r["reply"],
           "sin biblioteca lo dice y explica dónde ponerla")
-
-    print("· ai_media no describe una imagen que no puede ver")
-    ai = carga("ai_media")
-    intent, m = rutar(ai, "analiza la imagen D:\\no\\existe.png")
-    r = asyncio.run(ai.handle(intent, "analiza la imagen D:\\no\\existe.png", m, {}))
-    check("No encuentro" in r["reply"], "si el archivo no está, lo dice")
-    with tempfile.TemporaryDirectory() as tmp:
-        f = Path(tmp) / "x.png"; f.write_bytes(b"no soy un png")
-        intent, m = rutar(ai, f"analiza la imagen {f}")
-        r = asyncio.run(ai.handle(intent, f"analiza la imagen {f}", m, {}))
-        check("metadatos" in r["reply"], "sin modelo de visión solo promete metadatos")
-        check("modelo de visión" in r["reply"] or "llava" in r["reply"],
-              "dice que le falta un modelo de visión para ver el contenido")
-        check("CONTENIDO" in r["reply"], "deja claro que el contenido NO lo está describiendo")
 
     print(f"\n{'='*50}\n{_pass} pasados, {len(_fail)} fallados")
     return 1 if _fail else 0
