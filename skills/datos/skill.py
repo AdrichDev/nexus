@@ -30,6 +30,41 @@ SKILL = {
 _conn = {"url": None, "kind": None, "handle": None}
 FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|truncate|alter|create|grant)\b", re.I)
 
+# SOLO LECTURA, en dos capas. (1) El motor: la conexión se abre de solo lectura. (2) Este
+# validador, que NO es una lista negra de palabras sueltas sino una lista BLANCA: una sola
+# sentencia, que empiece por una orden de lectura, sin órdenes de escritura ni efectos
+# laterales fuera de los textos entre comillas y de los comentarios.
+_INICIOS_LECTURA = {"select", "with", "show", "explain", "values", "table", "describe", "desc"}
+_PELIGROSAS = re.compile(
+    r"\b(insert|update|delete|drop|truncate|alter|create|grant|revoke|merge|copy|attach|detach|"
+    r"vacuum|pragma|load|into|exec|execute|call|set|reset|lock|do)\b"
+    r"|\bset_config\b|\bpg_(read_file|read_binary_file|ls_dir|terminate_backend|cancel_backend|reload_conf)\b"
+    r"|\blo_(import|export)\b|\bdblink\w*\b|\bload_file\b",
+    re.I)
+
+
+def _sin_textos(sql: str) -> str:
+    """El SQL sin comentarios ni literales entre comillas: lo que queda es lo que se EJECUTA."""
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.S)
+    sql = re.sub(r"--[^\n]*", " ", sql)
+    sql = re.sub(r"'(?:[^']|'')*'", "''", sql)
+    sql = re.sub(r'"(?:[^"]|"")*"', '""', sql)
+    return re.sub(r"`[^`]*`", "``", sql)
+
+
+def _validar_sql(sql: str) -> str:
+    """'' si la consulta es de solo lectura; si no, el mensaje para el usuario."""
+    limpio = _sin_textos(sql).strip().rstrip(";").strip()
+    if ";" in limpio:
+        return "Solo lectura: una sola sentencia por consulta."
+    m = re.match(r"\(*\s*(\w+)", limpio)
+    if not m or m.group(1).lower() not in _INICIOS_LECTURA:
+        return ("Solo lectura: solo acepto consultas que empiecen por SELECT, WITH, SHOW, "
+                "EXPLAIN o VALUES.")
+    if _PELIGROSAS.search(limpio):
+        return "Solo lectura: esa consulta modifica datos o tiene efectos fuera de la base y la rechazo por seguridad."
+    return ""
+
 
 # ----------------------------------------------------------------------
 #  Conexión multi-motor
@@ -38,7 +73,7 @@ def _connect(url: str):
     if url.startswith(("postgresql://", "postgres://")):
         import psycopg2
         conn = psycopg2.connect(url, connect_timeout=5)
-        conn.autocommit = True
+        conn.set_session(readonly=True, autocommit=True)     # el motor rechaza cualquier escritura
         return "postgres", conn
     if url.startswith("mysql://"):
         try:
@@ -47,13 +82,25 @@ def _connect(url: str):
             raise RuntimeError("Falta pymysql (pip install pymysql)")
         m = re.match(r"mysql://(?:(?P<u>[^:@]+)(?::(?P<p>[^@]*))?@)?(?P<h>[^:/]+)"
                      r"(?::(?P<port>\d+))?/(?P<db>\w+)", url)
-        return "mysql", pymysql.connect(
+        conn = pymysql.connect(
             host=m["h"], port=int(m["port"] or 3306), user=m["u"] or "root",
             password=m["p"] or "", database=m["db"], connect_timeout=5)
+        with conn.cursor() as cur:
+            cur.execute("SET SESSION TRANSACTION READ ONLY")   # el motor rechaza cualquier escritura
+        return "mysql", conn
     if url.startswith("sqlite://"):
         import sqlite3
         path = url.replace("sqlite://", "", 1)
-        return "sqlite", sqlite3.connect(path, check_same_thread=False)
+        fichero = Path(path).expanduser()
+        if not fichero.is_file():
+            # `sqlite3.connect` CREA el fichero si falta: una errata en la ruta dejaba una BD
+            # vacía y un «Conectado». Aquí nunca se crea nada.
+            raise RuntimeError(f"El fichero «{path}» no existe: revisa la ruta "
+                               "(no creo bases de datos nuevas).")
+        conn = sqlite3.connect(fichero.resolve().as_uri() + "?mode=ro", uri=True,
+                               check_same_thread=False)
+        conn.execute("PRAGMA query_only = ON")
+        return "sqlite", conn
     if url.startswith("mongodb://") or url.startswith("mongodb+srv://"):
         try:
             from pymongo import MongoClient
@@ -76,6 +123,16 @@ def _sql(query: str, limit: int = 50) -> tuple[list[str], list[tuple]]:
         except Exception:
             pass
     return cols, rows
+
+
+LIMITE_LECTURA = 50      # filas que se leen como máximo en «consulta» y «gráfico»
+LIMITE_CHAT = 12         # filas que se enseñan en el chat
+
+
+def _sql_ext(query: str, limit: int = LIMITE_LECTURA) -> tuple[list[str], list[tuple], bool]:
+    """Como `_sql`, pero lee UNA fila de más para saber si el resultado se cortó."""
+    cols, rows = _sql(query, limit + 1)
+    return cols, rows[:limit], len(rows) > limit
 
 
 def _tables() -> list[str]:
@@ -134,7 +191,8 @@ new Chart(document.getElementById('c{idx}'), {{
 
 
 def _build_dashboard(title: str, kpis: list[tuple[str, str]],
-                     cards: list[tuple[str, str, list, list]]) -> Path:
+                     cards: list[tuple[str, str, list, list]]) -> tuple[Path, bool]:
+    """Devuelve (archivo, ¿se abrió el navegador?). Decir «abierto» sin comprobarlo era mentir."""
     kpi_html = "".join(f'<div class="card"><div class="kpi">{v}</div>'
                        f'<div class="kpi-label">{k}</div></div>' for k, v in kpis)
     charts_html, scripts = "", ""
@@ -149,10 +207,10 @@ def _build_dashboard(title: str, kpis: list[tuple[str, str]],
                                     kpis=kpi_html, charts=charts_html, scripts=scripts),
                    encoding="utf-8")
     try:
-        webbrowser.open(out.as_uri())
+        abierto = bool(webbrowser.open(out.as_uri()))
     except Exception:
-        pass
-    return out
+        abierto = False
+    return out, abierto
 
 
 MUESTRA = 200          # filas que se leen para perfilar columnas
@@ -243,16 +301,23 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
         if intent == "query":
             sql = match.group("sql").strip().rstrip(";")
-            if FORBIDDEN.search(sql):
-                return {"reply": "Solo lectura: esa consulta modifica datos y la rechazo "
-                                 "por seguridad."}
+            motivo = _validar_sql(sql)
+            if motivo:
+                return {"reply": motivo}
             if _conn["kind"] == "mongo":
                 return {"reply": "Para Mongo usa «informe analítico de <colección>» "
                                  "(las consultas SQL no aplican)."}
-            cols, rows = _sql(sql)
+            cols, rows, mas = _sql_ext(sql)
             head = " | ".join(cols)
-            body = "\n".join(" | ".join(str(c)[:28] for c in r) for r in rows[:12])
-            return {"reply": f"{len(rows)} filas:\n{head}\n{body}"}
+            body = "\n".join(" | ".join(str(c)[:28] for c in r) for r in rows[:LIMITE_CHAT])
+            if mas:
+                cabecera = (f"Hay más de {len(rows)} filas (leo como máximo {LIMITE_LECTURA}); "
+                            f"te muestro las primeras {LIMITE_CHAT}:")
+            elif len(rows) > LIMITE_CHAT:
+                cabecera = f"{len(rows)} filas (te muestro las primeras {LIMITE_CHAT}):"
+            else:
+                cabecera = f"{len(rows)} filas:"
+            return {"reply": f"{cabecera}\n{head}\n{body}"}
 
         if intent in ("profile", "dashboard"):
             table = match.group("table")
@@ -266,15 +331,18 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                     for k in doc:
                         fields[k] = fields.get(k, 0) + 1
                 items = sorted(fields.items(), key=lambda x: -x[1])[:8]
-                out = _build_dashboard(f"{table} (Mongo)",
+                out, abierto = _build_dashboard(f"{table} (Mongo)",
                                        [("Documentos", f"{total:,}"),
                                         ("Campos", str(len(fields)))],
                                        [("bar", "Presencia de campos",
                                          [k for k, _ in items], [v for _, v in items])])
+                if not abierto:
+                    return {"reply": f"Dashboard de «{table}» generado, pero no pude abrir el navegador "
+                                     f"({total:,} documentos). Ábrelo tú: data/reports/{out.name}"}
                 return {"reply": f"Dashboard de «{table}» generado y abierto en el navegador "
                                  f"({total:,} documentos). Archivo: data/reports/{out.name}"}
             kpis, cards, summary = _profile_table(table)
-            out = _build_dashboard(table, kpis, cards)
+            out, abierto = _build_dashboard(table, kpis, cards)
             from backend.core.infraestructura.llm import ask_llm
             insight, _ = await ask_llm(
                 f"Datos de la tabla «{table}»: {summary}. KPIs medidos: {kpis}. "
@@ -282,24 +350,39 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 "No inventes métricas, porcentajes, tendencias ni comparaciones "
                 "que no estén ahí; si esos datos no dan para una observación "
                 "útil, dilo y propón qué consulta haría falta.")
+            if not abierto:
+                return {"reply": f"Dashboard de «{table}» generado, pero no pude abrir el navegador "
+                                 f"({summary}). {insight}\nÁbrelo tú: data/reports/{out.name}"}
             return {"reply": f"Dashboard de «{table}» abierto en el navegador "
                              f"({summary}). {insight}\nArchivo: data/reports/{out.name}"}
 
         if intent == "chart":
             sql = match.group("sql").strip().rstrip(";")
-            if FORBIDDEN.search(sql):
-                return {"reply": "Solo lectura: consulta rechazada."}
-            cols, rows = _sql(sql)
+            motivo = _validar_sql(sql)
+            if motivo:
+                return {"reply": motivo}
+            cols, rows, mas = _sql_ext(sql)
             if not rows or len(cols) < 2:
                 return {"reply": "La consulta debe devolver al menos 2 columnas "
                                  "(etiqueta, valor) y alguna fila."}
             labels = [str(r[0])[:24] for r in rows]
             values = [float(r[1]) if r[1] is not None else 0 for r in rows]
             kind = "line" if len(rows) > 12 else "bar"
-            out = _build_dashboard("Consulta", [("Filas", str(len(rows)))],
-                                   [(kind, f"{cols[1]} por {cols[0]}", labels, values)])
+            n = len(rows)
+            leidas = f"{n}+" if mas else str(n)
+            dibujadas = min(n, 20)                # `_dash_card` pinta como máximo 20 etiquetas
+            titulo = f"{cols[1]} por {cols[0]}"
+            nota = ""
+            if n > dibujadas or mas:
+                titulo += f" (primeras {dibujadas} de {leidas})"
+                nota = f" Dibuja las primeras {dibujadas} de {leidas} filas leídas."
+            out, abierto = _build_dashboard("Consulta", [("Filas leídas", leidas)],
+                                            [(kind, titulo, labels, values)])
+            if not abierto:
+                return {"reply": f"Gráfico generado, pero no pude abrir el navegador: ábrelo tú desde "
+                                 f"data/reports/{out.name}.{nota}"}
             return {"reply": f"Gráfico generado y abierto en el navegador "
-                             f"(data/reports/{out.name})."}
+                             f"(data/reports/{out.name}).{nota}"}
 
     except Exception as exc:
         return {"reply": f"Error de datos: {type(exc).__name__}: {exc}"}

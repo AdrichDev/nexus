@@ -19,6 +19,8 @@ Last updated: 2026-10-05 after delivering `research-correction-learning` to `mai
 
 - Skill audit `places` (2026-10-05, real command path in the Docker harness, no browser available): reproduced and fixed on `fix/places-honesty` — replies claimed "abierto/lista" when `webbrowser.open` returned False (now: honest failure + the link), "90 dólares" was answered as "90 €" (currency now captured; `curr=USD`/`EUR`), "cuánto se tarda de A a B" was answered as a plain route (now says it cannot compute the duration), and "hablemos de viajes a la luna" opened Google Flights (bare «viajes/vuelos a» now only at sentence start or after dame/ponme/muéstrame/enséñame). `places` itself never reads Google results, as its SKILL.md says.
 
+- Skill audit `datos` (2026-10-05, Docker harness + SQLite fixture, Postgres in a throwaway container): the "no escribe en la base de datos" promise was false (`REPLACE INTO` wrote, `ATTACH` created files, `PRAGMA` ran), a string with the word "update" was rejected, a typo path created an empty DB, a 120-row table answered "50 filas", the chart drew 20 of 50 rows without saying so and dashboards claimed "abierto" without opening. Fixed on `fix/datos-readonly-honesty` (see `odd/tasks/datos-readonly-honesty.md`).
+
 ## Carry-forward annotations
 - Google browser search works in the last safe live run, but it can still CAPTCHA later; Nexus must degrade honestly when blocked.
 - Chrome search runs as an off-screen browser inside the server process; two processes cannot share the same Google browser profile.
