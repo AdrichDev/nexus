@@ -94,6 +94,7 @@ async def _servicio_responde() -> bool:
 
 
 _CIUDAD_CONTROL = "Madrid"
+_CODIGOS_LOCALIDAD_DESCONOCIDA = (404, 500)
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:
@@ -108,7 +109,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             d = r.json()
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
-        if city and await _servicio_responde():
+        # Solo 404/500 son lo que wttr.in devuelve para una localidad desconocida;
+        # 429/502/503/504 son límites o caídas pasajeras y nunca son un veredicto sobre la ciudad.
+        if city and code in _CODIGOS_LOCALIDAD_DESCONOCIDA and await _servicio_responde():
             # wttr.in contesta bien para una ciudad de control: el servicio está vivo,
             # así que el fallo es el nombre. El usuario no tiene que saber de proveedores.
             return {"reply": f"No encuentro «{city}»: esa localidad no existe o no la "

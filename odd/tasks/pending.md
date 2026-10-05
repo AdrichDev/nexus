@@ -3,7 +3,7 @@
 Last updated: 2026-10-05 after delivering `research-correction-learning` to `main` at `f742d44ef57b860803998169fd4e7a2880667d45`.
 
 ## Recently closed
-- `clima` unknown-city reply delivered on `main` at `4e78065`: Nexus now says plainly that a locality does not exist (control-city check), native review approved twice. Advisory follow-up (non-blocking): any HTTP error on the city request is treated as unknown city once the control succeeds, so a transient 429/5xx on only that request would be misreported; tests do not cover that case (`skills/clima/skill.py:109-117`).
+- `clima` unknown-city reply delivered on `main` at `4e78065`: Nexus now says plainly that a locality does not exist (control-city check), native review approved twice. Follow-up closed: only HTTP 404/500 on the city request can produce the "does not exist" verdict; 429/502/503/504 ask to retry.
 - `research-correction-learning` is delivered on `main`.
   - R1: preserved research query dates and rejected consent/interstitial evidence.
   - R2: wrong-answer feedback now re-researches with source-backed contrast and does not learn complaints as facts.

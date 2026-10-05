@@ -74,6 +74,15 @@ for code in (404, 500):
           f"HTTP {code} exposes no network/provider/status jargon")
     check(len(calls) == 2, f"HTTP {code} does one control request")
 
+# Transient/throttling status on the city request only (control answers): not a verdict on the city.
+for code in (429, 502, 503, 504):
+    r, calls = run("clima en Sevilla", {"Sevilla": code})
+    low = r.lower()
+    check("no existe" not in low and "no encuentro" not in low,
+          f"HTTP {code} on the city request does not claim the city is unknown")
+    check("repítemelo" in low or "repitemelo" in low, f"HTTP {code} asks to retry")
+    check(len(calls) == 1, f"HTTP {code} does not need a control request")
+
 # Provider down: city error AND control error -> cannot claim the city is wrong.
 r, _ = run("clima en Sevilla", {"wttr.in": 503})
 check("no existe" not in r.lower() and "no encuentro" not in r.lower(), "provider down is not reported as unknown city")
