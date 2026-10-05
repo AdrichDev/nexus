@@ -91,6 +91,17 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             r = await cli.get(url)
             r.raise_for_status()
             d = r.json()
+    except httpx.HTTPStatusError as exc:
+        # wttr.in SÍ respondió: no es un problema de red. Con ciudad explícita lo más
+        # probable es un nombre que no reconoce (devuelve 404/500), pero no se puede
+        # distinguir de una caída del servicio solo por el código, así que se dice ambas.
+        code = exc.response.status_code
+        if city:
+            return {"reply": f"⚠ wttr.in no me devolvió datos para «{city}» (HTTP {code}). "
+                             "Puede que no reconozca ese nombre o que el servicio falle: "
+                             "revisa el nombre de la ciudad o prueba otra."}
+        return {"reply": f"⚠ wttr.in respondió con un error (HTTP {code}) y no pude "
+                         "obtener el tiempo. Repítemelo en un momento."}
     except Exception as exc:
         return {"reply": f"⚠ No llego a wttr.in ahora mismo ({type(exc).__name__}). "
                          "Suele ser cosa de red: di «estado de la red» para comprobarla "
