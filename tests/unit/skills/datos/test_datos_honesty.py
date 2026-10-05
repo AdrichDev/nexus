@@ -167,6 +167,14 @@ try:
           "dashboard sin navegador: no dice «abierto»")
     reply, _ = correr("dashboard de la tabla t", abre=True)
     check("abierto en el navegador" in reply.lower(), "dashboard con navegador: sigue diciendo «abierto»")
+
+    async def _ask_caido(*a, **k):
+        return ("Ollama no está en marcha, así que no puedo cargar ningún modelo.", "ninguno")
+    _llm.ask_llm = _ask_caido
+    reply, _ = correr("dashboard de la tabla t", abre=True)
+    check("no pude generar observaciones" in reply.lower(),
+          "dashboard sin LLM: dice que no pudo generar observaciones en vez de presentar el error como tal")
+    check("abierto en el navegador" in reply.lower(), "dashboard sin LLM: el dashboard en sí sigue abriéndose")
 finally:
     _llm.ask_llm = orig_ask
 

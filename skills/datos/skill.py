@@ -353,12 +353,15 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             kpis, cards, summary = _profile_table(table)
             out, abierto = _build_dashboard(table, kpis, cards)
             from backend.core.infraestructura.llm import ask_llm
-            insight, _ = await ask_llm(
+            insight, prov = await ask_llm(
                 f"Datos de la tabla «{table}»: {summary}. KPIs medidos: {kpis}. "
                 "Da 2 observaciones en 2 frases usando SOLO esas cifras. "
                 "No inventes métricas, porcentajes, tendencias ni comparaciones "
                 "que no estén ahí; si esos datos no dan para una observación "
                 "útil, dilo y propón qué consulta haría falta.")
+            if prov == "ninguno":
+                # Proveedor «ninguno» = no hay respuesta del modelo: su mensaje de error NO es una observación.
+                insight = f"No pude generar observaciones (el modelo no está disponible): {insight}"
             if not abierto:
                 return {"reply": f"Dashboard de «{table}» generado, pero no pude abrir el navegador "
                                  f"({summary}). {insight}\nÁbrelo tú: data/reports/{out.name}"}

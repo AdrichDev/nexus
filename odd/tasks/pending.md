@@ -23,6 +23,8 @@ Last updated: 2026-10-05 after delivering `research-correction-learning` to `mai
 
 - Skill audit `vigilancias` (2026-10-05): reproduced a silent data-loss race (a watcher deleted during a running check came back and one added meanwhile was lost), `deja de vigilar a` deleting the first substring match, duplicates, an always-promised Telegram channel and watchers that could never tell the user they cannot work (page without price / unreadable). Fixed on `fix/vigilancias-integrity` (see `odd/tasks/vigilancias-integrity.md`). Native review approved; advisories left open: if sending the health notice itself fails it is marked as delivered and not retried (`skill.py` `_salud`/`check_watchers`), a single failed first check already says "no consigo leer" definitively, text removal has no exact-match preference.
 
+- Skill audit `ai_media` (2026-10-05, Docker harness + unit mocks): reproduced an invalid SVG with a raw `<script>` from the prompt, paths with spaces not found (error naming a truncated path), a `.txt` answered as an image with "0 KB", web search hiding the results it found when the LLM is down (sources not visible), and by reading: transcription saving the LLM error as the analysis, silent truncation (note 15000 / DB 2000 chars) and note-name collisions. Fixed on `fix/ai-media-honesty` (see `odd/tasks/ai-media-honesty.md`); the `datos` dashboard now also says when it could not generate observations (closes that open item).
+
 ## Carry-forward annotations
 - Google browser search works in the last safe live run, but it can still CAPTCHA later; Nexus must degrade honestly when blocked.
 - Chrome search runs as an off-screen browser inside the server process; two processes cannot share the same Google browser profile.

@@ -35,6 +35,18 @@ Lite → DuckDuckGo HTML, sin API key). Es la PRIMERA skill del router
 - **Visión (describir contenido)**: solo metadatos (tamaño, dimensiones vía
   Pillow). Para descripción real: `ollama pull llava` y conectarlo en la skill.
 
+## Detalles que importan
+
+- **Rutas**: admite comillas y espacios en la ruta («analiza la imagen "D:\mis fotos\logo.png"») y
+  recorta coletillas («… por favor», «… y guárdala»). Si no la encuentra, te devuelve la ruta tal como la escribiste.
+- **Un archivo que no es imagen** se dice tal cual; no se presenta como una imagen con metadatos.
+- **Búsqueda web**: la respuesta lleva una línea «Fuentes: dominio1, dominio2…». Si el modelo no está disponible,
+  no inventa nada: te enseña los resultados que sí encontró (título y enlace) y dice por qué no redactó la respuesta.
+- **Transcripción**: guarda el audio ENTERO (la nota completa y la base de datos en trozos); si el modelo no está
+  disponible, guarda la transcripción sin análisis y lo avisa (el mensaje de error nunca se guarda como análisis).
+  Cada audio tiene su propia nota (nombre + huella de la ruta), así que dos audios no se pisan.
+- **Boceto de imagen**: el texto que pides se escapa antes de ir al SVG; el archivo es siempre un SVG válido.
+
 ## Qué NO hace
 
 - **No genera imágenes de verdad**: la tarjeta SVG es un marcador de posición y
