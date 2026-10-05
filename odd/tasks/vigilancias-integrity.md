@@ -5,7 +5,7 @@ Found auditing the skill (temp watchers file, no network) and reproduced:
 - `deja de vigilar a` removes the first watcher whose URL merely contains "a" (no ambiguity check).
 - The same URL can be watched twice (#1, #2) -> double alerts.
 - The reply always promises "HUD y Telegram" even when Telegram is not configured.
-- A price/web watcher is only validated >=10 min later: the user cannot know at creation whether the page has a price / can be read.
+- A price/web watcher is only validated by a later `mis vigilancias`: if the page has no price or cannot be read nothing is ever proactively said.
 - If a page stops being readable after a first success, nothing is ever said.
 
 ## Tasks
@@ -13,8 +13,8 @@ Found auditing the skill (temp watchers file, no network) and reproduced:
 - [ ] T2 Duplicates: same tipo+objetivo -> "ya vigilo eso (#N)".
 - [ ] T3 Remove by text: unique match removes; several matches -> list them and ask for the number; none -> not found.
 - [ ] T4 Honest channels: mention Telegram only when configured.
-- [ ] T5 Baseline at creation: first check right away and report what was found (price seen / page readable / headlines seeded) or that nothing usable was found.
-- [ ] T6 Failure streak: after 3 consecutive failed checks, alert once ("no consigo leer ..."), reset on success.
+- [ ] T5 Health notice: at the FIRST check, if a price watcher finds no price or a web watcher cannot read the page, notify once ("no encuentro un precio / no consigo leer ..."); a successful first check stays silent. Creation stays instant and offline (the existing contract: new watchers list as "sin comprobar").
+- [ ] T6 Failure streak: after 3 consecutive failed checks (unreadable page, no price, exception) notify once; reset on success so a later streak notifies again.
 - [ ] T7 Review, merge to main, update docs.
 
 Out of scope (noted): no guard against internal/loopback URLs in `fetch_page` (may be intended for a personal app); first price on the page may not be the product price (reply says "primer precio que leo").
