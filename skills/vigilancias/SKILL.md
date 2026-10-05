@@ -44,6 +44,17 @@ CONTENIDO, no de precio. Para precio hay que nombrarlo.
   comprobado, o si en esa página NO se encuentra precio (entonces no habrá
   aviso nunca, y lo avisa en vez de dejarte esperando).
 
+## Avisos de salud y cuidado con los datos
+
+- Si en la **primera comprobación** una web no se puede leer o una página de precio no tiene precio, avisa
+  una vez en vez de dejarte esperando; lo mismo si tras funcionar falla **3 veces seguidas** (y se rearma al
+  recuperarse). Una vigilancia que funciona no avisa de nada.
+- Vigilar dos veces lo mismo (mismo tipo y misma URL/tema) no crea un duplicado: te dice cuál ya lo vigila.
+- «deja de vigilar <texto>» solo borra si el texto coincide con UNA vigilancia; si coincide con varias, las
+  lista y pide «borra la vigilancia N». Una URL que acaba en número no se confunde con un número de vigilancia.
+- Las comprobaciones en curso no pisan lo que añades o borras mientras tanto.
+- El aviso por Telegram solo se promete si está configurado (token y chat del propietario).
+
 ## Qué NO hace
 
 - No rellena formularios ni entra en zonas con login: solo lee páginas públicas.

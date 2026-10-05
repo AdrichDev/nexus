@@ -59,7 +59,42 @@ def _load() -> list:
 def _save(items: list) -> None:
     f = _file()
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = f.with_suffix(".tmp")                       # escritura atómica: nunca un JSON a medias
+    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(f)
+
+
+def _guardar_estados(comprobadas: list[dict]) -> None:
+    """Vuelca SOLO el estado de las vigilancias comprobadas sobre el fichero ACTUAL.
+    Guardar la lista cargada antes de esperar a la red pisaba lo que el usuario hubiera
+    borrado o añadido mientras tanto (lo borrado resucitaba, lo añadido se perdía)."""
+    actuales = _load()
+    por_num = {w.get("num"): w for w in comprobadas}
+    for w in actuales:
+        c = por_num.get(w.get("num"))
+        if c and c.get("tipo") == w.get("tipo") and c.get("objetivo") == w.get("objetivo"):
+            w["estado"], w["ultima"] = c.get("estado", {}), c.get("ultima", 0.0)
+    _save(actuales)
+
+
+def _norm(objetivo: str) -> str:
+    return (objetivo or "").strip().rstrip("/").casefold()
+
+
+def _buscar(tipo: str, objetivo: str) -> dict | None:
+    return next((w for w in _load()
+                 if w.get("tipo") == tipo and _norm(w.get("objetivo")) == _norm(objetivo)), None)
+
+
+def _canales() -> str:
+    """Por dónde avisa DE VERDAD: el HUD siempre; Telegram solo si está configurado."""
+    try:
+        from backend.core.infraestructura import telegram_bridge as tb
+        if tb._token() and tb.OWNER_FILE.exists():
+            return "por el HUD y por Telegram"
+    except Exception:
+        pass
+    return "por el HUD"
 
 
 def _add(tipo: str, objetivo: str) -> dict:
@@ -123,6 +158,23 @@ def diff_lines(old: str, new: str, n: int = 3) -> list[str]:
 
 # ─────────────────────────── comprobación periódica ───────────────────────────
 
+_FALLOS_AVISO = 3        # comprobaciones fallidas seguidas antes de avisar
+
+
+def _salud(w: dict, est: dict, ok: bool, motivo: str, primera: bool) -> str | None:
+    """Lleva la cuenta de fallos seguidos y devuelve un aviso (UNA vez por racha) cuando la
+    vigilancia no puede hacer su trabajo: en la primera comprobación, o tras varios fallos."""
+    if ok:
+        est["fallos"], est["avisado_fallo"] = 0, False
+        return None
+    est["fallos"] = int(est.get("fallos") or 0) + 1
+    if est.get("avisado_fallo"):
+        return None
+    if primera or est["fallos"] >= _FALLOS_AVISO:
+        est["avisado_fallo"] = True
+        return f"La vigilancia #{w['num']} ({w['objetivo'][:60]}) {motivo}"
+    return None
+
 async def _notify(msg: str) -> None:
     from backend.core.comun.events import bus
     await bus.emit("notification", {"title": "👁 Vigilancia", "body": msg[:200]})
@@ -140,10 +192,12 @@ async def _check_one(w: dict) -> str | None:
     """Comprueba UNA vigilancia. Devuelve el aviso si algo saltó, o None."""
     from backend.core.infraestructura import websearch
     est = w.setdefault("estado", {})
+    primera = not w.get("ultima")
     if w["tipo"] == "web":
         text = await websearch.fetch_page(w["objetivo"], max_chars=6000)
         if not text:
-            return None
+            return _salud(w, est, False, "no consigo leer la página: no podré avisarte de cambios.", primera)
+        _salud(w, est, True, "", primera)
         dig = text_digest(text)
         prev_dig, prev_text = est.get("digest"), est.get("texto", "")
         est["digest"], est["texto"] = dig, text[:3000]   # diff basta; JSON ligero
@@ -156,7 +210,9 @@ async def _check_one(w: dict) -> str | None:
         text = await websearch.fetch_page(w["objetivo"], max_chars=6000)
         price = extract_price(text)
         if price is None:
-            return None
+            return _salud(w, est, False, "no encuentro un precio en esa página: no podré avisarte "
+                                         "de bajadas.", primera)
+        _salud(w, est, True, "", primera)
         prev = est.get("precio")
         est["precio"] = price
         if prev is not None and price < prev:
@@ -189,22 +245,26 @@ async def check_watchers(force: bool = False) -> int:
         return 0
     now = time.time()
     fired = 0
-    changed = False
+    tocadas: list[dict] = []
     for w in items:
         if not force and (now - w.get("ultima", 0)) < _CHECK_MIN * 60:
             continue
+        primera = not w.get("ultima")
         try:
             msg = await _check_one(w)
-            w["ultima"] = now
-            changed = True
-            if msg:
-                await _notify(msg)
-                fired += 1
         except Exception:
-            w["ultima"] = now
-            changed = True
-    if changed:
-        _save(items)
+            msg = _salud(w, w.setdefault("estado", {}), False,
+                         "ha fallado al comprobarla (red o página): no puedo vigilarla ahora.", primera)
+        w["ultima"] = now
+        tocadas.append(w)
+        if msg:
+            try:
+                await _notify(msg)
+            except Exception:
+                pass
+            fired += 1
+    if tocadas:
+        _guardar_estados(tocadas)     # sobre el fichero ACTUAL, no sobre la lista de antes de la red
     return fired
 
 
@@ -218,13 +278,21 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "web":
         url = (gd.get("url") or gd.get("url2") or "").strip().rstrip(".,)")
+        ya = _buscar("web", url)
+        if ya:
+            return {"reply": f"👁 Ya vigilo esa web: es la vigilancia #{ya['num']}. "
+                             "«mis vigilancias» para verlas."}
         w = _add("web", url)
         return {"reply": f"👁 Vigilancia #{w['num']} activada: cambios en {url}. "
-                         f"La compruebo cada ~{_CHECK_MIN} min y te aviso por HUD y "
-                         "Telegram si algo se mueve. «mis vigilancias» para verlas."}
+                         f"La compruebo cada ~{_CHECK_MIN} min y te aviso {_canales()} "
+                         "si algo se mueve. «mis vigilancias» para verlas."}
 
     if intent == "price":
         url = (gd.get("url") or gd.get("url2") or gd.get("url3") or "").strip().rstrip(".,)")
+        ya = _buscar("precio", url)
+        if ya:
+            return {"reply": f"👁 Ya vigilo el precio de esa página: es la vigilancia #{ya['num']}. "
+                             "«mis vigilancias» para verlas."}
         w = _add("precio", url)
         return {"reply": f"👁 Vigilancia #{w['num']} activada: precio de {url}. "
                          "Te aviso en cuanto BAJE (y si sube, también te lo digo). "
@@ -232,6 +300,10 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "news":
         topic = (gd.get("topic") or gd.get("topic2") or "").strip(" .?!")
+        ya = _buscar("noticias", topic)
+        if ya:
+            return {"reply": f"👁 Ya vigilo las noticias de «{topic}»: es la vigilancia #{ya['num']}. "
+                             "«mis vigilancias» para verlas."}
         w = _add("noticias", topic)
         return {"reply": f"👁 Vigilancia #{w['num']} activada: noticias de «{topic}». "
                          "En cuanto salga un titular nuevo, te lo canto."}
@@ -270,11 +342,17 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if num:
             target = next((w for w in items if w.get("num") == int(num)), None)
         elif which:
-            m = re.search(r"#?(\d+)$", which)
+            # «la vigilancia 2» / «#2» / «2» es un NÚMERO; una URL que acaba en dígito, no.
+            m = re.fullmatch(r"(?:(?:la\s+)?(?:vigilancia|web)\s+)?#?(\d+)", which, re.IGNORECASE)
             if m:
                 target = next((w for w in items if w.get("num") == int(m.group(1))), None)
-            if not target:
-                target = next((w for w in items if which.lower() in w["objetivo"].lower()), None)
+            else:
+                cand = [w for w in items if which.lower() in w["objetivo"].lower()]
+                if len(cand) > 1:
+                    filas = "\n".join(f"  #{w['num']} {w['tipo']}: {w['objetivo'][:70]}" for w in cand)
+                    return {"reply": f"👁 «{which}» coincide con varias vigilancias; no borro ninguna. "
+                                     f"¿Cuál? Di «borra la vigilancia N»:\n{filas}"}
+                target = cand[0] if cand else None
         if not target:
             return {"reply": f"👁 No encuentro esa vigilancia. «mis vigilancias» te "
                              "enseña la lista con sus números."}

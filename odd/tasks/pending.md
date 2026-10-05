@@ -21,6 +21,8 @@ Last updated: 2026-10-05 after delivering `research-correction-learning` to `mai
 
 - Skill audit `datos` (2026-10-05, Docker harness + SQLite fixture, Postgres in a throwaway container): the "no escribe en la base de datos" promise was false (`REPLACE INTO` wrote, `ATTACH` created files, `PRAGMA` ran), a string with the word "update" was rejected, a typo path created an empty DB, a 120-row table answered "50 filas", the chart drew 20 of 50 rows without saying so and dashboards claimed "abierto" without opening. Fixed on `fix/datos-readonly-honesty` (see `odd/tasks/datos-readonly-honesty.md`). Integrated WITHOUT native review (owner decision) because the provider blocked the reviewers twice on policy grounds; open review lineages `review-1a400db53bcc3a50` and `review-2a34cebf995b48ce` were never consumed. Re-review later with another reviewer model if wanted.
 
+- Skill audit `vigilancias` (2026-10-05): reproduced a silent data-loss race (a watcher deleted during a running check came back and one added meanwhile was lost), `deja de vigilar a` deleting the first substring match, duplicates, an always-promised Telegram channel and watchers that could never tell the user they cannot work (page without price / unreadable). Fixed on `fix/vigilancias-integrity` (see `odd/tasks/vigilancias-integrity.md`).
+
 ## Carry-forward annotations
 - Google browser search works in the last safe live run, but it can still CAPTCHA later; Nexus must degrade honestly when blocked.
 - Chrome search runs as an off-screen browser inside the server process; two processes cannot share the same Google browser profile.
