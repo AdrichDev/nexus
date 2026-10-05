@@ -48,6 +48,8 @@ import time
 
 import httpx
 
+from ..comun.secretos import redactar
+
 PROJECT = "nexus"                 # proyecto fijo bajo el que nexus guarda SUS decisiones
 SESSION_ID = "nexus-backend"      # sesión estable y reutilizada (POST /sessions es idempotente)
 _PORT_DEFAULT = 7437
@@ -449,6 +451,8 @@ async def save(ctx, title: str, content: str, kind: str = "note") -> dict:
     hace falta. Devuelve {"ok": True, "id": int} o {"ok": False, "error": str}
     — NUNCA lanza excepción, siempre hay algo que decirle al usuario."""
     kind = kind if kind in TIPOS else "note"
+    title = redactar(title or "")[0]           # nunca se guarda un secreto en claro
+    content = redactar(content or "")[0]
     if not await ensure_up(ctx):
         return {"ok": False, "error": _LAST["err"] or "Engram no está disponible ahora mismo"}
     url = _base_url(ctx)

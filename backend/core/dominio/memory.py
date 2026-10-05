@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 
 from ..comun.config import CONFIG_DIR, DATA_DIR, settings
+from ..comun.secretos import redactar
 
 try:
     import psycopg2
@@ -190,6 +191,7 @@ class NoteGraph:
 
     def append_daily(self, text: str, section: str = "Registro") -> str:
         """Añade una entrada a la nota diaria (la crea si no existe)."""
+        text, _n = redactar(text)
         path = self._daily_path()
         stamp = dt.datetime.now().strftime("%H:%M")
         if not path.exists():
@@ -203,6 +205,8 @@ class NoteGraph:
         return str(path.name)
 
     def write_note(self, title: str, content: str) -> str:
+        title, _t = redactar(title)
+        content, _c = redactar(content)
         safe = re.sub(r"[^\w\- áéíóúñÁÉÍÓÚÑ]", "", title).strip() or "nota"
         path = MEMORY_DIR / f"{safe}.md"
         path.write_text(f"# {title}\n\n{content}\n", encoding="utf-8")
@@ -1026,6 +1030,7 @@ class PgMemory:
         cualquier llamador que no los use.
         Devuelve `{"id": int|None, "duplicado": bool}`."""
         from . import rag
+        content, _ocultados = redactar(content)   # nunca se guarda un secreto en claro
         h = rag.huella(f"{kind}\n{content}")
         vec = self._embed(content)
         campos: list[tuple[str, object, str | None]] = [

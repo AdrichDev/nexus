@@ -35,6 +35,7 @@ from . import rag
 from ..infraestructura import files_io
 from ..comun import permissions
 from ..comun.config import CONFIG_DIR, DATA_DIR
+from ..comun.secretos import redactar
 
 DOCUMENTOS_DIR = DATA_DIR / "memory" / "documentos"
 
@@ -176,6 +177,10 @@ def ingerir_carpeta(ruta: str) -> dict:
                                 "omitido": "secreto",
                                 "error": motivo_secreto + " No lo guardé en memoria."})
             continue
+        # Secretos en LÍNEA (p. ej. «password=...» dentro de un .md): se ocultan ANTES de
+        # escribir el espejo y de trocear. Es idempotente, así que la comparación de trozos
+        # de la sobrescritura por origen sigue siendo estable.
+        texto, _ocultados = redactar(texto)
         historico = any(marca in f.name.lower() for marca in marcas)
         etiqueta = "historico" if historico else "normal"
         peso = pesos["historico"] if historico else pesos["normal"]
@@ -203,7 +208,8 @@ def ingerir_carpeta(ruta: str) -> dict:
             trozos = rag.trocear(texto)
         vigentes_f: set[str] = set()
         for trozo in trozos:
-            contenido = f"[{f.name}] {trozo['texto']}"
+            # También por trozo: el camino .xlsx trocea desde la hoja estructurada, no desde `texto`.
+            contenido = redactar(f"[{f.name}] {trozo['texto']}")[0]
             vigentes_f.add(contenido)
             res = pg.remember(contenido, kind="knowledge",
                                tags=[dominio, f.stem], origen=str(f), origen_tipo="documento",

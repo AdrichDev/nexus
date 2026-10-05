@@ -37,6 +37,7 @@ import unicodedata
 import uuid
 
 from ..comun.config import DATA_DIR
+from ..comun.secretos import redactar
 
 OPS_FILE = DATA_DIR / "engram_ops.json"
 RECALL_LOG = DATA_DIR / "logs" / "recall.jsonl"
@@ -160,7 +161,7 @@ def remember(texto: str, kind: str = "", scope: str = "global",
     """Guarda una manera de trabajar. Devuelve el recuerdo (o el existente si ya
     estaba). Las CORRECCIONES mandan: dejan obsoletos los recuerdos que chocan
     con ellas en el mismo ámbito (criterio de aceptación de la TAREA 4)."""
-    texto = (texto or "").strip()
+    texto = redactar((texto or "").strip())[0]   # nunca se guarda un secreto en claro
     if len(texto) < 4:
         return {}
     kind = kind if kind in TIPOS else clasifica(texto)

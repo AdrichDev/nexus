@@ -48,7 +48,7 @@ def check(cond, msg: str) -> bool:
 CAPAS: list[tuple[str, set[str]]] = [
     ("comun", {
         "config", "events", "audit", "permissions", "confirm", "procedencia",
-        "context", "net", "publicvoice",
+        "context", "net", "publicvoice", "secretos",
     }),
     ("infraestructura", {
         "llm", "llm_runtime", "tts", "stt", "remote", "files_io",

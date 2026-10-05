@@ -23,6 +23,7 @@ import time
 import unicodedata
 
 from ..comun.config import CONFIG_DIR, DATA_DIR, settings
+from ..comun.secretos import redactar
 
 _DIR = DATA_DIR / "rag"
 _STORE = _DIR / "knowledge.jsonl"          # {id, text, kind, meta, vec, ts}
@@ -399,6 +400,7 @@ async def add(text: str, kind: str = "knowledge", meta: dict | None = None,
     text = (text or "").strip()
     if not text:
         return False
+    text, _ocultados = redactar(text)           # nunca se guarda un secreto en claro
     # CONOCIMIENTO → base de datos elegida (pgvector) cuando esté disponible
     if kind in ("knowledge", "fact"):
         pg = _pg()

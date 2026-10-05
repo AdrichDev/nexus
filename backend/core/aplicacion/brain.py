@@ -26,6 +26,7 @@ from ..comun.config import DATA_DIR, settings
 from ..comun.config import assistant_name as _aname
 from .jobs import jobs as job_mgr, set_result_listener
 from ..comun.events import bus
+from ..comun.secretos import redactar as redactar_secretos
 from ..dominio.memory import graph, pg
 from .skills_loader import get_skills, route
 
@@ -1009,7 +1010,9 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # base de conocimiento (RAG/DB) para recuperarlo por significado más adelante.
     mrem = _REMEMBER_RX.match(text) if es_memoria_explicita(text) else None
     if mrem:
-        fact = mrem.group("fact").strip()
+        fact, _ocultos = redactar_secretos(mrem.group("fact").strip())
+        _aviso_secreto = (" (He ocultado " + ("un secreto" if _ocultos == 1 else f"{_ocultos} secretos")
+                          + ": no guardo claves ni contraseñas en la memoria.)") if _ocultos else ""
         # v23 (T4/T5): si es una MANERA DE TRABAJAR va a la memoria operativa
         # (Engram); si es un HECHO, al RAG documental. Nunca a los dos sitios.
         if opmem.es_comportamiento(fact):
@@ -1017,7 +1020,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             asyncio.create_task(opmem.mirror_to_engram(
                 {"settings": settings, "bus": bus, "channel": channel}, rec))
             reply = (f"Anotado como {rec.get('kind', 'regla')} en tu memoria operativa: "
-                     f"«{fact}». Lo aplicaré a partir de ahora.")
+                     f"«{fact}». Lo aplicaré a partir de ahora.{_aviso_secreto}")
         else:
             try:
                 await rag.add(fact, kind="fact",
@@ -1025,7 +1028,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                                     "fecha": _hoy_iso(), "canal": channel})
             except Exception:
                 pass
-            reply = f"Apuntado y guardado en tu memoria: «{fact}». Lo tendré presente."
+            reply = f"Apuntado y guardado en tu memoria: «{fact}». Lo tendré presente.{_aviso_secreto}"
         _history.append({"role": "user", "content": text})
         _history.append({"role": "assistant", "content": reply})
         await bus.emit("chat", {"user": text, "reply": reply, "provider": "memoria", "skill": None})

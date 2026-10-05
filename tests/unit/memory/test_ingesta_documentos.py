@@ -711,6 +711,42 @@ def test_guardado_fallido_no_retira_lo_anterior():
           "guardado fallido: se informa como error y retirados = 0")
 
 
+def test_ingesta_redacta_secretos_en_linea_y_es_estable():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_redaccion_ingesta_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    (origen / "despliegue.md").write_text(
+        "Pasos del despliegue. password=Sup3rSecreta99xyz al conectar. Fin.", encoding="utf-8")
+    pg = _FakePg()
+    r1, dir_espejos = _ingerir_en_tmp(origen, pg)
+    guardado = " ".join(c["content"] for c in pg.llamadas)
+    espejos = "".join(f.read_text(encoding="utf-8") for f in (dir_espejos / "docs").glob("*.md"))
+    check("Sup3rSecreta99xyz" not in guardado, "redacción en ingesta: el secreto en línea no llega a la memoria")
+    check("Sup3rSecreta99xyz" not in espejos, "redacción en ingesta: ni al espejo .md")
+    check("Pasos del despliegue" in guardado and "Fin." in guardado, "redacción en ingesta: el resto del texto se conserva")
+    r2, _ = _ingerir_en_tmp(origen, pg)
+    check(len(pg.filas) == 1 and r2.get("retirados", 0) == 0,
+          "redacción en ingesta: re-ingerir sin cambios es estable (ni duplica ni retira)")
+
+
+def test_ingesta_xlsx_redacta_secretos_y_es_estable():
+    import openpyxl
+    origen = Path(tempfile.mkdtemp(prefix="nexus_redaccion_xlsx_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Config"
+    ws.append(["campo", "valor"])
+    ws.append(["conexion", "password=Sup3rSecreta99xyz"])
+    wb.save(str(origen / "config.xlsx"))
+    pg = _FakePg()
+    _ingerir_en_tmp(origen, pg)
+    guardado = " ".join(c["content"] for c in pg.llamadas)
+    check(guardado and "Sup3rSecreta99xyz" not in guardado, "xlsx: el secreto de una celda no llega a la memoria")
+    r2, _ = _ingerir_en_tmp(origen, pg)
+    check(len(pg.filas) == len(set(f["content"] for f in pg.filas)) and r2.get("retirados", 0) == 0,
+          "xlsx: re-ingerir sin cambios es estable (ni duplica ni retira)")
+
+
 # =============================== runner =====================================
 if __name__ == "__main__":
     for name, t in sorted(globals().items()):

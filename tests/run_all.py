@@ -100,7 +100,7 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/skills/tools/test_skill_tools.py", "unit/skills/research/test_skill_research.py",
               "unit/skills/research/test_source_evidence.py", "unit/skills/research/test_google_browser.py",
               "unit/skills/backup/test_skill_backup.py", "unit/skills/telefono/test_skill_telefono.py",
-              "unit/skills/clima/test_clima_errors.py", "unit/core/test_secretos.py", "unit/skills/small_skills/test_skills_pequenas_1.py", "unit/skills/small_skills/test_skills_pequenas_2.py",
+              "unit/skills/clima/test_clima_errors.py", "unit/core/test_secretos.py", "unit/memory/test_redaccion_memoria.py", "unit/skills/small_skills/test_skills_pequenas_1.py", "unit/skills/small_skills/test_skills_pequenas_2.py",
               "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py", "unit/core/runtime/test_log_aislado.py", "unit/core/test_resultados_trabajos.py",
               "unit/core/learning/test_reglas_valores.py", "unit/core/learning/test_reglas_contrato.py",
               "unit/core/learning/test_aprendizaje_puertas.py", "unit/core/learning/test_aprendizaje_no_robo.py",
