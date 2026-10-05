@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Runner de TODOS los tests de nexus + chequeo de que TODAS las skills cargan.
-Ejecutar:  python tests/run_all.py   (desde la carpeta nexus)  ->  exit 0 si OK.
+"""Runner amplio de suites registradas + chequeo de contrato de skills.
+Ejecutar:  python tests/run_all.py   (desde la carpeta nexus)  ->  exit 0 si las suites registradas OK.
+
+Un verde aquí no prueba el producto completo: cada suite tiene perfil, efectos y
+nivel de evidencia en tests/runner_profiles.py.
 """
 import ast
 import os
@@ -9,6 +12,8 @@ import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from runner_profiles import RUNNER_PROFILES, profile_counts
+
 fails = 0
 
 # The battery never touches the operator's real data directory: the runner and
@@ -21,6 +26,10 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+
+print("== perfiles de evidencia registrados (no equivalen a prueba global) ==")
+print("  " + ", ".join(f"{k}={v}" for k, v in profile_counts().items()))
+print(f"  {len(RUNNER_PROFILES)} suites etiquetadas con efectos/requisitos explícitos")
 
 # 1) py_compile de TODO el backend + skills (bug de sintaxis = fallo)
 print("== 1) sintaxis (py_compile) de backend + skills ==")
@@ -150,5 +159,5 @@ else:
             pass
         fails += 1
 
-print(f"\n{'#'*54}\nRESULTADO GLOBAL: {'TODO VERDE ✔' if fails == 0 else str(fails)+' bloque(s) con fallos ✖'}")
+print(f"\n{'#'*54}\nRESULTADO RUNNER AMPLIO: {'suites registradas sin fallos observados ✔ (no es prueba global)' if fails == 0 else str(fails)+' bloque(s) con fallos ✖'}")
 sys.exit(1 if fails else 0)
