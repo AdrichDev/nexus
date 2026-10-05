@@ -626,6 +626,72 @@ def test_archivo_que_pasa_a_ser_secreto_se_retira():
     check(r.get("retirados") == 1, "pasa a secreto: 1 retirado")
 
 
+def test_archivo_no_legible_por_formato_conserva_lo_guardado():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_formato_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    foto = origen / "foto.png"                    # puede_leer() la rechaza: es una imagen
+    foto.write_bytes(b"\x89PNG\r\n")
+    pg = _FakePg()
+    pg.filas.append({"id": 1, "content": "[foto.png] DESCRIPCION-PREVIA", "kind": "knowledge",
+                     "vivo": True, "origen": str(foto.resolve()), "origen_tipo": "documento"})
+    r, _ = _ingerir_en_tmp(origen, pg)
+    check(pg.filas[0]["vivo"], "formato no legible: el archivo SIGUE existiendo, no se retira lo guardado")
+    check(r.get("retirados", 0) == 0, "formato no legible: retirados = 0")
+
+
+def test_carpeta_vacia_o_inaccesible_no_retira_todo():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_vacia_test_")) / "Docs"
+    origen.mkdir(parents=True)
+    a = origen / "a.md"
+    a.write_text("CONOCIMIENTO-IMPORTANTE", encoding="utf-8")
+    pg = _FakePg()
+    _ingerir_en_tmp(origen, pg)
+    a.unlink()                                    # carpeta vacía (¿disco desmontado?)
+    r, _ = _ingerir_en_tmp(origen, pg)
+    check(any(f["vivo"] and "CONOCIMIENTO-IMPORTANTE" in f["content"] for f in pg.filas),
+          "carpeta vacía: NO se retira toda la memoria de golpe")
+    check(r.get("retirados", 0) == 0 and "vac" in r.get("aviso", "").lower(),
+          "carpeta vacía: retirados = 0 y avisa de que la carpeta está vacía")
+
+
+def test_atribucion_de_retirados_por_ruta_no_por_nombre():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_atribucion_test_")) / "Docs"
+    (origen / "s1").mkdir(parents=True)
+    (origen / "s2").mkdir(parents=True)
+    n1, n2 = origen / "s1" / "n.md", origen / "s2" / "n.md"
+    n1.write_text("S1-UNO", encoding="utf-8")
+    n2.write_text("S2-UNO", encoding="utf-8")
+    pg = _FakePg()
+    _ingerir_en_tmp(origen, pg)
+    n1.write_text("S1-DOS", encoding="utf-8")     # solo cambia s1/n.md
+    r, _ = _ingerir_en_tmp(origen, pg)
+    por_ruta = {d.get("ruta"): d for d in r["documentos"]}
+    check(por_ruta.get("s1/n.md", {}).get("trozos_retirados") == 1,
+          "atribución: el retiro se cuenta en s1/n.md")
+    check(por_ruta.get("s2/n.md", {}).get("trozos_retirados") == 0,
+          "atribución: s2/n.md (mismo nombre, sin cambios) no cuenta ningún retiro")
+
+
+def test_lotes_y_espejos_no_colisionan():
+    origen = Path(tempfile.mkdtemp(prefix="nexus_unicos_test_")) / "Docs"
+    (origen / "a").mkdir(parents=True)
+    (origen / "a" / "b.md").write_text("EN-SUBCARPETA", encoding="utf-8")
+    (origen / "a__b.md").write_text("EN-RAIZ", encoding="utf-8")
+    r, dir_espejos = _ingerir_en_tmp(origen, _FakePg())
+    espejos = [f.read_text(encoding="utf-8") for f in (dir_espejos / "docs").glob("*.md")]
+    check(len(espejos) == 2, f"espejos: «a/b.md» y «a__b.md» no se pisan (hubo {len(espejos)})")
+    f = origen / "x.md"
+    f.write_text("V1", encoding="utf-8")
+    pg = _FakePg()
+    _ingerir_en_tmp(origen, pg)
+    f.write_text("V2", encoding="utf-8")
+    r1, _ = _ingerir_en_tmp(origen, pg)
+    f.write_text("V3", encoding="utf-8")
+    r2, _ = _ingerir_en_tmp(origen, pg)
+    check(r1.get("lote") and r2.get("lote") and r1["lote"] != r2["lote"],
+          "lotes: dos retiros en el mismo segundo no comparten lote (si no, revertir uno revertiría ambos)")
+
+
 # =============================== runner =====================================
 if __name__ == "__main__":
     for name, t in sorted(globals().items()):

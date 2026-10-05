@@ -24,9 +24,11 @@ histórico nunca gana al definitivo en `recall()` (decisión de diseño 6).
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 from . import rag
@@ -124,6 +126,8 @@ def ingerir_carpeta(ruta: str) -> dict:
     marcas = _config_ingesta()["marcas_historico"]
     pesos = _pesos()
     documentos = []
+    doc_por_origen: dict[str, dict] = {}         # origen -> entrada de `documentos`
+    vistos = 0                                   # archivos que existen aunque no se ingieran
     existentes: set[str] = set()                 # archivos que siguen en la carpeta y no son secretos
     contenidos: dict[str, set[str]] = {}         # origen -> trozos vigentes (solo si se procesó bien)
     for f in sorted(base.rglob("*")):
@@ -137,30 +141,39 @@ def ingerir_carpeta(ruta: str) -> dict:
             dentro = permissions.path_allowed(real)
         except (ValueError, OSError):
             dentro = False
+        ruta_rel = f.relative_to(base).as_posix()
         if not dentro:
-            documentos.append({"archivo": f.name, "ok": False, "omitido": "fuera_de_la_carpeta",
+            vistos += 1
+            documentos.append({"archivo": f.name, "ruta": ruta_rel, "ok": False,
+                                "omitido": "fuera_de_la_carpeta",
                                 "error": f"«{f.name}» apunta fuera de la carpeta o de lo permitido. "
                                          "No lo leí."})
             continue
         motivo_secreto = _motivo_secreto(f)
         if motivo_secreto:
-            documentos.append({"archivo": f.name, "ok": False, "omitido": "secreto",
+            vistos += 1
+            documentos.append({"archivo": f.name, "ruta": ruta_rel, "ok": False,
+                                "omitido": "secreto",
                                 "error": motivo_secreto + " No lo guardé en memoria."})
             continue
+        vistos += 1
+        # El archivo EXISTE aunque hoy no sepamos leerlo (formato, imagen...): lo ya guardado
+        # de él no se retira por eso.
+        existentes.add(str(f))
         ok, _motivo = files_io.puede_leer(f)
         if not ok:
             continue
-        existentes.add(str(f))
         leido = files_io.read_any(f, limite=0)
         if not leido.get("ok") or leido.get("meta", {}).get("truncado"):
-            documentos.append({"archivo": f.name, "ok": False,
+            documentos.append({"archivo": f.name, "ruta": ruta_rel, "ok": False,
                                 "error": leido.get("error") or "truncado"})
             continue
         texto = leido["texto"]
         motivo_secreto = _motivo_secreto(f, texto)
         if motivo_secreto:
             existentes.discard(str(f))           # pasó a ser secreto: lo ya guardado se retira
-            documentos.append({"archivo": f.name, "ok": False, "omitido": "secreto",
+            documentos.append({"archivo": f.name, "ruta": ruta_rel, "ok": False,
+                                "omitido": "secreto",
                                 "error": motivo_secreto + " No lo guardé en memoria."})
             continue
         historico = any(marca in f.name.lower() for marca in marcas)
@@ -174,7 +187,9 @@ def ingerir_carpeta(ruta: str) -> dict:
         destino_dir.mkdir(parents=True, exist_ok=True)
         cabecera = (f"---\norigen: {f}\ndominio: {dominio}\netiqueta: {etiqueta}\n"
                     f"ingerido: {dt.datetime.now(dt.timezone.utc).isoformat()}\n---\n\n")
-        destino = destino_dir / (f.relative_to(base).as_posix().replace("/", "__") + ".md")
+        # + 8 hex de la ruta: «a/b.md» y «a__b.md» aplanan igual pero no se pisan.
+        huella_ruta = hashlib.sha1(ruta_rel.encode("utf-8")).hexdigest()[:8]
+        destino = destino_dir / f"{ruta_rel.replace('/', '__')}.{huella_ruta}.md"
         destino.write_text(cabecera + texto, encoding="utf-8")
 
         # 2) trocear y guardar en Postgres (idempotente por huella — SIN esto
@@ -198,9 +213,11 @@ def ingerir_carpeta(ruta: str) -> dict:
             else:
                 trozos_nuevos += 1
         contenidos[str(f)] = vigentes_f
-        documentos.append({"archivo": f.name, "ok": True, "etiqueta": etiqueta,
-                            "trozos_nuevos": trozos_nuevos, "trozos_duplicados": trozos_dup,
-                            "trozos_retirados": 0, "espejo": str(destino)})
+        entrada = {"archivo": f.name, "ruta": ruta_rel, "ok": True, "etiqueta": etiqueta,
+                   "trozos_nuevos": trozos_nuevos, "trozos_duplicados": trozos_dup,
+                   "trozos_retirados": 0, "espejo": str(destino)}
+        doc_por_origen[str(f)] = entrada
+        documentos.append(entrada)
 
     # 3) SOBRESCRIBIR por origen. Se hace DESPUÉS de guardar lo nuevo (si algo falla
     # antes, lo viejo sigue ahí) y retira, nunca borra: `restaurar_filas(lote)` lo revierte.
@@ -221,16 +238,27 @@ def ingerir_carpeta(ruta: str) -> dict:
         por_origen[origen] = por_origen.get(origen, 0) + 1
     lote = ""
     retirados = 0
+    aviso = ""
+    if obsoletas and vistos == 0:
+        # Carpeta sin ni un archivo (¿disco desmontado, ruta equivocada, vaciada a mano?):
+        # retirar TODO lo guardado de ella sería irreversible en la práctica si fue un error.
+        aviso = ("La carpeta está vacía o no es accesible: no retiré nada de lo ya guardado. "
+                 "Si de verdad quieres vaciar esa memoria, usa la purga.")
+        obsoletas = []
     if obsoletas:
-        lote = f"ingesta-{dt.datetime.now(dt.timezone.utc):%Y%m%dT%H%M%SZ}-{dominio}"
+        # uuid corto: dos retiros en el mismo segundo no pueden compartir lote, porque
+        # `restaurar_filas(lote)` revierte el lote ENTERO.
+        lote = (f"ingesta-{dt.datetime.now(dt.timezone.utc):%Y%m%dT%H%M%SZ}-{dominio}"
+                f"-{uuid.uuid4().hex[:6]}")
         retirados = pg.retirar_filas(obsoletas, lote)
-        por_nombre = {d["archivo"]: d for d in documentos if d.get("ok")}
         for origen, n in por_origen.items():
-            nombre = Path(origen).name
-            if origen in contenidos and nombre in por_nombre:
-                por_nombre[nombre]["trozos_retirados"] += n
+            entrada = doc_por_origen.get(origen)
+            if entrada is not None:
+                entrada["trozos_retirados"] += n
             else:
-                documentos.append({"archivo": nombre, "ok": True, "eliminado": True,
-                                    "trozos_retirados": n})
+                documentos.append({"archivo": Path(origen).name,
+                                    "ruta": Path(origen).relative_to(base).as_posix()
+                                    if origen.startswith(prefijo) else origen,
+                                    "ok": True, "eliminado": True, "trozos_retirados": n})
     return {"ok": True, "dominio": dominio, "documentos": documentos,
-            "retirados": retirados, "lote": lote, "error": ""}
+            "retirados": retirados, "lote": lote, "aviso": aviso, "error": ""}
