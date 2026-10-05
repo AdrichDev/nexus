@@ -15,10 +15,11 @@ Design: defense in depth. (1) engine-level read-only: SQLite `file:...?mode=ro` 
 - [x] T2 SQLite connect: missing path -> clear error, never creates a file.
 - [x] T3 Honest counts: read cap vs result size in `consulta`; chart says how many rows it draws; KPI = rows read.
 - [x] T4 Honest browser: dashboards/charts only claim "abierto" when the browser opened; otherwise say where the file is.
-- [ ] T5 Review, merge to main, update docs.
+- [x] T5 Review, merge to main, update docs.
 
 ## Evidence
 (append commits and checks here)
 - T1-T4 (one coupled change in `skills/datos/skill.py`): `_validar_sql` allowlist (one statement, first keyword select/with/show/explain/values/table/describe, no write/side-effect keywords outside strings/comments, no INTO and no server-side side-effect functions); engine-level read-only (SQLite `file:...?mode=ro` + `PRAGMA query_only`, Postgres `set_session(readonly=True, autocommit=True)`, MySQL `SET SESSION TRANSACTION READ ONLY`); SQLite missing path -> error, never creates; `consulta` says "Hay más de 50 filas" / "primeras 12"; chart title/reply say "primeras 20 de N" and KPI is "Filas leídas"; `_build_dashboard` returns (file, opened) and replies only say "abierto" when it opened.
 - Checks: `test_datos_honesty.py` RED 19 failures -> GREEN 34/0; existing `test_skill_datos.py` 64/0; places 42/0; pequenas_1 355, pequenas_2 89, frases_reales 212, capas_backend 449, runner profiles 505. Postgres verified for real in a throwaway `pgvector/pgvector:pg16` container (validator and engine both rejected every write and side-effect form tried; table intact, no tables created); container stopped.
 - Not verified / open: MySQL read-only session (no server available), Mongo (pymongo not installed; its dashboard samples 100 docs without saying so and `estimated_document_count` is not exact), the LLM insight pastes the provider error text when Ollama is down, password typed in the connect command is still written raw to logs/history (pending log redaction), Postgres lists only the `public` schema.
+- Review: native review (tier high, 4 lenses) was blocked twice by the model provider's usage policy on the `review-reliability` lens ("violative cyber content"; the diff is a SQL read-only guard), also after rewording examples; no review authority was consumed and nothing was mutated. Owner decision: integrate to `main` WITHOUT native review. Verification stands on the checks above (tests, real Postgres run, existing suite). Two lineages remain open and unconsumed: `review-1a400db53bcc3a50`, `review-2a34cebf995b48ce`.
