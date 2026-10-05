@@ -68,6 +68,8 @@ check("gen_image" not in doc and "analyze_image" not in doc and "SVG" not in doc
       "SKILL.md: ya no documenta la generación ni el análisis de imágenes")
 check("Imágenes" not in media.SKILL["name"] and "Multimedia" not in media.SKILL["name"],
       "nombre visible: describe lo que hace ahora")
+check("NO generas imágenes" in llm.SYSTEM_PROMPT and "no finj" in llm.SYSTEM_PROMPT.lower(),
+      "prompt del sistema: dice que NO genera ni describe imágenes y que no debe fingirlo")
 catalogo = (ROOT / "frontend" / "js" / "core" / "catalog.js").read_text(encoding="utf-8")
 check("Generar imagen" not in catalogo and "genera una imagen" not in catalogo,
       "frontend: ya no ofrece la acción «Generar imagen…»")
@@ -111,6 +113,19 @@ try:
           and "[2] dos.example" in res["reply"] and "[3] tres.example" in res["reply"],
           "búsqueda: lista de fuentes compacta (dominio — título), sin URLs larguísimas")
     check(res.get("speak") is True and (res.get("data") or {}).get("sources"), "búsqueda: data.sources sigue disponible")
+
+    # los anuncios / redirecciones de buscador no cuentan como fuentes ni gastan lecturas
+    async def _con_anuncios(q, n=6, news=None):
+        return ([{"title": "Compra mqtt en Amazon - Ahorra", "url": "https://duckduckgo.com/y.js?ad_domain=amazon.es", "snippet": "anuncio"},
+                 {"title": "more info", "url": "https://duckduckgo.com/y.js?x=1", "snippet": ""}]
+                + [dict(r) for r in RESULTADOS])
+    websearch.search = _con_anuncios
+    res = correr("busca en internet qué es mqtt")
+    check("Compra mqtt" not in prompts[-1] and "more info" not in prompts[-1] and "duckduckgo" not in res["reply"],
+          "búsqueda: los anuncios de DuckDuckGo no entran en el prompt ni en las fuentes")
+    check("TEXTO-LARGO-UNO" in prompts[-1] and "[1] Chelsea gana" in prompts[-1],
+          "búsqueda: tras filtrar anuncios, las páginas leídas son las de los resultados buenos y se renumeran")
+    websearch.search = _buscar
 
     # una página lentísima no cuelga la respuesta
     async def _lenta(url, max_chars=3500):

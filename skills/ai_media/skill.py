@@ -97,6 +97,24 @@ async def _leer_paginas(results: list[dict]) -> list[str]:
     return list(await asyncio.gather(*[una(r) for r in results[:_PAGINAS_A_LEER]]))
 
 
+_HOSTS_RUIDO = ("duckduckgo.com", "bing.com", "googleadservices.com", "doubleclick.net")
+
+
+def _limpiar(results: list[dict]) -> list[dict]:
+    """Quita lo que no es una fuente: anuncios y redirecciones de buscador, y resultados sin título.
+    Sin esto, un «Compra X en Amazon» patrocinado ocupa una de las páginas que se leen."""
+    limpios = []
+    for r in results:
+        host = urlparse(r.get("url") or "").netloc.lower()
+        titulo = (r.get("title") or "").strip().lower()
+        if not (r.get("url") and titulo) or titulo == "more info":
+            continue
+        if any(host == h or host.endswith("." + h) for h in _HOSTS_RUIDO):
+            continue
+        limpios.append(r)
+    return limpios
+
+
 def _lista_fuentes(results: list[dict]) -> str:
     return "\n".join(f"[{i}] {_dominio(r.get('url')) or 'web'} — {(r.get('title') or r.get('url') or '').strip()}"
                      for i, r in enumerate(results, 1))
@@ -105,7 +123,7 @@ def _lista_fuentes(results: list[dict]) -> str:
 async def _buscar_y_responder(q: str) -> dict:
     from backend.core.infraestructura import websearch
     from backend.core.infraestructura.llm import ask_llm
-    results = await websearch.search(q, 6)
+    results = _limpiar(await websearch.search(q, 8))[:6]     # se piden 8 por si caen anuncios
     if not results:
         return {"reply": f"✖ No he podido buscar «{q}»: o no hay conexión o los buscadores que pruebo "
                          "no han respondido. Reintenta en un momento; si persiste, revisa la red."}
