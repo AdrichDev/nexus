@@ -56,11 +56,13 @@ def _open(url: str) -> bool:
         return False
 
 
-def _responder(url: str, texto_ok: str) -> dict:
+def _responder(url: str, texto_ok: str, aviso: str = "") -> dict:
+    """`aviso` es lo que hay que decir SIEMPRE (p. ej. que no se puede calcular la duración),
+    abra o no el navegador."""
     if _open(url):
         return {"reply": texto_ok}
-    return {"reply": "⚠ No pude abrir el navegador (¿hay uno por defecto?). "
-                     f"Ábrelo tú con este enlace: {url}"}
+    return {"reply": (aviso + " " if aviso else "") + "⚠ No pude abrir el navegador "
+                     f"(¿hay uno por defecto?). Ábrelo tú con este enlace: {url}"}
 
 
 _PREGUNTA_TIEMPO = re.compile(
@@ -110,7 +112,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             if _PREGUNTA_TIEMPO.search(text):
                 return _responder(url, f"🗺 No puedo calcular cuánto se tarda: no leo el resultado. "
                                        f"Te abro la ruta de {frm} a {to} en Google Maps y el tiempo "
-                                       "lo ves ahí.")
+                                       "lo ves ahí.",
+                                  aviso="No puedo calcular cuánto se tarda: no leo el resultado.")
             return _responder(url, f"🗺 Ruta de {frm} a {to} lista en Google Maps, en coche por defecto "
                                    "(cámbialo a pie o transporte en la página).")
 
@@ -119,7 +122,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             url = f"https://www.google.com/maps/dir/?api=1&destination={quote_plus(dest)}&travelmode=driving"
             if _PREGUNTA_TIEMPO.search(text):
                 return _responder(url, f"🗺 No puedo calcular cuánto se tarda: no leo el resultado. "
-                                       f"Te abro la ruta a {dest} en Google Maps y el tiempo lo ves ahí.")
+                                       f"Te abro la ruta a {dest} en Google Maps y el tiempo lo ves ahí.",
+                                  aviso="No puedo calcular cuánto se tarda: no leo el resultado.")
             return _responder(url, f"🗺 Ruta a {dest} lista en Google Maps desde tu ubicación actual. "
                                    "Si el origen es otro, di «ruta de <origen> a <destino>».")
 

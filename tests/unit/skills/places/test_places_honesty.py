@@ -88,6 +88,9 @@ low = reply.lower()
 check("no puedo" in low and ("tiempo" in low or "duración" in low or "duracion" in low),
       "tiempo: dice que no puede calcular la duración")
 check(urls, "tiempo: aun así abre la ruta en el mapa")
+_, _, reply, urls = correr("cuánto se tarda de Madrid a Valencia", abre=False)
+check("no puedo calcular" in reply.lower() and "no pude abrir" in reply.lower() and urls[0] in reply,
+      "tiempo + sin navegador: da ambos avisos y el enlace")
 _, _, reply, _u = correr("ruta de Madrid a Valencia")
 check("no puedo" not in reply.lower(), "tiempo: una ruta normal no lleva ese aviso")
 
