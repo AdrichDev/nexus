@@ -19,30 +19,41 @@ Last updated: 2026-10-05 after delivering `research-correction-learning` to `mai
 - `rtk` is not available in this shell; use raw commands unless installed later.
 - Optional cleanup: delete the merged branch `fix/research-correction-learning` locally/remotely when convenient.
 
-## Active pending work candidates
+## Improvement backlog (not the main work queue)
 
-### 1. Continue use-case verification audit
+These are non-blocking review/advisory items. Do not treat them as the next product tasks unless explicitly selected.
+- `R3-live-checkout-flag-unenforced`: `tests/runner_profiles.py:65-71` records live-checkout safety as metadata only; future improvement can add stronger enforcement where useful.
+- `R3-parity-guard-not-in-battery`: `tests/run_all.py:30-32` exposes runner-profile loading, but the parity guard lives in a focused test and is not yet part of a regular safe battery.
+- Browser-flow profile inventory: this means labeling the nine browser E2E flows by what they actually prove and what they depend on; it is documentation/evidence hygiene, not a feature by itself.
+
+## Main work queue
+
+The actual queue is not the review-advisory backlog above. The main work is these three lanes, with the same standard for all of them: a CU or skill counts only when it actually works under observed evidence, not because a mock, queue, README, or provider claim says so.
+
+### 1. Gmail / tasks real workflow
+Source: `odd/tasks/inbox-task-kpi.md`.
+- Continue T5c/T9 real Gmail path.
+- Last real run: read-only Gmail dry run classified 13/13 unread mails and found 9 actionable, 4 urgent; later run created local board tasks and marked selected mails read.
+- Open issue: Google Tasks API was disabled in the GCP project (`accessNotConfigured`), so actual Google Tasks delivery is not proven.
+- Next proof boundary: explicit sandbox/API setup, then observe real delivery or a correctly classified failure. No real-account write without scoped approval.
+
+### 2. Broader skill audit / capabilities
+Source: `odd/tasks/hermes-empty-response.md` and current audit history.
+- Continue isolated public-web/weather/research probes and other skill capability checks.
+- Generic routing/research still needs connector controls before broad live execution.
+- External/device/provider claims must remain separated from mocked or handler-only evidence.
+- Clima proof started 2026-10-05: direct handler call for explicit city `Sevilla` reached `https://wttr.in/Sevilla?format=j1&lang=es` with HTTP 200 and parsed concrete fields (`temp_C=28`, `FeelsLikeC=28`, `humidity=41`, `windspeedKmph=20`, `maxtempC=29`, `mintempC=20`, `desc=Cubierto de nubes`). The skill reply matched those fields. Madrid is not counted as proof because the first probe lost captured output to Windows encoding. This proves the direct skill path for one public city, not full Nexus routing/UI.
+  - Command-path proof 2026-10-05: clean `git archive HEAD` copy in a Docker container (read-only root, bridge network, no `.env`/data), real uvicorn backend, `POST /api/command`. `que tiempo hace en Sevilla` -> skill `clima`, provider `minion:clima`, reply matched wttr fields (28°C, humedad 41%, viento 20 km/h, max 29/min 20); `clima en Madrid hoy` -> same path, 23°C, humedad 51%, lluvia localizada. Level I (live public wttr.in, no mocks). Not proven: HUD/browser UI render, voice, spoken output.
+  - Failure-path proof 2026-10-05 (same container harness): no-city `que tiempo hace` -> Madrid by IP with an honest note (works). Network down (`--network none`) -> honest `No llego a wttr.in (ConnectError)` message for all three (works). **Defect reproduced:** unknown city `clima en Ciudadinexistentexyz` with network up returns the same `No llego a wttr.in ... Suele ser cosa de red` (HTTPStatusError), blaming the network instead of saying the city was not found. Deceptive-reply class (P2-10); fixed on branch `fix/clima-unknown-city`: HTTP status errors now report `wttr.in no me devolvió datos para «X» (HTTP code)` and ask to check the name; real network errors keep the network message. Live wttr.in returns HTTP 500 (not 404) for unknown cities, so the reply admits both causes.
+
+### 3. CU verification: prove Nexus really works
 Source: `odd/tasks/verify-nexus-use-cases.md`.
-- P0-01b: hermetic boundary is partial; browser E2E boundary remains open.
-- P0-02: runner evidence honesty and native review availability remain pending.
-- P0-03: startup/core journey verified in isolated container; real desktop/provider paths remain open.
-- P1-06: tests reorganization is still in progress.
+- Continue proving customer/user journeys end-to-end by evidence level: S/M/I/P/F.
+- P0-03: startup/core journey is verified in isolated container; real desktop/provider paths remain open.
 - P1-08: external integrations need separate contract/sandbox verification.
 - P1-09: local PC/media/voice workflows need controlled verification.
 - P2-10: information/product claims need provenance audit.
 - P2-11: CU evidence ledger needs continued publication/maintenance.
 
-### 2. Continue inbox / task KPI work
-Source: `odd/tasks/inbox-task-kpi.md`.
-- T5c/T9 real Gmail path remains partially open.
-- Google Tasks API was disabled in the GCP project during the last real run; reply classification was improved later, but real delivery needs explicit sandbox/API setup before claiming end-to-end success.
-- Classifier variance and remaining real-provider behavior should be handled with bounded, read-only or sandboxed checks first.
-
-### 3. Continue broader skill audit
-Source: `odd/tasks/hermes-empty-response.md` and current audit history.
-- Continue isolated public-web/weather/research probes.
-- Generic routing/research still needs connector controls before broad live execution.
-- External/device/provider claims must remain separated from mocked or handler-only evidence.
-
 ## Recommended next slice
-Start with `verify-nexus-use-cases` P0-02 / runner evidence honesty, because it reduces false confidence across all later work. Keep it narrow: inspect current runner/E2E evidence labels, choose one misleading claim or unsafe boundary, write a regression/check first when applicable, then update the ledger.
+Resume the real-work queue by picking the next smallest proof boundary from the three lanes above. Prefer work that proves an actual user-visible CU works, or records precisely why it does not, without turning unverified mocks/provider claims into delivery evidence.
