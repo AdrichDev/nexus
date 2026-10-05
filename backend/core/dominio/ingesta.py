@@ -42,6 +42,29 @@ def _slug(nombre: str) -> str:
     return s.strip("-") or "sin-clasificar"
 
 
+# Archivos que casi seguro contienen secretos: NUNCA entran en la memoria ni en el espejo,
+# porque lo guardado se inyecta después en el contexto de los agentes.
+_EXT_SECRETA = {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".kdbx", ".ppk", ".gpg", ".asc"}
+_NOMBRE_SECRETO = re.compile(
+    r"^("
+    r"\.env(\..*)?|.*\.env|"                                    # .env, .env.local, prod.env
+    r"id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|"                       # claves SSH
+    r"\.netrc|\.npmrc|\.pypirc|\.htpasswd|"
+    r"(credentials?|secrets?|tokens?|passwords?|api[_-]?keys?)(\..*)?|"   # nombre = palabra
+    r".*[_-](credentials?|secrets?|tokens?|passwords?|api[_-]?keys?)(\..*)?"  # prod_secrets.txt
+    r")$", re.IGNORECASE)
+_CLAVE_PRIVADA = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----")
+
+
+def _motivo_secreto(f: Path, texto: str | None = None) -> str:
+    """'' si el archivo parece inocuo; si no, el motivo por el que se omite."""
+    if f.suffix.lower() in _EXT_SECRETA or _NOMBRE_SECRETO.match(f.name):
+        return f"«{f.name}» parece contener secretos (claves, tokens o credenciales)."
+    if texto is not None and _CLAVE_PRIVADA.search(texto):
+        return f"«{f.name}» contiene una clave privada."
+    return ""
+
+
 def _config_ingesta() -> dict:
     reserva = {"marcas_historico": ["antiguo", "historico", "obsoleto"]}
     try:
@@ -94,6 +117,11 @@ def ingerir_carpeta(ruta: str) -> dict:
     for f in sorted(base.rglob("*")):
         if not f.is_file():
             continue
+        motivo_secreto = _motivo_secreto(f)
+        if motivo_secreto:
+            documentos.append({"archivo": f.name, "ok": False, "omitido": "secreto",
+                                "error": motivo_secreto + " No lo guardé en memoria."})
+            continue
         ok, _motivo = files_io.puede_leer(f)
         if not ok:
             continue
@@ -103,6 +131,11 @@ def ingerir_carpeta(ruta: str) -> dict:
                                 "error": leido.get("error") or "truncado"})
             continue
         texto = leido["texto"]
+        motivo_secreto = _motivo_secreto(f, texto)
+        if motivo_secreto:
+            documentos.append({"archivo": f.name, "ok": False, "omitido": "secreto",
+                                "error": motivo_secreto + " No lo guardé en memoria."})
+            continue
         historico = any(marca in f.name.lower() for marca in marcas)
         etiqueta = "historico" if historico else "normal"
         peso = pesos["historico"] if historico else pesos["normal"]

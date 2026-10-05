@@ -420,6 +420,59 @@ def test_ingerir_carpeta_traversal_rechazado():
     check(r["documentos"] == [], "ingerir_carpeta(): no procesa nada si la ruta está fuera de lo permitido")
 
 
+def test_ingerir_carpeta_omite_secretos():
+    tmp = Path(tempfile.mkdtemp(prefix="nexus_ingerir_secretos_test_"))
+    origen = tmp / "Proyecto"
+    origen.mkdir(parents=True, exist_ok=True)
+    secretos = {
+        ".env": "API_KEY=SECRETO-ENV-123",
+        "id_rsa": "SECRETO-RSA-123",
+        "credentials": "SECRETO-CRED-123",
+        "secrets.json": '{"k": "SECRETO-JSON-123"}',
+        "token.txt": "SECRETO-TOKEN-123",
+        "api_keys.txt": "SECRETO-APIKEYS-123",
+        "prod.env": "DB=SECRETO-PRODENV-123",
+        "clave.pem": "SECRETO-PEM-123",
+        "notas_raras.txt": "-----BEGIN RSA PRIVATE KEY-----\nSECRETO-CABECERA-123\n-----END RSA PRIVATE KEY-----",
+    }
+    inocentes = {
+        "manual.md": "Manual de uso INOCENTE-1",
+        "tokenizer-notes.md": "Notas del tokenizador INOCENTE-2",
+        "config.json": '{"tema": "INOCENTE-3"}',
+    }
+    for nombre, texto in {**secretos, **inocentes}.items():
+        (origen / nombre).write_text(texto, encoding="utf-8")
+
+    orig_documentos_dir = ingesta.DOCUMENTOS_DIR
+    orig_pg = mem.pg
+    orig_allowed = permissions.path_allowed
+    try:
+        ingesta.DOCUMENTOS_DIR = tmp / "documentos"
+        mem.pg = _FakePg()
+        permissions.path_allowed = lambda p: True
+        r = ingesta.ingerir_carpeta(str(origen))
+        guardado = " ".join(c["content"] for c in mem.pg.llamadas)
+        check(r["ok"] is True, "secretos: la ingesta de la carpeta sigue siendo ok")
+        check("SECRETO" not in guardado, "secretos: ningún secreto llega a la memoria")
+        espejos = "".join(f.read_text(encoding="utf-8")
+                          for f in (tmp / "documentos").rglob("*.md"))
+        check("SECRETO" not in espejos, "secretos: ningún secreto llega al espejo .md")
+        por_nombre = {d["archivo"]: d for d in r["documentos"]}
+        for nombre in secretos:
+            d = por_nombre.get(nombre, {})
+            check(d.get("ok") is False and d.get("omitido") == "secreto",
+                  f"secretos: «{nombre}» se informa como omitido por secreto")
+        for nombre in inocentes:
+            check(por_nombre.get(nombre, {}).get("ok") is True,
+                  f"secretos: «{nombre}» (no es secreto) SÍ se ingiere")
+        check("INOCENTE-1" in guardado and "INOCENTE-2" in guardado and "INOCENTE-3" in guardado,
+              "secretos: el contenido inocente llega a la memoria")
+    finally:
+        ingesta.DOCUMENTOS_DIR = orig_documentos_dir
+        mem.pg = orig_pg
+        permissions.path_allowed = orig_allowed
+
+
 # =============================== runner =====================================
 if __name__ == "__main__":
     for name, t in sorted(globals().items()):

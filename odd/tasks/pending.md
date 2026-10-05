@@ -10,6 +10,10 @@ Last updated: 2026-10-05 after delivering `research-correction-learning` to `mai
   - R3: focused deterministic checks and safe live probes completed.
   - CI `seguridad` run `37299363982` passed.
 
+## Memory/knowledge audit (2026-10-05)
+- Audit findings saved in Engram `odd/memory-knowledge-audit`. Done: folder ingestion now skips secret-looking files (`.env`, SSH keys, `credentials`/`secrets`/`token(s)`/`password(s)`/`api_key(s)` names, `.pem/.key/...`, private-key content) and reports each as `omitido: secreto`.
+- Open, in suggested order: mirror filename collisions (`f.stem.md`), silent success when Postgres is offline, per-file permission check (symlink escape), stale chunks when a file changes or is deleted, no secret redaction in `remember` paths, global (non-per-user) stores, Engram HTTP without token, pending corrections lost on restart.
+
 ## Carry-forward annotations
 - Google browser search works in the last safe live run, but it can still CAPTCHA later; Nexus must degrade honestly when blocked.
 - Chrome search runs as an off-screen browser inside the server process; two processes cannot share the same Google browser profile.
