@@ -9,6 +9,7 @@ ancla de dominio.
 
 - «transcribe el audio D:\notas\reunion.mp3» · «pasa a texto la nota de voz D:\audios\idea.ogg»
 - «transcribe el vídeo D:\clases\tema1.mp4»
+- «resume el vídeo https://www.youtube.com/watch?v=…»
 - «busca en internet quién ganó el mundial de clubes»
 - «googlea precio del cobre hoy» · «qué dice internet sobre el nuevo iPhone»
 - «busca información sobre python» · «búscame información de la ley de teletrabajo» ·
@@ -34,10 +35,23 @@ ancla de dominio.
 - Si el decodificador falla (archivo dañado o falta ffmpeg) lo dice; si no hay voz, también.
 - Requiere `pip install faster-whisper`. Transcribe asumiendo **español**.
 
+## Vídeos de YouTube por enlace
+
+- «resume el vídeo <url de YouTube>» usa primero **subtítulos/captions públicos**: lee una sola pista de
+  transcripción y no descarga audio ni vídeo si hay captions.
+- Si no hay captions, solo en este comando directo usa Whisper como fallback: descarga el audio a una carpeta
+  temporal, acepta vídeos de hasta **90 minutos**, borra los temporales al terminar y avisa si no puede hacerlo.
+- Guarda la transcripción en memoria igual que una transcripción local, con marcas de tiempo y una nota reutilizable.
+- Las captions automáticas pueden contener errores; el resumen debe tratar una transcripción de vídeo como fuente de
+  menor fiabilidad que una página escrita.
+
 ## Búsqueda web (sin API key)
 
 - Busca (Google, DuckDuckGo y otras fuentes con respaldo; Google News para noticias), **lee las 3 primeras
   páginas** (en paralelo, máximo 8 s por página) y pasa su contenido al modelo, no solo los títulos.
+- Puede añadir hasta **2 fuentes de YouTube por transcripción** cuando la consulta pide explícitamente vídeo/YouTube
+  o cuando se leyeron menos de 2 páginas útiles. En búsqueda web son transcript-only: vídeos sin captions se saltan,
+  no se descarga audio/vídeo, y las fuentes se etiquetan como transcripción de vídeo con aviso de menor fiabilidad.
 - Las fuentes van **numeradas**: la respuesta cita `[1]`, `[2]`… y termina con una lista «dominio — título».
 - Si las fuentes **no** contienen la respuesta, el modelo está obligado a decirlo en vez de suponer.
 - **Sin modelo de lenguaje**: no puede redactar, así que te enseña los resultados que encontró (título y
@@ -49,8 +63,8 @@ ancla de dominio.
 - **No genera imágenes ni describe su contenido.** Antes había una tarjeta de relleno y un lector de
   metadatos; se eliminaron porque no hacían lo que prometían. Si en el futuro se conecta un motor de imagen
   o un modelo de visión real, será una skill nueva.
-- No transcribe en streaming ni desde una URL: hace falta un archivo local.
-- No hace scraping de nadie: la búsqueda va por buscadores públicos y lee páginas abiertas.
+- No transcribe en streaming. Desde una URL solo acepta el comando directo de YouTube descrito arriba.
+- No hace scraping de nadie: la búsqueda va por buscadores públicos, lee páginas abiertas y, si aplica, captions públicas.
 - La transcripción no detecta el idioma: un audio en otro idioma saldrá como español mal reconocido.
 
 ## Notas de routing (no robar)

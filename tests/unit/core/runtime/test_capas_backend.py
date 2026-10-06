@@ -53,7 +53,7 @@ CAPAS: list[tuple[str, set[str]]] = [
     ("infraestructura", {
         "llm", "llm_runtime", "tts", "stt", "remote", "files_io",
         "engram_bridge", "websearch", "telegram_bridge", "spotify", "hardware",
-        "app_index",
+        "app_index", "youtube",
     }),
     ("dominio", {
         "board", "purga", "contentos", "contentos_demo", "rag", "memory",

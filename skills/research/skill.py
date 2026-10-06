@@ -184,21 +184,56 @@ async def _full_report(topic: str, angle: str) -> dict:
                          "sale del conocimiento general del modelo, NO está contrastado "
                          "y no lo guardo como informe:\n\n" + reply[:1200],
                 "sources": []}
-    sources_txt = "\n\n".join(f"--- FUENTE [{i}]: {r['title']} ({r['url']}) ---\n{t[:_CHARS_PAGINA]}"
-                              for i, (r, t) in enumerate(leidas, 1))
+    video_sources: list[dict] = []
+    video_omitidos: list[str] = []
+    try:
+        from backend.core.infraestructura import youtube
+        video_sources, video_omitidos = await youtube.fuentes_video(topic, n=2, max_chars=1200)
+    except Exception as e:
+        video_omitidos = [f"YouTube: no se pudieron leer transcripciones ({e})"]
+
+    web_chars_prompt = 1800 if video_sources else _CHARS_PAGINA
+    source_blocks = [
+        f"--- FUENTE [{i}]: {r['title']} ({r['url']}) ---\n{t[:web_chars_prompt]}"
+        for i, (r, t) in enumerate(leidas, 1)
+    ]
+    first_video_num = len(source_blocks) + 1
+    for i, v in enumerate(video_sources, first_video_num):
+        tipo = v.get("tipo") or "transcripción"
+        idioma = f", {v.get('idioma')}" if v.get("idioma") else ""
+        canal = f"\nCanal: {v.get('canal')}" if v.get("canal") else ""
+        source_blocks.append(
+            f"--- FUENTE [{i}] VÍDEO (transcripción {tipo}{idioma}): {v['title']} ({v['url']}) ---"
+            f"{canal}\n{(v.get('text') or '')[:1200]}"
+        )
+    sources_txt = "\n\n".join(source_blocks)
+    aviso_video = ""
+    if video_sources:
+        aviso_video = (" También hay fuentes de VÍDEO: son transcripciones de YouTube; "
+                       "si son automáticas tienen menor fiabilidad que los artículos. "
+                       "Cítalas honestamente como transcripción de vídeo y no las trates como artículos.")
     report, prov = await ask_llm(
         f"{angle} sobre «{topic}» usando SOLO estas fuentes. Estructura: "
         "**Resumen ejecutivo** (3 frases), **Hallazgos clave** (4-6 puntos con datos), "
         "**Oportunidades** (2-3), **Recomendación**. Cita cada dato con el número de su fuente "
         "entre corchetes, p. ej. [1]. Si las fuentes no cubren algún punto, dilo en lugar de "
-        f"suponer.\n{sources_txt[:9000]}")
+        f"suponer.{aviso_video}\n{sources_txt[:11000]}")
     if prov == "ninguno":
         # Sin modelo no hay informe: el mensaje de error NO se guarda como si lo fuera.
-        lista = "\n".join(f"• {r['title']} — {r['url']}" for r in cited)
+        fuentes_leidas = cited + video_sources
+        lista = "\n".join(f"• {r['title']} — {r['url']}" for r in fuentes_leidas)
+        omitidos = ("\nVídeos omitidos: " + "; ".join(video_omitidos)) if video_omitidos else ""
         return {"reply": f"No pude redactar el informe sobre «{topic}» (el modelo no está disponible), "
-                         f"pero estas son las fuentes que sí leí:\n{lista}\nMotivo: {report}",
-                "sources": cited}
-    src_md = "\n".join(f"[{i}] [{s['title']}]({s['url']})" for i, s in enumerate(cited, 1))
+                         f"pero estas son las fuentes que sí leí:\n{lista}{omitidos}\nMotivo: {report}",
+                "sources": fuentes_leidas}
+    all_sources = cited + video_sources
+    src_lines = []
+    for i, s in enumerate(all_sources, 1):
+        label = f"VÍDEO: {s['title']}" if s.get("kind") == "youtube" else s["title"]
+        src_lines.append(f"[{i}] [{label}]({s['url']})")
+    src_md = "\n".join(src_lines)
+    if video_omitidos:
+        src_md += "\n\nVídeos omitidos: " + "; ".join(video_omitidos)
     path = _save_report(topic, report + "\n\n## Fuentes\n" + src_md)
     docx_path = path.with_suffix(".docx")
     full_md = (f"# {topic}\n\n_{dt.datetime.now():%d/%m/%Y %H:%M} — generado por nexus_\n\n"
@@ -209,9 +244,10 @@ async def _full_report(topic: str, angle: str) -> dict:
     donde = (f"(data/reports/{path.name}{extra}, abierto en tu editor/navegador)" if abierto else
              f"en data/reports/{path.name}{extra}, pero no pude abrir el navegador ni el editor: "
              "ábrelo tú desde esa ruta")
-    return {"reply": f"Informe sobre «{topic}» generado con {len(cited)} fuentes {donde}. "
-                     "Di «mis informes» para ver el histórico.\n\n"
-                     f"{report[:800]}...", "sources": cited}
+    omitidos_msg = (" Vídeos omitidos: " + "; ".join(video_omitidos) + ".") if video_omitidos else ""
+    return {"reply": f"Informe sobre «{topic}» generado con {len(all_sources)} fuentes {donde}. "
+                     "Di «mis informes» para ver el histórico."
+                     f"{omitidos_msg}\n\n{report[:800]}...", "sources": all_sources}
 
 
 async def handle(intent: str, text: str, match, ctx) -> dict:

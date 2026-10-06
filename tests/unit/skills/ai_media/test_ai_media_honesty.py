@@ -30,6 +30,7 @@ import backend.core.dominio.memory as memory  # noqa: E402
 import backend.core.infraestructura.llm as llm  # noqa: E402
 import backend.core.infraestructura.stt as stt  # noqa: E402
 import backend.core.infraestructura.websearch as websearch  # noqa: E402
+import backend.core.infraestructura.youtube as youtube  # noqa: E402
 
 sl.load_skills()
 media = sl.get_skills()["ai_media"].module
@@ -57,8 +58,8 @@ def correr(frase):
 
 
 # 0) ya no ofrece lo que no hacía -------------------------------------------------------------------
-check(set(media.SKILL["patterns"]) == {"transcribe", "web_search"},
-      f"intents: solo transcribe y web_search (hay {sorted(media.SKILL['patterns'])})")
+check(set(media.SKILL["patterns"]) == {"video_youtube", "transcribe", "web_search"},
+      f"intents: solo video_youtube, transcribe y web_search (hay {sorted(media.SKILL['patterns'])})")
 for frase in ("genera una imagen de un dragón", "dibújame un logo para la marca",
               "analiza la imagen D:\\fotos\\logo.png", "descríbeme la foto D:\\a.jpg"):
     r = sl.route(frase)
@@ -98,7 +99,7 @@ async def _ask(texto, *a, **k):
     return estado["respuesta"], estado["proveedor"]
 
 
-orig = (websearch.search, websearch.fetch_page, llm.ask_llm)
+orig = (websearch.search, websearch.fetch_page, llm.ask_llm, youtube.fuentes_video)
 websearch.search, websearch.fetch_page, llm.ask_llm = _buscar, _pagina, _ask
 try:
     res = correr("busca en internet quién ganó el mundial de clubes")
@@ -127,6 +128,66 @@ try:
           "búsqueda: tras filtrar anuncios, las páginas leídas son las de los resultados buenos y se renumeran")
     websearch.search = _buscar
 
+    # YouTube/transcripciones: solo como fuente explícita o suplemento si hay pocas páginas leídas.
+    llamadas_youtube = []
+
+    async def _videos(q, n=2, max_chars=1200):
+        llamadas_youtube.append((q, n, max_chars))
+        return ([{"kind": "youtube", "title": "Vídeo táctico del Chelsea", "url": "https://www.youtube.com/watch?v=abc123def45&t=42s",
+                  "canal": "Canal Fútbol", "tipo": "automática", "idioma": "es",
+                  "text": "[00:42] análisis del partido y del Chelsea"}], [])
+
+    youtube.fuentes_video = _videos
+    prompts.clear(); llamadas_youtube.clear()
+    res = correr("busca en internet vídeos de youtube sobre quién ganó el mundial de clubes")
+    prompt = prompts[-1]
+    check(len(llamadas_youtube) == 1, "YouTube: si la consulta pide vídeo/youtube, busca transcripciones")
+    check("[4]" in prompt and "VÍDEO" in prompt and "transcripción" in prompt.lower(),
+          "YouTube: la fuente de vídeo se añade después de las web y se etiqueta en el prompt")
+    check("automáticas" in prompt.lower() and "menor fiabilidad" in prompt.lower(),
+          "YouTube: el prompt advierte que las captions automáticas son menos fiables que páginas/artículos")
+    check("Vídeo táctico del Chelsea" in res["reply"] and "youtube.com" in res["reply"],
+          "YouTube: la lista compacta de fuentes incluye título/dominio del vídeo")
+
+    async def _solo_una_pagina(url, max_chars=3500):
+        return ("TEXTO-LARGO-UNO: el Chelsea venció 3-0 al PSG en la final."
+                if url == "https://www.uno.example/a" else "")
+
+    websearch.fetch_page = _solo_una_pagina
+    prompts.clear(); llamadas_youtube.clear()
+    correr("busca en internet quién ganó el mundial de clubes")
+    check(len(llamadas_youtube) == 1, "YouTube: si hay menos de 2 páginas legibles, usa vídeos como suplemento")
+    websearch.fetch_page = _pagina
+
+    prompts.clear(); llamadas_youtube.clear()
+    correr("busca en internet quién ganó el mundial de clubes")
+    check(not llamadas_youtube, "YouTube: una búsqueda normal con 2+ páginas legibles NO consulta YouTube")
+
+    async def _videos_omitidos(q, n=2, max_chars=1200):
+        llamadas_youtube.append((q, n, max_chars))
+        return ([], ["Vídeo sin captions: sin subtítulos", "Vídeo privado: no disponible"])
+
+    youtube.fuentes_video = _videos_omitidos
+    prompts.clear(); llamadas_youtube.clear()
+    res = correr("busca en internet vídeo youtube sobre el mundial de clubes")
+    check("Vídeos omitidos" in res["reply"] and "Vídeo sin captions" in res["reply"] and "Vídeo privado" in res["reply"],
+          "YouTube: los vídeos omitidos se muestran cuando aplica")
+
+    async def _videos_roto(q, n=2, max_chars=1200):
+        llamadas_youtube.append((q, n, max_chars))
+        raise RuntimeError("yt-dlp roto")
+
+    youtube.fuentes_video = _videos_roto
+    prompts.clear(); llamadas_youtube.clear()
+    res = correr("busca en internet vídeo youtube sobre el mundial de clubes")
+    check("Ganó el Chelsea [1]." in res["reply"] and "yt-dlp roto" in res["reply"],
+          "YouTube: si el lector de transcripciones revienta, la búsqueda web sigue y lo dice")
+
+    async def _sin_videos(q, n=2, max_chars=1200):
+        return ([], [])
+
+    youtube.fuentes_video = _sin_videos
+
     # una página lentísima no cuelga la respuesta
     async def _lenta(url, max_chars=3500):
         await asyncio.sleep(30)
@@ -154,7 +215,7 @@ try:
     check("No he podido buscar" in res["reply"] or "no he podido buscar" in res["reply"].lower(),
           "búsqueda sin resultados: lo dice")
 finally:
-    websearch.search, websearch.fetch_page, llm.ask_llm = orig
+    websearch.search, websearch.fetch_page, llm.ask_llm, youtube.fuentes_video = orig
     estado.update(proveedor="ollama", respuesta="Ganó el Chelsea [1].")
 
 # 2) transcripción ------------------------------------------------------------------------------------

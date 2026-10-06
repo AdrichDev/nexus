@@ -30,6 +30,7 @@ except Exception:
 from backend.core.aplicacion import skills_loader as sl  # noqa: E402
 import backend.core.infraestructura.llm as llm  # noqa: E402
 import backend.core.infraestructura.websearch as websearch  # noqa: E402
+import backend.core.infraestructura.youtube as youtube  # noqa: E402
 
 sl.load_skills()
 research = sl.get_skills()["research"].module
@@ -54,8 +55,11 @@ PAGINAS = {r["url"]: f"TEXTO-DE-LA-PAGINA-{i}" for i, r in enumerate(BUENOS, 1)}
 ANUNCIOS = [{"title": "Compra mqtt en Amazon - Ahorra", "url": "https://duckduckgo.com/y.js?ad_domain=amazon.es", "snippet": "anuncio"},
             {"title": "more info", "url": "https://duckduckgo.com/y.js?x=1", "snippet": ""}]
 
+VIDEO_OK = {"kind": "youtube", "title": "Video MQTT", "url": "https://www.youtube.com/watch?v=abc12345678&t=90s",
+            "canal": "Canal Técnico", "tipo": "automática", "idioma": "es", "text": "[01:30] TRANSCRIPCION-VIDEO-MQTT"}
+
 estado = {"resultados": BUENOS, "paginas": PAGINAS, "retraso": 0.0, "modelo": "ok", "texto": "INFORME-GENERADO",
-          "prompts": [], "pedidas": [], "abre": True, "abiertas": []}
+          "prompts": [], "pedidas": [], "abre": True, "abiertas": [], "videos": [], "omitidos_video": [], "video_calls": []}
 
 
 async def _buscar(q, n=6, news=None):
@@ -76,6 +80,11 @@ async def _ask(texto, *a, **k):
     return estado["texto"], "ollama"
 
 
+async def _fuentes_video(query, n=2, max_chars=1200):
+    estado["video_calls"].append((query, n, max_chars))
+    return [dict(v) for v in estado["videos"][:n]], list(estado["omitidos_video"])
+
+
 def _abrir(url, *a, **k):
     estado["abiertas"].append(url)
     return estado["abre"]
@@ -83,7 +92,7 @@ def _abrir(url, *a, **k):
 
 def reset(**cambios):
     estado.update(resultados=BUENOS, paginas=PAGINAS, retraso=0.0, modelo="ok", texto="INFORME-GENERADO",
-                  prompts=[], pedidas=[], abre=True, abiertas=[])
+                  prompts=[], pedidas=[], abre=True, abiertas=[], videos=[], omitidos_video=[], video_calls=[])
     estado.update(cambios)
     for f in research.REPORTS_DIR.glob("*") if research.REPORTS_DIR.exists() else []:
         f.unlink()
@@ -99,8 +108,8 @@ def informes():
     return sorted(research.REPORTS_DIR.glob("*.md")) if research.REPORTS_DIR.exists() else []
 
 
-orig = (websearch.search, websearch.fetch_page, llm.ask_llm, webbrowser.open)
-websearch.search, websearch.fetch_page, llm.ask_llm, webbrowser.open = _buscar, _pagina, _ask, _abrir
+orig = (websearch.search, websearch.fetch_page, llm.ask_llm, webbrowser.open, youtube.fuentes_video)
+websearch.search, websearch.fetch_page, llm.ask_llm, webbrowser.open, youtube.fuentes_video = _buscar, _pagina, _ask, _abrir, _fuentes_video
 try:
     # ---- 1) sin modelo no hay informe ---------------------------------------------------------
     reset()
@@ -179,6 +188,31 @@ try:
           "fuentes: el prompt pide admitir lo que las fuentes no cubren")
     texto = informes()[-1].read_text(encoding="utf-8")
     check("[1] [Fuente 1](https://f1.example/p)" in texto, "fuentes: la sección «Fuentes» del informe va numerada")
+
+    reset(videos=[VIDEO_OK])
+    res = correr("investiga el protocolo MQTT y hazme un informe")
+    prompt = estado["prompts"][-1]
+    check(estado["video_calls"] and estado["video_calls"][-1][1] == 2,
+          "vídeo: tras leer páginas web pide hasta 2 transcripciones de YouTube")
+    check(prompt.index("FUENTE [4]") < prompt.index("FUENTE [5]") and "VÍDEO" in prompt and "TRANSCRIPCION-VIDEO-MQTT" in prompt,
+          "vídeo: el prompt incluye la transcripción tras las fuentes web y continúa la numeración")
+    check("transcripción" in prompt.lower() and "menor fiabilidad" in prompt.lower() and "cita" in prompt.lower(),
+          "vídeo: el prompt etiqueta las transcripciones y exige citarlas con honestidad")
+    texto = informes()[-1].read_text(encoding="utf-8")
+    check("[5] [VÍDEO: Video MQTT](https://www.youtube.com/watch?v=abc12345678&t=90s)" in texto,
+          "vídeo: la sección «Fuentes» del informe incluye la fuente de YouTube con numeración continuada")
+    check(any(s.get("kind") == "youtube" for s in res["sources"]), "vídeo: la respuesta devuelve también fuentes de YouTube")
+
+    reset(videos=[VIDEO_OK], omitidos_video=["Vídeo sin subtítulos: sin subtítulos"])
+    res = correr("investiga el protocolo MQTT y hazme un informe")
+    cuerpo = informes()[-1].read_text(encoding="utf-8") if informes() else ""
+    check("Vídeo sin subtítulos" in res["reply"] or "Vídeo sin subtítulos" in cuerpo,
+          "vídeo: los vídeos omitidos se comunican sin tumbar el informe")
+
+    reset(resultados=[], paginas={}, videos=[VIDEO_OK])
+    res = correr("investiga el protocolo MQTT")
+    check(not estado["video_calls"] and not informes() and "NO está contrastado" in res["reply"],
+          "vídeo: las transcripciones no convierten cero fuentes web en un informe normal")
 
     reset(retraso=0.4)
     t0 = time.time()
@@ -301,7 +335,7 @@ try:
     res = correr("informe económico", {"pg": PgFalso([], falla=True), "graph": GrafoFalso([])})
     check("No he podido leer la tabla de facturas" in res["reply"], "economía: sigue avisando si la tabla falla")
 finally:
-    websearch.search, websearch.fetch_page, llm.ask_llm, webbrowser.open = orig
+    websearch.search, websearch.fetch_page, llm.ask_llm, webbrowser.open, youtube.fuentes_video = orig
 
 print(f"\nresearch honesty: {_pass} OK, {len(_fail)} FAIL")
 sys.exit(1 if _fail else 0)

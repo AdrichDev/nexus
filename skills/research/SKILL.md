@@ -27,8 +27,12 @@ las fuentes citadas. Guarda el histórico y sabe reabrir uno viejo.
 ## Cómo trabaja (y qué garantiza)
 
 - Lee hasta **5 páginas en paralelo** (máximo 8 s cada una) y cita las **4 primeras con texto**; los anuncios y
-  redirecciones del buscador no cuentan como fuentes. Las fuentes van **numeradas**: el informe cita `[1]`, `[2]`… y
-  acaba con «## Fuentes» numerada. Si las fuentes no cubren algo, el modelo debe decirlo en vez de suponer.
+  redirecciones del buscador no cuentan como fuentes. Después puede añadir hasta **2 fuentes de YouTube** si hay
+  transcripciones públicas relevantes: van detrás de las páginas web, marcadas como **VÍDEO (transcripción manual)**
+  o **VÍDEO (transcripción automática)**, y cuentan como menos fiables que una fuente escrita. Los vídeos sin
+  subtítulos se omiten y se mencionan; para informes **nunca descarga audio ni vídeo**. Las fuentes van **numeradas**:
+  el informe cita `[1]`, `[2]`… y acaba con «## Fuentes» numerada. Si las fuentes no cubren algo, el modelo debe
+  decirlo en vez de suponer.
 - **Sin modelo de lenguaje** no hay informe: no se guarda nada (ni el mensaje de error como si lo fuera), no entra en
   el histórico y te enseña las fuentes que sí leyó.
 - **Un informe nuevo nunca pisa a otro**: si ya hay uno del mismo tema y día, el nuevo se guarda como `…-2`, `…-3`.
