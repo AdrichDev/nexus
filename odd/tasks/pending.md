@@ -10,6 +10,8 @@ Last updated: 2026-10-05 after delivering `research-correction-learning` to `mai
   - R3: focused deterministic checks and safe live probes completed.
   - CI `seguridad` run `37299363982` passed.
 
+- `youtube-transcripts` (2026-10-06) delivered on `main` at `dfd0b92`: research and ai_media search add up to 2 caption sources; direct `resume el vídeo <url>` with Whisper fallback (max 90 min). Whisper path is mocked only. Review approved; open advisories (no detail): `skills/ai_media/skill.py` 362-370, 389-392, 207-210 (WARNING); `backend/core/infraestructura/youtube.py` 419-426, 114-116, 251-253 (WARNING). Not proven: UI/voice, real Whisper run, behavior under sustained YouTube 429.
+
 ## Memory/knowledge audit (2026-10-05)
 - Audit findings saved in Engram `odd/memory-knowledge-audit`. Done: folder ingestion now skips secret-looking files (`.env`, SSH keys, `credentials`/`secrets`/`token(s)`/`password(s)`/`api_key(s)` names, `.pem/.key/...`, private-key content) and reports each as `omitido: secreto`.
 - Done 2026-10-05 (feature `odd/tasks/memory-ingest-integrity.md`): read-only scan of stored memory found no real secrets (only a doc placeholder); folder ingestion now overwrites by source (stale chunks of changed/deleted/now-secret files are retired to the trash with a reversible `ingesta-<UTC>-<dominio>-<id>` lote), mirrors are unique per file, Postgres offline fails loudly, per-file containment (symlinks), unreadable-but-present files and unconfirmed saves never retire old chunks, empty/inaccessible folder retires nothing.

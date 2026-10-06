@@ -22,7 +22,7 @@ Owner request: Nexus should be able to look up information in YouTube videos by 
 - [x] T3 `ai_media` `web_search` integration (conditional).
 - [x] T4 `ai_media` `video_youtube` command (+ Whisper fallback, shared storage code).
 - [x] T5 Docs (SKILL.md x2, CAPAS.md), live probe, layer registry test.
-- [ ] T6 Review, merge to main.
+- [x] T6 Review, merge to main.
 
 ## Risks / limits to state to the owner
 - Not an official API: YouTube may rate-limit (429) or change; reading public captions for personal use.
@@ -55,3 +55,4 @@ Owner request: Nexus should be able to look up information in YouTube videos by 
 - Verified latest commands: `.venv/Scripts/python.exe tests/unit/core/runtime/test_capas_backend.py` -> `test_capas_backend: 457 OK, 0 fallos`; `.venv/Scripts/python.exe tests/unit/core/test_youtube.py` -> `youtube: 34 OK, 0 FAIL`; `.venv/Scripts/python.exe tests/unit/skills/ai_media/test_ai_media_honesty.py` -> `ai_media: 49 OK, 0 FAIL`; `.venv/Scripts/python.exe tests/unit/skills/ai_media/test_youtube_video_command.py` -> `ai_media_youtube: 16 OK, 0 FAIL`; `.venv/Scripts/python.exe tests/unit/skills/research/test_research_honesty.py` -> `research honesty: 57 OK, 0 FAIL`; compileall for changed Python modules exit 0; `git diff --check` exit 0. Live caption-only probe succeeded with one manual `en` track and 61 lines.
 - Next step: T6 native review, then ask/obtain explicit owner authorization before any commit or merge to `main`.
 - Remember: ONE caption track per video (requesting es.*,en.* gave HTTP 429); research/search skip videos without captions and say so; direct command may use Whisper fallback only after the user explicitly asks for one video and caps fallback at 90 min with temp cleanup.
+- T6 2026-10-06: native review `review-f375cadd7f400ed3` approved and acknowledged (medium, reliability lens). Committed `dfd0b92` (`feat(youtube): read video transcripts as research and search sources`), fast-forward merged to `main` and pushed to `origin/main`. Non-blocking advisories (informational): `skills/ai_media/skill.py` 362-370, 389-392, 207-210 (WARNING), 394-397, 363-373; `backend/core/infraestructura/youtube.py` 419-426, 114-116, 251-253 (WARNING), 57-61; `tests/unit/skills/ai_media/test_youtube_video_command.py:210`. Post-merge `test_youtube.py` -> 34/0.
