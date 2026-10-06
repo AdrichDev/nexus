@@ -258,6 +258,26 @@ try:
     check("1434.50" in res["reply"], "economía: total determinista de los gastos con importe (200 + 1.234,50)")
     check("sin importe" in res["reply"].lower(), "economía: avisa de los gastos que no llevan importe")
 
+    # importes: sin falsos positivos por la izquierda («A200€», «ref12345€», «v1.5€»)
+    check(research._importe("pagué A200€ de luz") is None and research._importe("ref12345€ de algo") is None,
+          "importe: un número pegado a letras NO es un importe (A200€, ref12345€)")
+    check(research._importe("he pagado 200€ de luz") == 200.0 and research._importe("gasto de 1.234,50 € de alquiler") == 1234.5
+          and research._importe("pago € 45 de agua") == 45.0 and research._importe("compra (200€)") == 200.0,
+          "importe: los formatos válidos siguen funcionando (200€, 1.234,50 €, € 45, entre paréntesis)")
+
+    # clasificación: lo que parece pero no es un gasto no se usa
+    check(research._tipo_apunte("cuota de mercado del 20%") == "" and research._tipo_apunte("Acme hizo una compra de 500€") == "",
+          "clasificación: «cuota de mercado» y «compra de un cliente» NO son gastos (se ignoran)")
+    check(research._tipo_apunte("compré material por 80€") == "gasto" and research._tipo_apunte("pago de la cuota de autónomos 300€") == "gasto",
+          "clasificación: «compré…» y «cuota de autónomos» siguen siendo gastos")
+
+    # solo apuntes de ingreso y ninguna factura ni gasto: no dice «0 facturas… 0,00 €»
+    reset()
+    res = correr("informe económico", {"pg": PgFalso([]), "graph": GrafoFalso(["Acme me ha pagado 500€ por la web (cobro)"])})
+    check("0 factura" not in res["reply"] and "0.00" not in res["reply"] and "1 apunte(s) de ingreso" in res["reply"]
+          and "no tengo gastos" in res["reply"].lower() and not estado["prompts"],
+          "economía: solo apuntes de ingreso -> los cuenta, no inventa «0 facturas / 0,00 €» y no pide recortes")
+
     # tope por lista (no cortar ingresos o gastos en silencio)
     reset()
     muchos_gastos = [f"gasto número {i} de {i}€ en material" for i in range(1, 31)]

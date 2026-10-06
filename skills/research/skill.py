@@ -101,14 +101,15 @@ _APUNTES_POR_PALABRA = 20     # cuántos apuntes se piden al grafo por cada pala
 _MAX_GASTOS_PROMPT = 20       # tope por lista de lo que se manda al modelo
 _MAX_INGRESOS_PROMPT = 10
 _RX_GASTO = re.compile(
-    r"\b(?:gast\w*|he\s+pagado|pagu[eé]|pagado\s+(?:por|de|a)\b|compr[eé]|compra\w*|alquiler|"
-    r"suscripci[oó]n|cuota|n[oó]mina|seguro\s+de|factura\s+de\s+(?:la\s+)?(?:luz|agua|gas|internet))",
+    r"\b(?:gast\w*|he\s+pagado|pagu[eé]|pagado\s+(?:por|de|a)\b|compr[eé]|(?:he|hemos)\s+comprado|"
+    r"alquiler|suscripci[oó]n|cuota\s+de\s+aut[oó]nomos|n[oó]mina|seguro\s+de|"
+    r"factura\s+de\s+(?:la\s+)?(?:luz|agua|gas|internet))",
     re.IGNORECASE)
 _RX_INGRESO = re.compile(
     r"\b(?:cobr\w*|ingres\w*|me\s+(?:ha|han)\s+pagado|me\s+pag(?:ó|o|aron)\b|he\s+facturado|venta\w*)",
     re.IGNORECASE)
 _NUM = r"\d{1,3}(?:[. ]\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?"
-_RX_IMPORTE = re.compile(rf"(?:({_NUM})\s*(?:€|eur(?:os?)?\b)|€\s*({_NUM}))", re.IGNORECASE)
+_RX_IMPORTE = re.compile(rf"(?:(?<![\w.,])({_NUM})\s*(?:€|eur(?:os?)?\b)|€\s*({_NUM}))", re.IGNORECASE)
 
 
 def _tipo_apunte(linea: str) -> str:
@@ -271,11 +272,15 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if not gastos:
             total = sum(totales.values())
             desglose = ", ".join(f"{estado}: {importe:.2f} €" for estado, importe in totales.items())
-            return {"reply": aviso_db + f"📊 Tengo {len(facturas)} factura(s) emitida(s) (las últimas 20 como "
-                             f"máximo), es decir INGRESOS: {total:.2f} € en total"
-                             + (f" ({desglose})" if desglose else "") + ". No tengo gastos registrados, "
-                             "así que no puedo decirte dónde recortar. Apunta tus gastos («apunta que he "
-                             "pagado 200€ de luz») y lo analizo."}
+            partes = []
+            if facturas:
+                partes.append(f"{len(facturas)} factura(s) emitida(s) (las últimas 20 como máximo) por "
+                              f"{total:.2f} € en total" + (f" ({desglose})" if desglose else ""))
+            if ingresos_notas:
+                partes.append(f"{len(ingresos_notas)} apunte(s) de ingreso")
+            return {"reply": aviso_db + "📊 Tengo " + " y ".join(partes) + " (todo INGRESOS). No tengo "
+                             "gastos registrados, así que no puedo decirte dónde recortar. Apunta tus "
+                             "gastos («apunta que he pagado 200€ de luz») y lo analizo."}
         # Tope POR LISTA (antes un corte global podía tirar todos los ingresos o todos los gastos).
         envio_gastos = [f"GASTO — {g}" for g in gastos[:_MAX_GASTOS_PROMPT]]
         envio_ingresos = ingresos[:_MAX_INGRESOS_PROMPT]
