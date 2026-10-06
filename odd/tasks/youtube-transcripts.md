@@ -31,3 +31,8 @@ Owner request: Nexus should be able to look up information in YouTube videos by 
 
 ## Evidence
 (append commits and checks here)
+## Resume point (saved before a restart)
+- State: branch `feat/youtube-transcripts`, T1 in progress. `tests/unit/core/test_youtube.py` is written and committed in RED (the module does not exist yet: `ModuleNotFoundError: backend.core.infraestructura.youtube`).
+- Next step: create `backend/core/infraestructura/youtube.py` so that test passes. Required API (from the test): `id_de_url`, `es_url_youtube`, `_parse_json3`, `_elegir_pista(info, idiomas)` (manual of the video language > original `-orig` automatic, never translations, json3 only, returns dict with `url/idioma/tipo`), async `transcripcion(video)` returning `{ok, id, title, canal, idioma, tipo, lineas, texto}` or `{ok: False, motivo: sin_subtitulos|no_disponible|limite|error, title?}`, `class Limite(Exception)`, in-memory cache (positive + negative), 429 cooldown, `_reset_estado()`, `ventanas_relevantes(lineas, query, max_chars) -> (texto, inicio_seg)`, async `buscar_videos(query, n)` (dedupe by id, drop > 4 h), async `fuentes_video(query, n, max_chars) -> (fuentes, omitidos)`. Network seams to be replaced by tests: `_buscar_sync(q, n)`, `_info_sync(video_id)`, async `_descargar(url)`.
+- Then T2 (research), T3 (ai_media web_search), T4 (ai_media `video_youtube` intent before `transcribe`, Whisper fallback, shared memory-saving code), T5 (docs, CAPAS.md + `test_capas_backend` entry for `youtube`, live probe), T6 (native review, merge to main).
+- Remember: ONE caption track per video (requesting es.*,en.* gave HTTP 429); `main` is clean and pushed (last commit `0806757`); the research follow-ups are merged.
