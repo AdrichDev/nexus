@@ -93,18 +93,69 @@ def _abrir(path: Path) -> bool:
         return False
 
 
+# Nombres que Windows no deja usar como archivo (con o sin extensión).
+_RESERVADOS = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)), *(f"lpt{i}" for i in range(1, 10))}
+
+# Apuntes de la memoria: ¿es un gasto, un ingreso o no está claro? (lo ambiguo NO se usa)
+_APUNTES_POR_PALABRA = 20     # cuántos apuntes se piden al grafo por cada palabra clave
+_MAX_GASTOS_PROMPT = 20       # tope por lista de lo que se manda al modelo
+_MAX_INGRESOS_PROMPT = 10
+_RX_GASTO = re.compile(
+    r"\b(?:gast\w*|he\s+pagado|pagu[eé]|pagado\s+(?:por|de|a)\b|compr[eé]|compra\w*|alquiler|"
+    r"suscripci[oó]n|cuota|n[oó]mina|seguro\s+de|factura\s+de\s+(?:la\s+)?(?:luz|agua|gas|internet))",
+    re.IGNORECASE)
+_RX_INGRESO = re.compile(
+    r"\b(?:cobr\w*|ingres\w*|me\s+(?:ha|han)\s+pagado|me\s+pag(?:ó|o|aron)\b|he\s+facturado|venta\w*)",
+    re.IGNORECASE)
+_NUM = r"\d{1,3}(?:[. ]\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?"
+_RX_IMPORTE = re.compile(rf"(?:({_NUM})\s*(?:€|eur(?:os?)?\b)|€\s*({_NUM}))", re.IGNORECASE)
+
+
+def _tipo_apunte(linea: str) -> str:
+    """'gasto' | 'ingreso' | '' (ambiguo o sin relación: no se usa)."""
+    g, i = bool(_RX_GASTO.search(linea)), bool(_RX_INGRESO.search(linea))
+    return "gasto" if g and not i else "ingreso" if i and not g else ""
+
+
+def _importe(linea: str) -> float | None:
+    """Primer importe en euros de la línea («1.234,50 €», «200€», «€ 45»), o None."""
+    m = _RX_IMPORTE.search(linea or "")
+    if not m:
+        return None
+    raw = (m.group(1) or m.group(2)).strip().replace(" ", "")
+    if "," in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw):
+        raw = raw.replace(".", "")
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _nombre_seguro(title: str) -> str:
+    safe = re.sub(r"[^\w\- ]", "", title)[:40].strip(" .-")
+    if not safe:
+        return "informe"
+    return f"informe-{safe}" if safe.lower() in _RESERVADOS else safe
+
+
 def _save_report(title: str, body_md: str) -> Path:
-    """Guarda el informe SIN pisar nunca uno anterior (mismo tema y día -> -2, -3…)."""
+    """Guarda el informe SIN pisar nunca uno anterior (mismo tema y día -> -2, -3…). La creación es
+    EXCLUSIVA (`open(..., 'x')`): si dos peticiones coinciden, la segunda pasa al siguiente nombre."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    safe = re.sub(r"[^\w\- ]", "", title)[:40].strip() or "informe"
-    base = f"{safe}-{dt.date.today().isoformat()}"
-    out, n = REPORTS_DIR / f"{base}.md", 2
-    while out.exists():
-        out = REPORTS_DIR / f"{base}-{n}.md"
-        n += 1
-    out.write_text(f"# {title}\n\n_{dt.datetime.now():%d/%m/%Y %H:%M} — "
-                   f"generado por nexus_\n\n{body_md}\n", encoding="utf-8")
-    return out
+    base = f"{_nombre_seguro(title)}-{dt.date.today().isoformat()}"
+    contenido = (f"# {title}\n\n_{dt.datetime.now():%d/%m/%Y %H:%M} — "
+                 f"generado por nexus_\n\n{body_md}\n")
+    n = 1
+    while True:
+        out = REPORTS_DIR / (f"{base}.md" if n == 1 else f"{base}-{n}.md")
+        try:
+            with open(out, "x", encoding="utf-8") as fh:
+                fh.write(contenido)
+            return out
+        except FileExistsError:
+            n += 1
 
 
 async def _full_report(topic: str, angle: str) -> dict:
@@ -175,16 +226,16 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "economy":
         from backend.core.infraestructura.llm import ask_llm
         pg = ctx["pg"]
-        # Las facturas son las EMITIDAS a clientes (billing): dinero que ENTRA. Los apuntes de
-        # gasto son lo que SALE. No se mezclan sin etiquetar: recortar sobre ingresos no tiene sentido.
-        ingresos, totales = [], {}
+        # Las facturas son las EMITIDAS a clientes (billing): dinero que ENTRA. Los apuntes se
+        # CLASIFICAN uno a uno (gasto / ingreso / ambiguo) y lo ambiguo no se usa para aconsejar.
+        facturas, totales = [], {}
         db_falla = False
         if pg.online:
             try:
                 rows = pg._rows("SELECT number, concept, amount, status FROM invoices "
                                 "ORDER BY id DESC LIMIT 20")
                 for r in rows:
-                    ingresos.append(f"INGRESO — Factura {r['number']}: {r['concept']} — "
+                    facturas.append(f"INGRESO — Factura {r['number']}: {r['concept']} — "
                                     f"{r['amount']}€ ({r['status']})")
                     try:
                         totales[r["status"]] = totales.get(r["status"], 0.0) + float(r["amount"])
@@ -192,12 +243,26 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                         pass
             except Exception:
                 db_falla = True      # tabla ausente o DB caída: se dice, no se calla
-        notas = ctx["graph"].search("gasto", 6) + ctx["graph"].search("pago", 6)
-        gastos, vistos = [], set()
-        for n in notas:
-            if n["line"] not in vistos:
-                vistos.add(n["line"])
-                gastos.append(f"GASTO — {n['line']}")
+        gastos, ingresos_notas, ignorados, vistos = [], [], 0, set()
+        gasto_total, con_importe = 0.0, 0
+        for clave in ("gasto", "pago", "cobro", "ingreso"):
+            for n in ctx["graph"].search(clave, _APUNTES_POR_PALABRA):
+                linea = n["line"]
+                if linea in vistos:
+                    continue
+                vistos.add(linea)
+                tipo = _tipo_apunte(linea)
+                if tipo == "gasto":
+                    gastos.append(linea)
+                    importe = _importe(linea)
+                    if importe is not None:
+                        gasto_total += importe
+                        con_importe += 1
+                elif tipo == "ingreso":
+                    ingresos_notas.append(f"INGRESO — {linea}")
+                else:
+                    ignorados += 1
+        ingresos = facturas + ingresos_notas
         aviso_db = "⚠ No he podido leer la tabla de facturas de la DB. " if db_falla else ""
         if not ingresos and not gastos:
             return {"reply": aviso_db + "No tengo datos económicos aún. Aliméntame: crea "
@@ -206,25 +271,39 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if not gastos:
             total = sum(totales.values())
             desglose = ", ".join(f"{estado}: {importe:.2f} €" for estado, importe in totales.items())
-            return {"reply": aviso_db + f"📊 Tengo {len(ingresos)} factura(s) emitida(s) (las últimas 20 como "
+            return {"reply": aviso_db + f"📊 Tengo {len(facturas)} factura(s) emitida(s) (las últimas 20 como "
                              f"máximo), es decir INGRESOS: {total:.2f} € en total"
                              + (f" ({desglose})" if desglose else "") + ". No tengo gastos registrados, "
                              "así que no puedo decirte dónde recortar. Apunta tus gastos («apunta que he "
                              "pagado 200€ de luz») y lo analizo."}
-        alcance = (f"{len(ingresos)} factura(s) emitida(s) (ingresos) y {len(gastos)} apunte(s) de gasto")
+        # Tope POR LISTA (antes un corte global podía tirar todos los ingresos o todos los gastos).
+        envio_gastos = [f"GASTO — {g}" for g in gastos[:_MAX_GASTOS_PROMPT]]
+        envio_ingresos = ingresos[:_MAX_INGRESOS_PROMPT]
+        alcance = (f"{len(facturas)} factura(s) emitida(s) (ingresos)"
+                   + (f", {len(ingresos_notas)} apunte(s) de ingreso" if ingresos_notas else "")
+                   + f" y {len(gastos)} apunte(s) de gasto")
+        notas = []
+        if ignorados:
+            notas.append(f"{ignorados} apunte(s) ignorado(s) por no ser claramente un gasto ni un ingreso")
+        if len(gastos) > len(envio_gastos) or len(ingresos) > len(envio_ingresos):
+            notas.append(f"al modelo le mando {len(envio_gastos)} de {len(gastos)} gastos y "
+                         f"{len(envio_ingresos)} de {len(ingresos)} ingresos")
+        fijos = (f"Total de gastos con importe: {gasto_total:.2f} € en {con_importe} apunte(s)"
+                 + (f"; {len(gastos) - con_importe} sin importe" if len(gastos) > con_importe else "") + ".")
         analysis, prov = await ask_llm(
             "Como asesor financiero de una pyme, analiza estos datos y di: dónde se puede APURAR "
             "(recortar), dónde NO conviene recortar, y 2 acciones concretas esta semana. Cada dato va "
-            "etiquetado: INGRESO = factura emitida a un cliente (dinero que entra; NO se recorta, "
-            "solo sirve de contexto) y GASTO = dinero que sale. Recomienda recortes SOLO sobre los "
-            "GASTO. Usa SOLO las cifras de abajo, no añadas otras. Sé directo:\n"
-            + "\n".join((gastos + ingresos)[:30]))
+            "etiquetado: INGRESO = dinero que entra (factura emitida a un cliente o cobro; NO se "
+            "recorta, solo sirve de contexto) y GASTO = dinero que sale. Recomienda recortes SOLO "
+            "sobre los GASTO. Usa SOLO las cifras de abajo, no añadas otras. Sé directo:\n"
+            + "\n".join(envio_gastos + envio_ingresos))
+        extra = (" (" + "; ".join(notas) + ")") if notas else ""
         if prov == "ninguno":
             return {"reply": aviso_db + f"No pude analizar tus datos (el modelo no está disponible): "
-                             f"{analysis}\nDatos que he leído: {alcance}."}
-        cabecera = (f"📊 Análisis sobre {alcance}"
+                             f"{analysis}\nDatos que he leído: {alcance}{extra}. {fijos}"}
+        cabecera = (f"📊 Análisis sobre {alcance}{extra}"
                     + (" (⚠ la tabla de facturas de la DB no ha respondido, "
-                       "van solo los apuntes del grafo)" if db_falla else "") + ":\n\n")
+                       "van solo los apuntes del grafo)" if db_falla else "") + f". {fijos}\n\n")
         return {"reply": cabecera + analysis}
 
     if intent == "history":

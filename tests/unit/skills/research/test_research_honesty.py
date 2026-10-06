@@ -107,8 +107,9 @@ try:
     res = correr("investiga el protocolo MQTT y hazme un informe")
     check(len(informes()) == 1 and "INFORME-GENERADO" in informes()[0].read_text(encoding="utf-8"),
           "base: con modelo se guarda el informe")
-    check("mis informes" in correr("mis informes")["reply"].lower() or "mqtt" in correr("mis informes")["reply"].lower(),
-          "base: el informe aparece en el histórico")
+    historial = correr("mis informes")["reply"]
+    check("Informes generados (1)" in historial and "protocolo MQTT" in historial,
+          "base: el histórico lista EL informe recién creado (1 informe, con su tema)")
 
     reset(modelo="ninguno")
     res = correr("investiga el protocolo MQTT y hazme un informe")
@@ -121,8 +122,8 @@ try:
 
     reset(modelo="ninguno", resultados=[], paginas={})
     res = correr("investiga el protocolo MQTT")
-    check("conocimiento general" not in res["reply"] and "no hay modelo" in res["reply"].lower()
-          or "modelo no está disponible" in res["reply"].lower(), "sin fuentes y sin modelo: lo dice, sin fingir conocimiento del modelo")
+    check("conocimiento general" not in res["reply"] and "el modelo no está disponible" in res["reply"],
+          "sin fuentes y sin modelo: lo dice, sin fingir conocimiento del modelo")
     check(not informes(), "sin fuentes y sin modelo: no guarda nada")
 
     reset(resultados=[], paginas={})
@@ -150,6 +151,23 @@ try:
     check(any("PRIMERA-VERSION" in t for t in textos) and any("SEGUNDA-VERSION" in t for t in textos),
           "nombres: el primer informe sigue intacto")
 
+    # ---- 3b) guardado atómico y nombres seguros ------------------------------------------------------
+    reset()
+    orig_exists = Path.exists
+    Path.exists = lambda self, *a, **k: False if self.suffix == ".md" else orig_exists(self, *a, **k)   # simula la carrera
+    try:
+        a = research._save_report("Tema de la carrera", "UNO")
+        b = research._save_report("Tema de la carrera", "DOS")
+    finally:
+        Path.exists = orig_exists
+    check(a != b and a.read_text(encoding="utf-8").count("UNO") == 1 and "DOS" in b.read_text(encoding="utf-8"),
+          "guardado: aunque `exists()` mienta (otra petición a la vez), la creación es exclusiva y no pisa")
+    for titulo in ("CON", "nul", "com1", "  ...  ", "tema. "):
+        ruta = research._save_report(titulo, "x")
+        nombre = ruta.stem.split("-")[0].lower()
+        check(nombre not in {"con", "prn", "aux", "nul", "com1", "lpt1"} and not ruta.name.startswith((" ", "."))
+              and not ruta.stem.endswith((" ", ".")), f"guardado: «{titulo}» no genera un nombre reservado ni acabado en punto/espacio ({ruta.name})")
+
     # ---- 4) fuentes: anuncios fuera, lectura en paralelo, timeout, numeración -----------------------
     reset(resultados=ANUNCIOS + BUENOS)
     correr("investiga el protocolo MQTT y hazme un informe")
@@ -157,7 +175,8 @@ try:
     prompt = estado["prompts"][-1]
     check("Compra mqtt" not in prompt and "more info" not in prompt, "fuentes: los anuncios no entran en el prompt")
     check("[1]" in prompt and "[4]" in prompt and "cita" in prompt.lower(), "fuentes: numeradas [n] y se pide citar")
-    check("fuente" in prompt.lower() and ("no" in prompt.lower()), "fuentes: el prompt pide admitir lo que las fuentes no cubren")
+    check("las fuentes no cubren" in prompt and "dilo en lugar de suponer" in prompt,
+          "fuentes: el prompt pide admitir lo que las fuentes no cubren")
     texto = informes()[-1].read_text(encoding="utf-8")
     check("[1] [Fuente 1](https://f1.example/p)" in texto, "fuentes: la sección «Fuentes» del informe va numerada")
 
@@ -222,6 +241,36 @@ try:
     check("INGRESO" in prompt and "GASTO" in prompt and "he pagado 200€ de luz" in prompt,
           "economía: con gastos reales, el prompt distingue INGRESO de GASTO")
     check("2 factura" in res["reply"] and "1 apunte" in res["reply"], "economía: la cabecera dice cuántas facturas y apuntes de gasto usó")
+
+    # los apuntes se CLASIFICAN: un cobro no es un gasto, y lo ambiguo no se usa
+    reset()
+    notas_mixtas = ["he pagado 200€ de luz (gasto)", "Acme me ha pagado 500€ por la web (cobro)",
+                    "pago pendiente de revisar", "gasto 1.234,50 € de alquiler del local", "gasto en café sin importe"]
+    res = correr("dónde puedo recortar gastos", {"pg": PgFalso(facturas), "graph": GrafoFalso(notas_mixtas)})
+    prompt = estado["prompts"][-1]
+    check("GASTO — he pagado 200€ de luz" in prompt and "GASTO — gasto 1.234,50 € de alquiler" in prompt,
+          "economía: los apuntes que son gastos van como GASTO")
+    check("GASTO — Acme me ha pagado" not in prompt and "INGRESO — Acme me ha pagado 500€" in prompt,
+          "economía: «Acme me ha pagado 500€» es un INGRESO, nunca un gasto")
+    check("pago pendiente de revisar" not in prompt, "economía: un apunte ambiguo no se usa para aconsejar")
+    check("3 apunte(s) de gasto" in res["reply"] and "ignorado" in res["reply"].lower(),
+          "economía: la cabecera dice cuántos gastos usó y cuántos apuntes ignoró")
+    check("1434.50" in res["reply"], "economía: total determinista de los gastos con importe (200 + 1.234,50)")
+    check("sin importe" in res["reply"].lower(), "economía: avisa de los gastos que no llevan importe")
+
+    # tope por lista (no cortar ingresos o gastos en silencio)
+    reset()
+    muchos_gastos = [f"gasto número {i} de {i}€ en material" for i in range(1, 31)]
+    muchas_facturas = [{"number": f"F-{i}", "concept": "x", "amount": 10, "status": "pagada"} for i in range(1, 16)]
+
+    class GrafoTodo(GrafoFalso):
+        def search(self, q, n=6):                       # ignora n: devuelve todo lo que casa
+            return [{"line": l} for l in self.lineas if "gasto" in l.lower()] if q == "gasto" else []
+    res = correr("dónde puedo recortar gastos", {"pg": PgFalso(muchas_facturas), "graph": GrafoTodo(muchos_gastos)})
+    prompt = estado["prompts"][-1]
+    check(prompt.count("GASTO —") == 20 and prompt.count("INGRESO —") == 10,
+          f"economía: tope por lista (20 gastos y 10 ingresos), no un corte global ({prompt.count('GASTO —')}/{prompt.count('INGRESO —')})")
+    check("20 de 30" in res["reply"] and "10 de 15" in res["reply"], "economía: dice que se enseñaron 20 de 30 gastos y 10 de 15 facturas")
 
     reset(modelo="ninguno")
     res = correr("dónde puedo recortar gastos", {"pg": PgFalso(facturas), "graph": GrafoFalso(["he pagado 200€ de luz (gasto)"])})

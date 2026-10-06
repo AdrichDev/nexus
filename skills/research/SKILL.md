@@ -34,10 +34,15 @@ las fuentes citadas. Guarda el histórico y sabe reabrir uno viejo.
 - **Un informe nuevo nunca pisa a otro**: si ya hay uno del mismo tema y día, el nuevo se guarda como `…-2`, `…-3`.
 - Si el navegador/editor no se puede abrir, lo dice y te da la ruta en vez de afirmar que está abierto.
 - «abre el informe de X» abre el más reciente que coincida y avisa de los demás que también coinciden.
-- **Informe económico**: las facturas de `billing` son facturas EMITIDAS a clientes, o sea **INGRESOS**; los apuntes de
-  gasto son **GASTOS**. Se tratan por separado: sin gastos registrados no te dice dónde recortar, te da el total de
-  ingresos (con desglose por estado) y te pide que apuntes tus gastos. Lee como máximo las últimas 20 facturas y 12
-  apuntes por palabra clave, y lo dice en la cabecera.
+- **Informe económico**: las facturas de `billing` son facturas EMITIDAS a clientes, o sea **INGRESOS**. Los apuntes
+  de la memoria (busca «gasto», «pago», «cobro» e «ingreso», hasta 20 por palabra) se **clasifican uno a uno**: gasto
+  («he pagado 200€ de luz»), ingreso («Acme me ha pagado 500€») o ambiguo («pago pendiente de revisar»). **Lo ambiguo no
+  se usa** y la cabecera dice cuántos apuntes ignoró. Sin gastos registrados no te dice dónde recortar: te da el total de
+  ingresos (con desglose por estado) y te pide que apuntes tus gastos. Con gastos, calcula **sin el modelo** el total de
+  los que llevan importe (y cuántos no lo llevan) y al modelo le manda como máximo 20 gastos y 10 ingresos, diciendo
+  cuántos eran de verdad.
+- Los informes se crean con creación exclusiva (dos peticiones a la vez no se pisan) y con un nombre válido en
+  Windows (`CON`, `NUL`… se renombran).
 
 ## Qué necesita configurado
 
