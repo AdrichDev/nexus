@@ -620,3 +620,43 @@ def summarize(results: list[dict], limit: int = 6) -> str:
         if piece:
             lines.append("- " + piece[:300])
     return "\n".join(lines)
+
+
+# ───────────────── helpers para quien responde con la web (ai_media, research) ─────────────────
+_HOSTS_RUIDO = ("duckduckgo.com", "bing.com", "googleadservices.com", "doubleclick.net")
+
+
+def sin_ruido(results: list[dict]) -> list[dict]:
+    """Quita lo que no es una fuente: anuncios y redirecciones de buscador, y resultados sin
+    título. Sin esto, un «Compra X en Amazon» patrocinado ocupa una de las páginas que se leen
+    y acaba citado como fuente."""
+    limpios = []
+    for r in results or []:
+        url = r.get("url") or ""
+        titulo = (r.get("title") or "").strip()
+        host = urlparse(url).netloc.lower()
+        if not url or not titulo or titulo.lower() == "more info":
+            continue
+        if any(host == h or host.endswith("." + h) for h in _HOSTS_RUIDO):
+            continue
+        limpios.append(r)
+    return limpios
+
+
+async def leer_paginas(results: list[dict], n: int = 3, max_chars: int = 1800,
+                       timeout: float = 8.0) -> list[str]:
+    """Lee EN PARALELO el texto de las `n` primeras páginas (el mismo orden que `results`).
+    Una página lenta o que falla devuelve '' sin bloquear ni tumbar a las demás."""
+    import asyncio as _aio
+
+    async def una(r: dict) -> str:
+        url = r.get("url") or ""
+        if not url:
+            return ""
+        try:
+            return await _aio.wait_for(fetch_page(url, max_chars=max_chars), timeout)
+        except Exception:
+            return ""
+
+    return list(await _aio.gather(*[una(r) for r in results[:n]]))
+

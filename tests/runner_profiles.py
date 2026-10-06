@@ -78,6 +78,7 @@ SAFE_UNIT_SUITES = (
     "unit/skills/datos/test_datos_honesty.py",
     "unit/skills/vigilancias/test_vigilancias_integrity.py",
     "unit/skills/ai_media/test_ai_media_honesty.py",
+    "unit/skills/research/test_research_honesty.py",
     "unit/memory/test_redaccion_memoria.py",
     "unit/frontend/test_modules.py",
     "unit/core/runtime/test_log_aislado.py",

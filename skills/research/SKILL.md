@@ -24,6 +24,21 @@ las fuentes citadas. Guarda el histórico y sabe reabrir uno viejo.
 - **Reabrir**: «abre el informe de <tema>» · «reabre el informe de <tema>» ·
   «enséñame el informe de <tema>»
 
+## Cómo trabaja (y qué garantiza)
+
+- Lee hasta **5 páginas en paralelo** (máximo 8 s cada una) y cita las **4 primeras con texto**; los anuncios y
+  redirecciones del buscador no cuentan como fuentes. Las fuentes van **numeradas**: el informe cita `[1]`, `[2]`… y
+  acaba con «## Fuentes» numerada. Si las fuentes no cubren algo, el modelo debe decirlo en vez de suponer.
+- **Sin modelo de lenguaje** no hay informe: no se guarda nada (ni el mensaje de error como si lo fuera), no entra en
+  el histórico y te enseña las fuentes que sí leyó.
+- **Un informe nuevo nunca pisa a otro**: si ya hay uno del mismo tema y día, el nuevo se guarda como `…-2`, `…-3`.
+- Si el navegador/editor no se puede abrir, lo dice y te da la ruta en vez de afirmar que está abierto.
+- «abre el informe de X» abre el más reciente que coincida y avisa de los demás que también coinciden.
+- **Informe económico**: las facturas de `billing` son facturas EMITIDAS a clientes, o sea **INGRESOS**; los apuntes de
+  gasto son **GASTOS**. Se tratan por separado: sin gastos registrados no te dice dónde recortar, te da el total de
+  ingresos (con desglose por estado) y te pide que apuntes tus gastos. Lee como máximo las últimas 20 facturas y 12
+  apuntes por palabra clave, y lo dice en la cabecera.
+
 ## Qué necesita configurado
 
 - Un LLM configurado (`config/settings.json`) para redactar.

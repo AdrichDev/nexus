@@ -27,6 +27,8 @@ Last updated: 2026-10-05 after delivering `research-correction-learning` to `mai
 
 - `ai_media` focus (2026-10-05, owner request): image generation and image "analysis" removed (they only produced a placeholder SVG / file metadata); the skill is now "Audio y búsqueda web". Search reads the pages and cites numbered sources; transcription validates files, adds timestamps, analyses long audio in blocks and replaces earlier rows when re-run. See `odd/tasks/ai-media-focus.md`. Open: connect a real image engine / vision model as a NEW skill if wanted; transcription language detection; real Whisper run. Native review approved; advisories open (no detail): `skills/ai_media/skill.py` lines 230-240 (WARNING), 243 (WARNING), 126-129 (WARNING) and `memory.py:935-941` (suggestion).
 
+- Skill audit `research` (2026-10-05): without a model the error text was saved as a report and listed in the history, the same-topic/same-day report overwrote the previous one, the browser was claimed open without checking, pages were read serially with search-engine ads taking the reads, and the economic report fed ISSUED invoices (income) to a "recortar gastos" prompt as if they were expenses. Fixed on `fix/research-honesty` (see `odd/tasks/research-honesty.md`); shared helpers `websearch.sin_ruido` / `websearch.leer_paginas` now also serve `ai_media`.
+
 ## Carry-forward annotations
 - Google browser search works in the last safe live run, but it can still CAPTCHA later; Nexus must degrade honestly when blocked.
 - Chrome search runs as an off-screen browser inside the server process; two processes cannot share the same Google browser profile.

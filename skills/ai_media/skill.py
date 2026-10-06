@@ -83,36 +83,13 @@ _TIMEOUT_PAGINA = 8.0        # segundos máximos por página: una lenta no bloqu
 
 async def _leer_paginas(results: list[dict]) -> list[str]:
     from backend.core.infraestructura import websearch
-
-    async def una(r: dict) -> str:
-        url = r.get("url") or ""
-        if not url:
-            return ""
-        try:
-            return await asyncio.wait_for(websearch.fetch_page(url, max_chars=_CHARS_PAGINA),
-                                          _TIMEOUT_PAGINA)
-        except Exception:
-            return ""
-
-    return list(await asyncio.gather(*[una(r) for r in results[:_PAGINAS_A_LEER]]))
-
-
-_HOSTS_RUIDO = ("duckduckgo.com", "bing.com", "googleadservices.com", "doubleclick.net")
+    return await websearch.leer_paginas(results, n=_PAGINAS_A_LEER, max_chars=_CHARS_PAGINA,
+                                        timeout=_TIMEOUT_PAGINA)
 
 
 def _limpiar(results: list[dict]) -> list[dict]:
-    """Quita lo que no es una fuente: anuncios y redirecciones de buscador, y resultados sin título.
-    Sin esto, un «Compra X en Amazon» patrocinado ocupa una de las páginas que se leen."""
-    limpios = []
-    for r in results:
-        host = urlparse(r.get("url") or "").netloc.lower()
-        titulo = (r.get("title") or "").strip().lower()
-        if not (r.get("url") and titulo) or titulo == "more info":
-            continue
-        if any(host == h or host.endswith("." + h) for h in _HOSTS_RUIDO):
-            continue
-        limpios.append(r)
-    return limpios
+    from backend.core.infraestructura import websearch
+    return websearch.sin_ruido(results)
 
 
 def _lista_fuentes(results: list[dict]) -> str:

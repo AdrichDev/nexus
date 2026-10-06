@@ -79,28 +79,52 @@ def md_to_docx(md_text: str, out_path) -> bool:
         return False
 
 
+_PAGINAS_CANDIDATAS = 5      # páginas que se leen (en paralelo); las 4 primeras con texto se citan
+_PAGINAS_CITADAS = 4
+_CHARS_PAGINA = 2500
+_TIMEOUT_PAGINA = 8.0        # segundos máximos por página: una lenta no bloquea el informe
+
+
+def _abrir(path: Path) -> bool:
+    """True solo si el navegador/editor SE ABRIÓ (`webbrowser.open` devuelve False si no puede)."""
+    try:
+        return bool(webbrowser.open(path.as_uri()))
+    except Exception:
+        return False
+
+
 def _save_report(title: str, body_md: str) -> Path:
+    """Guarda el informe SIN pisar nunca uno anterior (mismo tema y día -> -2, -3…)."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^\w\- ]", "", title)[:40].strip() or "informe"
-    out = REPORTS_DIR / f"{safe}-{dt.date.today().isoformat()}.md"
+    base = f"{safe}-{dt.date.today().isoformat()}"
+    out, n = REPORTS_DIR / f"{base}.md", 2
+    while out.exists():
+        out = REPORTS_DIR / f"{base}-{n}.md"
+        n += 1
     out.write_text(f"# {title}\n\n_{dt.datetime.now():%d/%m/%Y %H:%M} — "
                    f"generado por nexus_\n\n{body_md}\n", encoding="utf-8")
     return out
 
 
 async def _full_report(topic: str, angle: str) -> dict:
+    from backend.core.infraestructura import websearch
     from backend.core.infraestructura.llm import ask_llm
-    results = await _ddg_search(topic, 6)
-    sources_txt, cited = "", []
-    for res in results[:4]:
-        content = await _fetch_text(res["url"])
-        if content:
-            cited.append(res)
-            sources_txt += f"\n\n--- FUENTE: {res['title']} ({res['url']}) ---\n{content[:2500]}"
-    if not sources_txt:
-        reply, _ = await ask_llm(
+    # Sin anuncios del buscador; se leen en PARALELO y se citan las primeras con texto.
+    results = websearch.sin_ruido(await _ddg_search(topic, 8))[:6]
+    candidatas = results[:_PAGINAS_CANDIDATAS]
+    textos = await websearch.leer_paginas(candidatas, n=len(candidatas), max_chars=_CHARS_PAGINA,
+                                          timeout=_TIMEOUT_PAGINA)
+    leidas = [(r, t) for r, t in zip(candidatas, textos) if t][:_PAGINAS_CITADAS]
+    cited = [r for r, _t in leidas]
+    if not leidas:
+        reply, prov = await ask_llm(
             f"{angle} sobre «{topic}». No hay fuentes web disponibles ahora mismo: "
             "usa tu conocimiento general y dilo claramente al principio.")
+        if prov == "ninguno":
+            return {"reply": f"⚠ No he podido leer NINGUNA fuente web sobre «{topic}» (¿sin red o las "
+                             "fuentes bloquean?) y el modelo no está disponible, así que no tengo nada "
+                             f"que ofrecerte ahora. Motivo del modelo: {reply}", "sources": []}
         # Sin fuentes no hay informe: se dice antes del texto y no se guarda
         # nada en data/reports/ para que el histórico solo tenga informes reales.
         return {"reply": "⚠ No he podido leer NINGUNA fuente web sobre "
@@ -108,24 +132,32 @@ async def _full_report(topic: str, angle: str) -> dict:
                          "sale del conocimiento general del modelo, NO está contrastado "
                          "y no lo guardo como informe:\n\n" + reply[:1200],
                 "sources": []}
-    report, _ = await ask_llm(
+    sources_txt = "\n\n".join(f"--- FUENTE [{i}]: {r['title']} ({r['url']}) ---\n{t[:_CHARS_PAGINA]}"
+                              for i, (r, t) in enumerate(leidas, 1))
+    report, prov = await ask_llm(
         f"{angle} sobre «{topic}» usando SOLO estas fuentes. Estructura: "
         "**Resumen ejecutivo** (3 frases), **Hallazgos clave** (4-6 puntos con datos), "
-        "**Oportunidades** (2-3), **Recomendación**. Cita las fuentes por título.\n"
-        f"{sources_txt[:9000]}")
-    src_md = "\n".join(f"- [{s['title']}]({s['url']})" for s in cited)
+        "**Oportunidades** (2-3), **Recomendación**. Cita cada dato con el número de su fuente "
+        "entre corchetes, p. ej. [1]. Si las fuentes no cubren algún punto, dilo en lugar de "
+        f"suponer.\n{sources_txt[:9000]}")
+    if prov == "ninguno":
+        # Sin modelo no hay informe: el mensaje de error NO se guarda como si lo fuera.
+        lista = "\n".join(f"• {r['title']} — {r['url']}" for r in cited)
+        return {"reply": f"No pude redactar el informe sobre «{topic}» (el modelo no está disponible), "
+                         f"pero estas son las fuentes que sí leí:\n{lista}\nMotivo: {report}",
+                "sources": cited}
+    src_md = "\n".join(f"[{i}] [{s['title']}]({s['url']})" for i, s in enumerate(cited, 1))
     path = _save_report(topic, report + "\n\n## Fuentes\n" + src_md)
     docx_path = path.with_suffix(".docx")
     full_md = (f"# {topic}\n\n_{dt.datetime.now():%d/%m/%Y %H:%M} — generado por nexus_\n\n"
                + report + "\n\n## Fuentes\n" + src_md)
     has_docx = md_to_docx(full_md, docx_path)
-    try:
-        webbrowser.open(path.as_uri())
-    except Exception:
-        pass
+    abierto = _abrir(path)
     extra = f" + Word ({docx_path.name})" if has_docx else ""
-    return {"reply": f"Informe sobre «{topic}» generado con {len(cited)} fuentes "
-                     f"(data/reports/{path.name}{extra}, abierto en tu editor/navegador). "
+    donde = (f"(data/reports/{path.name}{extra}, abierto en tu editor/navegador)" if abierto else
+             f"en data/reports/{path.name}{extra}, pero no pude abrir el navegador ni el editor: "
+             "ábrelo tú desde esa ruta")
+    return {"reply": f"Informe sobre «{topic}» generado con {len(cited)} fuentes {donde}. "
                      "Di «mis informes» para ver el histórico.\n\n"
                      f"{report[:800]}...", "sources": cited}
 
@@ -143,30 +175,54 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "economy":
         from backend.core.infraestructura.llm import ask_llm
         pg = ctx["pg"]
-        facts = []
+        # Las facturas son las EMITIDAS a clientes (billing): dinero que ENTRA. Los apuntes de
+        # gasto son lo que SALE. No se mezclan sin etiquetar: recortar sobre ingresos no tiene sentido.
+        ingresos, totales = [], {}
         db_falla = False
         if pg.online:
             try:
                 rows = pg._rows("SELECT number, concept, amount, status FROM invoices "
                                 "ORDER BY id DESC LIMIT 20")
-                facts += [f"Factura {r['number']}: {r['concept']} — {r['amount']}€ ({r['status']})"
-                          for r in rows]
+                for r in rows:
+                    ingresos.append(f"INGRESO — Factura {r['number']}: {r['concept']} — "
+                                    f"{r['amount']}€ ({r['status']})")
+                    try:
+                        totales[r["status"]] = totales.get(r["status"], 0.0) + float(r["amount"])
+                    except (TypeError, ValueError):
+                        pass
             except Exception:
                 db_falla = True      # tabla ausente o DB caída: se dice, no se calla
-        notes = ctx["graph"].search("gasto", 6) + ctx["graph"].search("pago", 6)
-        facts += [n["line"] for n in notes]
-        if not facts:
-            aviso = ("⚠ No he podido leer la tabla de facturas de la DB. " if db_falla
-                     else "")
-            return {"reply": aviso + "No tengo datos económicos aún. Aliméntame: crea "
+        notas = ctx["graph"].search("gasto", 6) + ctx["graph"].search("pago", 6)
+        gastos, vistos = [], set()
+        for n in notas:
+            if n["line"] not in vistos:
+                vistos.add(n["line"])
+                gastos.append(f"GASTO — {n['line']}")
+        aviso_db = "⚠ No he podido leer la tabla de facturas de la DB. " if db_falla else ""
+        if not ingresos and not gastos:
+            return {"reply": aviso_db + "No tengo datos económicos aún. Aliméntame: crea "
                              "facturas, apunta gastos («apunta que he pagado 200€ de luz») o "
                              "conéctame a tu base de datos con la skill de datos."}
-        analysis, _ = await ask_llm(
-            "Como asesor financiero de una pyme, analiza estos datos y di: dónde se "
-            "puede APURAR (recortar), dónde NO conviene recortar, y 2 acciones "
-            "concretas esta semana. Usa SOLO las cifras de abajo, no añadas otras. "
-            "Sé directo:\n" + "\n".join(facts[:30]))
-        cabecera = (f"📊 Análisis sobre {len(facts)} apunte(s) reales de tu memoria"
+        if not gastos:
+            total = sum(totales.values())
+            desglose = ", ".join(f"{estado}: {importe:.2f} €" for estado, importe in totales.items())
+            return {"reply": aviso_db + f"📊 Tengo {len(ingresos)} factura(s) emitida(s) (las últimas 20 como "
+                             f"máximo), es decir INGRESOS: {total:.2f} € en total"
+                             + (f" ({desglose})" if desglose else "") + ". No tengo gastos registrados, "
+                             "así que no puedo decirte dónde recortar. Apunta tus gastos («apunta que he "
+                             "pagado 200€ de luz») y lo analizo."}
+        alcance = (f"{len(ingresos)} factura(s) emitida(s) (ingresos) y {len(gastos)} apunte(s) de gasto")
+        analysis, prov = await ask_llm(
+            "Como asesor financiero de una pyme, analiza estos datos y di: dónde se puede APURAR "
+            "(recortar), dónde NO conviene recortar, y 2 acciones concretas esta semana. Cada dato va "
+            "etiquetado: INGRESO = factura emitida a un cliente (dinero que entra; NO se recorta, "
+            "solo sirve de contexto) y GASTO = dinero que sale. Recomienda recortes SOLO sobre los "
+            "GASTO. Usa SOLO las cifras de abajo, no añadas otras. Sé directo:\n"
+            + "\n".join((gastos + ingresos)[:30]))
+        if prov == "ninguno":
+            return {"reply": aviso_db + f"No pude analizar tus datos (el modelo no está disponible): "
+                             f"{analysis}\nDatos que he leído: {alcance}."}
+        cabecera = (f"📊 Análisis sobre {alcance}"
                     + (" (⚠ la tabla de facturas de la DB no ha respondido, "
                        "van solo los apuntes del grafo)" if db_falla else "") + ":\n\n")
         return {"reply": cabecera + analysis}
@@ -190,16 +246,21 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         which = (match.group("which") or "").strip(" .?!").lower()
         files = sorted(REPORTS_DIR.glob("*.md"), key=lambda f: f.stat().st_mtime,
                        reverse=True) if REPORTS_DIR.exists() else []
-        hit = next((f for f in files if which in f.stem.lower()), None)
+        coinciden = [f for f in files if which in f.stem.lower()]
+        hit = coinciden[0] if coinciden else None          # el más reciente
         if not hit:
             return {"reply": f"📚 No encuentro ningún informe sobre «{which}». "
                              "Di «mis informes» para ver los que hay, o "
                              f"«investiga {which} y hazme un informe» y lo creo."}
         target = hit.with_suffix(".docx") if hit.with_suffix(".docx").exists() else hit
-        try:
-            webbrowser.open(target.as_uri())
-        except Exception:
-            pass
-        return {"reply": f"📚 Reabierto: «{hit.stem}» ({target.name})."}
+        otros = ""
+        if len(coinciden) > 1:
+            otros = (" También coinciden: " + ", ".join(f.stem for f in coinciden[1:4])
+                     + (f" y {len(coinciden) - 4} más" if len(coinciden) > 4 else "")
+                     + ". Dime el nombre completo para abrir otro.")
+        if not _abrir(target):
+            return {"reply": f"📚 No pude abrir el navegador ni el editor: el informe «{hit.stem}» "
+                             f"está en data/reports/{target.name}.{otros}"}
+        return {"reply": f"📚 Reabierto: «{hit.stem}» ({target.name}).{otros}"}
 
     return {"reply": "Orden de investigación no reconocida."}
