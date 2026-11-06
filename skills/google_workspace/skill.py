@@ -778,6 +778,11 @@ def _fechas_pedidas(text: str) -> list[dt.date]:
 # Cuando el operador dice que ya lo ha comprobado él, preguntar otra vez no es
 # prudencia: es hacerle repetir. Todo lo que se borra va a la papelera, así que
 # saltarse la confirmación no destruye nada de forma irreversible.
+#
+# SOLO PARA BORRADOS QUE VAN A LA PAPELERA (hoy: eventos de calendario). NO se
+# extiende a los ENVÍOS, y no es un olvido: de aquí sale un correo o un WhatsApp
+# en nombre del operador y eso no se puede deshacer. «Hazlo ya» acelera un
+# borrado reversible; en un envío, el «sí» se da siempre viendo el mensaje.
 _SIN_PREGUNTAR_RX = re.compile(
     r"\b(?:directamente|sin\s+preguntar(?:me)?|no\s+(?:me\s+)?preguntes(?:\s+m[aá]s)?|"
     r"ya\s+lo\s+(?:he\s+)?(?:comprobado|mirado|revisado|visto)|"
@@ -1816,6 +1821,84 @@ async def _llm_text(order: str) -> str:
     return ""
 
 
+# ── ENVIAR CORREO: VISTA PREVIA + CONFIRMACIÓN + IDEMPOTENCIA (SEC-05, P1-4) ──
+# Incidencia SEC-05 de la auditoría del 30/07/2026: `send_email` parseaba el
+# destinatario, dejaba que el MODELO redactara el cuerpo cuando la orden no lo
+# dictaba, y llamaba a _send_gmail acto seguido. Dos problemas y un contraste:
+#
+#   1) Nadie veía el correo antes de que saliera. Con el scope gmail.send puesto,
+#      una frase mal enrutada o un cuerpo alucinado mandaban un correo REAL en
+#      nombre del operador.
+#   2) La misma orden dos veces mandaba dos correos.
+#   3) Borrar un evento o vaciar Drive SÍ pasaban por confirm.request(). La
+#      asimetría era el hallazgo: lo que sale de este equipo se pregunta igual.
+#
+# El correo se ARMA (confirm.request) enseñando destinatario, asunto y cuerpo tal
+# cual van a salir, y solo sale desde el `action`, que es lo único que se ejecuta
+# al decir «sí». Es un envío, no una destrucción → destructive=False, pero la
+# duda que resuelve la confirmación es la misma: ¿esto de verdad lo he pedido yo?
+#
+def _vista_correo(to: str, subject: str, body: str, redactado_por_nexus: bool) -> str:
+    """La pregunta que ve el operador: el correo TAL CUAL va a salir.
+
+    Se enseña destinatario, asunto y cuerpo, y el cuerpo se RECORTA con «…» si no
+    cabe (recortar no es resumir). Si lo escribió el modelo se dice en voz alta:
+    el operador tiene que saber qué texto no ha dictado él antes de dar el sí."""
+    from backend.core.comun import confirm
+    lineas = ["📧 Voy a enviar este correo, tal cual:",
+              f"Para: {to}",
+              f"Asunto: {subject}"]
+    lineas.append("Cuerpo (redactado por nexus, NO lo has dictado tú):"
+                  if redactado_por_nexus else "Cuerpo:")
+    lineas.append(confirm.recortar(body))
+    lineas.append("¿Lo envío? Responde «sí» o «no».")
+    return "\n".join(lineas)
+
+
+def _envio_correo_confirmado(*, text: str, to: str, subject: str, body: str,
+                             canal: str, redactado_por_nexus: bool) -> str:
+    """Arma el correo y devuelve la pregunta. NO se envía nada hasta el «sí».
+
+    Antes de armar se mira la memoria corta de envíos: la misma orden repetida
+    dentro de la ventana de config/umbrales.json no llega ni a preguntar, porque
+    ya salió. Y se vuelve a mirar dentro del `action`, que es donde de verdad se
+    decide enviar."""
+    from backend.core.comun import confirm
+    ventana = confirm.umbrales_envios()["ventana_idempotencia_seg"]
+    clave = confirm.clave_envio("envio_correo", to, subject, body)
+    destinos = [{"id": to, "title": subject}]
+
+    def _ya_salio() -> str:
+        return (f"Ese correo a {to} (asunto «{subject}») ya ha salido hace un momento. "
+                "No lo mando otra vez: dos correos iguales no son dos avisos. Si de "
+                "verdad quieres repetirlo, cambia el asunto o el cuerpo y te lo vuelvo "
+                "a pedir confirmar.")
+
+    if confirm.ya_enviado(clave, ventana, channel=canal, kind="envio_correo",
+                          targets=destinos):
+        return _ya_salio()
+
+    async def _enviar() -> str:
+        if confirm.ya_enviado(clave, ventana, channel=canal, kind="envio_correo",
+                              targets=destinos):
+            return _ya_salio()
+        # Si esto revienta, confirm.answer() lo cuenta con su frase de siempre
+        # («Iba a hacerlo y ha fallado…») y el envío NO se marca: se puede
+        # reintentar. Nunca se da por enviado lo que no ha salido.
+        await asyncio.to_thread(_send_gmail, to, subject, body)
+        confirm.marcar_enviado(clave, channel=canal, kind="envio_correo",
+                               targets=destinos,
+                               result=f"correo a {to}: «{subject}»")
+        return (f"✔ Enviado a {to} — asunto «{subject}». Ha salido una sola vez; "
+                "lo tienes en tu bandeja de enviados.")
+
+    return confirm.request(
+        channel=canal, kind="envio_correo",
+        summary=_vista_correo(to, subject, body, redactado_por_nexus),
+        action=_enviar, request_text=text, targets=destinos,
+        cancel_reply="Vale, no he enviado nada.", destructive=False)
+
+
 # ── GOOGLE DRIVE ─────────────────────────────────────────────────────────────
 # Para qué existe esto: el informe diario de competencia se genera en .md, se manda
 # por correo (_send_gmail) y se sube AQUÍ, para que después ChatGPT o Claude —que
@@ -2653,18 +2736,24 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             if not to:
                 return {"reply": "¿A qué dirección lo envío? Dímelo así: «envía un correo a "
                                  "nombre@dominio.com con asunto X diciendo Y»."}
+            redactado_por_nexus = False
             if not body:
                 # sin cuerpo explícito → el cerebro lo redacta a partir de la orden
                 body = await _llm_text(
                     "Redacta SOLO el cuerpo del correo que pide esta orden (español, "
                     "breve, natural, sin asunto ni despedidas raras; fírmalo como "
                     f"{ctx['settings'].get('operator_name', 'el operador')}): {text}")
+                redactado_por_nexus = bool(body)
             if not body:
                 return {"reply": "Dime qué quieres que ponga: «… diciendo <mensaje>»."}
             if not subject:
                 subject = " ".join(body.split()[:7]) + ("…" if len(body.split()) > 7 else "")
-            await asyncio.to_thread(_send_gmail, to, subject, body)
-            return {"reply": f"✔ Enviado a {to} — asunto «{subject}»:\n{body[:300]}"}
+            # A partir de aquí NADA sale sin un «sí». Ni el atajo de «no me
+            # preguntes» (que existe para lo que va a la papelera) sirve aquí.
+            return {"reply": _envio_correo_confirmado(
+                text=text, to=to, subject=subject, body=body,
+                canal=ctx.get("channel", "pc"),
+                redactado_por_nexus=redactado_por_nexus)}
 
         if intent == "summarize_emails":
             try:

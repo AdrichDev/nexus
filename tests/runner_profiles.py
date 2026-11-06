@@ -184,6 +184,9 @@ UNSAFE_LEGACY_SUITES = (
     "unit/skills/clima/test_clima_errors.py",
     "unit/skills/small_skills/test_skills_pequenas_1.py",
     "unit/skills/small_skills/test_skills_pequenas_2.py",
+    # WhatsApp de n8n: se arma, se confirma y no sale dos veces (SEC-05).
+    # En proceso, con _post y el móvil doblados y carpetas de usar y tirar.
+    "unit/skills/n8n_flows/test_envios.py",
     "unit/core/runtime/test_capas_backend.py",
     "unit/core/test_resultados_trabajos.py",
     "unit/core/learning/test_reglas_valores.py",

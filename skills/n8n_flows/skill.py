@@ -81,6 +81,29 @@ async def _safe_whatsapp_via_movil(to: str, body: str, ctx) -> dict | None:
         return None
 
 
+# ── WHATSAPP: VISTA PREVIA + CONFIRMACIÓN + IDEMPOTENCIA (SEC-05, P1-4) ──────
+# Incidencia SEC-05: `handle("whatsapp", …)` hacía el POST al webhook de n8n —o
+# abría WhatsApp en el móvil— en la misma llamada, sin que nadie viera el mensaje
+# antes de que saliera, y sin nada que impidiera que la misma orden repetida lo
+# mandara dos veces. El correo tenía el mismo agujero; la asimetría con lo que sí
+# pedía confirmación era el hallazgo.
+#
+# Ahora el mensaje se ARMA enseñándolo tal cual y la cadena de siempre (n8n
+# primero, móvil después) vive DENTRO del `action`. La pregunta se arma antes de
+# intentar n8n: enseñar el mensaje no puede depender de que n8n conteste.
+#
+def _vista_whatsapp(to: str, body: str, hay_n8n: bool) -> str:
+    """La pregunta que ve el operador: el WhatsApp TAL CUAL va a salir."""
+    from backend.core.comun import confirm
+    via = ("Sale por tu flujo n8n si contesta; si no, por el móvil vinculado."
+           if hay_n8n else "Sale por el móvil vinculado (no hay webhook de n8n).")
+    return "\n".join(["📲 Voy a mandar este WhatsApp, tal cual:",
+                      f"Para: {to}",
+                      "Mensaje:",
+                      confirm.recortar(body),
+                      via + " ¿Lo mando? Responde «sí» o «no»."])
+
+
 async def handle(intent: str, text: str, match, ctx) -> dict:
     url = ctx["settings"].get("n8n_webhook_url", "").strip()
     gd = match.groupdict() if match else {}
@@ -88,34 +111,70 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "whatsapp":
         to = (gd.get("to") or gd.get("to2") or gd.get("to3") or "").strip()
         body = (gd.get("body") or gd.get("body2") or gd.get("body3") or "").strip()
-        # n8n es OPCIONAL: el móvil vinculado (estilo Android Auto) es la vía que
-        # siempre funciona sin depender de que n8n esté levantado y con el flujo
-        # activo. Si hay webhook configurado se intenta primero (envío 100%
-        # automático), pero si falla — n8n caído, flujo inactivo, URL vieja,
-        # 404... — se cae al móvil EN LUGAR de devolver un error técnico: lo
-        # único que de verdad importa es que el WhatsApp salga.
-        if url:
-            ok, detail = await _post(url, {"action": "whatsapp", "to": to, "message": body})
-            if ok:
-                ctx["graph"].append_daily(f"WhatsApp→{to} vía n8n ({detail}): {body}",
-                                          section="Comunicación")
-                return {"reply": f"WhatsApp para {to} entregado a tu flujo n8n ✔ ({detail}): «{body}». "
-                                 "El envío final lo hace tu nodo de WhatsApp (Evolution, Twilio, "
-                                 "Cloud API...). Di «lanza el flujo <nombre>» para disparar otra automatización."}
+        from backend.core.comun import confirm
+        canal = ctx.get("channel", "pc")
+        ventana = confirm.umbrales_envios()["ventana_idempotencia_seg"]
+        clave = confirm.clave_envio("envio_whatsapp", to, "", body)
+        destinos = [{"id": to, "title": body[:80]}]
+
+        def _ya_salio() -> str:
+            return (f"Ese WhatsApp a {to} ya ha salido hace un momento. No lo mando otra "
+                    "vez: si de verdad quieres repetirlo, cambia el texto y te lo vuelvo "
+                    "a pedir confirmar.")
+
+        if confirm.ya_enviado(clave, ventana, channel=canal, kind="envio_whatsapp",
+                              targets=destinos):
+            return {"reply": _ya_salio()}
+
+        async def _enviar() -> str:
+            """La cadena de siempre, pero ya confirmada: n8n es OPCIONAL y el móvil
+            vinculado (estilo Android Auto) es la vía que siempre funciona. Si hay
+            webhook se intenta primero; si falla —n8n caído, flujo inactivo, URL
+            vieja, 404…— se cae al móvil EN LUGAR de devolver un error técnico: lo
+            único que de verdad importa es que el WhatsApp salga."""
+            if confirm.ya_enviado(clave, ventana, channel=canal,
+                                  kind="envio_whatsapp", targets=destinos):
+                return _ya_salio()
+            if url:
+                ok, detail = await _post(url, {"action": "whatsapp", "to": to,
+                                              "message": body})
+                if ok:
+                    ctx["graph"].append_daily(
+                        f"WhatsApp→{to} vía n8n ({detail}): {body}", section="Comunicación")
+                    confirm.marcar_enviado(clave, channel=canal, kind="envio_whatsapp",
+                                           targets=destinos,
+                                           result=f"WhatsApp a {to} vía n8n ({detail})")
+                    return (f"WhatsApp para {to} entregado a tu flujo n8n ✔ ({detail}): "
+                            f"«{body}». El envío final lo hace tu nodo de WhatsApp "
+                            "(Evolution, Twilio, Cloud API...). Di «lanza el flujo "
+                            "<nombre>» para disparar otra automatización.")
+                via_movil = await _safe_whatsapp_via_movil(to, body, ctx)
+                if via_movil:
+                    confirm.marcar_enviado(clave, channel=canal, kind="envio_whatsapp",
+                                           targets=destinos,
+                                           result=f"WhatsApp a {to} vía móvil "
+                                                  f"(n8n: {detail})")
+                    return via_movil["reply"]
+                return (f"No llego al webhook de n8n ({detail}) y no tengo el móvil "
+                        "vinculado a mano, así que no puedo mandarlo. Abre la app de nexus "
+                        "en el móvil (✔ VINCULADO) o revisa que n8n esté arrancado y el "
+                        "flujo activo, y repite la orden.")
             via_movil = await _safe_whatsapp_via_movil(to, body, ctx)
             if via_movil:
-                return via_movil
-            return {"reply": f"No llego al webhook de n8n ({detail}) y no tengo el móvil "
-                             "vinculado a mano, así que no puedo mandarlo. Abre la app de nexus "
-                             "en el móvil (✔ VINCULADO) o revisa que n8n esté arrancado y el "
-                             "flujo activo, y repite la orden."}
-        via_movil = await _safe_whatsapp_via_movil(to, body, ctx)
-        if via_movil:
-            return via_movil
-        return {"reply": "Para mandar WhatsApp necesito una de dos: tu MÓVIL vinculado "
-                         "(abre la app de nexus y comprueba el ✔ VINCULADO — el mensaje "
-                         "sale por tu propio WhatsApp) o un flujo de n8n con webhook "
-                         "(⚙ → n8n; ejemplo importable en config/n8n_flujo_ejemplo.json)."}
+                confirm.marcar_enviado(clave, channel=canal, kind="envio_whatsapp",
+                                       targets=destinos,
+                                       result=f"WhatsApp a {to} vía móvil")
+                return via_movil["reply"]
+            return ("Para mandar WhatsApp necesito una de dos: tu MÓVIL vinculado "
+                    "(abre la app de nexus y comprueba el ✔ VINCULADO — el mensaje "
+                    "sale por tu propio WhatsApp) o un flujo de n8n con webhook "
+                    "(⚙ → n8n; ejemplo importable en config/n8n_flujo_ejemplo.json).")
+
+        return {"reply": confirm.request(
+            channel=canal, kind="envio_whatsapp",
+            summary=_vista_whatsapp(to, body, hay_n8n=bool(url)),
+            action=_enviar, request_text=text, targets=destinos,
+            cancel_reply="Vale, no he enviado nada.", destructive=False)}
 
     if not url:
         return {"reply": "n8n no está conectado todavía: pega la URL de tu webhook en ⚙ "

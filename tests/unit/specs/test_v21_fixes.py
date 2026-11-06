@@ -80,68 +80,113 @@ class _FakeGraph:
 # ══════════════ 2) WhatsApp: n8n configurado pero CAÍDO -> cae al móvil ══════════════
 
 def test_whatsapp_n8n_falla_cae_a_movil():
+    """SEC-05 / P1-4: el WhatsApp ya NO sale en la misma llamada.
+
+    Primero se ARMA la confirmación enseñando el mensaje tal cual; la cadena de
+    siempre —n8n primero, móvil después— se ejecuta dentro del «sí». Las
+    expectativas de antes (caer al móvil, no exponer el error técnico, el aviso de
+    las dos vías) se comprueban ahora sobre la respuesta CONFIRMADA, que es cuando
+    de verdad ocurre el envío. Y cada caso comprueba además que antes del «sí» no
+    ha salido nada: con el prefijo «📲» de la pregunta, los casos a) y d) pasaban
+    sin haber enviado nada (falso positivo que este cambio elimina)."""
     import backend.core.infraestructura.remote as remote
+    from backend.core.comun import confirm
     n8n = load_skill_module("n8n_flows")
 
     old_post, old_devices = n8n._post, remote.devices
+    old_via = n8n._whatsapp_via_movil
+    posts: list[tuple] = []
+    moviles: list[tuple] = []
 
     async def fake_post_fail(url, payload):
+        posts.append((url, payload))
         return False, "HTTP 404"
 
     async def fake_post_ok(url, payload):
+        posts.append((url, payload))
         return True, "HTTP 200"
 
+    async def via_movil_contada(to, body, ctx):
+        moviles.append((to, body))
+        return await old_via(to, body, ctx)
+
     async def run():
+        n8n._whatsapp_via_movil = via_movil_contada
         gd = {"to": "mami", "body": "voy de camino", "to2": None, "body2": None,
               "to3": None, "body3": None}
         ctx = {"settings": {"n8n_webhook_url": "http://viejo.local/webhook/nexus"},
                "graph": _FakeGraph()}
 
+        async def armar(c=ctx):
+            """Paso 1: la pregunta, sin haber tocado n8n ni el móvil.
+            Limpia la memoria de envíos: los cinco casos reutilizan el mismo texto
+            y sin esto el segundo ya se rechazaría como duplicado."""
+            confirm.clear()
+            confirm.olvidar_envios()
+            posts.clear()
+            moviles.clear()
+            r = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
+                                 _FakeMatch(gd), c)
+            check(posts == [], f"whatsapp: no puede postear ANTES del «sí», posteó {posts!r}")
+            check(moviles == [], f"whatsapp: no puede usar el móvil ANTES del «sí»: {moviles!r}")
+            check("mami" in r["reply"] and "voy de camino" in r["reply"],
+                  "whatsapp: la pregunta debe enseñar el mensaje tal cual, enseñó "
+                  f"{r['reply'][:160]!r}")
+            return await confirm.answer("sí", "pc")
+
         # a) n8n configurado pero el POST falla (404 real de Adri) + MÓVIL vinculado
         #    -> NO debe devolver el error técnico de n8n; debe abrir WhatsApp en el móvil.
         n8n._post = fake_post_fail
         remote.devices = lambda: [{"id": "movil-1"}]
-        r = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
-                             _FakeMatch(gd), ctx)
-        check("📲" in r["reply"], "whatsapp: n8n caído + móvil vinculado -> respuesta por móvil")
-        check("webhook" not in r["reply"].lower() and "404" not in r["reply"],
+        r = await armar()
+        check(len(posts) == 1,
+              f"whatsapp: tras el «sí» debe intentar n8n UNA vez, intentó {len(posts)}")
+        check(len(moviles) == 1,
+              f"whatsapp: n8n caído + móvil vinculado -> debe caer al móvil: {moviles!r}")
+        check("📲" in r, "whatsapp: n8n caído + móvil vinculado -> respuesta por móvil")
+        check("webhook" not in r.lower() and "404" not in r,
               "whatsapp: n8n caído + móvil -> NO expone el error técnico de n8n al usuario")
 
         # b) n8n configurado, POST falla, y NO hay móvil vinculado -> ahora sí el
         #    aviso de que no se pudo (pero ya sin culpar solo a n8n a secas: pide algo accionable)
         remote.devices = lambda: []
-        r2 = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
-                              _FakeMatch(gd), ctx)
-        check("404" in r2["reply"] or "HTTP 404" in r2["reply"],
+        r2 = await armar()
+        check(len(posts) == 1,
+              f"whatsapp: sin móvil también hay que intentar n8n una vez: {len(posts)}")
+        check("404" in r2 or "HTTP 404" in r2,
               "whatsapp: n8n caído + sin móvil -> explica el fallo real")
-        check("móvil" in r2["reply"].lower(), "whatsapp: n8n caído + sin móvil -> sugiere vincular el móvil")
+        check("móvil" in r2.lower(), "whatsapp: n8n caído + sin móvil -> sugiere vincular el móvil")
 
         # c) n8n configurado y el POST SÍ funciona -> sigue saliendo por n8n (sin regresión)
         n8n._post = fake_post_ok
         remote.devices = lambda: [{"id": "movil-1"}]
-        r3 = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
-                              _FakeMatch(gd), ctx)
-        check("n8n" in r3["reply"] and "📲" not in r3["reply"],
+        r3 = await armar()
+        check(len(posts) == 1, f"whatsapp: debe postear UNA vez, posteó {len(posts)}")
+        check(moviles == [], f"whatsapp: con n8n bien no se toca el móvil: {moviles!r}")
+        check("n8n" in r3 and "📲" not in r3,
               "whatsapp: n8n funcionando -> sigue saliendo por n8n, no se desvía al móvil")
 
         # d) SIN n8n configurado y CON móvil -> sigue funcionando como antes (regresión)
         ctx_sin_n8n = {"settings": {"n8n_webhook_url": ""}, "graph": _FakeGraph()}
-        r4 = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
-                              _FakeMatch(gd), ctx_sin_n8n)
-        check("📲" in r4["reply"], "whatsapp: sin n8n + móvil vinculado -> por móvil (sin regresión)")
+        r4 = await armar(ctx_sin_n8n)
+        check(posts == [], f"whatsapp: sin webhook no hay nada que postear: {posts!r}")
+        check(len(moviles) == 1, f"whatsapp: sin n8n la vía es el móvil: {moviles!r}")
+        check("📲" in r4, "whatsapp: sin n8n + móvil vinculado -> por móvil (sin regresión)")
 
         # e) SIN n8n y SIN móvil -> mensaje claro de qué falta
         remote.devices = lambda: []
-        r5 = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
-                              _FakeMatch(gd), ctx_sin_n8n)
-        check("n8n" in r5["reply"].lower() and "móvil" in r5["reply"].lower(),
+        r5 = await armar(ctx_sin_n8n)
+        check("n8n" in r5.lower() and "móvil" in r5.lower(),
               "whatsapp: sin n8n y sin móvil -> explica las dos vías posibles")
 
     try:
         asyncio.run(run())
     finally:
         n8n._post = old_post
+        n8n._whatsapp_via_movil = old_via
         remote.devices = old_devices
+        confirm.clear()
+        confirm.olvidar_envios()
 
 
 def test_whatsapp_movil_revienta_no_expone_error_tecnico():
@@ -150,13 +195,21 @@ def test_whatsapp_movil_revienta_no_expone_error_tecnico():
     # crudo "El minion 'n8n / WhatsApp' ha fallado: ..." — precisamente el
     # tipo de error técnico que esta corrección quería eliminar. Debe
     # degradar con gracia al mensaje normal de "no puedo mandarlo ahora".
+    #
+    # SEC-05 / P1-4: el intento ocurre dentro del «sí», así que la garantía se
+    # comprueba sobre la respuesta CONFIRMADA (antes solo se miraba que no
+    # apareciera «RuntimeError» en la pregunta, que no intenta nada).
+    from backend.core.comun import confirm
     n8n = load_skill_module("n8n_flows")
     old_post, old_via_movil = n8n._post, n8n._whatsapp_via_movil
+    intentos = []
 
     async def fake_post_fail(url, payload):
+        intentos.append(url)
         return False, "HTTP 404"
 
     async def fake_via_movil_boom(to, body, ctx):
+        intentos.append((to, body))
         raise RuntimeError("agenda corrupta")
 
     async def run():
@@ -165,28 +218,44 @@ def test_whatsapp_movil_revienta_no_expone_error_tecnico():
         gd = {"to": "mami", "body": "voy de camino", "to2": None, "body2": None,
               "to3": None, "body3": None}
 
+        async def armar(c):
+            confirm.clear()
+            confirm.olvidar_envios()
+            intentos.clear()
+            r = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
+                                 _FakeMatch(gd), c)
+            check(isinstance(r, dict) and "reply" in r,
+                  "whatsapp: armar la confirmación devuelve un dict con «reply»")
+            check(intentos == [],
+                  f"whatsapp: nada puede salir antes del «sí»: {intentos!r}")
+            return await confirm.answer("sí", "pc")
+
         # con n8n configurado (falla) + móvil que revienta -> no debe propagar
         ctx = {"settings": {"n8n_webhook_url": "http://viejo.local/webhook"},
                "graph": _FakeGraph()}
-        r = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
-                             _FakeMatch(gd), ctx)
-        check(isinstance(r, dict) and "reply" in r,
-              "whatsapp: móvil que revienta -> handle() no propaga la excepción, devuelve dict")
-        check("RuntimeError" not in r["reply"] and "agenda corrupta" not in r["reply"],
+        r = await armar(ctx)
+        check(isinstance(r, str),
+              "whatsapp: móvil que revienta -> la confirmación contesta texto, no revienta")
+        check("RuntimeError" not in r and "agenda corrupta" not in r,
               "whatsapp: móvil que revienta -> el error interno no se expone al usuario")
+        check(len(intentos) == 2,
+              f"whatsapp: tras el «sí» se intenta n8n y, al fallar, el móvil: {intentos!r}")
 
         # sin n8n configurado + móvil que revienta -> tampoco debe propagar
         ctx2 = {"settings": {"n8n_webhook_url": ""}, "graph": _FakeGraph()}
-        r2 = await n8n.handle("whatsapp", "envía un whatsapp a mami diciendo voy de camino",
-                              _FakeMatch(gd), ctx2)
-        check(isinstance(r2, dict) and "reply" in r2,
-              "whatsapp: sin n8n + móvil que revienta -> tampoco propaga")
+        r2 = await armar(ctx2)
+        check(isinstance(r2, str),
+              "whatsapp: sin n8n + móvil que revienta -> tampoco revienta")
+        check("RuntimeError" not in r2 and "agenda corrupta" not in r2,
+              "whatsapp: sin n8n + móvil que revienta -> el error interno no se expone")
 
     try:
         asyncio.run(run())
     finally:
         n8n._post = old_post
         n8n._whatsapp_via_movil = old_via_movil
+        confirm.clear()
+        confirm.olvidar_envios()
 
 
 def test_flow_sigue_exigiendo_n8n():

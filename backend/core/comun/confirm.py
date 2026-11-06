@@ -32,17 +32,42 @@ Guardas (aprendidas del incidente del 25/07/2026):
     esperando un «sí» suelto tres mensajes después) y sigue su curso normal.
   * Estado POR CANAL: lo que confirmas en el PC no dispara nada del móvil.
   * Nada se ejecuta sin dejar traza en la auditoría.
+  * Los ENVÍOS (correo, WhatsApp) también se arman aquí, aunque no sean
+    destructivos: un envío que no querías es un daño igual. Y un envío repetido
+    tampoco sale dos veces — para eso está la memoria corta de `ya_enviado()` /
+    `marcar_enviado()`, que vive en RAM y por tanto se olvida al reiniciar.
 """
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 import re
 import time
 import uuid
+from pathlib import Path
 
 TTL = 300                     # segundos de vida de una confirmación pendiente
 _MAX_WORDS = 7                # una respuesta sí/no es corta por definición
 _pending: dict[str, dict] = {}
+
+# ── MEMORIA CORTA DE ENVÍOS (SEC-05 / P1-4) ──────────────────────────────────
+# `clave de envío → cuándo se aceptó`. Sirve para que la misma orden repetida
+# (el doble clic, el reintento, la frase mandada dos veces) no mande dos correos
+# ni dos WhatsApp.
+#
+# Vive en RAM, igual que `_pending`: al REINICIAR nexus se olvida. Es aceptable y
+# se dice aquí para que nadie lo confunda con una garantía entre arranques: el
+# daño que evita ocurre dentro de una misma sesión. Nada de esto se escribe en
+# disco porque no es un registro, es una ventana.
+_enviados: dict[str, float] = {}
+
+# Reserva si config/umbrales.json falta o está roto. Quien pregunta por la
+# ventana lo hace en `umbrales_envios()`: NUNCA se cablea el número en la llamada.
+_RESERVA_ENVIOS = {
+    "ventana_idempotencia_seg": 300.0,
+    "max_caracteres_cuerpo": 600,
+}
 
 # «sí», «vale», «adelante», «confirmo», «hazlo», «dale», «tira»…
 _YES_RX = re.compile(
@@ -68,6 +93,97 @@ def _audit(**kw) -> None:
 
 def _key(channel: str) -> str:
     return channel or "pc"
+
+
+# ───────────────────────── umbrales y huella de un envío ─────────────────────
+def umbrales_envios() -> dict:
+    """Los umbrales de los envíos: sección «envios» de config/umbrales.json.
+
+    Mismo estilo que el resto del proyecto: la reserva vive en el código y el
+    archivo la pisa. Un JSON roto o ausente deja la reserva, nunca revienta.
+    """
+    vals = dict(_RESERVA_ENVIOS)
+    try:
+        from .config import CONFIG_DIR
+        f = Path(CONFIG_DIR) / "umbrales.json"
+        if f.is_file():
+            leido = (json.loads(f.read_text(encoding="utf-8")) or {}).get("envios") or {}
+            for clave, defecto in _RESERVA_ENVIOS.items():
+                v = leido.get(clave)
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+                    vals[clave] = float(v) if isinstance(defecto, float) else int(v)
+    except Exception:
+        pass                                  # archivo roto → reserva, nunca reventar
+    return vals
+
+
+def _normaliza(trozo: str) -> str:
+    """Minúsculas y espacios colapsados: «Hola  mundo» y «hola mundo» son lo mismo."""
+    return " ".join((trozo or "").split()).casefold()
+
+
+def clave_envio(kind: str, destinatario: str, asunto: str = "", cuerpo: str = "") -> str:
+    """Huella del envío: sha256 de tipo + destinatario + asunto + cuerpo.
+
+    Normalizada, para que lo que cambia sin cambiar el envío (mayúsculas, un
+    espacio de más) no abra un hueco por el que se cuele el duplicado. Lo que SÍ
+    entra es el CONTENIDO: el mismo destinatario con otro cuerpo es otro envío.
+    """
+    material = "\x1f".join(_normaliza(x) for x in (kind, destinatario, asunto, cuerpo))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def ya_enviado(clave: str, ventana: float | None = None, *, channel: str = "pc",
+               kind: str = "", targets: list | None = None) -> bool:
+    """¿Se aceptó ya un envío con esta huella dentro de la ventana?
+
+    Si sí, deja la traza del duplicado rechazado y contesta True: quien llama NO
+    debe enviar otra vez. La ventana se pasa desde fuera (`umbrales_envios()`)."""
+    v = (float(_RESERVA_ENVIOS["ventana_idempotencia_seg"])
+         if ventana is None else float(ventana))
+    ahora = time.time()
+    for k, ts in list(_enviados.items()):     # poda: lo viejo no crece sin fin
+        if ahora - ts > v:
+            _enviados.pop(k, None)
+    ts = _enviados.get(clave)
+    if ts is not None and ahora - ts <= v:
+        _audit(action=f"envio_duplicado:{kind or 'envio'}", actor="operador",
+               destructive=False, confirmed=None,
+               interpreted=f"envío repetido {int(ahora - ts)} s después del primero",
+               targets=targets or [],
+               result="no se envía: ya había salido dentro de la ventana",
+               channel=_key(channel))
+        return True
+    return False
+
+
+def marcar_enviado(clave: str, *, channel: str = "pc", kind: str = "",
+                   targets: list | None = None, result: str = "") -> None:
+    """Apunta que este envío se aceptó AHORA. Solo se llama si de verdad salió:
+    un envío que falló NO se marca, para que reintentarlo siga siendo posible."""
+    _enviados[clave] = time.time()
+    _audit(action=f"envio_aceptado:{kind or 'envio'}", actor="operador",
+           destructive=False, confirmed=True, targets=targets or [],
+           result=(result or "enviado")[:300], channel=_key(channel))
+
+
+def olvidar_envios() -> None:
+    """Olvida la memoria corta de envíos. Un reinicio ya lo hace solo; esto es
+    para las pruebas y para reintentar a mano sin esperar la ventana."""
+    _enviados.clear()
+
+
+def recortar(texto: str, maximo: int | None = None) -> str:
+    """El texto TAL CUAL, recortado con «…» si no cabe en la vista previa.
+
+    Recortar no es resumir: se enseña lo que se manda, y si se corta se dice que
+    se ha cortado. Una paráfrasis en la confirmación sería enseñar otra cosa.
+    """
+    limite = umbrales_envios()["max_caracteres_cuerpo"] if maximo is None else int(maximo)
+    t = texto or ""
+    if len(t) <= limite:
+        return t
+    return t[:limite].rstrip() + "…"
 
 
 def pending(channel: str = "pc") -> dict | None:

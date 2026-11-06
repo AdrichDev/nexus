@@ -50,6 +50,7 @@ for _env in ("NEXUS_N8N_SECRET", "N8N_SECRET"):
 import httpx                                                    # noqa: E402
 
 from backend.core.comun.config import settings                  # noqa: E402
+from backend.core.comun import confirm                           # noqa: E402
 from backend.core.aplicacion import brain                       # noqa: E402
 from backend.core.aplicacion.skills_loader import get_skills     # noqa: E402
 from backend.core.dominio import opmem, rag                      # noqa: E402
@@ -170,6 +171,12 @@ async def main() -> None:
           f"correo desde n8n: respuesta de rechazo esperada, salió {r.get('reply')!r}")
     check(enviados == [], f"correo desde n8n: se ha enviado de verdad {enviados!r}")
     check(not r.get("skill"), f"correo desde n8n: no debe ejecutar ninguna skill, ejecutó {r.get('skill')!r}")
+    # SEC-05 / P1-4: el rechazo ocurre ANTES de armar la confirmación. Si aquí
+    # quedara algo pendiente, el «sí» del operador mandaría un correo que nació de
+    # un flujo y no de una orden suya.
+    check(confirm.pending("pc") is None,
+          "correo desde n8n: ha dejado una confirmación armada; el envío no puede "
+          "llegar ni a la vista previa")
 
     # ── 5) memoria explícita: rechazo y NADA guardado ────────────────────────
     recuerdos: list[tuple] = []
@@ -282,6 +289,12 @@ async def main() -> None:
           "GET /api/config NO debe exponer n8n_secret como clave")
 
     # ── 8) regresión: el canal de texto sigue mandando correos Y aprendiendo ─
+    # SEC-05 / P1-4: enviar ya no ocurre en la misma llamada. Primero se ARMA y se
+    # enseña el correo tal cual; solo el «sí» lo manda. La regresión que importa es
+    # la de siempre —el canal de texto conserva el derecho a enviar— pero ahora se
+    # comprueba por su puerta: sin «sí» no sale nada, y con «sí» sale UNA vez.
+    confirm.clear()
+    confirm.olvidar_envios()
     enviados = []
     aprendidas.clear()
     with _Doble(brain, "_learn_record", lambda *a, **k: aprendidas.append((a, k))):
@@ -290,13 +303,27 @@ async def main() -> None:
             with await _proceso_real():
                 r = await brain.process(
                     "envía un correo a test@example.invalid diciendo hola", source="text")
-    check(len(enviados) == 1,
-          f"canal de texto: el correo debe seguir enviándose, se envió {enviados!r}")
-    check(r.get("skill") == "google_workspace",
-          f"canal de texto: debe enrutar a google_workspace, enrutó {r.get('skill')!r}")
+                check(r.get("skill") == "google_workspace",
+                      f"canal de texto: debe enrutar a google_workspace, enrutó {r.get('skill')!r}")
+                vista = r.get("reply") or ""
+                check(enviados == [],
+                      f"canal de texto: el correo NO puede salir antes del «sí», "
+                      f"salió {enviados!r}")
+                check("test@example.invalid" in vista and "hola" in vista,
+                      "canal de texto: la pregunta debe enseñar el correo entero "
+                      f"(destinatario y cuerpo), enseñó {vista[:160]!r}")
+                respuesta = await confirm.answer("sí", "pc")
+                check(enviados == [("test@example.invalid", "hola", "hola")],
+                      "canal de texto: tras el «sí» el correo debe salir UNA vez con el "
+                      f"mismo payload que se enseñó, salió {enviados!r}")
+                check("test@example.invalid" in (respuesta or ""),
+                      "canal de texto: la respuesta debe decir a quién se ha enviado, "
+                      f"dijo {respuesta!r}")
     check(len(aprendidas) >= 1,
           "canal de texto: una orden que funciona debe seguir aprendiéndose"
           f" (no se ha registrado nada: {aprendidas!r})")
+    confirm.clear()
+    confirm.olvidar_envios()
 
     # ── 9) los flujos que se envían llevan la cabecera, sin valores reales ──
     for nombre in ("n8n_flujo_ejemplo.json", "n8n_informe_diario.json"):

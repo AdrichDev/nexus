@@ -21,6 +21,7 @@ Ejecutar: .venv\\Scripts\\python.exe tests\\test_skill_google_workspace.py
 import asyncio
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -316,6 +317,7 @@ class _Aparte:
 
     def __exit__(self, *a):
         GW.CREDS_FILE, GW.TOKEN_FILE = self.old
+        shutil.rmtree(self.tmp, ignore_errors=True)
         return False
 
 
@@ -452,6 +454,286 @@ def test_el_scope_de_drive_sigue_documentado_con_su_fecha_y_su_precio():
     doc = Path(ROOT, "skills", "google_workspace", "SKILL.md").read_text(encoding="utf-8")
     check("auth/drive" in doc and "borrar cualquier documento" in doc.lower(),
           "el SKILL.md ya no avisa de lo que implica el permiso completo")
+
+
+# ====== 6. ENVIAR CORREO: VISTA PREVIA, CONFIRMACIÓN E IDEMPOTENCIA (SEC-05) ==
+# Hallazgo SEC-05 / fila P1-4 del roadmap: «envía un correo» parseaba el
+# destinatario, dejaba que el MODELO redactara el cuerpo cuando no se lo dictabas
+# y llamaba a _send_gmail en la misma respiración. Nadie veía el correo antes de
+# que saliera, y la misma orden dos veces mandaba dos correos. El borrado de
+# eventos y de Drive sí pasaban por confirm.request: la asimetría era el fallo.
+#
+# Contrato nuevo: el correo se ARMA (se enseña tal cual: para, asunto y cuerpo),
+# solo sale con un «sí», y la huella del envío impide que se repita.
+from backend.core.comun import confirm as _confirm   # noqa: E402
+
+_ORDEN = "envía un correo a ana@ejemplo.com con asunto Hola diciendo que llego tarde"
+_ORDEN_MANANA = ("envía un correo a ana@ejemplo.com con asunto Hola diciendo "
+                 "que llego mañana")
+_ORDEN_A_PEPE = ("envía un correo a pepe@ejemplo.com con asunto Hola diciendo "
+                 "que llego tarde")
+
+
+class _Reloj:
+    """Reloj de mentira: la ventana de idempotencia se prueba moviendo la hora,
+    nunca durmiendo (una prueba que duerme 5 minutos no se ejecuta)."""
+
+    def __init__(self, t=1_800_000_000.0):
+        self.t = t
+
+    def time(self):
+        return self.t
+
+
+class _Envio:
+    """Doble de _send_gmail + confirmación limpia. De este equipo no sale nada:
+    _send_gmail se sustituye y _llm_text nunca llama a un modelo."""
+
+    def __init__(self):
+        self.enviados = []
+        self.auditorias = []
+        self._previos = {}
+
+    def __enter__(self):
+        self._previos = {"audit": _confirm._audit, "send": GW._send_gmail,
+                         "llm": GW._llm_text, "time": _confirm.time}
+        _confirm.clear()
+        _confirm.olvidar_envios()
+        _confirm._audit = lambda **kw: self.auditorias.append(kw)
+        GW._send_gmail = self._anotar
+        GW._llm_text = self._sin_modelo
+        self._aparte = _Aparte().__enter__()
+        self._aparte.con_credenciales()
+        return self
+
+    def _anotar(self, to, subject, body):
+        self.enviados.append({"to": to, "subject": subject, "body": body})
+        return "id-falso"
+
+    @staticmethod
+    async def _sin_modelo(order):
+        return ""
+
+    def con_modelo(self, texto):
+        """Lo que contestaría el cerebro al pedirle el cuerpo del correo."""
+        async def _falso(order):
+            return texto
+        GW._llm_text = _falso
+
+    def reloj(self, t=1_800_000_000.0):
+        self._reloj = _Reloj(t)
+        _confirm.time = self._reloj
+        return self._reloj
+
+    def enviar(self, frase=_ORDEN, ctx=None):
+        r = skills_loader.route(frase)
+        assert r is not None and r[1] == "send_email", f"«{frase}» no enruta a send_email"
+        return asyncio.run(GW.handle("send_email", frase, r[2], ctx or _ctx()))["reply"]
+
+    def directo(self, frase, ctx=None):
+        """handle() sin pasar por el enrutador (frases incompletas a propósito)."""
+        return asyncio.run(GW.handle("send_email", frase, None, ctx or _ctx()))["reply"]
+
+    def responder(self, texto, canal="pc"):
+        return asyncio.run(_confirm.answer(texto, canal))
+
+    def __exit__(self, *a):
+        GW._send_gmail = self._previos["send"]
+        GW._llm_text = self._previos["llm"]
+        _confirm._audit = self._previos["audit"]
+        _confirm.time = self._previos["time"]
+        _confirm.clear()
+        _confirm.olvidar_envios()
+        self._aparte.__exit__(*a)
+        return False
+
+
+def test_un_correo_no_sale_hasta_decir_que_si():
+    with _Envio() as e:
+        pregunta = e.enviar()
+        check(e.enviados == [], f"ha enviado ANTES de preguntar: {e.enviados!r}")
+        check("ana@ejemplo.com" in pregunta, "la pregunta no dice A QUIÉN va el correo")
+        check("Hola" in pregunta, "la pregunta no dice el ASUNTO")
+        check("llego tarde" in pregunta,
+              "la pregunta no enseña el CUERPO que va a salir (lo que se envía se ve)")
+        pend = _confirm.pending("pc")
+        check(pend is not None and pend["kind"] == "envio_correo",
+              "no ha quedado armada una confirmación de envío de correo")
+        check(pend is not None and pend["destructive"] is False,
+              "un envío no es destructivo: confirm.request debe recibir destructive=False")
+
+
+def test_decir_que_si_envia_una_sola_vez_exactamente_lo_que_ensena():
+    with _Envio() as e:
+        e.enviar()
+        respuesta = e.responder("sí") or ""
+        check(len(e.enviados) == 1,
+              f"confirmar debía enviar UNA vez, envió {len(e.enviados)}")
+        if e.enviados:
+            env = e.enviados[0]
+            check(env["to"] == "ana@ejemplo.com" and env["subject"] == "Hola"
+                  and env["body"] == "llego tarde",
+                  f"ha enviado algo distinto de lo que enseñó: {env!r}")
+        check("ana@ejemplo.com" in respuesta,
+              f"la respuesta no dice a quién se ha enviado: {respuesta!r}")
+        check(_confirm.pending("pc") is None,
+              "la confirmación sigue armada después del «sí»")
+
+
+def test_decir_que_no_no_envia_nada_y_lo_dice_sin_adornos():
+    with _Envio() as e:
+        e.enviar()
+        respuesta = (e.responder("no") or "").lower()
+        check(e.enviados == [], "ha enviado algo después de un «no»")
+        check("no he enviado nada" in respuesta,
+              f"al cancelar no dice la verdad (no he enviado nada): {respuesta!r}")
+
+
+def test_cambiar_de_tema_desa_rma_el_envio_y_no_manda_nada():
+    with _Envio() as e:
+        e.enviar()
+        respuesta = e.responder("hablamos de otra cosa luego")
+        check(respuesta is None, f"una frase que no es sí/no debía devolver None: {respuesta!r}")
+        check(_confirm.pending("pc") is None,
+              "la confirmación sigue armada tras cambiar de tema: dispararía más tarde")
+        check(e.enviados == [], "ha enviado algo al desarmar la confirmación")
+
+
+def test_la_misma_orden_dos_veces_no_manda_dos_correos():
+    with _Envio() as e:
+        e.enviar()
+        e.responder("sí")
+        segunda = e.enviar()
+        check(len(e.enviados) == 1,
+              f"el mismo correo ha salido {len(e.enviados)} veces")
+        check("ana@ejemplo.com" in segunda and "ya ha salido" in segunda.lower(),
+              f"la segunda vez no dice que ya había salido: {segunda!r}")
+        check(_confirm.pending("pc") is None,
+              "ha armado otra confirmación para un envío que ya había salido")
+        acciones = [str(a.get("action", "")) for a in e.auditorias]
+        check(any(a.startswith("envio_aceptado") for a in acciones),
+              f"el envío aceptado no queda en la auditoría: {acciones!r}")
+        check(any(a.startswith("envio_duplicado") for a in acciones),
+              f"el duplicado rechazado no queda en la auditoría: {acciones!r}")
+
+
+def test_el_mismo_destinatario_con_otro_cuerpo_si_sale():
+    with _Envio() as e:
+        e.enviar()
+        e.responder("sí")
+        e.enviar(_ORDEN_MANANA)
+        e.responder("sí")
+        check([x["body"] for x in e.enviados] == ["llego tarde", "llego mañana"],
+              f"otro cuerpo es otro correo y debe salir: {e.enviados!r}")
+
+
+def test_otro_destinatario_no_se_confunde_con_el_anterior():
+    with _Envio() as e:
+        e.enviar()
+        e.responder("sí")
+        e.enviar(_ORDEN_A_PEPE)
+        check(len(e.enviados) == 1 and _confirm.pending("pc") is not None,
+              "otro destinatario con el mismo texto debe volver a preguntar")
+        e.responder("sí")
+        check([x["to"] for x in e.enviados] == ["ana@ejemplo.com", "pepe@ejemplo.com"],
+              f"el segundo destinatario no ha recibido su correo: {e.enviados!r}")
+
+
+def test_pasada_la_ventana_el_mismo_correo_vuelve_a_salir():
+    with _Envio() as e:
+        reloj = e.reloj()
+        ventana = _confirm.umbrales_envios()["ventana_idempotencia_seg"]
+        check(ventana > 0, "la ventana de idempotencia no está configurada")
+        e.enviar()
+        e.responder("sí")
+        reloj.t += ventana + 1
+        e.enviar()
+        e.responder("sí")
+        check(len(e.enviados) == 2,
+              f"fuera de la ventana el mismo correo debe volver a salir: {len(e.enviados)}")
+
+
+def test_el_cuerpo_redactado_por_nexus_se_dice_en_la_pregunta():
+    with _Envio() as e:
+        e.con_modelo("Hola Ana, te confirmo la reunión del jueves. Un saludo.")
+        pregunta = e.enviar("escríbele un correo a ana@ejemplo.com")
+        check(e.enviados == [],
+              "ha enviado sin preguntar cuando el cuerpo lo puso el modelo")
+        check("redactado por nexus" in pregunta.lower(),
+              f"no avisa de que el cuerpo lo escribió nexus: {pregunta[:200]!r}")
+        check("te confirmo la reunión del jueves" in pregunta,
+              "la pregunta no enseña el texto que ha escrito el modelo")
+
+
+def test_un_cuerpo_largo_se_recorta_con_puntos_suspensivos_no_se_resume():
+    with _Envio() as e:
+        largo = " ".join(f"frase numero {i}" for i in range(300))
+        pregunta = e.enviar("envía un correo a ana@ejemplo.com con asunto Hola "
+                            f"diciendo {largo}")
+        check("…" in pregunta,
+              "recorta el cuerpo sin marcar el corte: parece que el correo es más corto")
+        check("frase numero 299" not in pregunta, "no ha recortado nada")
+        check("frase numero 0 " in pregunta,
+              "el recorte no empieza por el texto de verdad (¿lo ha parafraseado?)")
+        check(len(pregunta) < len(largo),
+              "la pregunta es más larga que el cuerpo: no ha recortado")
+
+
+def test_si_google_falla_la_respuesta_no_dice_que_se_envio():
+    with _Envio() as e:
+        def _rompe(to, subject, body):
+            raise RuntimeError("el buzón rechazó el mensaje")
+        GW._send_gmail = _rompe
+        e.enviar()
+        respuesta = (e.responder("sí") or "")
+        txt = respuesta.lower()
+        check("ha fallado" in txt, f"no dice que ha fallado: {respuesta!r}")
+        check("el buzón rechazó el mensaje" in txt, f"se traga el motivo real: {respuesta!r}")
+        check("enviado a ana" not in txt,
+              f"da por enviado un correo que ha fallado: {respuesta!r}")
+        acciones = [str(a.get("action", "")) for a in e.auditorias]
+        check(not any(a.startswith("envio_aceptado") for a in acciones),
+              "marca como enviado un correo que falló: el reintento quedaría bloqueado")
+
+
+def test_sin_direccion_pide_la_direccion_y_no_arma_ningun_envio():
+    with _Envio() as e:
+        r = e.directo("envía un correo diciendo que llego tarde")
+        check("dirección" in r.lower(), f"no pide la dirección: {r!r}")
+        check(_confirm.pending("pc") is None, "ha armado un envío sin destinatario")
+        check(e.enviados == [], "ha enviado un correo sin destinatario")
+
+
+def test_sin_cuerpo_y_sin_modelo_pide_el_texto_y_no_arma_nada():
+    with _Envio() as e:
+        r = e.directo("envía un correo a ana@ejemplo.com")
+        check("diciendo" in r.lower(), f"no pide el texto del correo: {r!r}")
+        check(_confirm.pending("pc") is None, "ha armado un envío sin cuerpo")
+        check(e.enviados == [], "ha enviado un correo vacío")
+
+
+def test_el_correo_solo_sale_desde_dentro_de_la_confirmacion():
+    """La salvaguarda en el código: _send_gmail NO puede llamarse en la rama, ni
+    antes del `action`. Y el atajo de «no me preguntes» (que existe para borrar
+    lo que va a la papelera) NO se extiende a los envíos: un correo siempre se
+    pregunta."""
+    rama = HANDLE_SRC.split('intent == "send_email"')[1].split('intent == "summarize_emails"')[0]
+    check("_send_gmail(" not in rama,
+          "la rama de send_email llama a _send_gmail directamente, fuera del action")
+    check("_envio_correo_confirmado(" in rama,
+          "la rama de send_email ya no arma el envío con la acción diferida")
+    check("_SIN_PREGUNTAR_RX" not in rama,
+          "el atajo de «no me preguntes» se ha colado en los ENVÍOS: un correo "
+          "siempre se confirma")
+    check("_SIN_PREGUNTAR_RX.search(text)" in HANDLE_SRC,
+          "se ha quitado el atajo de borrado sin preguntar, que sí era válido "
+          "(todo lo que borra va a la papelera)")
+    cuerpo = HANDLE_SRC.split("def _envio_correo_confirmado(")[1].split("\nasync def handle(")[0]
+    antes_de_enviar = cuerpo.split("async def _enviar(")[0]
+    check("async def _enviar(" in cuerpo and "confirm.request(" in cuerpo,
+          "el envío de correo ya no se arma con una acción diferida")
+    check("_send_gmail(" not in antes_de_enviar,
+          "_send_gmail se llama antes del action del confirm.request")
 
 
 # =============================== runner =====================================

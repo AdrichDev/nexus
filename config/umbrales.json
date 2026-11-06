@@ -461,5 +461,23 @@
     "_que_es": "Cuanto vive, en segundos, el codigo de vinculacion del bot de Telegram. El codigo se saca en ESTE equipo (GET /api/telegram/link) y hay que mandarselo al bot desde el chat que quieras vincular. Caduca a los 10 minutos y solo sirve una vez; si se agota, se saca otro.",
     "_por_que_aqui": "SEC-02 de la auditoria del 30/07/2026: antes el PRIMER chat que escribia al bot se quedaba el equipo para siempre, asi que quien conociera el @usuario del bot ganaba el PC y al dueno legitimo se le ignoraba. Subirlo alarga la ventana en la que un codigo robado sirve; bajarlo obliga a sacar codigo mas a menudo.",
     "ttl_vinculacion_segundos": 600
+  },
+  "envios": {
+    "_que_es": [
+      "Como se confirman y como se protegen de la repeticion los envios que salen",
+      "en tu nombre: correo (skills/google_workspace) y WhatsApp (skills/n8n_flows).",
+      "",
+      "SEC-05 de la auditoria del 30/07/2026: los envios salian SIN que nadie viera",
+      "el texto (y con el cuerpo redactado por el modelo cuando no lo dictabas) y la",
+      "misma orden dos veces mandaba dos correos. Ahora se pregunta siempre, ensenando",
+      "el mensaje tal cual, y la huella del envio evita el duplicado.",
+      "",
+      "Nada de esto esta escrito en el codigo: cambia un numero aqui, reinicia nexus,",
+      "y cambia el comportamiento."
+    ],
+    "ventana_idempotencia_seg": 300,
+    "_ventana_idempotencia_seg": "Segundos durante los que un envio identico (mismo destinatario, mismo asunto y mismo cuerpo, sin distinguir mayusculas ni espacios de mas) NO vuelve a salir: se contesta que ya salio. Subirlo protege mas de los dobles clics pero estorba si de verdad quieres repetir el mismo mensaje; bajarlo deja pasar antes el duplicado. La memoria de envios vive en RAM, asi que un reinicio la borra.",
+    "max_caracteres_cuerpo": 600,
+    "_max_caracteres_cuerpo": "Cuanto cuerpo cabe en la previsualizacion que se te ensena antes de enviar. Si el texto no cabe, se CORTA y se marca con puntos suspensivos: recortar no es resumir. Subirlo alarga la pregunta (y el mensaje que lees); bajarlo esconde mas texto del que va a salir."
   }
 }
