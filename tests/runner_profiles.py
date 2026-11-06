@@ -74,6 +74,17 @@ SAFE_UNIT_SUITES = (
     "unit/skills/domotica/test_tv_power.py",
     "unit/skills/clima/test_clima_errors.py",
     "unit/core/test_secretos.py",
+    # El almacén de claves deja de estar en claro (SEC-09, roadmap P2-6, T13):
+    # cifrado con DPAPI, migración con verificación previa y repliegue a JSON
+    # plano donde no hay DPAPI. Carpetas de usar y tirar para config y data ANTES
+    # de importar el backend y valores inventados («sk-TEST-VALUE-…»): no se abre
+    # ni un byte del material del operador. En Windows llama a la DPAPI DE VERDAD
+    # —una llamada local al sistema, sin red y sin efectos fuera del proceso— y en
+    # cualquier otra plataforma lo DICE y solo prueba el repliegue, así que allí la
+    # evidencia baja a «el modo sin cifrado sigue funcionando» (no es prueba del
+    # cifrado). Incluye `GET /api/config` en proceso (httpx.ASGITransport, sin
+    # lifespan ni puertos) y la autocomprobación del escáner de antes de subir.
+    "unit/core/test_secretos_cifrado.py",
     # Permisos de ficheros seguros por defecto (SEC-04) y cambios de permisos
     # solo desde la ventana local (SEC-12): en proceso, con un PERFIL de mentira
     # y el lector real espiado, sin escribir nada del operador.

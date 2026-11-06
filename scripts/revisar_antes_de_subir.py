@@ -18,11 +18,14 @@ Mira SOLO lo que git tiene preparado para subir (el índice), así que respeta e
 Uso:
     .venv\Scripts\python.exe scripts\revisar_antes_de_subir.py          (desde la carpeta nexus)
     .venv\Scripts\python.exe scripts\revisar_antes_de_subir.py --json   (salida para otro programa)
+    .venv\Scripts\python.exe scripts\revisar_antes_de_subir.py --autotest
+    .venv\Scripts\python.exe scripts\revisar_antes_de_subir.py --proteger-backups
 
 Lo llama SUBIR_A_GITHUB.bat automáticamente.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import subprocess
@@ -119,7 +122,27 @@ _INOCENTE = re.compile(
      payload|keyField|self\._key|\{[^}]*\}|\$\{|%s|\\b|\[a-z|re\.compile|
      description|prohibid|def\s|return\s)""")
 
-# ── 3b. DATOS PERSONALES: no son secretos, pero tampoco deberian publicarse ──
+# ── 3b. VALORES CIFRADOS: no son secretos LEGIBLES, y hay que saberlo ──────
+# Desde la tarea T13 (hallazgo SEC-09) `config/secrets.json` guarda cada valor
+# como una cadena etiquetada `dpapi:v1:<base64>`. El contenido del base64 es
+# OPACO, y una subcadena suya puede parecerse a una clave por pura casualidad:
+# «AIza…» (clave de Google) y «eyJ…» (JWT) son alfabeto base64 legítimo. Un blob
+# de ~350 caracteres tiene ~340 ventanas donde eso puede pasar, y con cientos de
+# claves en el archivo el falso positivo deja de ser teórico. Y un falso positivo
+# aquí ABORTA una subida legítima, que es la forma más rápida de que el operador
+# desactive el escáner y entonces no quede ninguno.
+#
+# Así que primero se QUITA el blob y después se mira: lo que decide es la
+# etiqueta, no el contenido cifrado. Un `sk-…` en crudo sigue saltando igual.
+_BLOBS_CIFRADOS = re.compile(r"dpapi:v[0-9]+:[A-Za-z0-9+/=]+")
+
+
+def _sin_blobs_cifrados(linea: str) -> str:
+    """La línea con los valores cifrados sustituidos por una marca inofensiva."""
+    return _BLOBS_CIFRADOS.sub("dpapi:<cifrado>", linea)
+
+
+# ── 3c. DATOS PERSONALES: no son secretos, pero tampoco deberian publicarse ──
 # Avisan, no abortan: es decision suya. Salen de la auditoria del 30/07/2026.
 _PERSONALES = [
     (r"[A-Za-z]:\\Users\\(?!usuario|TuUsuario|TU_USUARIO|%|<)[A-Za-z0-9_.\-]{3,}",
@@ -195,6 +218,8 @@ def revisar() -> dict:
         for n, linea in enumerate(texto.splitlines(), 1):
             if len(linea) > 600:
                 continue
+            # los valores cifrados con DPAPI no son secretos legibles (ver 3b)
+            linea = _sin_blobs_cifrados(linea)
             for rx, desc in _PELIGRO_RX:
                 m = rx.search(linea)
                 if m:
@@ -272,6 +297,29 @@ CASOS_NO_DEBE_SALTAR = [
     ('-storepass <TU_CONTRASENA> app.apk', "un placeholder de keystore"),
 ]
 
+# Valores CIFRADOS (T13): el escáner tiene que ver el almacén cifrado como algo
+# NORMAL. Si aborta una subida porque dentro de un base64 apareció «AIza», el
+# operador desactivará el escáner y entonces sí que no habrá ninguno. Cada caso
+# lleva, además, la comprobación de que la línea SALTA sin neutralizar: un caso
+# que no saltaría ni en crudo no prueba nada.
+#
+# Sólo hay UN patrón de peligro que pueda aparecer dentro de un base64 estándar
+# (A-Z, a-z, 0-9, +, /, =): «AIza…» (clave de Google), porque los demás llevan
+# un guion, un guion bajo, un punto o dos puntos que el alfabeto no tiene. Por eso
+# el caso realista es ese y no otro: no se inventan casos que no pueden pasar.
+CASOS_BLOB_CIFRADO = [
+    ('"gemini_api_key": "dpapi:v1:AIza' + "A" * 40 + '",',
+     "un valor cifrado con pinta de clave de Google dentro"),
+    ('{"picovoice_key": "dpapi:v7:AIza' + "A" * 40 + '=}',
+     "un valor cifrado de una versión futura, también con AIza dentro"),
+]
+# Y lo de siempre tiene que seguir saltando aunque en la MISMA linea vaya un blob:
+# quitar el blob no puede tapar la clave que está al lado.
+CASOS_CRUDO_JUNTO_A_BLOB = [
+    ('{"a": "dpapi:v1:' + "A" * 40 + '", "openai_api_key": "sk-' + "A" * 32 + '"}',
+     "una clave en crudo al lado de un valor cifrado"),
+]
+
 
 def autotest() -> int:
     fallos = 0
@@ -291,14 +339,138 @@ def autotest() -> int:
             fallos += 1
         else:
             print(f"  ✔ no molesta con {desc}")
+    print()
+    for linea, desc in CASOS_BLOB_CIFRADO:
+        pelada = _sin_blobs_cifrados(linea)
+        pillado = next((d for rx, d in _PELIGRO_RX if rx.search(pelada)), "")
+        ruido = _REVISA_RX.search(pelada)
+        if not any(rx.search(linea) for rx, _d in _PELIGRO_RX):
+            print(f"  ✖ CASO INÚTIL: {desc} no saltaría ni sin neutralizar\n      {linea[:90]}")
+            fallos += 1
+        elif pillado:
+            print(f"  ✖ FALSA ALARMA con {desc} → lo llama «{pillado}»\n      {linea[:90]}")
+            fallos += 1
+        elif ruido and not _INOCENTE.search(pelada):
+            print(f"  ✖ LISTA como credencial {desc}\n      {linea[:90]}")
+            fallos += 1
+        else:
+            print(f"  ✔ deja pasar {desc}")
+    for linea, desc in CASOS_CRUDO_JUNTO_A_BLOB:
+        pillado = next((d for rx, d in _PELIGRO_RX
+                        if rx.search(_sin_blobs_cifrados(linea))), "")
+        if pillado:
+            print(f"  ✔ sigue detectando {desc} → {pillado}")
+        else:
+            print(f"  ✖ SE LE ESCAPA {desc} (el blob tapó la clave)\n      {linea[:90]}")
+            fallos += 1
     print("─" * 60)
     print("Todo correcto." if not fallos else f"{fallos} fallo(s) en el detector.")
     return 1 if fallos else 0
 
 
+def _cripto():
+    """Carga `backend/core/comun/cripto.py` SIN importar el paquete `backend`.
+
+    Importar `backend.core.comun.config` CONSTRUYE el `Settings`, y construir el
+    Settings dispara la migración del almacén de secretos: un informe no puede
+    tener como efecto secundario reescribir el archivo que está informando.
+    `cripto.py` solo usa la biblioteca estándar, así que se carga por ruta.
+    """
+    ruta = ROOT / "backend" / "core" / "comun" / "cripto.py"
+    spec = importlib.util.spec_from_file_location("nexus_cripto", ruta)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def proteger_backups(carpeta: Path | None = None) -> int:
+    """Informa de las credenciales que siguen EN CLARO en `config/`. No toca nada.
+
+    Es el complemento de la tarea T13: `secrets.json` se cifra solo, pero quedan
+    (a) la copia `secrets.json.bak` que escribían las versiones anteriores, y
+    (b) los tokens OAuth de Google y Spotify, que escriben SUS librerías. Este
+    comando los enumera con su tamaño y su fecha y dice qué hacer con cada uno.
+
+    NO borra nada: un archivo del operador no se elimina porque a un script le
+    parezca buena idea. Y devuelve 0 siempre — es un informe, no un veto.
+
+    `carpeta` es para las pruebas: ellas le pasan una carpeta de usar y tirar y
+    así no se abre ni un byte del material real del operador.
+    """
+    carpeta = Path(carpeta) if carpeta else (ROOT / "config")
+    try:
+        info = _cripto().estado_del_almacen(carpeta)
+    except Exception as e:                                     # noqa: BLE001
+        print("No he podido leer el estado de config/:", e)
+        return 2
+
+    print("\nCredenciales en config/ — qué está cifrado y qué no")
+    print("─" * 66)
+    print(f"  carpeta: {info['carpeta']}")
+    en_claro = []
+    for f in info["archivos"]:
+        if f["archivo"] == "secrets.json":
+            s = info["secretos"]
+            if not s["legible"]:
+                estado, nota = "?", "no existe o no se puede leer"
+            elif s["en_claro"]:
+                estado, nota = "⚠ EN CLARO", f"{s['en_claro']} de {s['total']} valores sin cifrar"
+                en_claro.append(f)
+            elif s["otros"]:
+                estado, nota = "?", f"{s['otros']} valores que no son texto"
+            else:
+                estado, nota = "✔ cifrado", f"cifrados {s['cifrados']} de {s['total']}"
+            print(f"  {estado:<11} {f['archivo']:<24} {f['bytes']:>8} B  {nota}")
+            continue
+        if not f["existe"]:
+            print(f"  {'·' :<11} {f['archivo']:<24} {'':>9}   no está")
+            continue
+        print(f"  {'⚠ EN CLARO':<11} {f['archivo']:<24} {f['bytes']:>8} B  "
+              f"({f['modificado']})  {f['que_es']}")
+        en_claro.append(f)
+
+    if not en_claro:
+        print("─" * 66)
+        print("✔ Nada sensible en claro en config/.")
+    else:
+        print("─" * 66)
+        print("Qué hacer (nexus NO borra nada por su cuenta: son archivos del operador):")
+        for f in en_claro:
+            print(f"\n  · {f['archivo']} — {f['que_es']}")
+            for trozo in _envolvemos(f["consejo"], 62):
+                print(f"      {trozo}")
+
+    # Archivos con pinta de credencial que no son ninguno de los de siempre.
+    for f in info.get("otros") or []:
+        print(f"\n  · {f['archivo']} — no lo conozco, pero el nombre suena a "
+              f"credential ({f['bytes']} B, {f['modificado']})")
+        for trozo in _envolvemos(
+                "Míralo tú: si es una copia vieja de credenciales (por ejemplo un "
+                ".OLD.json), bórrala cuando tengas una copia de seguridad de "
+                "config/ hecha. nexus no lo toca.", 62):
+            print(f"      {trozo}")
+    return 0
+
+
+def _envolvemos(texto: str, ancho: int) -> list[str]:
+    """Parte el consejo en líneas legibles sin cortar palabras."""
+    lineas, actual = [], ""
+    for palabra in texto.split():
+        if len(actual) + len(palabra) + 1 > ancho:
+            lineas.append(actual)
+            actual = palabra
+        else:
+            actual = f"{actual} {palabra}".strip()
+    if actual:
+        lineas.append(actual)
+    return lineas
+
+
 def main() -> int:
     if "--autotest" in sys.argv:
         return autotest()
+    if "--proteger-backups" in sys.argv:
+        return proteger_backups()
     try:
         info = revisar()
     except RuntimeError as e:

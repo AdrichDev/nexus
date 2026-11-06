@@ -106,8 +106,38 @@ sembradas se crean la primera vez que hacen falta; no hay que migrar ningún
 archivos `*.key`, `*.pem` y `*.p12`. Esos archivos convierten «mi asistente lee
 mis archivos» en «cualquiera que hable con mi asistente roba mis credenciales»,
 así que no se habilitan desde ⚙. No es protección de Credential Manager ni del
-proceso LSASS a nivel de sistema operativo: eso pide DPAPI, y aquí solo se
-cierra el camino de nexus.
+proceso LSASS a nivel de sistema operativo: eso no lo da una lista de rutas, y
+lo que sí se hace con DPAPI está en «Secretos en disco», justo debajo.
+
+## Secretos en disco (DPAPI)
+
+`config/secrets.json` guarda las API keys **cifradas con DPAPI** (hallazgo SEC-09
+de la auditoría): cada valor es una cadena `dpapi:v1:<base64>` dentro del mismo
+JSON, así que el archivo sigue siendo legible por nombres pero no por contenido.
+Windows deriva la clave de **tu cuenta**, así que el archivo solo se descifra en
+**este equipo con este usuario**; si lo restauras en otro PC (o en otra cuenta de
+Windows) nexus avisa en vez de arrancar como si no hubiera ninguna clave, y te
+pide volver a pegarla en ⚙ → Claves API. Un `secrets.json` viejo en claro se
+cifra solo al arrancar —y antes de reescribirlo se comprueba que cada valor
+vuelve igual, de uno en uno—. En Linux/Docker (los contenedores de CI) no hay
+DPAPI: allí el almacén se queda en JSON plano y nexus funciona igual.
+
+Esto protege el archivo en disco: una copia de seguridad del perfil, otra sesión
+del sistema, un `git add -A` accidental. **No** protege de un programa que se
+ejecute como tú — ese lee el archivo y lo descifra igual, y por eso el riesgo
+residual sigue escrito en la auditoría.
+
+Siguen en claro, y es un hueco conocido: `config/google_token.json` y
+`config/spotify_token.json` (los escriben sus librerías OAuth, así que cerrarlos
+obliga a interceptarlas o a pedir una reautorización) y
+`config/google_credentials.json` (el JSON que se descarga de Google). Para ver
+qué queda en claro, con tamaño y fecha, y cómo limpiarlo:
+
+```bat
+.venv\Scripts\python.exe scripts\revisar_antes_de_subir.py --proteger-backups
+```
+
+No borra nada: enumera los archivos y dice qué hacer con cada uno.
 
 **Los permisos solo se cambian desde este equipo.** `POST /api/config` rechaza
 con un 403 las claves que controlan una guarda (`perm_files`, `perm_folders`,

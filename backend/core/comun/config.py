@@ -3,6 +3,14 @@ nexus — Configuración central.
 
 Carga variables de .env y del archivo config/settings.json (editable en caliente
 desde el HUD).  Prioridad: settings.json > .env > valores por defecto.
+
+Los SECRETOS viven aparte, en `config/secrets.json`, y desde la tarea T13
+(hallazgo SEC-09 de la auditoría del 30/07/2026, roadmap P2-6) se guardan
+CIFRADOS con DPAPI: cada valor es una cadena etiquetada `dpapi:v1:…` dentro del
+mismo JSON. `CLAUDE.md` decía que estaban «cifradas» y era mentira; ahora es
+verdad, y la migración de un almacén en claro ocurre sola al cargarlo (ver
+`_abrir_secretos`). En un equipo sin DPAPI —Linux, Docker, los contenedores de
+CI— se comporta exactamente como antes: JSON plano y funcionando.
 """
 from __future__ import annotations
 
@@ -10,6 +18,7 @@ import json
 import os
 from pathlib import Path
 
+from . import cripto
 from .atomicos import escribir_json_atomico
 
 try:
@@ -211,7 +220,11 @@ def _write_json_atomic(path: Path, data: dict) -> None:
     el tablero, el panel de multitarea, Content OS y la proactividad escribían a
     pelo y ahora escriben por el MISMO sitio. Este nombre se queda porque
     `dominio/reglas.py` lo llama, y `respaldo=True` porque `_read_json_safe()`
-    recurre a ese `.bak` cuando settings.json quedó truncado."""
+    recurre a ese `.bak` cuando settings.json quedó truncado.
+
+    `secrets.json` ya NO se escribe por aquí (T13): su `.bak` era una copia en
+    CLARO del almacén al lado del almacén. Lo escribe `_guardar_secretos_en_disco`
+    con `respaldo=False`."""
     escribir_json_atomico(path, data, indent=2, respaldo=True)
 
 
@@ -258,15 +271,210 @@ def _load_json() -> dict:
     return _read_json_safe(CONFIG_FILE)
 
 
-def _load_secrets() -> dict:
+# ─────────────────────────── el almacén de secretos ───────────────────────────
+# Hallazgo SEC-09 (roadmap P2-6, tarea T13). Antes: `config/secrets.json` era
+# JSON PLANO, y cualquiera que pudiera leer el archivo —cualquier proceso del
+# usuario, cualquier copia de seguridad del perfil— leía las API keys enteras.
+#
+# Ahora: el archivo sigue siendo JSON (se abre con `cat` y solo se ven NOMBRES),
+# y cada valor es una cadena etiquetada `dpapi:v1:<base64>` que solo descifra la
+# misma cuenta de Windows en el mismo equipo. Ver `comun/cripto.py` para la
+# llamada exacta a DPAPI y para lo que NO cubre.
+#
+# Los avisos se acumulan y se imprimen porque la migración ocurre al IMPORTAR
+# este módulo: todavía no hay bucle de eventos y el bus no sirve. El texto NUNCA
+# lleva el valor, solo el nombre de la clave.
+AVISOS_SECRETOS: list[str] = []
+
+
+def _avisar_secretos(msg: str) -> None:
+    """Un problema del almacén de claves se cuenta SIEMPRE.
+
+    Callar un fallo aquí significa que nexus arranca sin la clave de OpenAI y el
+    operador cree que la ha perdido. Un aviso en la consola y en
+    `AVISOS_SECRETOS` cuesta una línea y ahorra esa tarde entera.
+
+    El `print` va protegido a propósito: esto corre al IMPORTAR el módulo, y en un
+    ejecutable sin consola `sys.stdout` puede ser None. Un aviso que revienta el
+    arranque sería peor que el problema que anuncia."""
+    AVISOS_SECRETOS.append(msg)
+    try:
+        print(f"[nexus] AVISO secretos: {msg}")
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
+def _leer_secretos_crudos() -> dict:
+    """El JSON tal cual está en disco (con el repliegue al `.bak` de siempre)."""
     return _read_json_safe(SECRETS_FILE)
+
+
+def _abrir_secretos(crudos: dict) -> tuple[dict, dict, dict]:
+    """Reparte el almacén en tres cubos y MIGRA a cifrado lo que esté en claro.
+
+    Devuelve `(planos, ajenos, marcas)`:
+
+      * `planos` — nombre → valor EN CLARO en memoria (nunca se guarda así en
+        Windows; el disco siempre lleva la marca).
+      * `ajenos` — nombre → lo que hay en disco, TAL CUAL, cuando aquí no se
+        puede usar: cifrado con otra máquina u otra cuenta de Windows, formato
+        de cifrado que no conocemos, o un valor que no es texto. Se conserva en
+        cada escritura para no destruir la clave del operador.
+      * `marcas` — nombre → el `dpapi:v1:` que ya estaba, para no volver a
+        cifrar (DPAPI añade sal: el blob cambiaría) lo que no ha cambiado. La
+        migración actualiza este diccionario EN SU SITIO tras escribir.
+
+    La migración solo se intenta si hay algún valor en claro y hay DPAPI. Si
+    falla la verificación, el archivo se queda EXACTAMENTE como estaba.
+    """
+    planos: dict = {}
+    ajenos: dict = {}
+    marcas: dict = {}
+    en_claro: list[str] = []
+    for clave, valor in (crudos or {}).items():
+        if cripto.es_cifrado(valor):
+            try:
+                planos[clave] = cripto.descifrar(valor)
+            except cripto.CriptoError as exc:
+                ajenos[clave] = valor
+                _avisar_secretos(
+                    f"la clave «{clave}» está cifrada con otra máquina u otra "
+                    f"cuenta de Windows y aquí no se puede abrir ({exc}). No la "
+                    "toco ni la borro: vuelve a pegarla en ⚙ → Claves API desde "
+                    "esta cuenta.")
+                continue
+            marcas[clave] = valor
+            continue
+        if cripto.es_de_dpapi(valor):
+            ajenos[clave] = valor
+            _avisar_secretos(
+                f"la clave «{clave}» está guardada con un formato de cifrado que "
+                "esta versión de nexus no conoce. No la toco: actualiza nexus o "
+                "vuelve a pegarla en ⚙ → Claves API.")
+            continue
+        if not isinstance(valor, str):
+            ajenos[clave] = valor
+            _avisar_secretos(
+                f"el valor de «{clave}» en secrets.json no es texto "
+                f"({type(valor).__name__}): lo dejo como está y no se usa.")
+            continue
+        planos[clave] = valor
+        if valor.strip():
+            en_claro.append(clave)
+    if en_claro:
+        _migrar_secretos(planos, ajenos, marcas)
+    return planos, ajenos, marcas
+
+
+def _migrar_secretos(planos: dict, ajenos: dict, marcas: dict) -> None:
+    """Cifra el almacén que estaba en claro, en el sitio, sin pérdidas.
+
+    Sin DPAPI (Linux, Docker, los contenedores de CI) NO se hace nada: el
+    archivo se queda en JSON plano y nexus funciona igual que antes. Ese
+    repliegue es deliberado —el contenedor de CI es Linux y ahí no hay perfil de
+    Windows que pueda descifrar nada— y está escrito en el docstring de
+    `comun/cripto.py`.
+    """
+    if not cripto.disponible():
+        return
+    disco = _cifrar_y_verificar(planos, ajenos, marcas)
+    if disco is None:
+        return                                   # ya se ha avisado del motivo
+    if not _guardar_secretos_en_disco(disco):
+        return
+    marcas.clear()
+    marcas.update({k: v for k, v in disco.items() if cripto.es_cifrado(v)})
+
+
+def _cifrar_y_verificar(planos: dict, ajenos: dict, marcas: dict) -> dict | None:
+    """El JSON que hay que escribir, o None si NO se puede escribir con garantías.
+
+    Antes de tocar el archivo se comprueba, VALOR A VALOR, que
+    `descifrar(cifrar(v)) == v`, y después que el JSON resultante se vuelve a
+    leer igual. Si algo falla no se escribe NADA: medio almacén migrado es peor
+    que ninguno, porque el valor que se quede en claro no se nota y el que se
+    pierda tampoco.
+    """
+    nuevo: dict = {}
+    for clave, valor in planos.items():
+        if not isinstance(valor, str) or not valor.strip():
+            nuevo[clave] = valor                 # una cadena vacía no es un secreto
+            continue
+        marca = None
+        previa = marcas.get(clave)
+        if previa and cripto.es_cifrado(previa):
+            # Ya estaba cifrado: se REUTILIZA el blob si el valor no ha cambiado
+            # (y se comprueba descifrándolo, que es la misma garantía).
+            try:
+                if cripto.descifrar(previa) == valor:
+                    marca = previa
+            except cripto.CriptoError:
+                marca = None
+        if marca is None:
+            try:
+                marca = cripto.cifrar(valor)
+            except cripto.CriptoError as exc:
+                _avisar_secretos(
+                    f"no he podido cifrar «{clave}» ({exc}). El almacén se queda "
+                    "EXACTAMENTE como estaba, en claro, y nexus sigue "
+                    "funcionando con esas claves.")
+                return None
+        try:
+            vuelta = cripto.descifrar(marca)
+        except cripto.CriptoError as exc:
+            vuelta = f"<no descifra: {exc}>"
+        if vuelta != valor:
+            _avisar_secretos(
+                f"la comprobación de ida y vuelta falló para «{clave}»: lo que se "
+                "descifra no es lo que se cifró. NO reescribo el almacén —una "
+                "migración a medias perdería claves—.")
+            return None
+        nuevo[clave] = marca
+    for clave, valor in ajenos.items():
+        nuevo.setdefault(clave, valor)           # lo que no se puede abrir, intacto
+    # Y el archivo tiene que volver a leerse EXACTAMENTE igual.
+    try:
+        if json.loads(json.dumps(nuevo, ensure_ascii=False)) != nuevo:
+            _avisar_secretos(
+                "el almacén cifrado no vuelve a leerse igual al serializarlo: NO "
+                "lo reescribo.")
+            return None
+    except (TypeError, ValueError) as exc:
+        _avisar_secretos(
+            f"el almacén no se puede escribir como JSON ({exc}): NO lo reescribo.")
+        return None
+    return nuevo
+
+
+def _guardar_secretos_en_disco(disco: dict) -> bool:
+    """Escribe `secrets.json` SIN `.bak`, y solo si el archivo está entero.
+
+    Por qué se acaba el `.bak` del almacén de claves (T13): era una copia EN
+    CLARO del almacén, al lado del almacén. Cerrar SEC-09 en el principal y
+    dejar la copia en claro no cierra nada. La escritura ya es atómica, así que el
+    `.bak` tampoco hacía falta para eso; el archivo cifrado ES la copia (está en
+    `config/`, que el operador respalda entero).
+
+    El `.bak` que ya exista NO se borra desde aquí: es un archivo del operador.
+    Lo cuenta `scripts/revisar_antes_de_subir.py --proteger-backups`.
+    """
+    try:
+        escribir_json_atomico(SECRETS_FILE, disco, indent=2, respaldo=False)
+        return True
+    except (OSError, TypeError, ValueError) as exc:
+        _avisar_secretos(
+            f"no he podido guardar secrets.json ({exc}). Las claves de esta "
+            "sesión siguen en memoria y el archivo anterior queda intacto.")
+        return False
 
 
 class Settings:
     """Acceso a configuración con recarga y guardado en caliente.
 
-    Las API keys se guardan en config/secrets.json (editable desde el HUD ⚙)
-    o en .env — nunca en settings.json ni se devuelven por la API.
+    Las API keys se guardan en config/secrets.json (editable desde el HUD ⚙) o
+    en .env — nunca en settings.json ni se devuelven por la API. En disco van
+    CIFRADAS con DPAPI desde T13 (SEC-09); en memoria, llanas, que es lo que
+    necesitan los clientes HTTP.
     """
 
     SECRET_KEYS = ("openai_api_key", "anthropic_api_key", "gemini_api_key",
@@ -288,7 +496,11 @@ class Settings:
 
     def __init__(self):
         self._json = _load_json()
-        self._secrets = _load_secrets()
+        # Tres cubos (ver _abrir_secretos): lo que se puede usar, lo que aquí NO
+        # se puede abrir y se conserva intacto, y la marca de los que ya estaban
+        # cifrados (para no re-cifrarlos en cada escritura).
+        (self._secrets, self._secretos_ajenos,
+         self._secretos_marcas) = _abrir_secretos(_leer_secretos_crudos())
 
     def get(self, key: str, default=None):
         if key in self._json:
@@ -300,7 +512,25 @@ class Settings:
 
     # ---------- secretos ----------
     def secret(self, key: str) -> str:
-        return (self._secrets.get(key) or os.getenv(key.upper(), "") or "").strip()
+        """El valor en claro, con la precedencia de siempre: secrets.json > env > «».
+
+        Si el valor está cifrado con OTRA máquina u otra cuenta de Windows, no
+        está en el almacén utilizable y se cae a la variable de entorno (o «»).
+        Eso NO es un vacío silencioso: al cargar se avisó en castellano con el
+        nombre de la clave, y `secretos_ilegibles()` la sigue nombrando."""
+        valor = self._secrets.get(key)
+        if isinstance(valor, str) and valor.strip():
+            return valor.strip()
+        return (os.getenv(key.upper(), "") or "").strip()
+
+    def secretos_ilegibles(self) -> list[str]:
+        """Nombres de los secretos guardados que aquí NO se pueden usar.
+
+        Cifrados con otra máquina u otra cuenta de Windows, guardados con un
+        formato que no conocemos, o con un valor que no es texto. Están en el
+        archivo —no se han borrado— pero `secret()` no los devuelve. Se nombran
+        para que el fallo se pueda ver en vez de parecer «aquí no hay clave»."""
+        return sorted(self._secretos_ajenos)
 
     def _es_secreto(self, key: str) -> bool:
         """¿Es este nombre un secreto?
@@ -322,7 +552,31 @@ class Settings:
             self._secrets[key] = value.strip()
         else:
             self._secrets.pop(key, None)
-        _write_json_atomic(SECRETS_FILE, self._secrets)
+        # El valor ha cambiado (o se ha borrado): su marca vieja ya no vale y, si
+        # estaba en el cubo de los que no se pueden abrir, el operador acaba de
+        # poner uno bueno. Ponerlo a «» es justo la forma de quitarlo de en medio.
+        self._secretos_marcas.pop(key, None)
+        self._secretos_ajenos.pop(key, None)
+        self._guardar_secretos()
+
+    def _guardar_secretos(self) -> None:
+        """Escribe el almacén: cifrado y verificado donde hay DPAPI, plano donde no.
+
+        `set_secret` NO puede dejar el archivo a medias: si la verificación o el
+        cifrado fallan, se avisa y el archivo se queda como estaba; el valor
+        nuevo vive en memoria hasta la siguiente ocasión."""
+        if cripto.disponible():
+            disco = _cifrar_y_verificar(self._secrets, self._secretos_ajenos,
+                                        self._secretos_marcas)
+            if disco is None:
+                return
+        else:
+            # Sin DPAPI se escribe exactamente como antes (JSON plano) y los
+            # blobs que no se puedan abrir se devuelven intactos al archivo.
+            disco = {**self._secrets, **self._secretos_ajenos}
+        if _guardar_secretos_en_disco(disco):
+            self._secretos_marcas = {k: v for k, v in disco.items()
+                                     if cripto.es_cifrado(v)}
 
     @property
     def elevenlabs_key(self) -> str:

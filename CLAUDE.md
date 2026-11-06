@@ -125,7 +125,15 @@ en el dict**. Gana la PRIMERA regex que case. Consecuencias:
 
 ## Configuración y secretos
 
-`config/settings.json` (ajustes) y `config/secrets.json` (claves, cifradas) están
-en `.gitignore` y **no se tocan sin permiso**. Sus plantillas son los `.example`.
+`config/settings.json` (ajustes) y `config/secrets.json` (claves) están en
+`.gitignore` y **no se tocan sin permiso**. Sus plantillas son los `.example`.
+Las claves de `secrets.json` están **cifradas de verdad** con DPAPI desde la
+tarea T13 (SEC-09): cada valor es una cadena `dpapi:v1:…` que solo descifra la
+misma cuenta de Windows en el mismo equipo. Se migra sola al arrancar y sin
+pérdidas (se verifica valor a valor antes de reescribir), el almacén ya no deja
+un `.bak` en claro y, si no hay DPAPI (Linux/Docker), se queda en JSON plano y
+funciona igual. Siguen EN CLARO `config/google_token.json`,
+`config/google_credentials.json` y `config/spotify_token.json`, porque los
+escriben sus librerías OAuth: es un hueco conocido, no un olvido.
 `config/docker-compose.yml` lo genera el propio nexus para Postgres+pgvector en
 127.0.0.1:5433; el compose se busca desde `skills/autoprovision/skill.py`.

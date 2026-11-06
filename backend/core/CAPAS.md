@@ -39,7 +39,7 @@ detalle de estilo.
 
 | Capa | Módulos |
 | --- | --- |
-| **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice`, `secretos`, `canales`, `atomicos`, `datos_inyectados` |
+| **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice`, `secretos`, `canales`, `atomicos`, `datos_inyectados`, `cripto` |
 | **infraestructura** | `llm`, `llm_runtime`, `tts`, `stt`, `remote`, `files_io`, `engram_bridge`, `websearch`, `telegram_bridge`, `spotify`, `hardware`, `app_index`, `youtube` |
 | **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `correcciones`, `briefing`, `profile`, `review`, `ingesta`, `pm`, `reglas` |
 | **aplicación** | `brain`, `skills_loader`, `scheduler`, `background`, `jobs`, `wake`, `hotkey`, `voice_cycle`, `aprendizaje` |
@@ -58,6 +58,11 @@ Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
   al inyectar contexto y una skill (`mcp_hands`). Ponerlo en infraestructura
   obligaría a `brain` a depender de ella por dos strings y una función de tres
   líneas; en común lo puede leer cualquiera, que es lo que hace falta.
+- **`cripto` en común**, no en infraestructura. Cifra los valores de
+  `config/secrets.json` con DPAPI (SEC-09) y no depende de nada: ni red, ni
+  configuración, ni disco. Lo llama `config`, que está en la misma capa, y
+  probarlo no necesita ni un archivo. Ponerlo en infraestructura obligaría a
+  `config` a depender de una capa superior para guardar su propio archivo.
 - **`brain` y `voice_cycle` en aplicación**, no en dominio. No contienen reglas
   de negocio: deciden **qué se ejecuta**. `brain` elige skill e intent y lanza
   trabajos; `voice_cycle` escucha, transcribe y se lo pasa al cerebro. Eso es
