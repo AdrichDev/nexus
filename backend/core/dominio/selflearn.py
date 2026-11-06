@@ -19,6 +19,7 @@ import re
 import time
 
 from ..comun.config import DATA_DIR, settings
+from ..comun import secretos
 
 _INTER = DATA_DIR / "interactions.jsonl"
 _PROFILE = DATA_DIR / "operator_profile.md"
@@ -54,14 +55,30 @@ def _rotate() -> None:
 
 
 def record_interaction(text: str, reply: str, skill, ok: bool = True) -> bool:
-    """Apunta una interacción. Devuelve True si ya toca auto-reentrenar."""
+    """Apunta una interacción. Devuelve True si ya toca auto-reentrenar.
+
+    AI-02/PRIV-01 de la auditoría del 30/07/2026: aquí se guardaba el texto del
+    operador y la respuesta EN CRUDO, y de aquí salen los 120 ejemplos que se
+    mandan a `llm.distill` — que puede ser un proveedor de nube. Redactando AL
+    ESCRIBIR, la salida del destilado queda limpia por construcción: si un
+    secreto no está en el fichero, no está en el prompt que sale del equipo.
+
+    FAIL CLOSED: si la redacción falla, el campo se guarda vacío. Un secreto
+    escrito es para siempre (nadie limpia este fichero después); una frase
+    perdida, no."""
     text = (text or "").strip()
     if not text:
         return False
+    text_limpio = secretos.redactar_seguro(text)
+    reply_limpio = secretos.redactar_seguro((reply or "")[:300])
+    if text_limpio is None:
+        text_limpio = ""              # no se pudo limpiar → el campo se guarda vacío
+    if reply_limpio is None:
+        reply_limpio = ""
     try:
         _INTER.parent.mkdir(parents=True, exist_ok=True)
         with _INTER.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"t": text, "r": (reply or "")[:300],
+            f.write(json.dumps({"t": text_limpio, "r": (reply_limpio or "")[:300],
                                 "skill": skill or "", "ok": bool(ok)},
                                ensure_ascii=False) + "\n")
         _rotate()
@@ -217,6 +234,14 @@ async def retrain(force: bool = False) -> str:
         muestras = "\n".join(
             f'- «{d.get("t", "")[:120]}»' + (f' → [{d["skill"]}]' if d.get("skill") else "")
             for d in inter[-120:])
+        # Segunda barrera, y barata: el fichero ya se redacta al escribir, así que
+        # aquí no debería quedar nada. Se vuelve a pasar porque lo que sale en
+        # este prompt puede ir a la NUBE (`llm.distill` sigue el cerebro activo) y
+        # una línea vieja de antes de este arreglo sí tendría el secreto dentro.
+        muestras_limpias = secretos.redactar_seguro(muestras)
+        if muestras_limpias is None:
+            return ""                    # sin poder limpiar, no sale nada de aquí
+        muestras = muestras_limpias
         prev = operator_profile()
         sysmsg = (
             "Eres el módulo de AUTO-MEJORA de nexus, un asistente personal tipo JARVIS. "
@@ -233,6 +258,12 @@ async def retrain(force: bool = False) -> str:
                    f"ÚLTIMAS INTERACCIONES de {op} (frase → skill/minion usado):\n{muestras}")
         profile = await llm.distill(sysmsg, usermsg, max_tokens=900)
         if profile and len(profile.strip()) > 30:
+            # El perfil se inyecta en TODOS los prompts: si el modelo devolviera un
+            # secreto que venía en las muestras, se quedaría dentro para siempre.
+            limpio = secretos.redactar_seguro(profile.strip())
+            if limpio is None:
+                return ""                # mejor el perfil viejo que uno con un secreto
+            profile = limpio
             _PROFILE.parent.mkdir(parents=True, exist_ok=True)
             _PROFILE.write_text(profile.strip(), encoding="utf-8")
             s["since"] = 0

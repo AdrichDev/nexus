@@ -57,6 +57,13 @@ DEFAULTS = {
     # ---- LLM ----
     "llm_provider": "ollama",          # ollama | openai | anthropic | gemini | cloud | mock
     "llm_local": True,                 # check "modelo local" del panel ⚙
+    # RESERVA DEL CEREBRO (AI-01/PRIV-02 de la auditoría del 30/07/2026). Si el
+    # proveedor elegido no responde, nexus solo cambia a otro de la MISMA clase
+    # (ver LOCALIDAD en llm.py): un cerebro local cae en otro local, nunca en la
+    # nube. Para que la nube pueda hacer de reserva hay que decirlo AQUÍ: por el
+    # prompt viajan la memoria, el perfil del operador y los documentos
+    # recuperados, y eso no sale del equipo por decisión de nadie más que su dueño.
+    "permitir_fallback_nube": False,
     "ollama_url": "http://localhost:11434",
     # Con cuál se miran las portadas de los reels. Vacío = se coge solo el
     # primero de visión que tenga Ollama instalado.

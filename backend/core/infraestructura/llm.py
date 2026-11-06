@@ -232,6 +232,9 @@ class OllamaProvider(BaseProvider):
             "prompt": conv + "\nAsistente:",
             "system": sys_txt,
             "stream": stream,
+            # TOPE DE SALIDA (AI-07): sin esto el modelo escribía hasta agotar su
+            # contexto si se ponía a divagar. Valor en config/umbrales.json.
+            "options": {"num_predict": _cap_salida()},
         }
 
     async def chat(self, messages: list[dict]) -> str:
@@ -244,7 +247,8 @@ class OllamaProvider(BaseProvider):
                     r = await net.client().post(
                         f"{self.url}/api/chat",
                         json={"model": modelo, "messages": messages, "stream": False,
-                              "think": False},
+                              "think": False,
+                              "options": {"num_predict": _cap_salida()}},
                         timeout=180)
                     r.raise_for_status()
                     OllamaProvider._ruta = "chat"
@@ -278,7 +282,8 @@ class OllamaProvider(BaseProvider):
                 if ruta == "chat":
                     url = f"{self.url}/api/chat"
                     payload = {"model": modelo, "messages": messages, "stream": True,
-                               "think": False}
+                               "think": False,
+                               "options": {"num_predict": _cap_salida()}}
                 else:
                     url = f"{self.url}/api/generate"
                     payload = self._generate_payload(messages, modelo, stream=True)
@@ -332,10 +337,19 @@ class OpenAIProvider(BaseProvider):
         apuntando a OpenRouter."""
         return {}
 
+    def _tope_salida(self) -> dict:
+        """Tope de tokens de SALIDA (AI-07).
+
+        Va en el cuerpo, no en el código de cada llamada: el número vive en
+        config/umbrales.json y aquí solo se lee. Sin tope, una respuesta que se
+        va de madre se paga entera. Lo heredan OpenAI y Cloud (compatible OpenAI)."""
+        return {"max_tokens": _cap_salida()}
+
     async def chat(self, messages: list[dict]) -> str:
         r = await net.client().post(f"{self.base}/chat/completions",
                                     headers={"Authorization": f"Bearer {self._key()}"},
                                     json={"model": self._model(), "messages": messages,
+                                          **self._tope_salida(),
                                           **self._extra_payload()},
                                     timeout=120)
         r.raise_for_status()
@@ -351,7 +365,7 @@ class OpenAIProvider(BaseProvider):
                 "POST", f"{self.base}/chat/completions",
                 headers={"Authorization": f"Bearer {self._key()}"},
                 json={"model": self._model(), "messages": messages, "stream": True,
-                      **self._extra_payload()},
+                      **self._tope_salida(), **self._extra_payload()},
                 timeout=120) as r:
             if r.status_code >= 400:
                 await r.aread()
@@ -465,7 +479,10 @@ def _gemini_payload(messages: list[dict]) -> dict:
                  "parts": [{"text": m["content"]}]}
                 for m in messages if m["role"] in ("user", "assistant")]
     return {"contents": contents,
-            "system_instruction": {"parts": [{"text": system}]}}
+            "system_instruction": {"parts": [{"text": system}]},
+            # TOPE DE SALIDA (AI-07): `maxOutputTokens` es el nombre que usa
+            # Gemini. Lo lee de config/umbrales.json, igual que los demás.
+            "generationConfig": {"maxOutputTokens": _cap_salida()}}
 
 
 def _sse_json(data: list[str]) -> dict:
@@ -604,6 +621,88 @@ PROVIDERS: dict[str, BaseProvider] = {
 }
 
 
+# ── LOCALIDAD DE CADA PROVEEDOR (AI-01 / PRIV-02 de la auditoría) ───────────
+#
+# EL FALLO QUE ESTO CIERRA (30/07/2026): `get_provider()` probaba
+# «ollama → openai → anthropic → gemini → cloud» y se quedaba con el primero
+# que respondiera, donde «responder» para la nube significa solo «hay una API
+# key». Quien había elegido el modelo LOCAL podía tener su memoria, su perfil y
+# sus documentos recuperados viajando a una API externa sin que nadie se lo
+# hubiera preguntado. El prompt de nexus no es una consulta cualquiera.
+#
+# La clase de cada proveedor decide si un cambio de cerebro puede ocurrir solo:
+#   local → el prompt no sale del equipo (no necesita permiso)
+#   nube  → sale del equipo (necesita `permitir_fallback_nube`, ver get_provider)
+LOCALIDAD = {
+    "ollama": "local",        # el modelo corre en este equipo
+    "mock": "local",          # respuestas prefabricadas: tampoco sale nada de aquí
+    "openai": "nube",
+    "anthropic": "nube",
+    "gemini": "nube",
+    "cloud": "nube",
+}
+
+
+def localidad_proveedor(nombre: str) -> str:
+    """«local» o «nube». Lo que no esté clasificado se trata como NUBE: ante la
+    duda, el error es NO mandar los datos fuera, no mandarlos."""
+    return LOCALIDAD.get((nombre or "").strip().lower(), "nube")
+
+
+def _orden_reserva(pedido: str) -> list[str]:
+    """Proveedores de reserva con los LOCALES siempre por delante.
+
+    Se conserva el orden histórico (ollama → openai → anthropic → gemini →
+    cloud) partido en dos clases, para que cambiar de cerebro dentro de casa
+    nunca dependa de un permiso. `mock` no aparece nunca: el modo demostración
+    solo existe si se elige a propósito."""
+    orden = [n for n in PROVIDERS if n not in (pedido, "mock")]
+    locales = [n for n in orden if localidad_proveedor(n) == "local"]
+    nubes = [n for n in orden if localidad_proveedor(n) != "local"]
+    return locales + nubes
+
+
+# ── TOPE DE TOKENS DE SALIDA (AI-07 de la auditoría) ────────────────────────
+#
+# Hasta ahora solo Anthropic mandaba `max_tokens` (1024 cableado en la llamada).
+# En los demás, el modelo podía escribir hasta agotar su contexto: una respuesta
+# que se va de madre se paga entera y encima tarda. El número vive en
+# config/umbrales.json (sección «llm») para que nadie lo cablee en la llamada.
+#
+# POR QUÉ ES GENEROSO: por esta misma puerta pasan los informes de research y
+# los guiones largos de Content OS, que son la salida legítima más larga que
+# genera nexus SIN pedir más tokens. Un tope corto no «recorta el final»: parte
+# el informe a mitad de una cita, y eso es peor que gastar tokens. 4096 tokens
+# son ~16 KB de texto, del orden de 5-6 veces un informe de research completo;
+# el tope solo muerde a una divagación, que es justo lo que hay que cortar.
+_UMBRALES_LLM_RESERVA = {"max_tokens_salida": 4096}
+
+
+def _umbrales_llm() -> dict:
+    """Lee la sección «llm» de config/umbrales.json sobre la reserva.
+
+    Si el archivo falta o está roto se queda la reserva: un umbral roto no puede
+    dejar la generación sin tope ni convertir el tope en 0 (que la cortaría)."""
+    vals = dict(_UMBRALES_LLM_RESERVA)
+    try:
+        import json as _j
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (_j.loads(f.read_text(encoding="utf-8")) or {}).get("llm") or {}
+            for k in vals:
+                v = leido.get(k)
+                if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+                    vals[k] = v
+    except Exception:
+        pass
+    return vals
+
+
+def _cap_salida() -> int:
+    """Tope de tokens de salida de una generación (nunca 0 ni negativo)."""
+    return int(_umbrales_llm()["max_tokens_salida"])
+
+
 # El proveedor activo se CACHEA: antes se sondeaba available() (probe HTTP) en CADA
 # mensaje. Se revalida cada 30 s, o al instante si cambias el cerebro en ⚙.
 _prov_cache = {"prov": None, "t": 0.0}
@@ -629,12 +728,53 @@ def invalidate_provider() -> None:
     _prov_cache["prov"] = None
 
 
+async def _hay_nube_disponible() -> bool:
+    """¿Hay alguna clave de nube puesta? Solo mira CLASES (tener key), no gasta
+    ninguna llamada. Sirve para explicar el porqué de un SinCerebro, no para
+    usarlo como cerebro."""
+    for name in PROVIDERS:
+        if localidad_proveedor(name) == "local":
+            continue
+        try:
+            if await PROVIDERS[name].available():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+async def _avisar_reserva_nube(desde: str, hacia: str) -> None:
+    """Cuando la reserva es un proveedor de NUBE, el operador se entera.
+
+    No se inventa interfaz: se usa el bus de eventos que ya existe (`log`), que
+    pinta la línea en el HUD y además la deja en data/nexus.log. Y no es un
+    detalle cosmético: a partir de ahí el contexto (memoria, perfil, documentos)
+    sale del equipo, así que se dice con esas palabras."""
+    try:
+        from ..comun import events
+        await events.log(
+            f"El cerebro configurado ({desde}) no responde, así que sigo con {hacia}, "
+            "que está en la nube. Desde ahora el contexto de la conversación (memoria, "
+            "perfil y documentos recuperados) sale de este equipo con destino a ese "
+            "proveedor. Se desactiva en ⚙ (o en config/settings.json) quitando "
+            "«permitir_fallback_nube».",
+            level="warning")
+    except Exception:
+        pass
+
+
 async def get_provider() -> BaseProvider:
     """El proveedor que SE VA A USAR. Lanza SinCerebro si no hay ninguno vivo.
 
     Nunca cae a `mock` por su cuenta: el modo demostración solo se usa si lo has
     elegido tú en ⚙. Si hay que cambiar de proveedor porque el tuyo no responde,
-    queda ANOTADO en el estado del runtime (no es un cambio invisible)."""
+    queda ANOTADO en el estado del runtime y, si el cambio cruza a la nube, se
+    avisa por el bus de eventos (no es un cambio invisible).
+
+    REGLA DE PRIVACIDAD (AI-01): el cambio solo puede quedarse en la MISMA clase
+    de localidad. Si elegiste un cerebro local y solo hay nube disponible, esto
+    lanza SinCerebro y lo dice: nexus NO manda el contexto fuera sin un
+    `permitir_fallback_nube` guardado en la configuración."""
     import time as _t
     now = _t.time()
     if _prov_cache["prov"] is not None and now - _prov_cache["t"] < 30:
@@ -652,18 +792,38 @@ async def get_provider() -> BaseProvider:
             "El cerebro configurado no existe. Elige uno en ⚙ y lo pruebo al momento.",
             f"proveedor desconocido: {wanted}")
 
+    # La reserva se filtra ANTES de sondear nada: sin permiso guardado, la nube no
+    # llega ni a probarse cuando el cerebro elegido es local.
+    permitir_nube = bool(settings.get("permitir_fallback_nube", False))
+    local_querido = localidad_proveedor(wanted) == "local"
+    orden = _orden_reserva(wanted)
+    if local_querido and not permitir_nube:
+        orden = [n for n in orden if localidad_proveedor(n) == "local"]
+
     chosen = None
     desde = ""
     if await prov.available():
         chosen = prov
     else:
-        for name in ("ollama", "openai", "anthropic", "gemini", "cloud"):
-            if name != wanted and await PROVIDERS[name].available():
+        for name in orden:
+            if await PROVIDERS[name].available():
                 chosen = PROVIDERS[name]
                 desde = wanted
                 break
 
     if chosen is None:
+        if local_querido and not permitir_nube and await _hay_nube_disponible():
+            # HAY nube y NO se usa: este es el caso que la auditoría llamó «fuga
+            # silenciosa». Se dice el motivo y cómo cambiarlo, sin alarmar.
+            raise SinCerebro(
+                "Tu cerebro configurado no responde ahora mismo y hay una clave de nube "
+                "puesta, pero NO voy a mandar nada a un proveedor en la nube sin tu "
+                "permiso: por ahí viajan tu memoria, tu perfil y tus documentos, y eso "
+                "se queda en este equipo. Arranca Ollama o elige otro modelo local en "
+                "⚙. Si de verdad quieres que la nube haga de reserva, actívalo tú en ⚙ "
+                "(o en config/settings.json) con «permitir_fallback_nube».",
+                f"reserva a la nube bloqueada (pedido: {wanted}; "
+                f"permitir_fallback_nube=false)")
         publico = ("Ahora mismo no tengo ningún modelo funcionando, así que no puedo "
                    "darte una respuesta de verdad. Elige un cerebro en ⚙ (o arranca "
                    "Ollama) y lo pruebo al instante.")
@@ -681,6 +841,10 @@ async def get_provider() -> BaseProvider:
             _STATUS.fallback_from = desde
         except Exception:
             pass
+        if localidad_proveedor(chosen.name) != "local":
+            # La reserva SÍ cruza a la nube (o la elegida ya era nube): el
+            # operador tiene que saberlo. Se usa el bus/log que ya existe.
+            await _avisar_reserva_nube(desde, chosen.name)
     _prov_cache["prov"] = chosen
     _prov_cache["t"] = now
     return chosen

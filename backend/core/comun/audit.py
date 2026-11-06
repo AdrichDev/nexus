@@ -19,10 +19,31 @@ import os
 import threading
 
 from .config import DATA_DIR
+from . import secretos
 
 AUDIT_FILE = DATA_DIR / "logs" / "audit.jsonl"
 _MAX_BYTES = 2_000_000          # ~2 MB → se rota a .1
 _lock = threading.Lock()
+
+
+def _texto_redactado(valor: str, limite: int) -> str:
+    """El texto libre del registro: REDACTADO y luego recortado.
+
+    AI-02/PRIV-01 de la auditoría del 30/07/2026: `request`, `interpreted`,
+    `result` y `error` se guardaban en crudo, así que una contraseña dictada o
+    una cadena de conexión pegada en una orden acababan en un fichero que nadie
+    limpia nunca. Ahora pasan por `secretos.redactar()`, la misma función que ya
+    protege la memoria y el RAG.
+
+    FAIL CLOSED: si la redacción falla, el campo se guarda VACÍO. Se pierde la
+    traza de ese texto —queda el resto del registro: acción, actor, resultado
+    destructivo sí/no, run_id— pero no se escribe ni un carácter en crudo. Una
+    auditoría que para no perder detalle filtra una clave no es una auditoría.
+    """
+    limpio = secretos.redactar_seguro(valor or "")
+    if limpio is None:
+        return ""                 # no se pudo limpiar → no se escribe
+    return limpio[:limite]
 
 
 def _rotate() -> None:
@@ -47,13 +68,13 @@ def log(action: str, *, actor: str = "nexus", request: str = "",
         "action": action,
         "actor": actor,                 # quién lo pidió (operador | scheduler | hermes…)
         "agent": agent,                 # quién lo ejecutó (nexus | hermes)
-        "request": (request or "")[:400],
-        "interpreted": (interpreted or "")[:400],
+        "request": _texto_redactado(request, 400),
+        "interpreted": _texto_redactado(interpreted, 400),
         "destructive": bool(destructive),
         "confirmed": confirmed,
         "targets": (targets or [])[:60],
-        "result": (result or "")[:400],
-        "error": (error or "")[:400],
+        "result": _texto_redactado(result, 400),
+        "error": _texto_redactado(error, 400),
         "run_id": run_id,
         "channel": channel,
     }

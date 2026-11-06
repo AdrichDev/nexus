@@ -113,3 +113,20 @@ def redactar(texto) -> tuple[str, int]:
 
     t = _CLAVE_VALOR.sub(sub_kv, t)
     return (t, cuenta)
+
+
+def redactar_seguro(texto) -> str | None:
+    """`redactar()` que NO puede lanzar.
+
+    Devuelve el texto limpio, o `None` si la redacción ha fallado. `None` no es
+    «vacío»: significa «no he podido limpiarlo». Quien llama tiene que tratarlo
+    como «este texto no se escribe» (fail closed) en lugar de guardarlo en crudo.
+
+    Se creó para los registros que pide la auditoría del 30/07/2026 (AI-02,
+    PRIV-01): interactions.jsonl, audit.jsonl y recall.jsonl. Si la limpieza
+    falla, se pierde la traza, no la privacidad — al revés que antes, cuando una
+    excepción de la redacción habría dejado el secreto escrito para siempre."""
+    try:
+        return redactar(texto)[0]
+    except Exception:                                  # noqa: BLE001
+        return None

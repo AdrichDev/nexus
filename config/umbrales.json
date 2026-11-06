@@ -88,6 +88,31 @@
     "data_collection": "deny",
     "zdr": false
   },
+  "llm": {
+    "_que_es": "Cuanto puede escribir como maximo el modelo en UNA respuesta, en tokens. Es el tope de SALIDA: no limita lo que se le manda, limita lo que devuelve (y por tanto lo que se paga y se espera).",
+    "_lee_esto": [
+      "AI-07 de la auditoria del 30/07/2026: solo Anthropic mandaba max_tokens",
+      "(1024, cableado en la llamada). OpenAI, Gemini, la nube compatible OpenAI y",
+      "Ollama no mandaban tope: el modelo podia escribir hasta agotar su contexto.",
+      "Una respuesta que se va de madre se paga entera y encima tarda.",
+      "",
+      "Cada proveedor lo recibe con su nombre: Ollama 'options.num_predict', OpenAI",
+      "y la nube 'max_tokens', Gemini 'generationConfig.maxOutputTokens'. Anthropic",
+      "sigue con su propio max_tokens: 1024, sin tocar.",
+      "",
+      "POR QUE 4096 Y NO 2048: por esta misma puerta pasan los informes de research",
+      "y los guiones largos de Content OS, que son la salida legitima mas larga que",
+      "nexus genera sin pedir mas tokens (un informe completo son ~1.100 tokens).",
+      "Quedarse corto no 'recorta el final': parte el informe a mitad de una cita.",
+      "4096 son ~16 KB de texto y solo muerden a una divagacion, que es justo lo",
+      "que hay que cortar. Bajarlo ahorra tokens de una respuesta que ya se estaba",
+      "yendo; subirlo deja pasar respuestas mas largas antes de cortarlas.",
+      "",
+      "OJO: un 0 o un negativo NO se aceptan (el tope de 0 cortaria TODAS las",
+      "respuestas); si el valor no vale, se usa 4096."
+    ],
+    "max_tokens_salida": 4096
+  },
   "comentarios": {
     "_que_es": "Cuando un comentario 'dice algo' y no es un emoji suelto.",
     "min_palabras_sustantivo": 2,

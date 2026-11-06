@@ -37,7 +37,7 @@ import unicodedata
 import uuid
 
 from ..comun.config import DATA_DIR
-from ..comun.secretos import redactar
+from ..comun import secretos
 
 OPS_FILE = DATA_DIR / "engram_ops.json"
 RECALL_LOG = DATA_DIR / "logs" / "recall.jsonl"
@@ -161,7 +161,10 @@ def remember(texto: str, kind: str = "", scope: str = "global",
     """Guarda una manera de trabajar. Devuelve el recuerdo (o el existente si ya
     estaba). Las CORRECCIONES mandan: dejan obsoletos los recuerdos que chocan
     con ellas en el mismo ámbito (criterio de aceptación de la TAREA 4)."""
-    texto = redactar((texto or "").strip())[0]   # nunca se guarda un secreto en claro
+    limpio = secretos.redactar_seguro((texto or "").strip())
+    if limpio is None:
+        return {}                    # fail closed: sin poder redactar no se guarda
+    texto = limpio                   # nunca se guarda un secreto en claro
     if len(texto) < 4:
         return {}
     kind = kind if kind in TIPOS else clasifica(texto)
@@ -321,7 +324,7 @@ def note_use(recuerdos: list[dict], texto: str = "", channel: str = "pc",
                 it["last_used"] = _now()
         _save(items)
     _last_applied[channel or "pc"] = {
-        "ts": time.time(), "texto": (texto or "")[:200],
+        "ts": time.time(), "texto": _texto_recordado(texto),
         "reglas": [{"id": r["id"], "kind": r["kind"], "text": r["text"],
                     "score": r.get("score")} for r in (recuerdos or [])],
         "documentos": [str(d)[:160] for d in (documentos or [])]}
@@ -329,12 +332,27 @@ def note_use(recuerdos: list[dict], texto: str = "", channel: str = "pc",
         RECALL_LOG.parent.mkdir(parents=True, exist_ok=True)
         with RECALL_LOG.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({"ts": _now(), "channel": channel,
-                                 "texto": (texto or "")[:200],
+                                 "texto": _texto_recordado(texto),
                                  "reglas": [r["id"] for r in (recuerdos or [])],
                                  "documentos": [str(d)[:120] for d in (documentos or [])]},
                                 ensure_ascii=False) + "\n")
     except Exception:
         pass
+
+
+def _texto_recordado(texto: str) -> str:
+    """La frase del operador que se apunta en data/logs/recall.jsonl, REDACTADA.
+
+    AI-02/PRIV-01: este log guardaba los 200 primeros caracteres de lo que dijo
+    el operador tal cual. Es el mismo texto que viaja al prompt, así que una
+    contraseña dictada se quedaba escrita aquí aunque la memoria la ocultara.
+
+    FAIL CLOSED: si la redacción falla se escribe vacío. El registro sigue
+    diciendo qué reglas y qué documentos se usaron, que es para lo que existe."""
+    limpio = secretos.redactar_seguro(texto or "")
+    if limpio is None:
+        return ""
+    return limpio[:200]
 
 
 def explain(channel: str = "pc") -> str:

@@ -74,6 +74,10 @@ SAFE_UNIT_SUITES = (
     "unit/skills/domotica/test_tv_power.py",
     "unit/skills/clima/test_clima_errors.py",
     "unit/core/test_secretos.py",
+    # Redacción de los registros con texto del operador (AI-02/PRIV-01):
+    # interactions.jsonl, el prompt del destilado, audit.jsonl y recall.jsonl.
+    # En proceso, sin red, con carpetas de usar y tirar.
+    "unit/core/test_redaccion_logs.py",
     # Vinculación de Telegram con código de un solo uso (SEC-02): puente y
     # GET /api/telegram/link en proceso (httpx.ASGITransport, sin lifespan ni
     # puertos), cliente de la Bot API de mentira y carpetas de usar y tirar.
@@ -86,6 +90,10 @@ SAFE_UNIT_SUITES = (
     "unit/memory/test_redaccion_memoria.py",
     "unit/frontend/test_modules.py",
     "unit/core/runtime/test_log_aislado.py",
+    # Reserva del cerebro entre clases de localidad (AI-01/PRIV-02) y tope de
+    # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y
+    # carpetas de usar y tirar.
+    "unit/core/runtime/test_fallback_privacidad.py",
     # POST /api/n8n en proceso (httpx.ASGITransport, sin lifespan ni puertos):
     # dobles en vez de proveedor/correo y carpetas de usar y tirar.
     "integration/http/test_n8n_canal.py",
