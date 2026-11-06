@@ -33,6 +33,7 @@ import time
 import unicodedata
 import uuid
 
+from ..comun.atomicos import escribir_json_atomico
 from ..comun.config import DATA_DIR
 from ..comun import events
 from ..comun.events import bus
@@ -106,12 +107,14 @@ class JobManager:
                             default=0)
 
     def _persist(self) -> None:
+        """El panel se guarda de forma indivisible (ARQ-05). Un guardado fallido
+        se sigue tragando —igual que antes: perder el historial del panel no
+        puede tumbar un trabajo— pero ya no puede dejar `jobs.json` a medias,
+        que era lo que convertía un corte en «se perdió el panel entero»."""
         try:
-            JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
             data = [{k: v for k, v in self._jobs[jid].items() if not k.startswith("_")}
                     for jid in self._order[-_PERSIST_MAX:] if jid in self._jobs]
-            JOBS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1),
-                                 encoding="utf-8")
+            escribir_json_atomico(JOBS_FILE, data, indent=1)
         except Exception:
             pass
 

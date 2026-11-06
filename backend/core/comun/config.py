@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 
+from .atomicos import escribir_json_atomico
+
 try:
     from dotenv import load_dotenv
 except ImportError:  # dotenv es opcional
@@ -201,20 +203,16 @@ def _read_json_safe(path: Path) -> dict:
 
 def _write_json_atomic(path: Path, data: dict) -> None:
     """Guarda un JSON de forma ATÓMICA: escribe a un `.tmp` y hace os.replace (que es
-    indivisible), así el archivo NUNCA queda truncado aunque dos procesos escriban a
-    la vez o el proceso muera a mitad —el bug que rompía settings.json/secrets.json—.
-    Antes respalda en `.bak` la versión actual SOLO si es JSON válido."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if path.exists():
-            json.loads(path.read_text(encoding="utf-8"))     # valida la versión previa
-            import shutil
-            shutil.copy2(path, path.with_name(path.name + ".bak"))
-    except Exception:
-        pass                                                 # no respaldar basura
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)                                    # atómico
+    indivisible), así el archivo NUNCA queda truncado aunque el proceso muera a
+    mitad —el bug que rompía settings.json/secrets.json—. Antes respalda en `.bak`
+    la versión actual SOLO si es JSON válido.
+
+    La implementación vive en `comun/atomicos.py` desde la tarea T16 (ARQ-05):
+    el tablero, el panel de multitarea, Content OS y la proactividad escribían a
+    pelo y ahora escriben por el MISMO sitio. Este nombre se queda porque
+    `dominio/reglas.py` lo llama, y `respaldo=True` porque `_read_json_safe()`
+    recurre a ese `.bak` cuando settings.json quedó truncado."""
+    escribir_json_atomico(path, data, indent=2, respaldo=True)
 
 
 def carpetas_permiso_por_defecto() -> list[str]:

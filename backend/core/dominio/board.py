@@ -25,6 +25,7 @@ import re
 import unicodedata
 import uuid
 
+from ..comun.atomicos import escribir_json_atomico
 from ..comun.config import DATA_DIR
 
 BOARD_FILE = DATA_DIR / "board.json"
@@ -219,12 +220,15 @@ def _load() -> list[dict]:
 
 
 def _save(tasks: list[dict]) -> None:
-    BOARD_FILE.parent.mkdir(parents=True, exist_ok=True)
+    """Los dos archivos del tablero se publican de forma indivisible (ARQ-05):
+    un corte a mitad no puede dejar `board.json` truncado, porque la carga
+    siguiente devolvería el tablero vacío y el guardado siguiente borraría lo
+    que quedaba. La marca de claves va primero, como siempre: si el guardado
+    del tablero falla, la marca ya reservada no reparte una clave dos veces."""
     top = max([_key_num(t.get("key")) for t in tasks] + [0])
     if top > _seq_mark():
-        SEQ_FILE.write_text(json.dumps({"last": top}), encoding="utf-8")
-    BOARD_FILE.write_text(json.dumps(tasks, ensure_ascii=False, indent=1),
-                          encoding="utf-8")
+        escribir_json_atomico(SEQ_FILE, {"last": top})
+    escribir_json_atomico(BOARD_FILE, tasks, indent=1)
 
 
 # ═══════════════════════ PAPELERA (v23 TAREA 3) ═══════════════════════
@@ -243,9 +247,7 @@ def _load_trash() -> list[dict]:
 
 
 def _save_trash(items: list[dict]) -> None:
-    TRASH_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TRASH_FILE.write_text(json.dumps(items[-_TRASH_MAX:], ensure_ascii=False, indent=1),
-                          encoding="utf-8")
+    escribir_json_atomico(TRASH_FILE, items[-_TRASH_MAX:], indent=1)
 
 
 def status_of(task: dict) -> str:

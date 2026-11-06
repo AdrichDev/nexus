@@ -86,6 +86,13 @@ SAFE_UNIT_SUITES = (
     # GET /api/telegram/link en proceso (httpx.ASGITransport, sin lifespan ni
     # puertos), cliente de la Bot API de mentira y carpetas de usar y tirar.
     "unit/core/test_telegram_link.py",
+    # Escrituras atómicas de los almacenes JSON de runtime (ARQ-05, roadmap
+    # P2-9): se dobla os.replace para matar la escritura justo entre el .tmp y
+    # el reemplazo, almacén por almacén (tablero, papelera, marca de claves,
+    # jobs, Content OS y proactividad), en proceso y con carpetas de usar y
+    # tirar. Incluye la guardia estructural sobre write_text() en backend y
+    # skills. No arranca servidor ni toca un dato del operador.
+    "unit/core/test_escrituras_atomicas.py",
     # Memoria operativa con candado (SEC-06/AI-04): la orden permanente se
     # confirma, apunta de dónde viene y solo la puede fijar el equipo del
     # operador; lo que devuelve Engram se lee como dato citado. En proceso, con

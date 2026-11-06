@@ -19,6 +19,7 @@ import asyncio
 import datetime as dt
 import json
 
+from ..comun.atomicos import escribir_json_atomico
 from ..comun.config import DATA_DIR, settings
 from ..comun.events import bus
 
@@ -33,9 +34,11 @@ def _load() -> dict:
 
 
 def _save(d: dict) -> None:
+    """Estado de la proactividad, indivisible (ARQ-05). Un fallo no puede
+    tumbar el bucle —de eso se encarga el `except`— pero sí dejar el archivo
+    anterior entero en vez de medio escrito."""
     try:
-        _STATE.parent.mkdir(parents=True, exist_ok=True)
-        _STATE.write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        escribir_json_atomico(_STATE, d)
     except Exception:
         pass
 

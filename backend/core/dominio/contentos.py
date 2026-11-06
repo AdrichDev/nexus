@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 import httpx
 
 from . import contentos_demo
+from ..comun.atomicos import escribir_json_atomico
 from ..comun.config import DATA_DIR, settings
 
 STORE = DATA_DIR / "contentos.json"
@@ -74,8 +75,7 @@ def _load() -> dict:
 
 
 def _save(data: dict) -> None:
-    STORE.parent.mkdir(parents=True, exist_ok=True)
-    STORE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    escribir_json_atomico(STORE, data, indent=2)
 
 
 def add_item(kind: str, value) -> bool:
