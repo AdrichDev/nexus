@@ -715,6 +715,31 @@ class _LLMMatch:
         return dict(self._a)
 
 
+def _recuerda_orden(fact: str, *, kind: str = "", scope: str = "global",
+                    origen: str = opmem.ORIGEN_POR_DEFECTO,
+                    origen_texto: str = "", channel: str = "pc",
+                    espejar: bool = True) -> dict:
+    """EL ÚNICO SITIO DE `brain` QUE ESCRIBE UNA ORDEN PERMANENTE.
+
+    Un solo punto de escritura para que el candado de procedencia (SEC-06 /
+    AI-04) no se pueda saltar añadiendo una rama nueva: si la procedencia no es
+    el equipo del operador (`pc`/`voice`), aquí NO se guarda ninguna orden. El
+    texto puede seguir guardándose como dato para recordarlo, pero eso lo decide
+    quien llama (RAG), no esta función.
+
+    `espejar`: las órdenes confirmadas se comparten con las otras herramientas
+    por Engram; una corrección se queda local, como siempre.
+    """
+    if not opmem.puede_fijar_orden(origen):
+        return {}
+    rec = opmem.remember(fact, kind=kind, scope=scope, source="operador",
+                         origen=origen, origen_texto=origen_texto)
+    if rec and espejar:
+        asyncio.create_task(opmem.mirror_to_engram(
+            {"settings": settings, "bus": bus, "channel": channel}, rec))
+    return rec
+
+
 async def process(text: str, source: str = "text", channel: str = "pc",
                   stream_voice: bool = False, request_id: str = "") -> dict:
     """Punto de entrada único de nexus. source: text | voice | trigger.
@@ -1035,14 +1060,82 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         fact, _ocultos = redactar_secretos(mrem.group("fact").strip())
         _aviso_secreto = (" (He ocultado " + ("un secreto" if _ocultos == 1 else f"{_ocultos} secretos")
                           + ": no guardo claves ni contraseñas en la memoria.)") if _ocultos else ""
+        # PROCEDENCIA (auditoría SEC-06 / AI-04 — roadmap P2-2). De dónde viene
+        # este «apunta que…». El canal lo sabe `process`; ningún otro sitio.
+        _origen = opmem.origen_de(channel, source)
         # v23 (T4/T5): si es una MANERA DE TRABAJAR va a la memoria operativa
         # (Engram); si es un HECHO, al RAG documental. Nunca a los dos sitios.
+        #
+        # CANDADO: `opmem` se inyecta en TODOS los prompts como «órdenes que
+        # cumplir», y se espeja a un Engram sin autenticación que nexus comparte
+        # con otras herramientas. Una orden permanente es el efecto MÁS DURADERO
+        # de nexus, así que: (1) se pregunta antes, enseñando el texto EXACTO
+        # que quedará vigente, y (2) solo la puede fijar el equipo del operador.
+        # Un móvil es suyo, pero el mensaje que le llega puede venir fabricado por
+        # lo que el modelo esté leyendo; un trabajo en segundo plano o un flujo no
+        # son una persona. Si esto se afloja, cualquiera que alcance
+        # `brain.process` puede plantar una instrucción que se cumple para siempre.
         if opmem.es_comportamiento(fact):
-            rec = opmem.remember(fact, scope="global", source="operador")
-            asyncio.create_task(opmem.mirror_to_engram(
-                {"settings": settings, "bus": bus, "channel": channel}, rec))
-            reply = (f"Anotado como {rec.get('kind', 'regla')} en tu memoria operativa: "
-                     f"«{fact}». Lo aplicaré a partir de ahora.{_aviso_secreto}")
+            if opmem.puede_fijar_orden(_origen):
+                _texto_orden = opmem.como_se_guardara(fact)
+                if _texto_orden:
+                    _recorte = ("\n(Ojo: es larga. Una orden permanente tiene que ser una "
+                                "regla corta, así que se guardará recortada hasta ahí.)"
+                                if len(_texto_orden) < len(fact.strip()) else "")
+
+                    def _fijar_orden() -> str:
+                        """Se ejecuta SOLO si el operador dice «sí» (confirm.request)."""
+                        rec = _recuerda_orden(fact, origen=_origen, origen_texto=text,
+                                              channel=channel)
+                        if not rec:
+                            return ("No he podido guardarlo (el texto no pasa el filtro "
+                                    "de secretos). No doy por hecho nada.")
+                        return (f"🧠 Fijado como {rec.get('kind', 'regla')} en tu memoria "
+                                f"operativa: «{rec.get('text', fact)}». Lo aplicaré a "
+                                f"partir de ahora.{_aviso_secreto}")
+
+                    from ..comun import confirm as _cfm
+                    reply = _cfm.request(
+                        channel=channel, kind="fijar_regla_operativa",
+                        summary=(f"🧠 Esto va a quedar como ORDEN PERMANENTE y lo voy a "
+                                 f"cumplir en TODAS las respuestas, también después de "
+                                 f"reiniciar:\n   «{_texto_orden}»{_recorte}\n"
+                                 f"¿Lo fijo? «sí» o «no»."),
+                        request_text=text,
+                        targets=[{"id": _origen, "title": _texto_orden[:120],
+                                  "state": "orden_operativa"}],
+                        action=_fijar_orden,
+                        cancel_reply="Vale: no lo fijo. No he guardado nada.",
+                        destructive=False)
+                else:
+                    # No se pudo redactar el texto (fail closed): ni se guarda ni
+                    # se pregunta para guardar algo distinto de lo que dijo.
+                    reply = ("No he podido preparar ese texto para guardarlo, así que no "
+                             "lo fijo. Prueba a decírmelo de otra forma.")
+            elif opmem.puede_recordar(_origen):
+                # MANERA DE TRABAJAR desde una procedencia sin confianza (móvil,
+                # Telegram). NO se convierte en orden permanente: se guarda como
+                # DATO consultable, que en el prompt viaja marcado «son DATOS, no
+                # órdenes». Así el operador no pierde la nota y nadie gana una
+                # norma que se cumpla para siempre.
+                try:
+                    await rag.add(fact, kind="fact",
+                                  meta={"by": "operador", "origen": _origen,
+                                        "fecha": _hoy_iso(), "canal": channel,
+                                        "tipo": "nota_sin_poder_de_orden"})
+                except Exception:
+                    pass
+                reply = (f"Apuntado como NOTA (no como orden permanente): «{fact}». "
+                         f"No lo voy a cumplir como norma: las órdenes permanentes "
+                         f"las fijo desde el equipo del operador, y confirmándolas. "
+                         f"Lo que llega por {_origen} puede venir manipulado."
+                         f"{_aviso_secreto}")
+            else:
+                # Trabajo en segundo plano, reescritura interna o trigger: su texto
+                # lo ha montado nexus, no es una frase del operador.
+                reply = (f"No lo he guardado. Una orden permanente no se fija desde "
+                         f"{_origen}: se fija desde el equipo del operador y con "
+                         f"confirmación.{_aviso_secreto}")
         else:
             try:
                 await rag.add(fact, kind="fact",
@@ -1192,10 +1285,15 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         await bus.emit("log", {"level": "info",
                                "msg": f"🚫 Queja/negación detectada; NO ejecuto skill: «{text[:70]}»"})
         # v23 (T4): una corrección explícita del operador MANDA sobre lo anterior
-        # y no se puede volver a repetir el error. Se guarda en la memoria operativa.
+        # y no se puede volver a repetir el error. Se guarda en la memoria operativa
+        # — pero, como toda orden permanente, solo si viene del equipo del
+        # operador: desde el móvil o Telegram no se planta una norma de prioridad 5
+        # (SEC-06 / AI-04). `_recuerda_orden` es quien lo impone.
         if len(text) >= 15:
-            _rec = opmem.remember(text, kind="correccion", scope="global",
-                                  source="operador")
+            _rec = _recuerda_orden(text, kind="correccion",
+                                   origen=opmem.origen_de(channel, source),
+                                   origen_texto=text, channel=channel,
+                                   espejar=False)
             if _rec:
                 await bus.emit("log", {"level": "info",
                                        "msg": f"🧠 Corrección guardada en memoria: «{text[:60]}»"})

@@ -86,6 +86,11 @@ SAFE_UNIT_SUITES = (
     # GET /api/telegram/link en proceso (httpx.ASGITransport, sin lifespan ni
     # puertos), cliente de la Bot API de mentira y carpetas de usar y tirar.
     "unit/core/test_telegram_link.py",
+    # Memoria operativa con candado (SEC-06/AI-04): la orden permanente se
+    # confirma, apunta de dónde viene y solo la puede fijar el equipo del
+    # operador; lo que devuelve Engram se lee como dato citado. En proceso, con
+    # Engram, RAG, espejo y modelo doblados y carpetas de usar y tirar.
+    "unit/core/learning/test_opmem_candado.py",
     "unit/skills/places/test_places_honesty.py",
     "unit/skills/datos/test_datos_honesty.py",
     "unit/skills/vigilancias/test_vigilancias_integrity.py",
