@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import datetime as dt
+import os
 import re
 from pathlib import Path
 
@@ -1933,6 +1934,24 @@ DRIVE_EXPORTACION = {
 class DriveNoEncontrado(LookupError):
     """El nombre que dijo el usuario no existe en su Drive. Se DICE, no se adivina:
     con el scope completo, «parecido» sería tocar un documento real equivocado."""
+
+
+class DriveRutaDenegada(PermissionError):
+    """La orden pedía un fichero local que los permisos de ⚙ no dejan leer (SEC-19).
+
+    Es una excepción y no un `None` a propósito: `None` ya significa «no he
+    encontrado qué subir» y el handler lo DICE así («No sé qué archivo…»). Si una
+    negativa de permisos llegara al handler como `None`, el mensaje mentiría dos
+    veces —diría que no sabe qué archivo es, y dejaría creer que no existe— cuando
+    lo único que pasa es que no hay permiso. Lleva la ruta para poder reusar
+    `permissions.deny_msg()`.
+    """
+
+    def __init__(self, ruta: Path):
+        super().__init__(str(ruta))
+        self.ruta = Path(ruta)
+
+
 REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
 
 _ultimo_subido: dict = {}                # id/enlace de lo último que subió nexus
@@ -2218,12 +2237,127 @@ def _drive_destruir(f: dict) -> dict:
     return f
 
 
+def _permisos():
+    """El módulo de permisos (⚙ → Permisos), importado PEREZOSO.
+
+    Misma razón que en skills/files y skills/system_pc: `skills_loader` importa
+    todas las skills al arrancar y no queremos que este módulo arrastre el backend
+    entero por un import que solo se usa en dos ramas.
+    """
+    from backend.core.comun import permissions
+    return permissions
+
+
+def _drive_ruta_tecleada(bruto: str) -> bool:
+    """¿Lo que hay en la orden es una RUTA escrita a mano o solo un NOMBRE?
+
+    Ruta: absoluta (`C:\\…`, `\\\\servidor\\…`, `/home/…`), con `~`, o relativa CON
+    carpeta que parezca un fichero (`config/secrets.json`). Nombre: `informe.md` a
+    secas, que es como se nombra un informe de nexus.
+
+    La relativa solo cuenta si acaba en extensión a propósito: «Clientes/2026» es
+    el nombre de una carpeta NESTED de DRIVE, no una ruta del disco, y tomarla por
+    ruta bloquearía una subida normal a una carpeta anidada.
+    """
+    t = str(bruto or "").strip()
+    if not t:
+        return False
+    if t.startswith("~"):
+        return True
+    try:
+        if Path(t).is_absolute() or re.match(r"^[A-Za-z]:", t):
+            return True
+    except Exception:                     # noqa: BLE001  (ruta rara ≠ ruta inocente)
+        return True
+    if "/" not in t and "\\" not in t:
+        return False                      # un nombre suelto: informe de nexus, no ruta
+    return bool(re.search(r"\.[A-Za-z0-9]{1,5}$", t))
+
+
+def _drive_es_salida_de_nexus(ruta: Path) -> bool:
+    """¿Está dentro de data/reports, o sea es un informe que ha generado nexus?
+
+    Ahí no hay documentos del operador: lo llena nexus. Subirlos es la función
+    PARA la que existe este intent, así que no se les pide permiso en ⚙ (si se les
+    pidiera, el intent dejaría de servir en «sandbox», que es justo donde un
+    operador desconfiado lo pone). Compara sin distinguir mayúsculas porque en
+    Windows `D:\…\Data\reports` es la misma carpeta que `…\data\reports`.
+    """
+    try:
+        a = os.path.normcase(os.path.abspath(str(Path(ruta).expanduser())))
+        b = os.path.normcase(os.path.abspath(str(REPORTS_DIR)))
+    except Exception:                     # noqa: BLE001
+        return False
+    return a == b or a.startswith(b + os.sep)
+
+
+def _drive_rutas_tecleadas(text: str) -> list[str]:
+    """Las rutas que la orden escribe A MANO: lo entrecomillado, y lo que va sin
+    comillas con pinta de ruta absoluta (`C:\\…`, `\\\\servidor\\…`) o de carpeta
+    personal (`~/…`).
+
+    Se sacan del TEXTO y no solo del hueco que luego se usa para subir, a
+    propósito: los regex de arriba piden una extensión, así que
+    «sube «C:\\Users\\x\\.ssh\\id_rsa» a drive» no les casa y la orden se quedaba
+    en «No sé qué archivo…» sin decir que lo que pasa es que no hay permiso. Los
+    NOMBRES sueltos («informe.md») no salen de aquí: esos los resuelve
+    `_drive_fichero_pedido` y son los informes de nexus.
+    """
+    halladas = list(re.findall(r"[«\"']([^«»\"'\n]{1,400})[»\"']", text))
+    halladas += re.findall(r"[A-Za-z]:[\\/][^\s«»\"'(),;]+", text)
+    halladas += re.findall(r"\\\\[^\s«»\"'(),;]+", text)
+    halladas += re.findall(r"~[\\/][^\s«»\"'(),;]+", text)
+    return [t.strip() for t in halladas if _drive_ruta_tecleada(t)]
+
+
+def _drive_comprobar_permisos(text: str) -> None:
+    """SEC-19: ninguna ruta ESCRITA EN LA ORDEN sale del equipo sin pasar por
+    `permissions.path_allowed()`, la MISMA puerta que usan las demás skills.
+
+    Por qué una ruta tecleada sí y los informes de nexus no: `data/reports` no lo
+    escribe el operador ni un LLM, lo llena nexus (ver `_drive_es_salida_de_nexus`).
+    Una ruta que viene del texto —`C:\\…\\config\\secrets.json`, `~/…/.ssh/id_rsa`,
+    una carpeta que el operador no ha autorizado— es una LECTURA del disco pedida
+    por quien habló, y desde SEC-01/02/03 quien habla puede ser un canal
+    comprometido o una prompt injection. Sin esta comprobación, subir a Drive era
+    la ÚNICA puerta del proyecto que se saltaba la denylist de credenciales y el
+    modo «carpetas»: se leía el fichero y su contenido acababa en Google.
+
+    No se reimplementa nada: la denylist y el modo los decide `path_allowed()`.
+    Levanta DriveRutaDenegada (no devuelve None) y NO mira si el fichero existe:
+    así la negativa no sirve para averiguar qué hay en el equipo.
+    """
+    permisos = _permisos()
+    for bruto in _drive_rutas_tecleadas(text):
+        cand = Path(bruto).expanduser()
+        if _drive_es_salida_de_nexus(cand):
+            continue                      # informes propios de nexus: no es una lectura
+        if not permisos.path_allowed(cand):
+            raise DriveRutaDenegada(cand)
+
+
+def _drive_negativa(denegada: DriveRutaDenegada) -> str:
+    """La respuesta cuando los permisos no dejan leer el fichero pedido.
+
+    Reusa `permissions.deny_msg()` (SEC-04/T7): dice QUÉ es y CÓMO se arregla —
+    añadir la carpeta en ⚙ → Permisos, o hacer una copia en una carpeta permitida
+    cuando es material de credenciales, que no se habilita nunca— y no confirma si
+    el archivo existe, porque no se ha mirado.
+    """
+    return "No lo subo a tu Drive. " + _permisos().deny_msg(denegada.ruta)
+
+
 def _drive_fichero_pedido(text: str) -> Path | None:
     """Qué fichero hay que subir. Por orden: 1) una ruta o un nombre con extensión
     dicho en la propia orden; 2) el informe .md más reciente de data/reports.
     Si no hay ninguno devuelve None y el handler lo DICE, en vez de subir algo que
     el usuario no ha pedido — subir el fichero equivocado al Drive de alguien es de
-    los errores que no se deshacen solos."""
+    los errores que no se deshacen solos.
+
+    Antes de devolver nada comprueba los permisos de las rutas ESCRITAS en la
+    orden (SEC-19): si alguna está fuera de lo autorizado, levanta
+    DriveRutaDenegada y no se lee nada."""
+    _drive_comprobar_permisos(text)
     m = re.search(r"[«\"']([^«»\"'\n]+\.[A-Za-z0-9]{1,5})[»\"']", text)
     if not m:
         m = re.search(r"\b([A-Za-z]:[\\/][^\s«»\"']+\.[A-Za-z0-9]{1,5})", text)
@@ -2889,7 +3023,10 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             # Actualizar ≠ volver a subir: subir otra vez deja DOS ficheros con el
             # mismo nombre y un enlace nuevo. El enlace viejo es justo el que le
             # has pegado a ChatGPT/Claude, así que se conserva el id.
-            ruta = _drive_fichero_pedido(text)
+            try:
+                ruta = _drive_fichero_pedido(text)
+            except DriveRutaDenegada as denegada:
+                return {"reply": _drive_negativa(denegada)}
             if not ruta:
                 return {"reply": "No sé qué archivo local uso para actualizarlo. Dime "
                                  "«actualiza informe-2026-08-02.md en drive» y cojo ese "
@@ -2983,7 +3120,10 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                     "data": {"drive": borrado}}
 
         if intent == "drive_upload":
-            ruta = _drive_fichero_pedido(text)
+            try:
+                ruta = _drive_fichero_pedido(text)
+            except DriveRutaDenegada as denegada:
+                return {"reply": _drive_negativa(denegada)}
             if ruta is None:
                 # Honestidad antes que iniciativa: NO se sube «algo parecido».
                 return {"reply": "No sé qué archivo quieres que suba. Dímelo por su "

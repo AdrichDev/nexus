@@ -31,6 +31,25 @@ try:
 except Exception:
     pass
 
+# SEC-19: la skill consulta los permisos DE VERDAD (backend.core.comun.permissions),
+# que deciden con `settings` y con las carpetas CONFIG_DIR / perfil del usuario.
+# Esta suite no puede mirar —ni para leer ni para decidir— la configuración ni el
+# perfil del operador, así que se apuntan a carpetas de usar y tirar ANTES de
+# cargar la skill: el backend lee estas variables al importarse, y un import
+# perezoso llegaría tarde (misma razón que el comentario de arriba de la skill).
+# Se borran solas al terminar el proceso.
+_TMP_CFG = tempfile.TemporaryDirectory(prefix="nexus_drive_cfg_")
+_TMP_DATA = tempfile.TemporaryDirectory(prefix="nexus_drive_data_")
+_TMP_HOME = tempfile.TemporaryDirectory(prefix="nexus_drive_home_")
+os.environ["NEXUS_CONFIG_DIR"] = _TMP_CFG.name
+os.environ["NEXUS_DATA_DIR"] = _TMP_DATA.name
+os.environ["USERPROFILE"] = _TMP_HOME.name
+os.environ["HOME"] = _TMP_HOME.name
+os.environ["APPDATA"] = os.path.join(_TMP_HOME.name, "AppData", "Roaming")
+os.environ["LOCALAPPDATA"] = os.path.join(_TMP_HOME.name, "AppData", "Local")
+for _var in ("OneDrive", "OneDriveConsumer"):
+    os.environ.pop(_var, None)
+
 _fail, _pass = [], 0
 
 
@@ -840,6 +859,357 @@ def test_el_candado_antidrive_de_files_sigue_puesto():
           "a Drive porque «files» va antes por orden alfabético")
     check("alfabético" in fsrc.lower() or "alfabetico" in fsrc.lower(),
           "el candado está pero sin explicar por qué; el siguiente lo borra")
+
+
+# ══ 10. SEC-19: LA RUTA QUE SE TECLEA PASA POR LOS PERMISOS DE ⚙ ═════════
+# EL AGUJERO (hallazgo SEC-19, encontrado en T7): `_drive_fichero_pedido`
+# aceptaba una RUTA ABSOLUTA escrita en la propia orden y la subía tal cual, sin
+# pasar por `permissions.path_allowed()` — que es por donde pasa CUALQUIER otra
+# ruta del proyecto. Con `perm_files: "todo"` (el valor que este operador tiene
+# guardado) la orden «sube «C:\...\config\secrets.json» a drive» metía las API
+# keys en Google Drive, y lo mismo un token OAuth o una clave privada: era el
+# único camino de LECTURA + EXFILTRACIÓN que se saltaba la denylist de T7.
+#
+# Lo que fijan estas pruebas, en orden: (1) el arnés NO stubbea los permisos —si
+# lo hiciera, un SimpleNamespace siempre diría que sí y todo esto no probaría
+# nada—; (2) una ruta tecleada con credenciales se NIEGA en modo «todo» sin una
+# sola subida; (3) en «carpetas» sale lo de dentro y no lo de fuera; (4) los
+# informes de nexus (data/reports) se siguen subiendo IGUAL en los tres modos,
+# porque son sus propios artefactos; (5) `drive_replace` tiene la misma puerta;
+# (6) la negativa no revela si el archivo existe; (7) `None` sigue significando
+# «no he encontrado qué subir», nunca «no tienes permiso».
+from backend.core.comun import permissions as _permisos  # noqa: E402
+from backend.core.comun.config import settings as _ajustes  # noqa: E402
+
+
+class _Config:
+    """Cambia claves de configuración EN MEMORIA (nunca escribe settings.json)."""
+
+    def __init__(self, **vals):
+        self.vals = vals
+
+    def __enter__(self):
+        self.previo = dict(_ajustes._json)
+        _ajustes._json.update(self.vals)
+        return self
+
+    def __exit__(self, *_exc):
+        _ajustes._json.clear()
+        _ajustes._json.update(self.previo)
+        return False
+
+
+class _Entorno:
+    """Cambia variables de entorno y las devuelve pase lo que pase."""
+
+    def __init__(self, **vals):
+        self.vals = vals
+
+    def __enter__(self):
+        self.previo = {k: os.environ.get(k) for k in self.vals}
+        os.environ.update(self.vals)
+        return self
+
+    def __exit__(self, *_exc):
+        for k, v in self.previo.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        return False
+
+
+class _EspiaSubidas:
+    """Apunta la llamada y contesta algo inocuo: ni Drive ni se lee el fichero."""
+
+    def __init__(self):
+        self.llamadas = []
+
+    def __call__(self, *a, **kw):
+        self.llamadas.append({"args": a, "kwargs": kw})
+        ruta = Path(a[0]) if a else Path("?")
+        return {"id": "id-subido", "name": ruta.name,
+                "webViewLink": "https://drive.google.com/file/d/id-subido/view",
+                "carpeta": "nexus"}
+
+
+def _espia_de(nombre):
+    """Sustituye gw.<nombre> por el espía. Devuelve (espía, restaurar)."""
+    espia = _EspiaSubidas()
+    original = getattr(gw, nombre)
+    setattr(gw, nombre, espia)
+    return espia, lambda: setattr(gw, nombre, original)
+
+
+def _perfil_de_mentira(td):
+    """Un perfil (USERPROFILE/HOME/APPDATA) dentro de la carpeta desechable."""
+    home = Path(td, "perfil")
+    home.mkdir(parents=True, exist_ok=True)
+    entorno = _Entorno(USERPROFILE=str(home), HOME=str(home),
+                       APPDATA=str(home / "AppData" / "Roaming"),
+                       LOCALAPPDATA=str(home / "AppData" / "Local"))
+    return entorno, home
+
+
+def test_los_permisos_los_resuelve_el_modulo_de_verdad_no_un_stub():
+    """`_load_skill` stubbea con SimpleNamespace los módulos que no encuentra, y un
+    SimpleNamespace SIEMPRE es verdadero: stubbeado, `path_allowed` no negaría
+    nunca y el resto de este bloque pasaría sin probar nada. Se comprueba además
+    que la configuración de la prueba es de usar y tirar (aquí se escribe un
+    secrets.json de mentira)."""
+    check(hasattr(gw, "_permisos"),
+          "la skill no expone _permisos(): no hay forma de comprobar que el permiso "
+          "lo resuelve el módulo real y no un doble del arnés")
+    mod = gw._permisos() if hasattr(gw, "_permisos") else None
+    check(getattr(mod, "__name__", "") == "backend.core.comun.permissions",
+          f"la skill resuelve los permisos con {getattr(mod, '__name__', mod)!r}, no con "
+          "backend.core.comun.permissions: el arnés lo está stubbeando y el agujero "
+          "SEC-19 volvería a estar abierto sin que esta suite se enterara")
+    check(callable(getattr(mod, "path_allowed", None))
+          and callable(getattr(mod, "deny_msg", None)),
+          "el módulo de permisos de la skill no tiene path_allowed/deny_msg reales")
+    cfg = Path(_permisos.CONFIG_DIR).resolve()
+    check(str(cfg).startswith(str(Path(tempfile.gettempdir()).resolve())),
+          f"la configuración de esta prueba NO es de usar y tirar ({cfg}): aquí no se escribe")
+
+
+def test_un_secreto_de_la_config_no_se_sube_aunque_el_modo_sea_todo():
+    """El caso del hallazgo: la denylist vive DENTRO de path_allowed y se aplica
+    antes del modo, así que en «todo» —el modo más abierto— una ruta tecleada con
+    credenciales tiene que seguir negándose. Antes del arreglo el fichero existía y
+    se subía a Drive."""
+    seco = Path(_permisos.CONFIG_DIR) / "secrets.json"
+    seco.parent.mkdir(parents=True, exist_ok=True)
+    seco.write_text('{"demo": "credencial de mentira, de la carpeta desechable"}',
+                   encoding="utf-8")
+    espia, restaurar = _espia_de("_drive_subir")
+    try:
+        with _Config(perm_files="todo"):
+            res = _handle("drive_upload", f"sube «{seco}» a drive")
+    finally:
+        restaurar()
+    txt = res.get("reply", "")
+    check(espia.llamadas == [],
+          f"¡HA SUBIDO EL SECRETO A DRIVE! llamadas={espia.llamadas}")
+    check("permiso" in txt.lower(), f"la negativa no habla de permisos: {txt[:200]!r}")
+    check("⚙" in txt, f"no dice DÓNDE se arregla (⚙ → Permisos): {txt[:200]!r}")
+    check("copi" in txt.lower(),
+          f"no ofrece la salida honesta (una copia en una carpeta permitida): {txt[:200]!r}")
+    check("no sé qué archivo" not in txt.lower(),
+          f"contesta «no sé qué archivo» a una ruta que sí se sabía: {txt[:200]!r}")
+
+
+def test_la_clave_ssh_tecleada_en_la_orden_tampoco_sale_del_equipo():
+    """Segundo nombre de la denylist: `~/.ssh`. El perfil es de mentira, así que no
+    se toca ni se lee la carpeta real del operador."""
+    with tempfile.TemporaryDirectory() as td:
+        entorno, home = _perfil_de_mentira(td)
+        clave = home / ".ssh" / "id_rsa"
+        clave.parent.mkdir(parents=True, exist_ok=True)
+        clave.write_text("clave de mentira\n", encoding="utf-8")
+        espia, restaurar = _espia_de("_drive_subir")
+        try:
+            with entorno, _Config(perm_files="todo"):
+                res = _handle("drive_upload", f"sube «{clave}» a drive")
+        finally:
+            restaurar()
+        txt = res.get("reply", "")
+        check(espia.llamadas == [],
+              f"¡HA SUBIDO UNA CLAVE PRIVADA! llamadas={espia.llamadas}")
+        check("permiso" in txt.lower(), f"la negativa no habla de permisos: {txt[:200]!r}")
+        check("⚙" in txt, f"no dice DÓNDE se arregla (⚙ → Permisos): {txt[:200]!r}")
+        check("no sé qué archivo" not in txt.lower(),
+              f"contesta «no sé qué archivo» cuando lo que pasa es que no hay permiso: {txt[:200]!r}")
+
+
+def test_en_modo_carpetas_solo_sale_lo_que_vive_en_una_carpeta_permitida():
+    """El modo por defecto desde T7: lo de dentro de perm_folders sale, lo de fuera
+    no, y el mensaje de la negativa es accionable (añadir la carpeta en ⚙)."""
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        permitida = base / "permitida"
+        permitida.mkdir()
+        dentro = permitida / "nota-permitida.md"
+        dentro.write_text("contenido del operador\n", encoding="utf-8")
+        (base / "fuera").mkdir()
+        fuera = base / "fuera" / "nota-privada.md"
+        fuera.write_text("contenido privado\n", encoding="utf-8")
+        espia, restaurar = _espia_de("_drive_subir")
+        try:
+            with _Config(perm_files="carpetas", perm_folders=[str(permitida)]):
+                ok = _handle("drive_upload", f"sube «{dentro}» a drive")
+                no = _handle("drive_upload", f"sube «{fuera}» a drive")
+        finally:
+            restaurar()
+        check(len(espia.llamadas) == 1,
+              f"esperaba UNA subida (la de la carpeta permitida), hubo {len(espia.llamadas)}")
+        if espia.llamadas:
+            check(Path(espia.llamadas[0]["args"][0]) == dentro,
+                  f"ha subido el fichero equivocado: {espia.llamadas[0]['args'][0]}")
+        check("https://" in ok.get("reply", ""),
+              f"la subida permitida no devuelve enlace: {ok.get('reply')!r}")
+        txt = no.get("reply", "")
+        check("permiso" in txt.lower(), f"la negativa no habla de permisos: {txt[:200]!r}")
+        check("Carpetas permitidas" in txt,
+              f"no dice DÓNDE se añade la carpeta (⚙ → Permisos → Carpetas permitidas): {txt[:200]!r}")
+        check("no sé qué archivo" not in txt.lower(),
+              f"contesta «no sé qué archivo» a una ruta que sí se sabía: {txt[:200]!r}")
+
+
+def test_los_informes_de_nexus_se_siguen_subiendo_en_los_tres_modos():
+    """REGRESIÓN de lo que NO se puede romper: data/reports es de nexus. El último
+    .md (sin nombrar nada) y un nombre suelto que solo existe ahí se suben igual en
+    «todo», «carpetas» y «sandbox». Si algún día se le pide permiso a los informes
+    propios, esto se pone rojo y alguien tendrá que decidirlo a conciencia."""
+    with tempfile.TemporaryDirectory() as td:
+        entorno, _home = _perfil_de_mentira(td)
+        original = gw.REPORTS_DIR
+        try:
+            gw.REPORTS_DIR = Path(td, "reports")
+            gw.REPORTS_DIR.mkdir()
+            informe = gw.REPORTS_DIR / "informe-de-hoy.md"
+            informe.write_text("# informe\n", encoding="utf-8")
+            for modo in ("todo", "carpetas", "sandbox"):
+                espia, restaurar = _espia_de("_drive_subir")
+                try:
+                    with entorno, _Config(perm_files=modo, perm_folders=[]):
+                        fallback = _handle("drive_upload", "sube el informe a drive")
+                        por_nombre = _handle("drive_upload", "sube informe-de-hoy.md a drive")
+                finally:
+                    restaurar()
+                check(len(espia.llamadas) == 2,
+                      f"modo {modo!r}: esperaba DOS subidas (el último informe y el "
+                      f"nombrado), hubo {len(espia.llamadas)}")
+                for llamada in espia.llamadas:
+                    check(Path(llamada["args"][0]) == informe,
+                          f"modo {modo!r}: sube {llamada['args'][0]} en vez de {informe}")
+                for res in (fallback, por_nombre):
+                    txt = res.get("reply", "")
+                    check("permiso" not in txt.lower(),
+                          f"modo {modo!r}: un informe propio de nexus se topa con la "
+                          f"negativa de permisos: {txt[:200]!r}")
+                    check("Subido a tu Drive" in txt,
+                          f"modo {modo!r}: no confirma la subida del informe: {txt[:200]!r}")
+        finally:
+            gw.REPORTS_DIR = original
+
+
+def test_actualizar_en_drive_desde_una_ruta_prohibida_no_toca_nada():
+    """`drive_replace` comparte la puerta: meter el CONTENIDO de un token OAuth en
+    un documento de Drive es el mismo robo que subirlo."""
+    seco = Path(_permisos.CONFIG_DIR) / "google_token.json"
+    seco.parent.mkdir(parents=True, exist_ok=True)
+    seco.write_text('{"demo": "token de mentira"}', encoding="utf-8")
+    subidas, restaurar_s = _espia_de("_drive_subir")
+    cambios, restaurar_r = _espia_de("_drive_reemplazar")
+    try:
+        with _Config(perm_files="todo"):
+            res = _handle("drive_replace", f"actualiza «{seco}» en drive")
+    finally:
+        restaurar_s()
+        restaurar_r()
+    txt = res.get("reply", "")
+    check(subidas.llamadas == [] and cambios.llamadas == [],
+          f"¡HA MANDADO UN TOKEN A DRIVE! subidas={subidas.llamadas} cambios={cambios.llamadas}")
+    check("permiso" in txt.lower(), f"la negativa no habla de permisos: {txt[:200]!r}")
+    check("⚙" in txt, f"no dice DÓNDE se arregla (⚙ → Permisos): {txt[:200]!r}")
+    check("no sé qué archivo" not in txt.lower(),
+          f"contesta «no sé qué archivo» a una ruta que sí se sabía: {txt[:200]!r}")
+
+
+def test_la_negativa_no_revela_si_el_archivo_existe():
+    """La negativa no hace stat sobre la ruta pedida: la respuesta es la MISMA
+    exista o no el archivo. Si cambiara, sería un buscador de ficheros gratis."""
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        permitida = base / "permitida"
+        permitida.mkdir()
+        (base / "fuera").mkdir()
+        existe = base / "fuera" / "informe-real.md"
+        no_existe = base / "fuera" / "informe-inventado.md"
+        existe.write_text("contenido privado\n", encoding="utf-8")
+        respuestas = []
+        for ruta in (existe, no_existe):
+            espia, restaurar = _espia_de("_drive_subir")
+            try:
+                with _Config(perm_files="carpetas", perm_folders=[str(permitida)]):
+                    respuestas.append({
+                        "txt": _handle("drive_upload", f"sube «{ruta}» a drive").get("reply", ""),
+                        "subidas": list(espia.llamadas)})
+            finally:
+                restaurar()
+        a = respuestas[0]["txt"].replace(str(existe), "«RUTA»")
+        b = respuestas[1]["txt"].replace(str(no_existe), "«RUTA»")
+        check(a == b,
+              f"la respuesta cambia según si el archivo existe:\n  existe: {a!r}\n  no existe: {b!r}")
+        bajo = a.lower()
+        check("no existe" not in bajo and "no encuentro" not in bajo
+              and "no sé qué archivo" not in bajo,
+              f"la negativa asegura algo sobre la existencia del archivo: {a!r}")
+        check(respuestas[0]["subidas"] == [] and respuestas[1]["subidas"] == [],
+              "ha intentado subir algo en alguno de los dos casos")
+
+
+def test_una_ruta_prohibida_no_se_confunde_con_un_nombre_que_no_existe():
+    """Dos cosas distintas se dicen distinto: `None` = «no he encontrado qué
+    subir»; una ruta denegada = DriveRutaDenegada con su mensaje de permisos. Si la
+    denegación llegara al handler como None, el mensaje mentiría dos veces."""
+    exc_cls = getattr(gw, "DriveRutaDenegada", None)
+    check(exc_cls is not None,
+          "la skill no distingue «ruta denegada» de «no encontrado»: hace falta "
+          "DriveRutaDenegada, o la negativa se contará como «no sé qué archivo»")
+    with tempfile.TemporaryDirectory() as td:
+        permitida = Path(td, "permitida")
+        permitida.mkdir()
+        fuera = Path(td, "privado")
+        fuera.mkdir()
+        nota = fuera / "notas.md"
+        nota.write_text("x\n", encoding="utf-8")
+        lanzo, ruta_exc = False, None
+        with _Config(perm_files="carpetas", perm_folders=[str(permitida)]):
+            try:
+                devuelto = gw._drive_fichero_pedido(f"sube «{nota}» a drive")
+                check(False, f"una ruta DENEGADA devolvió {devuelto!r} en vez de "
+                             "levantar DriveRutaDenegada")
+            except Exception as exc:                       # noqa: BLE001
+                lanzo = isinstance(exc, exc_cls) if exc_cls else False
+                ruta_exc = getattr(exc, "ruta", None)
+        check(lanzo, "la denegación no llegó como DriveRutaDenegada")
+        check(str(nota) in str(ruta_exc or ""),
+              f"la excepción no lleva la ruta denegada (lleva {ruta_exc!r})")
+
+
+def test_una_carpeta_anidada_de_drive_entre_comillas_no_se_confunde_con_una_ruta_local():
+    """«Clientes/2026» es una carpeta de DRIVE, no una ruta del disco. La puerta de
+    permisos no puede bloquear una orden legítima de subida a una carpeta anidada:
+    si lo hiciera, el arreglo de SEC-19 rompería el uso normal del intent."""
+    with tempfile.TemporaryDirectory() as td:
+        entorno, _home = _perfil_de_mentira(td)
+        original = gw.REPORTS_DIR
+        try:
+            gw.REPORTS_DIR = Path(td, "reports")
+            gw.REPORTS_DIR.mkdir()
+            informe = gw.REPORTS_DIR / "informe-de-hoy.md"
+            informe.write_text("# informe\n", encoding="utf-8")
+            espia, restaurar = _espia_de("_drive_subir")
+            try:
+                with entorno, _Config(perm_files="carpetas", perm_folders=[]):
+                    res = _handle("drive_upload",
+                                  "sube el informe a la carpeta «Clientes/2026» de drive")
+            finally:
+                restaurar()
+        finally:
+            gw.REPORTS_DIR = original
+        check(len(espia.llamadas) == 1,
+              f"la carpeta de Drive «Clientes/2026» se ha tomado por una ruta local: "
+              f"subidas={espia.llamadas} respuesta={res.get('reply')!r}")
+        if espia.llamadas:
+            check(Path(espia.llamadas[0]["args"][0]) == informe,
+                  "no sube el informe pedido")
+            check(espia.llamadas[0]["args"][1] == "Clientes/2026",
+                  f"no sube a la carpeta anidada pedida: {espia.llamadas[0]['args'][1]!r}")
+        check("permiso" not in res.get("reply", "").lower(),
+              f"una orden normal se topa con la negativa de permisos: {res.get('reply')!r}")
 
 
 # =============================== runner =====================================
