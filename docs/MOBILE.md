@@ -23,6 +23,45 @@ chat de texto, botones 🔊/🔇 IA y 🎙 YO para silenciar a nexus o mutearte,
 respuestas por voz (síntesis del móvil) y texto con enlaces que se abren en el
 navegador. **Mantén pulsado ◉** ~1 s para re-vincular con otro PC.
 
+### Qué NO hace la app desde la 2.8 (SEC-08 · roadmap P2-5)
+
+Esto vale para el **APK 2.8** (`versionCode` 10). Si en el móvil pone 2.7 o
+menos, no lo tiene: hay que recompilar (`movil\COMPILAR_APK.bat`) e instalar.
+
+- **No habla en claro con cualquier sitio.** Antes el manifiesto llevaba
+  `usesCleartextTraffic="true"`, que es barra libre: cualquier host de internet,
+  en HTTP sin cifrar. Ahora hay `movil/res/xml/network_security_config.xml`
+  (TLS anclado solo al almacén del sistema, túnel público obligado a cifrar) y,
+  sobre todo, el guardián `urlPermitida()` de `MainActivity`: el WebView
+  **rechaza** toda petición en claro cuyo host no sea de tu red — 127/8, 10/8,
+  172.16/12, 192.168/16, el 100.64/10 de Tailscale o un nombre `.local`.
+  Se aplica a la página, a sus navegaciones y a lo que pide la propia página.
+  - **Por qué el XML no lo hace él solo:** Android no admite rangos (CIDR) en
+    `network_security_config`, y las direcciones del QR (`http://<ip-lan>:8177`,
+    el nombre `.local`, la IP de Tailscale) solo se conocen al emparejar. El
+    motivo y lo que todavía se escapa están escritos en ese mismo fichero.
+- **No carga contenido mixto.** Una página https (el túnel) ya no puede llamar a
+  nada http. Efecto concreto: en modo túnel, la página ya no puede saltar por su
+  cuenta a las direcciones http de la LAN; el respaldo **nativo** del APK (carga
+  la siguiente dirección guardada) sigue funcionando igual. En modo LAN o
+  Tailscale (página http) no cambia nada, y el escáner del QR tampoco.
+- **El puente `WabiksNative` solo atiende a tu nexus.** Solo se inyecta cuando el
+  host es el que emparejaste con el QR, y además cada método vuelve a comparar la
+  dirección cargada con la emparejada antes de hacer nada. Si una página no es la
+  tuya, contesta «Por seguridad, esta página no puede usar la voz, las llamadas
+  ni WhatsApp del móvil». El nombre del puente NO cambia (renombrarlo rompería
+  los APK ya instalados).
+- **Llamar y WhatsApp piden permiso en el móvil.** `dial` y `whatsapp` ya no
+  disparan nada: sale un diálogo nativo con el número y el mensaje **exactos** y
+  botones OK/Cancelar. Es el mismo trato que nexus da en el PC para los envíos.
+  La voz (`startVoice`), reenviar la lista de direcciones (`saveHosts`) y
+  re-vincular (`resetHost`) siguen sin ceremonia: no sacan nada del teléfono.
+
+> **Sigue pendiente, y es decisión del dueño:** el token de vinculación viaja en
+> la URL (`/m?host=…&token=…`) y por eso, en la LAN, un MITM lo puede leer. Pasar
+> el token a una cabecera rompe los APK que ya están instalados, así que no se
+> toca hasta que el dueño decida (anotado en `odd/tasks/security-audit-remediation.md`, T12).
+
 > **Firma de actualizaciones:** conserva el mismo keystore para actualizar la app.
 > Guarda el keystore y sus contraseñas fuera del repositorio; proporciona las
 > credenciales mediante variables de entorno locales al compilar, nunca en guías.

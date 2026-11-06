@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  nexus — de qué transporte se fía la app del móvil.   SEC-08 · roadmap P2-5
+
+  QUÉ HABÍA ANTES: `android:usesCleartextTraffic="true"` en el manifiesto. Eso
+  es una barra libre: la app podía hablar HTTP EN CLARO con CUALQUIER host de
+  internet, y cualquier página que se pintara en el WebView podía sacar por ahí
+  el token de vinculación y lo que dijera el operador, sin cifrar.
+
+  EL LÍMITE DE LA PLATAFORMA, DICHO ANTES DE NADA. Android NO admite rangos
+  (CIDR) en <domain>: solo nombres o IPs sueltas. Y las direcciones en claro que
+  la app necesita de verdad solo se conocen al emparejar — el QR ofrece
+  `http://<ip-de-la-wifi>:8177/m?...&token=...`, y también `http://` para el
+  nombre `.local` y para la IP de Tailscale (100.x) porque uvicorn en el PC no
+  sirve TLS (ver backend/core/infraestructura/remote.py). Eso no se puede
+  enumerar en un XML que se compila UNA vez. Por eso la regla «en claro SOLO a
+  la red de casa» vive, a propósito, en dos sitios que se complementan:
+
+    1. AQUÍ, lo que sí se puede nombrar: TLS anclado SOLO al almacén del sistema
+       (una CA instalada por el usuario es exactamente lo que usa un MITM para
+       leer el túnel), y el túnel público obligado a cifrar (abajo).
+    2. En MainActivity.urlPermitida() + esHostLocal(): el WebView RECHAZA toda
+       petición en claro cuyo host no sea 127.0.0.0/8, 10.0.0.0/8,
+       172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10 (Tailscale) o un nombre
+       .local. Esa es la puerta que de verdad mata el «HTTP a cualquier host»:
+       se aplica a la página principal, a las navegaciones y a los recursos que
+       pide la propia página (fetch/XHR).
+
+  POR QUÉ SIGUE HABIENDO CLARO EN LA LAN. Porque nexus vive en el PC del
+  operador y el QR que se escanea es `http://<ip-lan>:8177/m?...`: si aquí se
+  prohibiera el claro, el móvil no podría emparejar ni usar el nodo dentro de
+  casa. El claro se queda, pero acotado por el guardián del punto 2.
+
+  LO QUE TODAVÍA SE ESCAPA POR AHÍ, sin adornos: quien esté en la misma WiFi (o
+  en el mismo tailnet) y haga MITM lee el token de la URL, el texto del chat y
+  lo que responda el modelo, y puede inyectar JavaScript en la página. Lo que
+  YA NO puede es colocar una llamada ni un WhatsApp sin que el operador vea el
+  número y el mensaje en un diálogo nativo (WabiksNative.dial / .whatsapp), ni
+  sacar nada de eso a internet en claro. Cerrar el MITM del todo exige TLS en el
+  propio nexus y sacar el token de la query a una cabecera: eso rompe las APK
+  que ya están instaladas en los móviles, así que es una decisión del dueño
+  (anotada en odd/tasks/security-audit-remediation.md, T12).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <!-- Anclas SOLO del sistema: no se acepta una CA que haya instalado el
+             usuario, porque instalar una CA es el primer paso de un MITM. -->
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Nombres locales que la app usa de verdad (emparejamiento por .local y
+         el propio loopback). Se nombran uno a uno para que quede escrito. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="true">local</domain>
+    </domain-config>
+
+    <!-- El túnel ya va por https: si un script inyectado intenta degradarlo a
+         claro, no sale de aquí. (El resto de hosts públicos los corta el
+         guardián de MainActivity: esto es la parte que el XML puede nombrar.) -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">trycloudflare.com</domain>
+    </domain-config>
+</network-security-config>

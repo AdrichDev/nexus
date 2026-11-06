@@ -129,6 +129,15 @@ SAFE_UNIT_SUITES = (
 
 STATIC_SAFE_SUITES = (
     "unit/frontend/test_task_cards.py",
+    # La app Android deja de fiarse de cualquier página y de cualquier transporte
+    # (SEC-08, roadmap P2-5): manifiesto sin `usesCleartextTraffic`, network
+    # security config con TLS del sistema, sin `MIXED_CONTENT_ALWAYS_ALLOW`, el
+    # puente `WabiksNative` atado al host emparejado, confirmación nativa en
+    # `dial`/`whatsapp` y el texto de la voz como literal JSON. Es SOLO lectura
+    # del Java, del XML y de las dos HTML: no compila la APK ni arranca un móvil,
+    # así que no prueba el comportamiento en el dispositivo (ver el docstring de
+    # la suite). Evidencia S, la más baja: texto del fuente, no ejecución.
+    "unit/mobile/test_puente_nativo.py",
 )
 
 ISOLATED_INTEGRATION_SUITES = (
