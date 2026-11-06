@@ -1125,7 +1125,10 @@ async def api_n8n(request: Request, payload: dict):
     efecto que un flujo sin autenticar pueda provocar."""
     import hmac
     recibido = request.headers.get(_N8N_CABECERA, "")
-    if not recibido or not hmac.compare_digest(str(recibido), str(secreto_n8n())):
+    # Se comparan BYTES: `compare_digest` con `str` lanza TypeError si la cabecera
+    # trae algo no ASCII, y eso devolvería un 500 en vez del 401 que toca.
+    if not recibido or not hmac.compare_digest(recibido.encode("utf-8", "replace"),
+                                               secreto_n8n().encode("utf-8", "replace")):
         return JSONResponse({"error": _ERROR_N8N_SIN_SECRETO}, status_code=401)
     result = await brain.process(payload.get("text", ""), source="n8n")
     if payload.get("speak"):

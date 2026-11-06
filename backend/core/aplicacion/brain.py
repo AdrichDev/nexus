@@ -1022,6 +1022,14 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
     # MEMORIA EXPLÍCITA: «recuerda que…» / «apunta que…» → guarda un HECHO en la
     # base de conocimiento (RAG/DB) para recuperarlo por significado más adelante.
+    # Un canal restringido TAMPOCO escribe memoria, aunque su frase.case con una
+    # regex de la lista blanca: «recuerda que el estado de instagram es correcto»
+    # casaba con `ig_estado` y acababa en el RAG (verificador independiente,
+    # auditoría SEC-06). Aquí no se ejecuta nada: se rechaza.
+    if _restringido and es_memoria_explicita(text):
+        await bus.emit("log", {"level": "warn",
+                               "msg": f"🚫 Canal {source}: escritura de memoria rechazada: «{text[:70]}»"})
+        return canales.rechazo(source)
     mrem = _REMEMBER_RX.match(text) if es_memoria_explicita(text) else None
     if mrem:
         fact, _ocultos = redactar_secretos(mrem.group("fact").strip())
@@ -1051,7 +1059,10 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
     # ENSEÑANZA EXPLÍCITA: «aprende que cuando diga X hagas Y» / «olvida…» /
     # «qué órdenes has aprendido». Se re-aprende en caliente, sin reiniciar.
-    taught = _handle_teaching(text)
+    # «aprende que cuando diga X hagas Y» escribe una ORDEN APRENDIDA que luego se
+    # ejecuta sola por semejanza: sembrarla desde un flujo externo es envenenar la
+    # ejecución de un canal de confianza. Solo el operador enseña órdenes.
+    taught = None if _restringido else _handle_teaching(text)
     if taught is not None:
         _history.append({"role": "user", "content": text})
         _history.append({"role": "assistant", "content": taught})
@@ -1358,8 +1369,10 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             _mturn.note_reply(skill.folder, intent, reply, channel)
         except Exception:
             pass
-        # aprendizaje: recuerda la orden que ha funcionado (frase → orden canónica)
-        if not result.get("error"):
+        # aprendizaje: recuerda la orden que ha funcionado (frase → orden canónica).
+        # Los canales restringidos no alimentan ese aprendizaje: su texto no es una
+        # orden del operador y quedaría guardado para ejecutarlo luego por semejanza.
+        if not result.get("error") and not _restringido:
             _learn_record(text, cmd_text, skill.folder)
             # TAREA NUEVA: si la petición se interpretó (no casaba tal cual) y funcionó,
             # la aprende con embedding → la próxima vez la reconoce por semejanza sola.
@@ -1507,20 +1520,24 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         _history.append({"role": "user", "content": text})
         _history.append({"role": "assistant", "content": reply})
         del _history[:-2 * MAX_TURNS]
-        await asyncio.to_thread(
-            graph.append_daily,
-            f"**{settings.get('operator_name')}:** {text} → **{_aname()}:** {reply[:200]}",
-            "Conversación")
-        if await _db_online():
-            await asyncio.to_thread(pg.remember, f"[{source}] {text} => {reply[:300]}",
-                                    "conversation")
+        # Lo que entra por un canal externo NO se guarda en la memoria del operador
+        # (grafo diario + `conversation` en la DB): si no, el texto de un flujo se
+        # convertiría en contexto recuperable por el asistente (SEC-06).
+        if not _restringido:
+            await asyncio.to_thread(
+                graph.append_daily,
+                f"**{settings.get('operator_name')}:** {text} → **{_aname()}:** {reply[:200]}",
+                "Conversación")
+            if await _db_online():
+                await asyncio.to_thread(pg.remember, f"[{source}] {text} => {reply[:300]}",
+                                        "conversation")
     except Exception as exc:                       # noqa: BLE001
         await bus.emit("log", {"level": "warn", "msg": f"Memoria: no pude persistir ({exc})"})
 
     # AUTO-REENTRENAMIENTO: registra la interacción y, cada N, destila el perfil en
     # segundo plano (con Fable) SIN retrasar la respuesta.
     try:
-        if settings.get("self_learning", True):
+        if settings.get("self_learning", True) and not _restringido:
             from ..dominio import selflearn
             if selflearn.record_interaction(text, reply, routed[0].folder if routed else None,
                                             ok=not (isinstance(data, dict) and data.get("error"))):
