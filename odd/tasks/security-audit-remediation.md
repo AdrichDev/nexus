@@ -16,9 +16,9 @@ Source of truth for each finding: `audit-reports/03-security-findings.md`, `05-a
 
 | ID | Specs | Roadmap / finding | Route | Risk | Commit |
 |----|-------|-------------------|-------|------|--------|
-| T0 | S1, S4 | Version `audit-reports/` and this document | inline | none | — |
+| T0 | S1, S4 | Version `audit-reports/` and this document — [x] | inline | none | e927afd |
 | T1 | S2 | P0-1/P0-2: n8n webhook and Telegram owner checks (operational, owner-side) — [x] closed by L3+L4 | inline | — | n/a |
-| T2 | S2, S5 | P1-1 / SEC-01 (+ the n8n part of SEC-06): `/api/n8n` shared secret, untrusted-channel intent allowlist, authenticated example flow | worker | item 2 | — |
+| T2 | S2, S5 | P1-1 / SEC-01 (+ the n8n part of SEC-06): `/api/n8n` shared secret, untrusted-channel intent allowlist, authenticated example flow — [x] | worker | item 2 | 8eb3cf7 |
 | T3 | S2, S5 | P1-2 / SEC-02: Telegram one-time link code | worker | item 2 | — |
 | T4 | S2, S5 | P1-3 / SEC-03: HTTP Host/Origin validation for loopback trust; no token in `/api/link/status` | worker | item 2 | — |
 | T5 | S2, S5 | P1-4 / SEC-05: confirmation + idempotency for `send_email` and `whatsapp` | worker | item 3 | — |
@@ -56,6 +56,12 @@ Source of truth for each finding: `audit-reports/03-security-findings.md`, `05-a
 
 Commits stay on this branch. Push, PR and merge are the owner's decisions.
 
+## Runner hazards (learned, apply to every worker)
+
+- H1 — `tests/integration/http/test_acceso_remoto.py` and `test_entrega_real.py` start a **real uvicorn subprocess** (`test_acceso_remoto.py:225`) and wait for it. `backend/app.py:68-103` `lifespan` then launches STT preload, scheduler, Telegram long-poll, open mic, wake word, cycle/proactive loops, Engram auto-install and the tunnel adopter. Foreground runs can block for many minutes. Workers must not run either suite, must not run `tests/run_all.py`, must not run `run.bat`/uvicorn and must not bind a port. The parent runs the broad battery, in background.
+- H2 — For HTTP behavior use `httpx.AsyncClient(transport=ASGITransport(app=app))`: it does not run `lifespan`, so it stays in-process and fast. Stub `brain.process` when asserting routing.
+- H3 — Every `bash` call from a worker carries an explicit timeout ≤ 180 s.
+
 ## Log
 
 - **L1** (user, verbatim): "Si versiona y autorizo a implementar. empieza por P0 y luego P1, en verdad creo qeu toda la severidad es importante y ya que estamos, deberiamos de atacarlo. Revisa tambien en la rama donde estamos trabajando, para que no se mezcle con otros fixes"
@@ -71,3 +77,7 @@ Commits stay on this branch. Push, PR and merge are the owner's decisions.
   - Telegram: "Sí, es mi chat". Keep the registered owner; only new registrations require the link code.
   - n8n: "No / no lo uso". No active exposure, so P0-1 closes without action; T2 still applies.
   - perm_files: "Cual crees que es mejor?". The recommendation is to migrate to `carpetas`. The owner has not yet authorized touching `settings.json`; ask again at T7.
+- L5 (evidence T0): commit `e927afd` (docs only, 1412 lines; slice 1 of the stacked-to-main chain = `e927afd` alone). Native assess unavailable: "untracked files require an explicit declaration" caused by the other feature's untracked `odd/tasks/youtube-verification.md` (left untouched); `inspect` with `untrackedScope: exclude` succeeds. Passive docs: structural readback only (13 reports + this file listed, no secret literals by grep), no review started.
+- **L6** (incident, T2 first attempt): the continuation worker stalled 30 min on one `bash` call with no output and was killed by the harness. It wrote nothing (`git status` clean apart from this document). Cause: H1 — it ran a real-server integration suite in the foreground. Rule H1-H3 above is the fix.
+- **L7** (evidence T2): commit `8eb3cf7`. RED 42 OK/36 fallos → GREEN `test_n8n_canal` 42/0; `test_capas_backend` 465/0; `test_routing` 244/0; `test_secretos` 51/0; real-server `test_acceso_remoto` 74/0. Parent differential: text/voice routing replies identical base vs head. Allowlist: instagram/ig_estado, instagram/ig_analizar, content_os/ideas (read-only). Decisions made by the owner's «No / no lo uso» (L4): the daily-report flow no longer asks nexus to e-mail, upload to Drive or write memory, and the example flow only notifies inbound WhatsApp text; n8n header-auth credential `nexus /api/n8n` is a placeholder the owner must create before importing.
+- **L8** (delivery, stacked-to-main): slice boundaries so far `908924b` → `e927afd` (docs, 1412 lines, PR-1) → `8eb3cf7` (T2, ~620 lines, PR-2). Each later PR is one work-unit commit or a small group near ~400 authored lines; push/PR/merge remain owner decisions.
