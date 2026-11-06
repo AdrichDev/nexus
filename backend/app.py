@@ -33,7 +33,9 @@ from backend.core.aplicacion.hotkey import start_hotkey
 from backend.core.dominio.memory import graph, memory_status
 from backend.core.aplicacion.scheduler import scheduler_loop, system_metrics
 from backend.core.aplicacion.skills_loader import load_skills, skills_summary
-from backend.core.infraestructura.telegram_bridge import telegram_loop
+from backend.core.infraestructura.telegram_bridge import (pending_link_code,
+                                                          telegram_loop,
+                                                          ttl_vinculacion_segundos)
 from backend.core.aplicacion.voice_cycle import open_mic_loop, voice_cycle
 
 async def _arranca_runtime_llm() -> None:
@@ -1148,6 +1150,25 @@ async def api_n8n_secret(request: Request):
         return JSONResponse({"error": "el secreto de n8n solo se entrega a este equipo"},
                             status_code=403)
     return {"secret": secreto_n8n(), "header": _N8N_CABECERA}
+
+
+@app.get("/api/telegram/link")
+async def api_telegram_link(request: Request):
+    """Muestra el código de vinculación de Telegram, SOLO en este equipo.
+
+    SEC-02 (roadmap P1-2): el primer chat que escribía al bot se quedaba el equipo
+    para siempre. Ahora hay que mandarle este código desde el chat que quieras
+    vincular, y el código solo se puede leer desde el propio PC: ni el móvil ni el
+    túnel lo reciben —quien lo recibiera podría vincular SU chat y dar órdenes—.
+    Cada petición genera uno nuevo y anula el anterior, y caduca según
+    `telegram.ttl_vinculacion_segundos` de config/umbrales.json. El token del bot
+    no sale nunca por aquí."""
+    if not _es_este_equipo(request):
+        return JSONResponse({"error": "el código de vinculación de Telegram solo se "
+                                       "muestra en este equipo"},
+                            status_code=403)
+    return {"codigo": pending_link_code(),
+            "ttl_segundos": ttl_vinculacion_segundos()}
 
 
 @app.get("/api/contentos")

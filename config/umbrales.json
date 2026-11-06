@@ -456,5 +456,10 @@
   "saludo": {
     "_que_es": "Cada vez que se abre nexus, saluda. Si abres y cierras la ventana —o hay otra abierta, o el movil, o una prueba— saludaba OTRA VEZ, en voz alta y a todas las pantallas a la vez. Estos minutos son el descanso minimo entre saludos. Subirlo = saluda menos.",
     "minutos_entre_saludos": 45
+  },
+  "telegram": {
+    "_que_es": "Cuanto vive, en segundos, el codigo de vinculacion del bot de Telegram. El codigo se saca en ESTE equipo (GET /api/telegram/link) y hay que mandarselo al bot desde el chat que quieras vincular. Caduca a los 10 minutos y solo sirve una vez; si se agota, se saca otro.",
+    "_por_que_aqui": "SEC-02 de la auditoria del 30/07/2026: antes el PRIMER chat que escribia al bot se quedaba el equipo para siempre, asi que quien conociera el @usuario del bot ganaba el PC y al dueno legitimo se le ignoraba. Subirlo alarga la ventana en la que un codigo robado sirve; bajarlo obliga a sacar codigo mas a menudo.",
+    "ttl_vinculacion_segundos": 600
   }
 }

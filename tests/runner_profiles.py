@@ -74,6 +74,10 @@ SAFE_UNIT_SUITES = (
     "unit/skills/domotica/test_tv_power.py",
     "unit/skills/clima/test_clima_errors.py",
     "unit/core/test_secretos.py",
+    # Vinculación de Telegram con código de un solo uso (SEC-02): puente y
+    # GET /api/telegram/link en proceso (httpx.ASGITransport, sin lifespan ni
+    # puertos), cliente de la Bot API de mentira y carpetas de usar y tirar.
+    "unit/core/test_telegram_link.py",
     "unit/skills/places/test_places_honesty.py",
     "unit/skills/datos/test_datos_honesty.py",
     "unit/skills/vigilancias/test_vigilancias_integrity.py",
