@@ -1067,14 +1067,27 @@ def _build_messages(user_text: str, context: list[dict] | None = None,
     base += REASONING.get(settings.get("reasoning_level", "rapido"), "")
     # PERFIL DEL OPERADOR (auto-reentrenamiento): lo destilado de sus interacciones,
     # para responder a su medida. Se inyecta si existe.
+    #
+    # El import va a `..dominio`, no a `..`. Estaba en `..` y NADIE se dio cuenta
+    # de que fallaba: `selflearn` vive en `backend/core/dominio/`, así que
+    # `from .. import selflearn` era un ImportError que este propio `except`
+    # se comía. El resultado: el perfil destilado nunca llegó a un solo prompt
+    # desde que se escribió esa línea (auditoría 30/07/2026, mismo tipo de bug
+    # que el `from .. import brain` del puente de Telegram, arreglado en 61396b0).
+    # Y el silencio no se repite: si esto vuelve a romperse, se oye.
     try:
-        from .. import selflearn
+        from ..dominio import selflearn
         prof = selflearn.operator_profile()
         if prof:
             base += ("\n\nPERFIL DEL OPERADOR (aprendido de vuestras conversaciones, "
                      "úsalo para atinar con su estilo y sus necesidades):\n" + prof)
-    except Exception:
-        pass
+    except Exception as exc:                       # noqa: BLE001
+        try:
+            from ..comun.events import bus
+            bus.emit_sync("log", {"level": "warn",
+                                  "msg": f"Perfil del operador: no puedo leerlo ({type(exc).__name__}: {exc})"})
+        except Exception:                          # noqa: BLE001
+            pass
     messages = [{"role": "system", "content": base}]
     if context:
         messages.extend(context)

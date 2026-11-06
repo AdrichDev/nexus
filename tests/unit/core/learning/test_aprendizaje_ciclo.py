@@ -665,6 +665,48 @@ def test_la_normalizacion_es_una_sola_implementacion():
               f"aprendizaje._norm ya no delega en dominio para {frase!r}")
 
 
+
+def test_el_perfil_destilado_llega_de_verdad_al_prompt():
+    """REGRESION DE LA AUDITORIA 30/07/2026: `llm` importaba `from .. import
+    selflearn`, pero `selflearn` vive en `dominio/`. Era un ImportError que el
+    propio `except` se comia, asi que el perfil del operador NUNCA se inyectaba
+    y ningun test lo notaba. Aqui se comprueba por la puerta de arriba: con un
+    perfil en disco, el system prompt de `llm` lo lleva dentro."""
+    print("== C1) el perfil destilado entra en el system prompt ==")
+    from backend.core.infraestructura import llm
+
+    antes = selflearn.operator_profile()
+    try:
+        selflearn._PROFILE.parent.mkdir(parents=True, exist_ok=True)
+        selflearn._PROFILE.write_text(
+            "Prefiere respuestas cortas y ejemplos de su nave.", encoding="utf-8")
+        msgs = llm._build_messages("que me toca hoy")
+        system = next(m["content"] for m in msgs if m["role"] == "system")
+        check("PERFIL DEL OPERADOR" in system,
+              "el perfil destilado no llega al system prompt (import roto o silente)")
+        check("Prefiere respuestas cortas" in system,
+              "el system prompt menciona el perfil pero no trae su texto")
+        # Y el fallo tiene que oirse: ya no vale un `except: pass` mudo.
+        src = (ROOT / "backend" / "core" / "infraestructura" / "llm.py").read_text(
+            encoding="utf-8", errors="replace")
+        # Se mira la LINEA DE import, no una subcadena: el comentario de arriba
+        # escribe el nombre del bicho a proposito, y un `in` a secas se asustaria.
+        importos_rotos = [l.strip() for l in src.splitlines()
+                          if l.strip().startswith("from .. import") and "selflearn" in l]
+        check(not importos_rotos,
+              f"vuelve el import roto ({importos_rotos}): selflearn esta en "
+              "backend/core/dominio/, no en backend/core/")
+        bloque = src.split("PERFIL DEL OPERADOR", 1)[1].split("messages = [", 1)[0]
+        check("except Exception:" not in bloque or "warn" in bloque,
+              "el bloque del perfil ha vuelto a ser un except mudo: un fallo asi "
+              "volveria a ser invisible durante meses")
+    finally:
+        if antes:
+            selflearn._PROFILE.write_text(antes, encoding="utf-8")
+        elif selflearn._PROFILE.exists():
+            selflearn._PROFILE.unlink()
+
+
 def main() -> int:
     for f in (test_la_normalizacion_de_frases_hace_las_cuatro_cosas,
               test_la_normalizacion_es_una_sola_implementacion,
@@ -679,7 +721,8 @@ def main() -> int:
               test_la_formula_de_ensenanza_es_LA_MISMA_QUE_LA_DEL_CEREBRO,
               test_sin_arbitro_registrado_no_se_juzga_nada,
               test_el_antecedente_se_busca_en_el_registro_si_no_llega,
-              test_ficheros_nuevos_de_c1_sin_datos_personales):
+              test_ficheros_nuevos_de_c1_sin_datos_personales,
+              test_el_perfil_destilado_llega_de_verdad_al_prompt):
         try:
             f()
         except Exception as e:                             # noqa: BLE001
