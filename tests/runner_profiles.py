@@ -89,6 +89,10 @@ SAFE_UNIT_SUITES = (
     # POST /api/n8n en proceso (httpx.ASGITransport, sin lifespan ni puertos):
     # dobles en vez de proveedor/correo y carpetas de usar y tirar.
     "integration/http/test_n8n_canal.py",
+    # Host/Origin de la confianza local y el token que ya no sale en
+    # /api/link/status (SEC-03): en proceso (httpx.ASGITransport, sin lifespan ni
+    # puertos), direcciones de red dobladas y carpetas de usar y tirar.
+    "integration/http/test_host_origin.py",
 )
 
 STATIC_SAFE_SUITES = (

@@ -444,7 +444,7 @@ async def _sigue_siendo_nuestro(url: str) -> bool:
     o apuntar a otra cosa completamente. La única prueba que vale es pedirle la
     página y reconocerla.
 
-    Se pide `/m`, que es ruta PÚBLICA (`_RUTAS_PUBLICAS` en app.py): no hace
+    Se pide `/m`, que es ruta PÚBLICA (`_es_ruta_publica` en app.py): no hace
     falta token y no se enseña ningún secreto por el camino."""
     try:
         import httpx
@@ -617,6 +617,14 @@ def status() -> dict:
       2. TÚNEL de Cloudflare — llega desde fuera, pero la dirección cambia en
          cada arranque, así que el móvil hay que revincularlo cada vez.
       3. IP de la WiFi — solo sirve dentro de casa.
+
+    EL TOKEN NO SALE DE AQUÍ (SEC-03 / roadmap P1-3). `GET /api/link/status`
+    devuelve este diccionario ENTERO, y con el token cualquiera que lo leyera
+    (bastaba una página que resolviera su dominio a 127.0.0.1) entraba desde la
+    WiFi o el túnel para siempre. Quien de verdad lo necesita es el QR, que es
+    lo que se escanea: va dentro de `link` y lo dibuja `/api/link/qr` (y el HUD
+    con `frontend/js/modals/link.js`). Para saber si hay móviles vinculados está
+    `paired`, que es lo único que hace falta saber sin el token en la mano.
     """
     # OJO CON `alive`: un túnel ADOPTADO no tiene `proc` (lo abrió el nexus
     # anterior y su cloudflared es hijo de aquel proceso). Sin contar la marca,
@@ -639,7 +647,7 @@ def status() -> dict:
                            if _state["adoptado"] and _state["url"]
                            else ("Túnel nuevo: la dirección ha cambiado, hay que "
                                  "re-escanear el QR." if _state["url"] else "")),
-            "lan": f"{lan_ip()}:8177", "link": link, "token": link_token(),
+            "lan": f"{lan_ip()}:8177", "link": link,
             "devices": devices(), "paired": len(_devices),
             "via": via, "estable": bool(principal.get("estable")),
             "hosts": dirs, "nombre_local": nombre_local(),

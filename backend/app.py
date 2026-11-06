@@ -130,15 +130,111 @@ async def no_cache_estaticos(request, call_next):
 # Lo único que puede pedirse SIN estar vinculado: la página del móvil y sus
 # estáticos (si no, el QR llevaría a una pantalla en blanco y no habría forma de
 # vincularse nunca). No hay ninguna acción detrás de estas rutas.
-_RUTAS_PUBLICAS = ("/m", "/static/", "/favicon.ico", "/manifest.webmanifest", "/sw.js")
+# Las rutas públicas son EXACTAS salvo `/static/`, que es un prefijo. Con
+# «/m» como prefijo (como estaba) cualquier ruta que empezara por «/m» se
+# saltaba el middleware: hoy solo daba un 404 inocuo, pero una ruta futura
+# «/movil/...» habría nacido pública sin que nadie lo eligiera (SEC-03, P1-3).
+_RUTAS_PUBLICAS_EXACTAS = ("/m", "/favicon.ico", "/manifest.webmanifest", "/sw.js")
+_RUTAS_PUBLICAS_PREFIJO = ("/static/",)
+
+
+def _es_ruta_publica(ruta: str) -> bool:
+    return ruta in _RUTAS_PUBLICAS_EXACTAS or ruta.startswith(_RUTAS_PUBLICAS_PREFIJO)
+
+# Autoridades de loopback que SÍ son este equipo (SEC-03, roadmap P1-3).
+_LOOPBACK = ("127.0.0.1", "::1", "localhost")
+
+# Ruta que autentica con su PROPIO secreto y por eso no pide el token del QR.
+_RUTA_N8N = "/api/n8n"
+
+
+def _valores_cabecera(headers, nombre: str) -> list:
+    """Todos los valores de una cabecera: la petición HTTP puede traerla repetida."""
+    try:
+        return list(headers.getlist(nombre))
+    except Exception:                    # dobles de prueba con un dict normal
+        valor = headers.get(nombre, "")
+        return [valor] if valor else []
+
+
+def _parsea_host_local(valor: str):
+    """Autoridad `host[:puerto]` de loopback → lo parseado; si no, None.
+
+    Las reglas son las MISMAS para HTTP y para el WebSocket, y son estrictas a
+    propósito (SEC-03): el `Host` no puede traer userinfo (`127.0.0.1@evil`), ni
+    ruta, ni query, ni espacios de más, ni quedarse sin puerto, y lo parseado
+    tiene que ser EXACTAMENTE lo que vino. Si no es una autoridad de loopback
+    limpia no hay confianza local y hay que presentar el token del QR."""
+    if not valor or valor != valor.strip():
+        return None
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit("http://" + valor)
+        if (parsed.hostname not in _LOOPBACK or parsed.port is None
+                or parsed.username is not None or parsed.password is not None
+                or parsed.path or parsed.query or parsed.fragment
+                or parsed.netloc.lower() != valor.lower()):
+            return None
+    except ValueError:                   # puerto no numérico, corchetes rotos…
+        return None
+    return parsed
+
+
+def _origen_coincide(origin: str, host: str, parsed_host) -> bool:
+    """¿El `Origin` es esta misma autoridad? (la regla que ya usaba el WS).
+
+    Esquema `http`, mismo netloc, mismo host y mismo puerto, y nada de userinfo,
+    ruta, query ni fragmento: `http://evil.example:8177` no puede decir que es
+    el HUD aunque su dominio resuelva a 127.0.0.1 (DNS rebinding, SEC-03)."""
+    if not origin or origin != origin.strip():
+        return False
+    from urllib.parse import urlsplit
+    try:
+        parsed_origin = urlsplit(origin)
+        return (parsed_origin.scheme == "http"
+                and parsed_origin.netloc.lower() == host.lower()
+                and parsed_origin.hostname == parsed_host.hostname
+                and parsed_origin.port == parsed_host.port
+                and parsed_origin.username is None and parsed_origin.password is None
+                and not parsed_origin.path and not parsed_origin.query
+                and not parsed_origin.fragment)
+    except ValueError:
+        return False
 
 
 def _es_este_equipo(request) -> bool:
-    """¿La petición nace en ESTE PC? (el HUD de escritorio y el .exe)."""
+    """¿La petición es del HUD de ESTE PC? (que el peer sea loopback NO basta).
+
+    SEC-03 / roadmap P1-3. Antes bastaba con que el peer fuera 127.0.0.1/::1/
+    localhost: una página del navegador que resuelve SU dominio a 127.0.0.1
+    (DNS rebinding) entraba como el dueño y leía el token del QR. Ahora, además:
+
+      * no puede traer cabeceras de proxy (`cf-connecting-ip`/`x-forwarded-for`),
+      * el peer tiene que ser de loopback,
+      * `Host` tiene que ser una autoridad de loopback CON puerto, una sola vez y
+        sin adornos (`_parsea_host_local`),
+      * si viene `Origin`, tiene que ser exactamente esa autoridad
+        (`_origen_coincide`). Sin `Origin` se acepta: los clientes nativos
+        (pywebview, curl, scripts) no lo mandan, igual que en el WebSocket.
+
+    Cualquier otra cosa con peer de loopback NO es este equipo y tiene que
+    presentar el token del QR por el camino normal."""
     if request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for"):
         return False                      # viene de fuera por un túnel/proxy
-    host = getattr(getattr(request, "client", None), "host", "") or ""
-    return host in ("127.0.0.1", "::1", "localhost")
+    peer = getattr(getattr(request, "client", None), "host", "") or ""
+    if peer not in _LOOPBACK:
+        return False
+    valores = _valores_cabecera(request.headers, "host")
+    if len(valores) != 1:
+        return False                      # sin Host o con Host repetido: no se adivina
+    host = valores[0]
+    parsed_host = _parsea_host_local(host)
+    if parsed_host is None:
+        return False
+    origin = request.headers.get("origin", "")
+    if not origin:
+        return True                       # cliente nativo: pywebview, curl, scripts
+    return _origen_coincide(origin, host, parsed_host)
 
 
 # ---------- SECRETO COMPARTIDO DE n8n (auditoría 30/07/2026, SEC-01 / P1-1) ----------
@@ -182,9 +278,24 @@ async def remote_auth(request, call_next):
 
     Ahora: este mismo equipo pasa; cualquier otro origen necesita el token del
     QR, venga por el túnel, por la WiFi o por donde sea.
+
+    Hay DOS excepciones, y solo dos, además de este equipo:
+
+      * las rutas públicas del QR (`_es_ruta_publica`): la página del móvil y sus
+        estáticos, que no tienen ninguna acción detrás;
+      * exactamente `/api/n8n` (`_RUTA_N8N`), que NO pide el token del QR porque
+        su autoridad es su propio handler: exige `x-nexus-n8n-secret` SIEMPRE,
+        también desde este equipo (SEC-01). Sin la exención, el flujo de n8n que
+        corre en Docker llega con un peer que no es loopback
+        (`host.docker.internal:8177`) y este middleware lo tumbaba con un 401
+        ANTES de que su comprobación del secreto llegara a correr: los flujos de
+        ejemplo no podían funcionar nunca. `/api/n8n/secret` NO está exenta:
+        sigue siendo de este equipo y de nadie más.
     """
     ruta = request.url.path
-    if _es_este_equipo(request) or ruta.startswith(_RUTAS_PUBLICAS):
+    if ruta == _RUTA_N8N:
+        return await call_next(request)   # el handler exige su propio secreto
+    if _es_este_equipo(request) or _es_ruta_publica(ruta):
         return await call_next(request)
 
     from backend.core.infraestructura import remote
@@ -224,28 +335,14 @@ def _trusted_local_ws_origin(ws: WebSocket) -> bool:
     Native/non-browser clients omit Origin and must instead supply a QR token.
     Proxy forwarding headers never grant local trust, even with a loopback peer.
     """
-    from urllib.parse import urlsplit
-
     host = ws.headers.get("host", "")
     origin = ws.headers.get("origin", "")
-    if not host or not origin or host != host.strip() or origin != origin.strip():
+    if not host or not origin:
         return False
-    try:
-        parsed_host = urlsplit("http://" + host)
-        parsed_origin = urlsplit(origin)
-        return (parsed_host.hostname in ("127.0.0.1", "::1", "localhost")
-                and parsed_host.port is not None
-                and parsed_host.username is None and parsed_host.password is None
-                and parsed_host.netloc.lower() == host.lower()
-                and parsed_origin.scheme == "http"
-                and parsed_origin.netloc.lower() == host.lower()
-                and parsed_origin.hostname == parsed_host.hostname
-                and parsed_origin.port == parsed_host.port
-                and parsed_origin.username is None and parsed_origin.password is None
-                and not parsed_origin.path and not parsed_origin.query
-                and not parsed_origin.fragment)
-    except ValueError:
+    parsed_host = _parsea_host_local(host)
+    if parsed_host is None:
         return False
+    return _origen_coincide(origin, host, parsed_host)
 
 
 @app.websocket("/ws")
