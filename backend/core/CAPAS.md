@@ -39,7 +39,7 @@ detalle de estilo.
 
 | Capa | Módulos |
 | --- | --- |
-| **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice`, `secretos`, `canales`, `atomicos` |
+| **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice`, `secretos`, `canales`, `atomicos`, `datos_inyectados` |
 | **infraestructura** | `llm`, `llm_runtime`, `tts`, `stt`, `remote`, `files_io`, `engram_bridge`, `websearch`, `telegram_bridge`, `spotify`, `hardware`, `app_index`, `youtube` |
 | **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `correcciones`, `briefing`, `profile`, `review`, `ingesta`, `pm`, `reglas` |
 | **aplicación** | `brain`, `skills_loader`, `scheduler`, `background`, `jobs`, `wake`, `hotkey`, `voice_cycle`, `aprendizaje` |
@@ -52,6 +52,12 @@ Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
 - **`publicvoice` en común**, no en infraestructura. No habla con nadie: es una
   regla de presentación (`sanitize` quita la fontanería interna de lo que se le
   enseña al usuario). La usa `events`, que está por debajo de todo.
+- **`datos_inyectados` en común**, no en infraestructura. Es el vocabulario de la
+  cerca con la que se marca el texto que no han escrito ni nexus ni el operador
+  (AI-03), y la usan `infraestructura/llm` al construir el prompt, `aplicacion/brain`
+  al inyectar contexto y una skill (`mcp_hands`). Ponerlo en infraestructura
+  obligaría a `brain` a depender de ella por dos strings y una función de tres
+  líneas; en común lo puede leer cualquiera, que es lo que hace falta.
 - **`brain` y `voice_cycle` en aplicación**, no en dominio. No contienen reglas
   de negocio: deciden **qué se ejecuta**. `brain` elige skill e intent y lanza
   trabajos; `voice_cycle` escucha, transcribe y se lo pasa al cerebro. Eso es

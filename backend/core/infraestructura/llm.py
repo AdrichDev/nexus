@@ -23,7 +23,7 @@ from pathlib import Path
 
 import httpx
 
-from ..comun import net
+from ..comun import datos_inyectados, net
 from ..comun.config import CONFIG_DIR, settings
 
 _DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -1088,10 +1088,49 @@ def _build_messages(user_text: str, context: list[dict] | None = None,
                                   "msg": f"Perfil del operador: no puedo leerlo ({type(exc).__name__}: {exc})"})
         except Exception:                          # noqa: BLE001
             pass
+    # ── LO QUE NO HA ESCRITO NEXUS NI EL OPERADOR (AI-03 / roadmap P2-4) ────
+    # El dossier web, lo que devuelve el RAG, las memorias y la salida de una
+    # herramienta o de un trabajo llegan marcados con `datos` (ver
+    # `comun/datos_inyectados.py`). Eso significa tres cosas, y las tres se
+    # decidieron leyendo cómo tratan los roles los proveedores de verdad:
+    #
+    #   · NO son `system`. En `system` el modelo lo lee con la misma autoridad
+    #     que las reglas de nexus, que es justo el hallazgo de la auditoría.
+    #     Van cercados con su origen y un aviso de que son datos.
+    #   · Van en la MISMA vuelta de `user` que la pregunta, delante de ella, y
+    #     no en una vuelta propia: Anthropic exige que los turnos alternen
+    #     user/assistant y dos `user` seguidos son un 400 (Ollama, OpenAI y
+    #     Gemini los aceptan, pero el que manda para no romper nada es el
+    #     estricto). Así los cuatro ven exactamente la misma forma.
+    #   · La pregunta del operador sigue yendo TAL CUAL, después de la cerca:
+    #     lo suyo no se toca, solo deja de ir mezclado con lo de fuera.
+    #
+    # La respuesta de una herramienta que ya está en el historial como
+    # `assistant` se cerca EN SU SITIO: moverla rompería la alternancia y, sobre
+    # todo, el par pregunta/respuesta que hace que «eso no es correcto» revise el
+    # resultado de verdad.
+    cercas: list[str] = []
+    turnos: list[dict] = []
+    for m in (context or []):
+        origen = m.get("datos")
+        if not origen:
+            turnos.append(m)
+            continue
+        texto = datos_inyectados.bloque(origen, m.get("content"))
+        if not texto:
+            continue
+        # `datos` es una marca NUESTRA, no un campo de la API de nadie: OpenAI
+        # rechaza lo que no conoce y Ollama lo ignora, así que no puede salir de
+        # aquí dentro.
+        limpio = {k: v for k, v in m.items() if k != "datos"}
+        if m.get("role") == "assistant":
+            turnos.append({**limpio, "content": texto})
+        else:
+            cercas.append(texto)
+    pregunta = "\n\n".join(cercas + [user_text]) if cercas else user_text
     messages = [{"role": "system", "content": base}]
-    if context:
-        messages.extend(context)
-    messages.append({"role": "user", "content": user_text})
+    messages.extend(turnos)
+    messages.append({"role": "user", "content": pregunta})
     return messages
 
 

@@ -163,6 +163,11 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         if arguments is None:
             key = "path" if "\\" in args_raw or "/" in args_raw else "query"
             arguments = {key: args_raw} if args_raw else {}
+        # AI-03 / P2-4: lo que devuelve un servidor MCP lo ha escrito un tercero,
+        # no nexus. Al chat le llega igual que siempre; lo que cambia es que
+        # `brain` marca el turno y `llm` lo cerca como DATO en el prompt.
+        # Fuera del `try` a propósito: un fallo de importación no es un conector roto.
+        from backend.core.comun import datos_inyectados
         try:
             result = await _with_server(server, servers[server],
                                         lambda c: c.call_tool(tool, arguments))
@@ -172,7 +177,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                 for c in content:
                     if isinstance(c, dict) and c.get("type") == "text":
                         text_out += c.get("text", "")
-            return {"reply": f"[{server}/{tool}] {text_out[:1500] or json.dumps(result)[:1500]}"}
+            return {"reply": f"[{server}/{tool}] {text_out[:1500] or json.dumps(result)[:1500]}",
+                    "origen_datos": datos_inyectados.MCP}
         except Exception as exc:
             return {"reply": f"El conector «{server}» falló: {exc}"}
 

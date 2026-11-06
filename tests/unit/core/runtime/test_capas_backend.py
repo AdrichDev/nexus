@@ -49,6 +49,7 @@ CAPAS: list[tuple[str, set[str]]] = [
     ("comun", {
         "config", "events", "audit", "permissions", "confirm", "procedencia",
         "context", "net", "publicvoice", "secretos", "canales", "atomicos",
+        "datos_inyectados",
     }),
     ("infraestructura", {
         "llm", "llm_runtime", "tts", "stt", "remote", "files_io",

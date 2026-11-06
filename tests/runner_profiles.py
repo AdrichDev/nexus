@@ -98,6 +98,14 @@ SAFE_UNIT_SUITES = (
     # operador; lo que devuelve Engram se lee como dato citado. En proceso, con
     # Engram, RAG, espejo y modelo doblados y carpetas de usar y tirar.
     "unit/core/learning/test_opmem_candado.py",
+    # Contenido no confiable marcado en el prompt (AI-03, roadmap P2-4): el
+    # dossier web, el RAG, las memorias, lo que devuelve MCP y el resultado de
+    # un trabajo viajan cercados con su origen y fuera de `system`; la pregunta
+    # del operador sigue yendo tal cual. Proveedor y cliente HTTP doblados (una
+    # petición a un host que la prueba no espera revienta), RAG/web/DB/grafo
+    # doblados y carpetas de usar y tirar. No arranca servidor ni toca un dato
+    # del operador.
+    "unit/core/test_datos_no_confiables.py",
     "unit/skills/places/test_places_honesty.py",
     "unit/skills/datos/test_datos_honesty.py",
     "unit/skills/vigilancias/test_vigilancias_integrity.py",
