@@ -138,8 +138,21 @@ DEFAULTS = {
                                        # y mueve tareas según respondas al empujón diario
     # ---- Permisos (estilo sandbox) ----
     "perm_hardware": True,             # leer CPU/RAM/placa/discos del equipo
-    "perm_files": "todo",              # sandbox | carpetas | todo
-    "perm_folders": [],                # carpetas permitidas si perm_files='carpetas'
+    # Alcance del acceso a archivos (SEC-04 / roadmap P1-6). El defecto era «todo»
+    # y eso convertía cualquier canal comprometido (SEC-01/02/03) o una prompt
+    # injection en un «léeme el disco entero»: claves SSH, config/secrets.json,
+    # tokens de Google. Ahora el defecto es «carpetas»:
+    #   sandbox  : SOLO data/sandbox, la carpeta de nexus
+    #   carpetas : SOLO perm_folders (por defecto Documentos/Escritorio/Descargas)
+    #   todo     : todo el equipo — elección EXPLÍCITA del operador en ⚙ → Permisos,
+    #              y aun así sigue vetando el material de credenciales
+    #              (permissions.denied).
+    "perm_files": "carpetas",         # sandbox | carpetas | todo
+    # Carpetas del modo «carpetas». Lista VACÍA = Documentos, Escritorio y
+    # Descargas del perfil (ver carpetas_permiso_por_defecto(): se resuelve en
+    # cada uso, así que una redirección a OneDrive o un perfil que se mueve no
+    # deja la lista obsoleta ni exige migrar ningún settings.json).
+    "perm_folders": [],
     # ---- Voz ----
     "mic_muted": False,                # muteo del usuario: el micro abierto no te oye
     # ---- Música ----
@@ -202,6 +215,45 @@ def _write_json_atomic(path: Path, data: dict) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, path)                                    # atómico
+
+
+def carpetas_permiso_por_defecto() -> list[str]:
+    """Documentos, Escritorio y Descargas del perfil ACTUAL (semilla de perm_folders).
+
+    Por qué así y no con la API de «Known Folders» de Windows: el proyecto no
+    tenía ningún ayudante de carpetas conocidas (se buscó en skills/system_pc,
+    backend/core/infraestructura/hardware.py y skills/files) más allá del mapa
+    por NOMBRE de `skills/files/skill.py::_known_dir`, que es de otra capa y no
+    debe importarse desde aquí. Se sigue la MISMA convención que ese ayudante
+    —`USERPROFILE`, y antes la redirección a OneDrive, que en Windows suele
+    mover Escritorio y Documentos—, más el nombre en español, para que el
+    operador reconozca sus carpetas.
+
+    Se resuelve en CADA llamada (no se cachea) por dos razones: el perfil puede
+    moverse sin reiniciar, y las pruebas necesitan un perfil de mentira.
+    Las carpetas que falten se crean al usarlas (ver permissions._allowed_roots),
+    nunca aquí: leer la configuración no debe tocar el disco.
+    """
+    home = Path(os.environ.get("USERPROFILE", "").strip() or Path.home())
+    od = (os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer") or "").strip()
+    odir = Path(od) if od else None
+
+    def _elige(candidatas: list[Path], defecto: Path) -> str:
+        """La primera candidata que EXISTE (la redirección a OneDrive manda) o el
+        nombre de siempre. `defecto` va aparte a propósito: si ninguna existe,
+        crear «Escritorio» en vez de «Desktop» le cambiaría el nombre a la
+        carpeta del operador."""
+        for c in candidatas:
+            if c.exists():
+                return str(c)
+        return str(defecto)
+
+    docs = _elige(([odir / "Documents", odir / "Documentos"] if odir else [])
+                  + [home / "Documents", home / "Documentos"], home / "Documents")
+    escritorio = _elige(([odir / "Desktop", odir / "Escritorio"] if odir else [])
+                        + [home / "Desktop", home / "Escritorio"], home / "Desktop")
+    descargas = _elige([home / "Downloads", home / "Descargas"], home / "Downloads")
+    return [docs, escritorio, descargas]
 
 
 def _load_json() -> dict:
@@ -295,6 +347,12 @@ class Settings:
         después."""
         out = dict(DEFAULTS)
         out.update(self._json)
+        # Una lista VACÍA no significa «ninguna carpeta»: significa «las de
+        # siempre» (Documentos/Escritorio/Descargas). El HUD tiene que ver la
+        # lista EFECTIVA para poder enseñarla en ⚙ → Permisos, y así lo que
+        # enseña es lo que permissions aplica de verdad.
+        if not out.get("perm_folders"):
+            out["perm_folders"] = carpetas_permiso_por_defecto()
         for k in self.SECRET_KEYS:
             presente = bool(self.secret(k)) or bool(str(out.get(k) or "").strip())
             out.pop(k, None)                      # fuera el valor, siempre

@@ -74,6 +74,10 @@ SAFE_UNIT_SUITES = (
     "unit/skills/domotica/test_tv_power.py",
     "unit/skills/clima/test_clima_errors.py",
     "unit/core/test_secretos.py",
+    # Permisos de ficheros seguros por defecto (SEC-04) y cambios de permisos
+    # solo desde la ventana local (SEC-12): en proceso, con un PERFIL de mentira
+    # y el lector real espiado, sin escribir nada del operador.
+    "unit/core/test_permisos_ficheros.py",
     # Redacción de los registros con texto del operador (AI-02/PRIV-01):
     # interactions.jsonl, el prompt del destilado, audit.jsonl y recall.jsonl.
     # En proceso, sin red, con carpetas de usar y tirar.

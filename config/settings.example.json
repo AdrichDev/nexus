@@ -12,5 +12,8 @@
   "hotkey": "f9",
   "memory_backend": "auto",
   "palette": "neon-green",
-  "operator_name": "TU NOMBRE"
+  "operator_name": "TU NOMBRE",
+  "perm_hardware": true,
+  "perm_files": "carpetas",
+  "perm_folders": []
 }

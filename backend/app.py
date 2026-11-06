@@ -1348,11 +1348,49 @@ async def api_instagram_competencia():
 
 @app.get("/api/config")
 async def api_config_get():
+    # El MODO de permisos sale aquí para que el HUD pueda enseñarlo (⚙ → Permisos).
+    # Cambiarlo ya no basta con tener el token: ver _CLAVES_SOLO_LOCALES.
     return settings.as_dict()
 
 
+# Claves que SOLO se cambian desde ESTE equipo (SEC-12 / roadmap P1-6).
+#
+# Antes, quien tuviera el token del QR —o colara una petición por el hueco de
+# SEC-03— podía poner `perm_files: "todo"` y desactivar en silencio el único
+# control de alcance que tiene nexus, o apuntar los webhooks a su propia máquina
+# y quedarse con lo que nexus envía. La regla no es «quién eres» sino «dónde
+# estás»: los permisos se tocan con las manos en el teclado, en la ventana de
+# nexus (pywebview, loopback), nunca desde el móvil ni desde un flujo.
+_CLAVES_SOLO_LOCALES = {
+    # ---- el propio control de alcance ----
+    "perm_files": "es el alcance de archivos que SEC-04 acota",
+    "perm_folders": "son las carpetas que ese alcance permite",
+    "perm_hardware": "mismo control (⚙ → Permisos), mismo riesgo",
+    # ---- a dónde sale lo que nexus sabe ----
+    "n8n_webhook_url": "apuntarlo a otro sitio se lleva lo que nexus envía",
+    "n8n_base_url": "mismo destino de salida por API",
+    "homeassistant_url": "URL de integración: recibe la orden con su token",
+    # ---- guardas de privacidad del cerebro ----
+    "permitir_fallback_nube": "es el consentimiento para sacar el prompt a la nube (AI-01)",
+    "llm_local": "decide si el cerebro es local o de nube",
+    # ---- ejecución de software en el equipo ----
+    "engram_autoinstall": "instala un binario en el equipo sin preguntar",
+}
+_ERROR_SOLO_LOCAL = ("no autorizado — los permisos y las direcciones de integración "
+                     "solo se cambian desde este equipo, en ⚙ de la ventana de nexus. "
+                     "Nada se ha cambiado. (Claves rechazadas: {claves})")
+
+
 @app.post("/api/config")
-async def api_config_set(payload: dict):
+async def api_config_set(request: Request, payload: dict):
+    # SEC-12: si el cuerpo toca alguna clave que controla una guarda y la petición
+    # NO viene de la ventana local, se rechaza ENTERA (403) y no se aplica nada:
+    # aplicar «lo demás» dejaría al HUD remoto creyendo que su cambio entró.
+    locales = sorted(k for k in payload if k in _CLAVES_SOLO_LOCALES)
+    if locales and not _es_este_equipo(request):
+        return JSONResponse(
+            {"error": _ERROR_SOLO_LOCAL.format(claves=", ".join(locales))},
+            status_code=403)
     # Los secretos NO entran por aquí: van a /api/secrets, que los guarda en
     # secrets.json. Antes esta lista («has_elevenlabs_key»…) no coincidía con
     # ningún nombre real, así que no protegía nada: un POST con una API key la

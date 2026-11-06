@@ -81,6 +81,42 @@ run.bat            :: abre la ventana HUD (o: python -m backend.desktop)
 * **⚙** → cambiar en caliente proveedor LLM (Ollama ⇄ cloud API key), modelo
   razonador, motor y voz TTS
 
+## Permisos de archivos (⚙ → Permisos)
+
+nexus lee y escribe archivos con la skill ARCHIVOS, la memoria y la ingesta de
+documentos. **⚙ → Permisos** decide hasta dónde llega, en tres modos:
+
+| Modo | Alcance |
+|------|---------|
+| `sandbox` | Solo la carpeta propia de nexus (`data/sandbox`). El más cerrado. |
+| `carpetas` | Solo tus carpetas autorizadas. **Es el modo por defecto**: Documentos, Escritorio y Descargas de tu perfil (si prefieres otras, se cambian en ⚙ → Permisos → Carpetas permitidas). |
+| `todo` | Todo el equipo. Es una elección **deliberada**: con este modo cualquier orden que llegue por un canal (móvil, Telegram, n8n, una inyección de prompt) alcanza cualquier archivo que puedas leer tú. |
+
+Con `carpetas` (el defecto), una orden sobre un archivo de fuera contesta que
+no hay permiso y te dice cómo añadir esa carpeta en ⚙ → Permisos. Las carpetas
+sembradas se crean la primera vez que hacen falta; no hay que migrar ningún
+`settings.json` guardado.
+
+**Siempre vetado, también en `todo`**: el material de credenciales —
+`config/secrets.json`, los tokens OAuth (`*token*.json`, `*credential*` de
+`config/`), el `.env` de la raíz, `data/telegram_owner.txt` y
+`data/telegram_link_code.txt`, `~/.ssh`, `~/.aws`, `~/.gnupg`,
+`%APPDATA%\Microsoft\Credentials`, las bases de sesiones del navegador
+(`Login Data` de Chrome/Edge, `logins.json` y `key4.db` de Firefox) y los
+archivos `*.key`, `*.pem` y `*.p12`. Esos archivos convierten «mi asistente lee
+mis archivos» en «cualquiera que hable con mi asistente roba mis credenciales»,
+así que no se habilitan desde ⚙. No es protección de Credential Manager ni del
+proceso LSASS a nivel de sistema operativo: eso pide DPAPI, y aquí solo se
+cierra el camino de nexus.
+
+**Los permisos solo se cambian desde este equipo.** `POST /api/config` rechaza
+con un 403 las claves que controlan una guarda (`perm_files`, `perm_folders`,
+`perm_hardware`, las URLs de n8n y de Home Assistant, `permitir_fallback_nube`,
+`llm_local`, `engram_autoinstall`) cuando la petición no viene de la ventana
+local, aunque traiga el token del QR. El resto de la configuración sigue
+funcionando desde el móvil y `GET /api/config` sigue contando el modo, para que
+el HUD pueda enseñarlo.
+
 ## Build a .exe
 
 ```bat
