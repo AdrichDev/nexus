@@ -196,6 +196,14 @@ check([f["title"] for f in fuentes] == ["Vídeo A", "Vídeo H"], f"fuentes: las 
 check(all(f["kind"] == "youtube" and "&t=" in f["url"] and f["url"].startswith("https://www.youtube.com/watch?v=")
           and f["canal"] and f["tipo"] == "manual" and 0 < len(f["text"]) <= 320 for f in fuentes),
       "fuentes: enlace con minuto, canal, tipo de subtítulo y texto acotado")
+# El tope de arriba (320 con max_chars=300) es del TEXTO del dato. La cerca de
+# datos de AI-03 (`<datos_no_confiables …>`) se pone al MONTAR el prompt, en
+# `skills/research` y `skills/ai_media`, no aquí: si se metiera en `text` se
+# comería parte de esos 320 y el tope dejaría de medir lo mismo sin que nadie lo
+# viera. Esta comprobación es la que obliga a rehacer la cuenta si alguien mueve
+# la cerca al origen.
+check(all("<datos_no_confiables" not in f["text"] for f in fuentes),
+      "fuentes: `text` es texto PELADO; la cerca se añade donde se monta el prompt")
 check(any("Sin subtítulos" in o and "subtítulos" in o for o in omitidos), f"fuentes: dice qué vídeos omitió y por qué ({omitidos})")
 check(any("Pista caída" in o for o in omitidos), "fuentes: un vídeo que falla no tumba a los demás")
 

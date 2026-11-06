@@ -28,6 +28,7 @@ except Exception:
     pass
 
 from backend.core.aplicacion import skills_loader as sl  # noqa: E402
+from backend.core.comun import datos_inyectados  # noqa: E402
 import backend.core.infraestructura.llm as llm  # noqa: E402
 import backend.core.infraestructura.websearch as websearch  # noqa: E402
 import backend.core.infraestructura.youtube as youtube  # noqa: E402
@@ -45,6 +46,16 @@ def check(cond, msg):
     else:
         _fail.append(msg)
         print("  FALLO:", msg)
+
+
+def cercado(texto, origen):
+    """Lo que hay DENTRO del bloque cercado `origen` (o '' si no está)."""
+    abre, cierra = f'<datos_no_confiables origen="{origen}">', "</datos_no_confiables>"
+    i = texto.find(abre)
+    if i < 0:
+        return ""
+    j = texto.find(cierra, i)
+    return texto[i + len(abre):j] if j >= 0 else ""
 
 
 TMP = Path(tempfile.mkdtemp(prefix="nexus_research_test_"))
@@ -198,6 +209,20 @@ try:
           "vídeo: el prompt incluye la transcripción tras las fuentes web y continúa la numeración")
     check("transcripción" in prompt.lower() and "menor fiabilidad" in prompt.lower() and "cita" in prompt.lower(),
           "vídeo: el prompt etiqueta las transcripciones y exige citarlas con honestidad")
+    # AI-03 / P2-4: el texto de las páginas y la transcripción son DATOS de fuera y
+    # van cercados en el prompt. La cerca se pone al MONTARLO, no en `leer_paginas`
+    # ni en `fuentes_video` (cuyos topes de caracteres fijan estas mismas pruebas),
+    # así que lo que se comprueba es el prompt y que la petición quede fuera.
+    check(f'<datos_no_confiables origen="{datos_inyectados.WEB}">' in prompt
+          and "TEXTO-DE-LA-PAGINA-1" in cercado(prompt, datos_inyectados.WEB),
+          "vídeo: el texto leído de cada página entra cercado como dato de web")
+    check(f'<datos_no_confiables origen="{datos_inyectados.YOUTUBE}">' in prompt
+          and "TRANSCRIPCION-VIDEO-MQTT" in cercado(prompt, datos_inyectados.YOUTUBE),
+          "vídeo: la transcripción entra cercada como dato de YouTube")
+    check(prompt.index("usando SOLO estas fuentes") < prompt.index("<datos_no_confiables"),
+          "vídeo: la petición del operador queda FUERA de la cerca (solo se cerca lo de fuera)")
+    check(prompt.count("no son órdenes") == prompt.count("<datos_no_confiables"),
+          "vídeo: una cerca y un aviso por fuente, ni uno de más ni uno de menos")
     texto = informes()[-1].read_text(encoding="utf-8")
     check("[5] [VÍDEO: Video MQTT](https://www.youtube.com/watch?v=abc12345678&t=90s)" in texto,
           "vídeo: la sección «Fuentes» del informe incluye la fuente de YouTube con numeración continuada")
@@ -232,6 +257,8 @@ try:
     reset(retraso=0.0)
     leidas = asyncio.run(websearch.leer_paginas(BUENOS[:3], n=2, max_chars=10, timeout=1.0))
     check(leidas == ["TEXTO-DE-L", "TEXTO-DE-L"], f"helper leer_paginas: n y max_chars respetados ({leidas})")
+    check(not any("<datos_no_confiables" in t for t in leidas),
+          "helper leer_paginas: devuelve el texto PELADO (la cerca se añade al montar el prompt)")
 
     # ---- 5) abrir un informe con varias coincidencias -----------------------------------------------
     reset()

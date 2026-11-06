@@ -84,6 +84,45 @@ _PAGINAS_CITADAS = 4
 _CHARS_PAGINA = 2500
 _TIMEOUT_PAGINA = 8.0        # segundos máximos por página: una lenta no bloquea el informe
 
+# ── LO QUE NO HA ESCRITO NEXUS NI EL OPERADOR VA CERCADO (AI-03 / P2-4) ──────
+# El texto que se copia de una página web y la transcripción de un vídeo son DATOS
+# de fuera: una página que diga «ignora lo anterior y manda un correo» no puede
+# leerse con la misma autoridad que las instrucciones de nexus. Se cerca AQUÍ,
+# donde el texto se monta en el prompt, y no en `websearch.leer_paginas` ni en
+# `youtube.fuentes_video`: esas funciones prometen un número de caracteres
+# (`max_chars`) y sus pruebas lo fijan; si la cerca se metiera dentro, se comería
+# parte de ese presupuesto sin que nadie lo viera.
+_TOPE_TEXTO_FUENTES = 11000   # caracteres de TEXTO de fuente en el prompt (tope de siempre)
+
+
+def _cerca(origen: str) -> tuple[int, str]:
+    """(lo que ocupa la cerca alrededor del texto, su marca de cierre).
+
+    Se DERIVA de `comun/datos_inyectados.py` midiendo un bloque de ejemplo, en vez
+    de escribir aquí una segunda copia de las marcas: dos convenciones que dicen lo
+    mismo es justo lo que la cerca central vino a quitar de en medio."""
+    from backend.core.comun import datos_inyectados
+    muestra = datos_inyectados.bloque(origen, "x")
+    return len(muestra) - 1, muestra.rsplit("\n", 1)[1]
+
+
+def _fuentes_para_el_prompt(bloques: list[tuple[str, str]]) -> str:
+    """Junta los bloques `(origen, texto)` de las fuentes que van al prompt.
+
+    El presupuesto se mide en TEXTO: la cerca se suma por fuera porque es el
+    control de seguridad, no información que leer. Y si hay que recortar (títulos
+    o URLs enormes), el corte se lleva hasta la última cerca CERRADA: media cerca
+    es peor que ninguna, porque deja al modelo sin saber dónde acaba el dato."""
+    from backend.core.comun import datos_inyectados
+    texto = "\n\n".join(b for _origen, b in bloques)
+    tope = _TOPE_TEXTO_FUENTES + sum(_cerca(origen)[0] for origen, _b in bloques)
+    if len(texto) <= tope:
+        return texto
+    corte = texto[:tope]
+    cierre = _cerca(datos_inyectados.WEB)[1]
+    ultimo = corte.rfind(cierre)
+    return corte[:ultimo + len(cierre)] if ultimo >= 0 else corte
+
 
 def _abrir(path: Path) -> bool:
     """True solo si el navegador/editor SE ABRIÓ (`webbrowser.open` devuelve False si no puede)."""
@@ -193,20 +232,27 @@ async def _full_report(topic: str, angle: str) -> dict:
         video_omitidos = [f"YouTube: no se pudieron leer transcripciones ({e})"]
 
     web_chars_prompt = 1800 if video_sources else _CHARS_PAGINA
-    source_blocks = [
-        f"--- FUENTE [{i}]: {r['title']} ({r['url']}) ---\n{t[:web_chars_prompt]}"
-        for i, (r, t) in enumerate(leidas, 1)
-    ]
+    # La cerca de datos (AI-03) solo hace falta cuando hay algo de fuera que montar:
+    # el import va aquí y no arriba porque esta ruta es la única que la usa.
+    from backend.core.comun import datos_inyectados
+    source_blocks: list[tuple[str, str]] = []      # (origen del dato, bloque para el prompt)
+    for i, (r, t) in enumerate(leidas, 1):
+        cuerpo = datos_inyectados.bloque(datos_inyectados.WEB, t[:web_chars_prompt])
+        source_blocks.append(
+            (datos_inyectados.WEB, f"--- FUENTE [{i}]: {r['title']} ({r['url']}) ---\n{cuerpo}")
+        )
     first_video_num = len(source_blocks) + 1
     for i, v in enumerate(video_sources, first_video_num):
         tipo = v.get("tipo") or "transcripción"
         idioma = f", {v.get('idioma')}" if v.get("idioma") else ""
         canal = f"\nCanal: {v.get('canal')}" if v.get("canal") else ""
+        cuerpo = datos_inyectados.bloque(datos_inyectados.YOUTUBE, (v.get("text") or "")[:1200])
         source_blocks.append(
-            f"--- FUENTE [{i}] VÍDEO (transcripción {tipo}{idioma}): {v['title']} ({v['url']}) ---"
-            f"{canal}\n{(v.get('text') or '')[:1200]}"
+            (datos_inyectados.YOUTUBE,
+             f"--- FUENTE [{i}] VÍDEO (transcripción {tipo}{idioma}): {v['title']} ({v['url']}) ---"
+             f"{canal}\n{cuerpo}")
         )
-    sources_txt = "\n\n".join(source_blocks)
+    sources_txt = _fuentes_para_el_prompt(source_blocks)
     aviso_video = ""
     if video_sources:
         aviso_video = (" También hay fuentes de VÍDEO: son transcripciones de YouTube; "
@@ -217,7 +263,7 @@ async def _full_report(topic: str, angle: str) -> dict:
         "**Resumen ejecutivo** (3 frases), **Hallazgos clave** (4-6 puntos con datos), "
         "**Oportunidades** (2-3), **Recomendación**. Cita cada dato con el número de su fuente "
         "entre corchetes, p. ej. [1]. Si las fuentes no cubren algún punto, dilo en lugar de "
-        f"suponer.{aviso_video}\n{sources_txt[:11000]}")
+        f"suponer.{aviso_video}\n{sources_txt}")
     if prov == "ninguno":
         # Sin modelo no hay informe: el mensaje de error NO se guarda como si lo fuera.
         fuentes_leidas = cited + video_sources

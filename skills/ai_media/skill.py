@@ -126,6 +126,11 @@ def _lista_omitidos_video(omitidos: list[str]) -> str:
 
 
 async def _buscar_y_responder(q: str) -> dict:
+    # AI-03 / P2-4: el texto copiado de una página y la transcripción de un vídeo
+    # son DATOS de fuera, no órdenes. Se cerca donde se monta el prompt (abajo) y
+    # no en `websearch.leer_paginas`/`youtube.fuentes_video`, que prometen un
+    # número de caracteres (`max_chars`) que sus pruebas fijan.
+    from backend.core.comun import datos_inyectados
     from backend.core.infraestructura import websearch
     from backend.core.infraestructura.llm import ask_llm
     results = _limpiar(await websearch.search(q, 8))[:6]     # se piden 8 por si caen anuncios
@@ -147,12 +152,14 @@ async def _buscar_y_responder(q: str) -> dict:
     for i, r in enumerate(results, 1):
         leido = paginas[i - 1] if i - 1 < len(paginas) else ""
         cuerpo = leido or (r.get("snippet") or "")      # si la página no se pudo leer, su fragmento
-        fuentes_prompt.append(f"[{i}] {r.get('title') or ''} ({_dominio(r.get('url'))})\n{cuerpo}")
+        fuentes_prompt.append(f"[{i}] {r.get('title') or ''} ({_dominio(r.get('url'))})\n"
+                              f"{datos_inyectados.bloque(datos_inyectados.WEB, cuerpo)}")
     for j, v in enumerate(videos, len(results) + 1):
         tipo = f"transcripción {v.get('tipo')}" if v.get("tipo") else "transcripción"
         meta = "; ".join(x for x in (_dominio(v.get("url")) or "youtube.com", v.get("canal") or "", tipo,
                                      v.get("idioma") or "") if x)
-        fuentes_prompt.append(f"[{j}] VÍDEO — {v.get('title') or ''} ({meta})\n{v.get('text') or ''}")
+        fuentes_prompt.append(f"[{j}] VÍDEO — {v.get('title') or ''} ({meta})\n"
+                              f"{datos_inyectados.bloque(datos_inyectados.YOUTUBE, v.get('text'))}")
     aviso_video = (" Las fuentes marcadas VÍDEO son evidencia de transcripción; las captions "
                    "automáticas tienen menor fiabilidad que páginas o artículos, así que úsalas "
                    "solo como apoyo y no como prueba principal."
@@ -346,6 +353,7 @@ def _mensaje_youtube_fallo(motivo: str | None) -> str:
 
 
 async def _video_youtube(match) -> dict:
+    from backend.core.comun import datos_inyectados
     from backend.core.infraestructura import youtube
     from backend.core.infraestructura.llm import ask_llm
 
@@ -389,7 +397,8 @@ async def _video_youtube(match) -> dict:
     resumen, prov = await ask_llm(
         "Resume en español este vídeo de YouTube usando SOLO la transcripción. Incluye referencias "
         "por minuto con el formato [MM:SS] o [H:MM:SS] en cada idea importante. No inventes nada "
-        f"fuera del texto. Metadatos: {meta or 'YouTube'}.{aviso_fallback}\n\nTRANSCRIPCIÓN:\n{con_tiempos}")
+        f"fuera del texto. Metadatos: {meta or 'YouTube'}.{aviso_fallback}\n\nTRANSCRIPCIÓN:\n"
+        f"{datos_inyectados.bloque(datos_inyectados.YOUTUBE, con_tiempos)}")
     con_analisis = prov != "ninguno"
     titulo_mem, trozos, sustituidas, dur_txt = _guardar_transcripcion(
         origen=url, origen_tipo="youtube", nombre=titulo, con_tiempos=con_tiempos,

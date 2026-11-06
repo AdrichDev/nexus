@@ -57,6 +57,10 @@ ancla de dominio.
 - **Sin modelo de lenguaje**: no puede redactar, así que te enseña los resultados que encontró (título y
   enlace) y el motivo, sin locutar ningún mensaje de error.
 - Sin resultados o sin red: lo dice.
+- **El contenido de fuera no es una orden**: el texto copiado de cada página y de cada transcripción entra en el
+  prompt del modelo dentro de un bloque delimitado (`<datos_no_confiables origen="web">` / `origen="youtube">`)
+  con un aviso de que son datos. La pregunta del operador va aparte, fuera del bloque: lo que diga una página no
+  cambia las reglas de nexus.
 
 ## Qué NO hace
 

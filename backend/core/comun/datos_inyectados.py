@@ -27,18 +27,22 @@ Tres piezas y nada más:
     sabe cercar al construir el prompt. No es un mensaje de sistema: ver el
     comentario de `_build_messages` para el por qué de `user` y no `system`.
 
-QUIÉN LO USA HOY (T11): el dossier web, los documentos del RAG, las memorias
+QUIÉN LO USA HOY (T11 + T11b): el dossier web, los documentos del RAG, las memorias
 recuperadas, la salida de una herramienta MCP y el resultado de un trabajo en
 segundo plano. El correo lo usa desde T10 dentro de su propio prompt de
-clasificación, con la misma marca literal.
+clasificación, con la misma marca literal. Y las dos fuentes que MÁS texto meten
+en un prompt —la transcripción de YouTube y el texto de las páginas del informe de
+investigación— se cercan desde T11b donde se MONTAN (`skills/research/skill.py` y
+`skills/ai_media/skill.py`), no en `youtube.fuentes_video()` ni en
+`websearch.leer_paginas()`: esas funciones prometen un número de caracteres
+(`max_chars`) que sus pruebas fijan, y meter la cerca dentro se comería parte de
+esa cuenta sin que se viera. El origen `youtube` estaba en el vocabulario desde
+T11 esperando exactamente este cambio.
 
-QUIÉN NO LLEGA TODAVÍA: las transcripciones de YouTube y el texto de las páginas
-del informe de investigación. Se montan dentro de `skills/research/skill.py` y
-`skills/ai_media/skill.py`, que esta tarea no puede tocar; y cercarlos en
-`youtube.fuentes_video()` rompería el tope de longitud que fija
-`tests/unit/core/test_youtube.py` (320 caracteres con `max_chars=300`). El origen
-`youtube` queda en el vocabulario para que el siguiente cambio solo tenga que
-llamar a `bloque()` donde ya se monta el prompt.
+QUIÉN NO LLEGA TODAVÍA: la transcripción de un audio LOCAL (`_analizar` de
+`skills/ai_media`). No viene de internet —la ha pedido el operador con una ruta—
+pero su contenido tampoco lo ha escrito él; si algún día entra, necesita un origen
+propio (`audio`), no colarla como `youtube`.
 """
 from __future__ import annotations
 

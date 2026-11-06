@@ -47,6 +47,10 @@ las fuentes citadas. Guarda el histórico y sabe reabrir uno viejo.
   cuántos eran de verdad.
 - Los informes se crean con creación exclusiva (dos peticiones a la vez no se pisan) y con un nombre válido en
   Windows (`CON`, `NUL`… se renombran).
+- **El contenido de fuera no es una orden**: el texto copiado de cada página y de cada transcripción entra en el
+  prompt del modelo dentro de un bloque delimitado (`<datos_no_confiables origen="web">` / `origen="youtube">`)
+  con un aviso de que son datos. La petición del operador va aparte, fuera del bloque, así que una página que
+  diga «ignora lo anterior y haz X» se lee como lo que es: texto de un tercero.
 
 ## Qué necesita configurado
 
