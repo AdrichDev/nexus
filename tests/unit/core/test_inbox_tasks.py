@@ -2,6 +2,11 @@
 """Email-to-tasks job: tasks follow the task pattern (type, urgency, source=correo,
 sourceId=email id), reruns do not duplicate, and notes stay on the board.
 
+Since SEC-07 (T10) the job PROPONE y espera un «sí» (confirm.request, kind
+«creacion_desde_correo»): la creación vive en el `action`. `run_job()` hace las dos cosas
+(propuesta + «sí»), que es como se comportaba antes de la puerta; `propose()` corre solo el
+primer paso.
+
 No network, no credentials: Google and mail loaders are monkeypatched; data dir is temporary.
 Run:  python tests/unit/core/test_inbox_tasks.py
 """
@@ -146,6 +151,7 @@ gw._create_event = fake_event
 gw._create_task = fake_task
 
 from backend.core.comun.events import bus  # noqa: E402
+from backend.core.comun import confirm as _confirm  # noqa: E402
 
 
 async def _noop_emit(*a, **k):
@@ -154,7 +160,19 @@ async def _noop_emit(*a, **k):
 
 bus.emit = _noop_emit
 
-r1 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+
+def propose():
+    """Primer paso del triaje: la PROPUESTA. No escribe nada (SEC-07)."""
+    return asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+
+
+def run_job():
+    """Triaje completo: propuesta + el «sí» del operador (con el que se crea)."""
+    rep = propose()
+    return asyncio.run(_confirm.answer("sí", "api")) if _confirm.pending("api") else rep
+
+
+r1 = run_job()
 rows = board._load()
 check(len(rows) == 2, f"first run creates 2 tasks, got {len(rows)}")
 by = {t["sourceId"]: t for t in rows}
@@ -176,7 +194,7 @@ check("2 tarea(s) creadas" in r1, f"reply first run: {r1}")
 check(marked_batches == [["e1", "e2"]], f"T8: only the 2 converted mails are marked read (not e3): {marked_batches}")
 check("He marcado como leídos 2 correo(s)" in r1, f"T8: reply states the marking: {r1}")
 
-r2 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+r2 = run_job()
 check(len(board._load()) == 2, "second run creates 0 new tasks")
 check(calls == {"event": 1, "task": 1}, f"google NOT called again: {calls}")
 check("ya tenían tarea" in r2 and "creadas" not in r2.replace("ninguna tarea nueva", ""),
@@ -190,7 +208,7 @@ check("Alcance: analizados 1 de 3 sin leer" in r2 and "2 ya tenían tarea" in r2
 print("== 4) partial: one new email among known ones ==")
 emails.append({"id": "e4", "from": "d@x.com", "subject": "Nuevo", "body": "x"})
 analysis.append({"i": 3, "accionable": True, "tarea": "Revisar D", "tipo": "revisar", "importancia": "baja"})
-r3 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+r3 = run_job()
 check(len(board._load()) == 3, "only the new email creates a task")
 check(calls["event"] + calls["task"] == 3, f"google called once more: {calls}")
 check("1 tarea(s) creadas" in r3 and "ya tenían tarea" in r3, f"partial reply: {r3}")
@@ -210,13 +228,13 @@ def boom(ids=None):
 
 
 gw._mark_read = boom
-r4 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+r4 = run_job()
 check("1 tarea(s) creadas" in r4 and "Hacer E" in r4 and len(board._load()) == 4, f"T8: task reported: {r4}")
 check("⚠️ No he podido marcar como leídos 4 correos: PermissionError" in r4 and "He marcado" not in r4,
       f"T8: honest warning with the exception type: {r4}")
 gw._mark_read = lambda ids=None: (_ for _ in ()).throw(AssertionError("must not be called"))
 emails[:] = [m for m in emails if m["id"] == "e3"]            # only a non-actionable mail is unread
-r5 = asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+r5 = run_job()
 check("marcado" not in r5.lower() and "No he podido marcar" not in r5, f"T8: nothing converted -> no marking: {r5}")
 
 print("== 5) T5d: grouped tasks (sourceIds, add_to_group) ==")
@@ -361,6 +379,44 @@ t7, _ = board.add_to_group("correo", G, [E("q1", "Q", "uno")], T, task_type="rev
 # KPIs: the group is ONE open revisar/baja task
 k = board.kpis()
 check(k["open"] == 1 and k["by_type"]["revisar"] == 1 and k["by_urgency"]["baja"] == 1, f"kpis: {k}")
+
+print("== 7) SEC-07: la propuesta no escribe y el «sí» crea exactamente lo enseñado ==")
+# Hallazgo SEC-07: el cuerpo del correo y la orden del operador entran en el mismo
+# prompt de clasificación, así que un remitente externo podía dirigir lo que se creaba
+# en su Google. La puerta: primero la lista, luego el «sí».
+emails[:] = [{"id": "e1", "from": "a@x.com", "subject": "Factura", "body": "paga"},
+             {"id": "e2", "from": "b@x.com", "subject": "Reunion", "body": "ven"},
+             {"id": "e3", "from": "c@x.com", "subject": "Spam", "body": "nada"}]
+analysis[:] = [
+    {"i": 0, "accionable": True, "tarea": "Pagar factura", "fecha": "2026-08-01",
+     "tipo": "pagar", "urgencia": "critica", "urgente": True, "importancia": "alta"},
+    {"i": 1, "accionable": True, "tarea": "Responder a B", "fecha": "", "importancia": "media"},
+    {"i": 2, "accionable": False},
+]
+gw._mark_read = fake_mark_read                 # la sección 6 lo dejó apuntando a un fallo
+marked_batches.clear()
+calls.update(event=0, task=0)
+fresh()
+prop = propose()
+check(board._load() == [] and calls == {"event": 0, "task": 0},
+      f"7: la propuesta ha creado algo: {calls} {board._load()}")
+check(marked_batches == [], "7: la propuesta ha marcado correos como leídos")
+check("NO he creado nada todavía" in prop and "¿Los creo? Responde «sí» o «no»." in prop,
+      f"7: la propuesta no termina preguntando: {prop[:200]!r}")
+for pieza in ("«Pagar factura»", "01/08/2026", "de a@x.com — «Factura»", "Sin fecha",
+              "de b@x.com — «Reunion»"):
+    check(pieza in prop, f"7: la propuesta no enseña «{pieza}»: {prop}")
+pend = _confirm.pending("api")
+check(pend is not None and pend["kind"] == "creacion_desde_correo"
+      and pend["destructive"] is False and len(pend["targets"]) == 2,
+      f"7: confirmación armada: {pend and (pend['kind'], pend['destructive'])}")
+r7 = asyncio.run(_confirm.answer("sí", "api")) or ""
+check(len(board._load()) == 2 and calls == {"event": 1, "task": 1},
+      f"7: el «sí» no ha creado lo propuesto: {calls} {len(board._load())}")
+check("2 tarea(s) creadas" in r7 and "Pagar factura" in r7, f"7: respuesta tras el sí: {r7}")
+check(len(marked_batches) == 1 and sorted(marked_batches[-1]) == ["e1", "e2"],
+      f"7: se marcan leídos los creados, y solo esos: {marked_batches}")
+check(_confirm.pending("api") is None, "7: la confirmación sigue armada después del sí")
 
 print()
 print(f"test_inbox_tasks: {_ok} OK, {len(_fail)} fallos")

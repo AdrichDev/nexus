@@ -736,6 +736,76 @@ def test_el_correo_solo_sale_desde_dentro_de_la_confirmacion():
           "_send_gmail se llama antes del action del confirm.request")
 
 
+# ====== 6b. TRIAJE DE CORREO: PROPONE Y ESPERA UN «SÍ» (SEC-07 / P2-3) ======
+# Hallazgo SEC-07: el cuerpo del correo entra en el MISMO prompt de clasificación que
+# la orden del operador, y la creación (Google Tasks/Calendar + tablero) se hacía sin
+# enseñar nada. Contrato: la orden produce una propuesta, el «sí» la crea, y la
+# creación NO se puede llamar desde ningún otro sitio.
+def _trozo(src, ini, fin):
+    """El texto entre `ini` y `fin`; "" si el punto de partida ya no existe (una
+    prueba estructural tiene que DECIR que falta, no reventar con un IndexError)."""
+    if ini not in src:
+        return ""
+    resto = src.split(ini, 1)[1]
+    return resto.split(fin, 1)[0] if fin in resto else resto
+
+
+def test_el_triaje_de_correo_propone_y_solo_crea_dentro_de_la_confirmacion():
+    """La salvaguarda en el código: `_email_actions_job` (lo que se ejecuta al pedirlo)
+    no puede crear nada, y `_crear_items_correo` no puede llamarse fuera del `action`
+    de `confirm.request`. Si alguien vuelve a meter la creación en el job «para que sea
+    más rápido», esto se pone rojo."""
+    rama = _trozo(HANDLE_SRC, 'if intent == "email_actions":', 'if intent == "create_event"')
+    check(bool(rama), "no encuentro la rama de email_actions en handle()")
+    check("_create_everywhere" not in rama and "add_to_group" not in rama,
+          "la rama de email_actions crea tareas/eventos directamente")
+    check("_email_actions_job(" in rama, "la rama de email_actions ya no encola el triaje")
+    check("_SIN_PREGUNTAR_RX" not in rama,
+          "el atajo de «no me preguntes» se ha colado en el triaje de correo")
+    job = _trozo(HANDLE_SRC, "async def _email_actions_job(", "\ndef _parse_json_array")
+    check(bool(job), "no encuentro _email_actions_job en la skill")
+    check("_create_everywhere" not in job and "add_to_group" not in job,
+          "_email_actions_job escribe: la creación tiene que vivir en el action del confirm")
+    check("confirm.request(" not in job and "_propuesta_correo(" in job,
+          "el job no arma la propuesta por confirm.request")
+    prop = _trozo(HANDLE_SRC, "def _propuesta_correo(", "\nasync def _crear_items_correo(")
+    check(bool(prop), "no existe _propuesta_correo: el triaje no propone nada")
+    check("confirm.request(" in prop and "_KIND_CREACION_CORREO" in prop
+          and "destructive=False" in prop,
+          "la propuesta no se arma con confirm.request(kind=creacion_desde_correo, destructive=False)")
+    check("async def _crear(" in prop, "la propuesta no aplaza la creación en un action")
+    antes_del_action = prop.split("async def _crear(")[0] if "async def _crear(" in prop else prop
+    check("_crear_items_correo(" not in antes_del_action,
+          "se llama a la creación ANTES del action: un «no» crearía igual")
+    cuerpo = _trozo(HANDLE_SRC, "async def _crear_items_correo(",
+                    "\nasync def _email_actions_job(")
+    check(bool(cuerpo), "no existe _crear_items_correo: la creación no tiene un único dueño")
+    check("_create_everywhere," in cuerpo and "add_to_group," in cuerpo,
+          "el action de la propuesta ya no es el único que escribe")
+    # Y la prueba por conteo: un solo sitio llama a cada escritor.
+    for escritor in ("_create_everywhere", "add_to_group"):
+        usos = [ln for ln in HANDLE_SRC.splitlines()
+                if escritor in ln and not ln.lstrip().startswith("def ")]
+        check(len(usos) == 1, f"{escritor} se llama desde {len(usos)} sitios, no desde uno: {usos}")
+
+
+def test_el_triaje_de_correo_no_lo_dispara_una_frase_de_solo_leer():
+    """«revisa mi correo y crea tareas» NO entra por el triaje: enruta a `emails`, que
+    solo lista y no crea nada. Es el comportamiento de hoy y se fija aquí para que
+    nadie ensanche la regex del triaje sin darse cuenta de lo que arrastra (el correo
+    que se lee se convierte en tareas de Google). El triaje se pide con las frases de
+    FRASES["email_actions"]."""
+    for frase in ("revisa mi correo y crea tareas", "revisa mi correo"):
+        folder, intent = _ruta(frase)
+        check((folder, intent) == ("google_workspace", "emails"),
+              f"«{frase}» → {folder}/{intent}; solo leer no debe llegar al triaje")
+    for frase in ("analiza los correos", "haz triaje de los correos",
+                  "crea tareas de lo urgente", "gestióname la bandeja"):
+        folder, intent = _ruta(frase)
+        check((folder, intent) == ("google_workspace", "email_actions"),
+              f"«{frase}» → {folder}/{intent}; el triaje se ha quedado inalcanzable")
+
+
 # =============================== runner =====================================
 if __name__ == "__main__":
     for name, t in sorted(globals().items()):

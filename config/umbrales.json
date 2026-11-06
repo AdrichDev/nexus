@@ -260,6 +260,19 @@
       "'ultimo aviso' en el asunto). Es a proposito: que te salte una promo de mas",
       "cuesta dos segundos; que se cuele una intrusion sin avisar cuesta mucho mas.",
       "Anade o quita cadenas aqui, no en el codigo."
+    ],
+    "max_meses_plazo": 6,
+    "_max_meses_plazo": [
+      "SEC-07 (30/07/2026): el triaje de correo ya no crea tareas ni eventos sin",
+      "que lo apruebes, y antes de preguntarte AVISA si el plazo que propuso el",
+      "modelo no cuadra. Esto es el horizonte: un plazo a mas de estos meses de",
+      "hoy sale marcado en la propuesta ('esta a mas de N meses vista'). Un plazo",
+      "en el pasado tambien se avisa, y las dos cosas se pueden aprobar igual:",
+      "son avisos, no bloqueos. El que decide eres tu.",
+      "",
+      "Subirlo deja pasar plazos mas lejanos sin avisar; bajarlo avisa antes de",
+      "cualquier cosa que no sea de este trimestre. No hay numero medido: 6 es el",
+      "que cubre un curso escolar o una renovacion anual a medio camino."
     ]
   },
   "content_os": {

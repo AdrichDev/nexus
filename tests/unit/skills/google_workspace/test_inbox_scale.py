@@ -88,6 +88,7 @@ sys.modules["googleapiclient.discovery"] = _disc
 
 from backend.core.infraestructura import llm  # noqa: E402
 from backend.core.comun.events import bus  # noqa: E402
+from backend.core.comun import confirm as _confirm  # noqa: E402
 
 
 async def _noop_emit(*a, **k):
@@ -119,6 +120,11 @@ def sender_name(frm):
 
 
 _ENTRY = re.compile(r"^\[(\d+)\] De: (.*)\nAsunto: (.*)\nContenido: ", re.M)
+# SEC-07: el cuerpo viaja DELIMITADO como dato no confiable. Este patrón es su pin:
+# si el marcador desaparece del prompt, el contenido vuelve a entrar crudo y las
+# comprobaciones de tamaño/recorte de abajo dejan de cuadrar.
+_DATOS = re.compile(r'<datos_no_confiables origen="correo" indice="\d+">\n(.*)\n'
+                    r'</datos_no_confiables>', re.S)
 
 
 def parse_digest(digest):
@@ -127,7 +133,10 @@ def parse_digest(digest):
     out = []
     for k, m in enumerate(ms):
         end = ms[k + 1].start() - 2 if k + 1 < len(ms) else len(digest)   # strip "\n\n"
-        out.append((int(m.group(1)), m.group(2), m.group(3), digest[m.end():end]))
+        content = digest[m.end():end]
+        mt = _DATOS.search(content)
+        out.append((int(m.group(1)), m.group(2), m.group(3),
+                    mt.group(1) if mt else content))
     return out
 
 
@@ -202,12 +211,24 @@ def fresh():
     for f in (board.BOARD_FILE, board.TRASH_FILE):
         if f.exists():
             f.unlink()
+    _confirm.clear()                       # nada armado de un escenario anterior
 
 
-def run_job(google, stub):
+def propose_job(google, stub):
+    """El triaje SIN aprobar: lo que ve el operador antes de decir «sí» (SEC-07)."""
     CURRENT["google"] = google
     llm.ask_llm = stub
     return asyncio.run(gw._email_actions_job(None, "api"))["reply"]
+
+
+def answer(texto="sí"):
+    return asyncio.run(_confirm.answer(texto, "api"))
+
+
+def run_job(google, stub):
+    """Triaje completo: propuesta + el «sí» del operador (el camino de siempre)."""
+    rep = propose_job(google, stub)
+    return answer("sí") if _confirm.pending("api") else rep
 
 
 def human_reads(google, ids):
@@ -321,6 +342,40 @@ VISIBLE = CORPUS[:CAP]
 REST = CORPUS[CAP:]
 NONACT_IDS = [r["id"] for r in CORPUS if not r["accionable"]]
 T0 = time.perf_counter()
+
+# ═════════════════ 0) SEC-07 / P2-3: la propuesta no escribe y el «sí» crea lo enseñado ═══════════
+print("== 0) SEC-07: propuesta sin escrituras, «sí» sin segunda pasada al modelo ==")
+set_lote(6, 30)
+g = make_google(CORPUS)
+fresh()
+stub0 = StubLLM(CORPUS)
+propuesta = propose_job(g, stub0)
+check(board._load() == [], f"0: la propuesta ha escrito en el tablero: {len(board._load())} tareas")
+check(g.events == [] and g.tasks == [], "0: la propuesta ha creado en Google")
+check(g.marked() == [] and "gmail.messages.batchModify" not in g.log,
+      f"0: la propuesta ha escrito en Gmail: {g.marked()}")
+check(not [n for n in g.log if n.startswith("FORBIDDEN")], "0: acceso prohibido en la propuesta")
+m_cab = re.match(r"Propuesta de correo: (\d+) cosa\(s\)\. NO he creado nada todavía\.", propuesta)
+check(bool(m_cab), f"0: cabecera de la propuesta: {propuesta.splitlines()[0]!r}")
+n_items = int(m_cab.group(1)) if m_cab else -1
+check("¿Los creo? Responde «sí» o «no»." in propuesta, f"0: no termina preguntando: {propuesta[-120:]!r}")
+for r in VISIBLE:
+    if r["accionable"] and not r.get("promocional"):
+        check(f"de {sender_name(r['frm'])} — «{r['subject']}»" in propuesta,
+              f"0: la propuesta no dice de qué correo sale «{r['subject']}»")
+pend = _confirm.pending("api")
+check(pend is not None and pend["kind"] == "creacion_desde_correo" and pend["destructive"] is False,
+      f"0: confirmación armada: {pend and pend['kind']}/{pend and pend['destructive']}")
+check(pend is not None and len(pend["targets"]) == n_items,
+      f"0: targets ({pend and len(pend['targets'])}) != lo propuesto ({n_items})")
+calls_al_proponer = stub0.calls
+r_si = answer("sí") or ""
+check(stub0.calls == calls_al_proponer,
+      f"0: el «sí» ha vuelto a llamar al modelo ({stub0.calls - calls_al_proponer} veces más)")
+check(len(board._load()) == n_items,
+      f"0: se crearon {len(board._load())} cosas y se enseñaron {n_items}")
+check("tarea(s) creadas" in r_si, f"0: la respuesta no dice lo creado: {r_si[:120]!r}")
+check(_confirm.pending("api") is None, "0: la confirmación sigue armada después del sí")
 
 # ═════════════════ 1) healthy run, 50 unread, default cap 100, various batch sizes ═════════════════
 print("== 1) healthy run: 50 unread, default cap 100, batch sizes ==")
@@ -704,6 +759,8 @@ for d in digests:
     for _j, frm, subject, content in parse_digest(d):
         contents[(subject, frm)] = content
 check(len(contents) == 50, f"digest covered all 50 mails: {len(contents)}")
+check(all('<datos_no_confiables origen="correo"' in d and d.count("</datos_no_confiables>") >= 1
+          for d in digests), "cada correo va entre <datos_no_confiables>: son datos, no órdenes")
 check(max(len(c) for c in contents.values()) <= 700, f"max digest content {max(len(c) for c in contents.values())}")
 long_c = contents[("Revisión del contrato marco (documento largo)", "Asesoría")]
 check(len(long_c) == 700 and long_c.startswith("Hola, adjunto el contrato marco"), f"long body cut to 700: {len(long_c)}")
