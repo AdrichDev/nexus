@@ -22,6 +22,7 @@ import uuid
 
 from ..dominio import opmem, rag
 from ..infraestructura import llm, websearch
+from ..comun import canales
 from ..comun.config import DATA_DIR, settings
 from ..comun.config import assistant_name as _aname
 from .jobs import jobs as job_mgr, set_result_listener
@@ -726,6 +727,19 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     if not text:
         return {"reply": "", "skill": None}
 
+    # CANALES NO CONFIABLES (auditoría, SEC-01/SEC-06 — roadmap P1-1). El texto
+    # que entra por n8n lo escribe un flujo, no el operador, y el enrutador de
+    # nexus ejecuta regexes de verdad. La política vive en `comun/canales.py`:
+    # se resuelve la ruta con el enrutador de regexes y, si no está en la lista
+    # blanca del canal, se rechaza AQUÍ — antes de la memoria, de las cadenas,
+    # del planificador, de Hermes y de cualquier skill. Sin efectos.
+    _restringido = canales.es_restringido(source)
+    _ruta_previa = route(text) if _restringido else None
+    if _restringido and not canales.permitido(source, _ruta_previa):
+        await bus.emit("log", {"level": "warn",
+                               "msg": f"🚫 Canal {source}: orden rechazada: «{text[:70]}»"})
+        return canales.rechazo(source)
+
     req_id = request_id or uuid.uuid4().hex[:8]
     # v23 (T7): lo que escribe o dicta el operador queda apuntado para que el TTS
     # NUNCA se lo lea en voz alta (solo se reproducen respuestas de nexus).
@@ -968,7 +982,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
     # MULTITAREA: «haz X en segundo plano» → lo lanza como trabajo concurrente y
     # nexus queda libre para seguir atendiéndote (lo ves en el panel Multitarea).
-    if source != "job" and _BACKGROUND_RX.search(text):
+    if source != "job" and not _restringido and _BACKGROUND_RX.search(text):
         order = _BACKGROUND_RX.sub(" ", text).strip(" ,.:").strip()
         if order:
             # ANTI-DUPLICADOS (v23 T9): si ya hay un trabajo VIVO con esta misma
@@ -1069,7 +1083,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # pasos EN ORDEN (cada paso emite su respuesta; al final, resumen). A
     # diferencia de la multi-orden de abajo (independiente e inline), esto es
     # para encadenados largos: investiga → crea tareas → avisa.
-    if source not in ("job", "sub"):
+    if source not in ("job", "sub") and not _restringido:
         steps = _split_chain(text)
         if len(steps) >= 2 and any(route(s) is not None for s in steps):
             from .jobs import jobs as _jm
@@ -1116,7 +1130,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # trocear hay ≥2 partes que casan de verdad con un minion (guarda anti-falsos:
     # «pon rock y jazz» no se parte). Los sub-procesos van con source="sub", que
     # silencia sus emisiones de chat/estado para que sea UNA sola respuesta.
-    if source not in ("job", "sub"):
+    if source not in ("job", "sub") and not _restringido:
         parts = _split_orders(text)
         if len(parts) >= 2 and sum(route(p) is not None for p in parts) >= 2:
             parts = _carry_music_service(parts)   # «abre spotify y pon música» → …«en spotify»
@@ -1175,7 +1189,12 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                 await bus.emit("log", {"level": "info",
                                        "msg": f"🧠 Corrección guardada en memoria: «{text[:60]}»"})
 
-    routed = None if _no_accion else route(text)
+    # Un canal restringido se queda EXACTAMENTE con la ruta que autorizó la
+    # política: nada de volver a enrutar ni de dejar que otro decida después.
+    if _restringido:
+        routed = _ruta_previa
+    else:
+        routed = None if _no_accion else route(text)
     cmd_text = text          # texto que recibe el minion (canónico si lo interpreta el LLM)
     # LO APRENDIDO SE APLICA PRIMERO: si esta frase ya la aprendimos (porque
     # funcionó antes o porque el operador la enseñó), va DIRECTA a su orden,

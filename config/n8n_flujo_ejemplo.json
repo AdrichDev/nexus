@@ -5,6 +5,7 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "nexus",
+        "authentication": "headerAuth",
         "responseMode": "onReceived",
         "options": {}
       },
@@ -12,7 +13,22 @@
       "name": "Webhook nexus",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300]
+      "position": [240, 300],
+      "credentials": {
+        "httpHeaderAuth": { "id": "nexus-n8n", "name": "nexus /api/n8n" }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## ANTES DE ACTIVARLO (auditoria SEC-01)\n\nEste webhook ya NO es abierto: exige una cabecera.\n\n1. En nexus, con la ventana abierta en ESTE PC, abre\n   `http://127.0.0.1:8177/api/n8n/secret`. Devuelve el secreto y el nombre de la cabecera. Solo contesta a este equipo: desde el movil o el tunel no se entrega.\n\n2. En n8n, crea UNA credencial de tipo **Header Auth** llamada `nexus /api/n8n`:\n   - Header Name: `x-nexus-n8n-secret`\n   - Value: el secreto del paso 1\n\n3. Selecciona esa credencial en el nodo del webhook Y en el nodo «Avisar a nexus». Es la misma cabecera en los dos sentidos.\n\nSin ella, n8n no llama a nexus y nexus no contesta: 401 y ya esta.\n\n(Si n8n corre en Docker, la URL de «Avisar a nexus» tiene que ser `http://host.docker.internal:8177`. Con `127.0.0.1` apunta al contenedor, no a tu PC.)",
+        "height": 420,
+        "width": 380
+      },
+      "id": "nexus-note-auth",
+      "name": "Secreto obligatorio",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [200, -220]
     },
     {
       "parameters": {
@@ -47,12 +63,27 @@
     },
     {
       "parameters": {
+        "content": "## LO QUE ENTRA POR AQUI NO SE EJECUTA\n\nEste nodo solo AVISA a nexus de lo que ha llegado, y nexus lo deja en su registro (lo ves en el HUD como «Canal n8n: orden rechazada»).\n\nYa NO se le pide «apunta que…»: la rama de memoria explicita esta cerrada para n8n, y con razon. El texto de un WhatsApp lo escribe cualquiera; si nexus lo ejecutara, un mensaje con «envia un correo a…» mandaria correos de verdad.\n\nPor eso, desde la auditoria SEC-01:\n\n- n8n manda el texto TAL CUAL, sin pedirle nada a nexus.\n- nexus solo acepta desde n8n cuatro ordenes de SOLO LECTURA (estado de instagram, analiza mis reels, dame ideas de contenido).\n- correo, whatsapp, memoria, Drive, apagar cosas, cadenas y Hermes: rechazados con «Esa orden no esta permitida desde n8n.»\n\nSi quieres que un mensaje entrante haga algo, hazlo en n8n o desde el HUD. Nunca pidiendoselo a nexus por esta via.",
+        "height": 460,
+        "width": 400
+      },
+      "id": "nexus-note-solo-aviso",
+      "name": "Solo aviso, nunca orden",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [660, 520]
+    },
+    {
+      "parameters": {
         "method": "POST",
-        "url": "http://127.0.0.1:8177/api/n8n",
+        "url": "http://host.docker.internal:8177/api/n8n",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            { "name": "text", "value": "=apunta que el flujo n8n procesó: {{ $json.body.message || $json.body.flow }}" }
+            { "name": "text", "value": "=aviso de whatsapp recibido: {{ $json.body.message || $json.body.flow }}" },
+            { "name": "speak", "value": "false" }
           ]
         },
         "options": {}
@@ -61,7 +92,10 @@
       "name": "Avisar a nexus",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
-      "position": [680, 420]
+      "position": [680, 420],
+      "credentials": {
+        "httpHeaderAuth": { "id": "nexus-n8n", "name": "nexus /api/n8n" }
+      }
     }
   ],
   "connections": {

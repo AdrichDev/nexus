@@ -110,7 +110,44 @@ WhatsApp no tiene API abierta gratuita, así que se envía a través de un flujo
 de n8n (con Evolution API, Twilio o WhatsApp Cloud según lo que uses):
 importa `config/n8n_flujo_ejemplo.json` en n8n, activa el flujo, pon la URL
 del webhook en ⚙, y ya funciona `envía un whatsapp a Rubén diciendo hola`.
-Tus flujos también pueden dar órdenes a nexus llamando a `POST /api/n8n`.
+
+### El secreto de `/api/n8n` (obligatorio)
+
+Desde la auditoría de seguridad el webhook **no se fía de que la llamada venga
+de casa**: n8n corre en Docker y cualquier proceso del equipo puede hablar con
+127.0.0.1:8177. Todas las llamadas a `POST /api/n8n` llevan la cabecera
+`x-nexus-n8n-secret`, también las locales.
+
+1. Abre en ESTE PC `http://127.0.0.1:8177/api/n8n/secret`. Devuelve el secreto
+   (y el nombre de la cabecera). Ese endpoint sólo contesta a este equipo: desde
+   el móvil o el túnel responde 403, aunque lleves el token del QR.
+2. En n8n crea **una** credencial de tipo *Header Auth* llamada
+   `nexus /api/n8n` con Header Name `x-nexus-n8n-secret` y ese valor, y
+   selecciónala en los nodos que llaman a nexus (y en el webhook, que también
+   exige cabecera).
+3. Sin la cabecera correcta la respuesta es `401` y no se ejecuta nada.
+
+El secreto se genera solo la primera vez (`secrets.token_urlsafe(32)`), se
+guarda con la API de secretos en `config/secrets.json` —**nunca** en
+`settings.json` ni en `GET /api/config`— y se puede fijar a mano con la variable
+de entorno `NEXUS_N8N_SECRET` antes de arrancar nexus.
+
+### Lo que n8n puede ordenar (y lo que no)
+
+El texto que entra por `/api/n8n` lo escribe un flujo, no tú. Por eso `n8n` es
+un canal de **denegación por defecto** (`backend/core/comun/canales.py`): sólo
+ejecuta la lista blanca de órdenes de sólo lectura —«estado de instagram»,
+«analiza mis reels» y «dame ideas de contenido»— y todo lo demás se contesta
+con «Esa orden no está permitida desde n8n.» y sin efectos: ni correo, ni
+WhatsApp, ni memoria, ni Drive, ni cadenas, ni planificador del modelo, ni
+Hermes. El chat del HUD, la voz y Telegram no cambian.
+
+Eso incluye lo que llega de WhatsApp hacia dentro: el flujo de ejemplo sólo
+**avisa** de que ha llegado un mensaje (queda en el registro de nexus y en el
+de n8n); no lo ejecuta. Y el informe diario ya no se sube a Drive ni se manda
+por correo: ésas eran órdenes de escritura y ahora se rechazan. El informe se
+queda en la salida de los nodos, en el panel de ejecuciones de n8n. Si lo
+quieres por correo, se manda desde n8n con credenciales propias de n8n.
 
 ## Micro abierto (conversación fluida)
 

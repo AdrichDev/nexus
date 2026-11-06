@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -137,6 +137,34 @@ def _es_este_equipo(request) -> bool:
         return False                      # viene de fuera por un túnel/proxy
     host = getattr(getattr(request, "client", None), "host", "") or ""
     return host in ("127.0.0.1", "::1", "localhost")
+
+
+# ---------- SECRETO COMPARTIDO DE n8n (auditoría 30/07/2026, SEC-01 / P1-1) ----------
+# `/api/n8n` NO se fía del loopback. n8n corre en Docker, y en este equipo
+# cualquier proceso puede hablar con 127.0.0.1:8177: la exención «viene de casa»
+# valía para el HUD y aquí dejaba que un flujo sin autenticación mandara correos.
+# Ahora la cabecera `x-nexus-n8n-secret` se exige SIEMPRE, también desde casa.
+_N8N_CABECERA = "x-nexus-n8n-secret"
+_ERROR_N8N_SIN_SECRETO = ("no autorizado — el flujo de n8n necesita la cabecera "
+                          f"{_N8N_CABECERA}")
+
+
+def secreto_n8n() -> str:
+    """Secreto compartido de `/api/n8n`. Se genera la primera vez que hace falta.
+
+    Se guarda con la API de secretos que ya existe (`settings.set_secret`), así
+    que acaba en `config/secrets.json` (que no se sube al repositorio) y NUNCA
+    en `settings.json` ni en `GET /api/config`. El orden de precedencia es el de
+    siempre en este proyecto: primero lo guardado, y si no hay nada, la variable
+    de entorno (`NEXUS_N8N_SECRET`, o `N8N_SECRET` como el resto de secretos)."""
+    actual = (settings.secret("n8n_secret")
+              or os.getenv("NEXUS_N8N_SECRET", "").strip())
+    if actual:
+        return actual
+    import secrets as _pysecrets
+    nuevo = _pysecrets.token_urlsafe(32)
+    settings.set_secret("n8n_secret", nuevo)
+    return nuevo
 
 
 @app.middleware("http")
@@ -1086,12 +1114,37 @@ async def api_home_rename(payload: dict):
 
 
 @app.post("/api/n8n")
-async def api_n8n(payload: dict):
-    """Entrada desde flujos n8n: {"text": "...", "speak": false} → respuesta de nexus."""
+async def api_n8n(request: Request, payload: dict):
+    """Entrada desde flujos n8n: {"text": "...", "speak": false} → respuesta de nexus.
+
+    Autenticación (SEC-01): `n8n` no es el operador, así que no vale «viene de
+    casa». Se exige la cabecera `x-nexus-n8n-secret` SIEMPRE, también desde
+    127.0.0.1, y se compara en tiempo constante (`hmac.compare_digest`): un `!=`
+    deja adivinar el secreto carácter a carácter midiendo lo que tarda. Sin
+    secreto o con el secreto mal no se llama al cerebro, así que no hay ningún
+    efecto que un flujo sin autenticar pueda provocar."""
+    import hmac
+    recibido = request.headers.get(_N8N_CABECERA, "")
+    if not recibido or not hmac.compare_digest(str(recibido), str(secreto_n8n())):
+        return JSONResponse({"error": _ERROR_N8N_SIN_SECRETO}, status_code=401)
     result = await brain.process(payload.get("text", ""), source="n8n")
     if payload.get("speak"):
         asyncio.create_task(tts.speak(result["reply"]))
     return result
+
+
+@app.get("/api/n8n/secret")
+async def api_n8n_secret(request: Request):
+    """Devuelve el secreto de `/api/n8n`, SOLO a este equipo.
+
+    Sirve para configurar el flujo (o la credencial de cabecera de n8n) sin ir
+    a abrir `config/secrets.json` a mano. Una petición remota —aunque venga con
+    el token del QR ya validado por el middleware— NO lo recibe: el móvil y el
+    túnel no tienen por qué conocer el secreto que da órdenes a los flujos."""
+    if not _es_este_equipo(request):
+        return JSONResponse({"error": "el secreto de n8n solo se entrega a este equipo"},
+                            status_code=403)
+    return {"secret": secreto_n8n(), "header": _N8N_CABECERA}
 
 
 @app.get("/api/contentos")

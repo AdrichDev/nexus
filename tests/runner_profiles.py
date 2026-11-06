@@ -82,6 +82,9 @@ SAFE_UNIT_SUITES = (
     "unit/memory/test_redaccion_memoria.py",
     "unit/frontend/test_modules.py",
     "unit/core/runtime/test_log_aislado.py",
+    # POST /api/n8n en proceso (httpx.ASGITransport, sin lifespan ni puertos):
+    # dobles en vez de proveedor/correo y carpetas de usar y tirar.
+    "integration/http/test_n8n_canal.py",
 )
 
 STATIC_SAFE_SUITES = (

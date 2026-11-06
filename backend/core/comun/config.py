@@ -220,6 +220,10 @@ class Settings:
                    "spotify_client_id", "spotify_client_secret", "link_token",
                    "homeassistant_token", "samsung_tv_token", "hermes_api_key",
                    "openrouter_api_key",
+                   # Secreto compartido de POST /api/n8n (auditoría, SEC-01). Va
+                   # aquí para que set_secret lo guarde en secrets.json y para
+                   # que as_dict() lo quite SIEMPRE de GET /api/config.
+                   "n8n_secret",
                    # Auditoría 30/07/2026: la cadena de conexión LLEVA LA CONTRASEÑA
                    # de Postgres y salía en claro por GET /api/config, porque
                    # as_dict() solo añadía indicadores «has_*» y nunca quitaba nada.
