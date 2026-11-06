@@ -526,6 +526,38 @@ def _registrar_resultado_trabajo(request: str, texto: str, channel: str) -> None
 set_result_listener(_registrar_resultado_trabajo)
 
 
+_CONTEXTO_CHARS = 160       # presupuesto por línea de CONTENIDO (el de siempre)
+_CONTEXTO_LINEA = 190       # y el techo de la LÍNEA entera (`test_v21_fixes` exige < 200)
+
+
+def _linea_contexto(etiqueta: str, contenido, origen: str = "") -> str:
+    """Una vuelta del contexto reciente, en UNA línea y MARCADA si es de fuera.
+
+    AI-03 / T11c. Lo que devolvió un trabajo en segundo plano o una herramienta no
+    lo ha escrito nexus ni el operador, y hasta ahora entraba CRUDO en el prompt
+    del planificador (`llm.plan_action`) y del enrutador (`interpret_command`):
+    «ignora lo anterior» se leía con la misma autoridad que las reglas. Aquí no
+    cabe `datos_inyectados.bloque()` —su apertura, su aviso y su cierre son tres
+    líneas, y esta prueba fija DOS líneas por par de vueltas— así que se usa la
+    marca CORTA del ayudante: un prefijo por línea que cuesta 31 caracteres y dice
+    lo mismo. El contenido de fuera se neutraliza ANTES de recortarlo, para no
+    cortar una marca a la mitad."""
+    texto = (contenido or "").strip().replace("\n", " ")
+    if not texto:
+        return ""
+    marca = ""
+    if origen:
+        try:
+            marca = datos_inyectados.prefijo(origen)
+        except ValueError:              # etiqueta rara: se trata como dato igual
+            marca = datos_inyectados.PREFIJO
+        texto = datos_inyectados.neutralizar(texto)
+    tope = _CONTEXTO_CHARS
+    if marca:                           # la marca no puede romper el techo de la línea
+        tope = max(40, min(tope, _CONTEXTO_LINEA - len(etiqueta) - 2 - len(marca)))
+    return f"{etiqueta}: {marca}{texto[:tope]}"
+
+
 def _recent_context(n_pairs: int = 1) -> str:
     """Últimas 1-2 vueltas (usuario+nexus) en corto, para dárselas al LLM de
     respaldo (plan_action / interpret_command) cuando la frase actual es
@@ -533,7 +565,11 @@ def _recent_context(n_pairs: int = 1) -> str:
     Sin esto, esas frases se interpretaban a ciegas por coincidencia de
     palabras sueltas con el catálogo de skills (p.ej. delegar en Hermes solo
     porque su descripción menciona "arrancado", sin relación con el tema
-    real que se venía hablando)."""
+    real que se venía hablando).
+
+    Cada línea se construye con `_linea_contexto`, que marca lo que no ha escrito
+    nexus ni el operador (T11c): lo que devolvió un trabajo entra en este prompt
+    como DATO, no como orden."""
     if not _history:
         return ""
     turnos = _history[-2 * n_pairs:]
@@ -541,9 +577,9 @@ def _recent_context(n_pairs: int = 1) -> str:
     out = []
     for t in turnos:
         etiqueta = quien if t.get("role") == "user" else _aname()
-        contenido = (t.get("content") or "").strip().replace("\n", " ")[:160]
-        if contenido:
-            out.append(f"{etiqueta}: {contenido}")
+        linea = _linea_contexto(etiqueta, t.get("content"), t.get("datos") or "")
+        if linea:
+            out.append(linea)
     return "\n".join(out)
 
 # --- Aprendizaje continuo: cada orden que funciona se recuerda y sirve de

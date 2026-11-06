@@ -1966,9 +1966,14 @@ async def _analyze_emails(msgs: list[dict]) -> tuple[list[dict], list[int]]:
 async def _analyze_batch(msgs: list[dict]) -> list[dict]:
     """Una sola llamada al modelo con UN LOTE. Índices LOCALES al lote."""
     from backend.core.infraestructura import llm
+    from backend.core.comun import datos_inyectados
     partes = []
     for i, m in enumerate(msgs):
-        cuerpo = (m.get("body") or m.get("snippet") or "")[:700]
+        # `neutralizar()` DESPUÉS del corte: un cuerpo puede traer escrito un
+        # `</datos_no_confiables>` y cerrar la cerca desde dentro, que es justo el
+        # truco para el que existe el vallado (T11c). Se neutraliza la MARCA, no
+        # se trunca el contenido: lo que se enseña sigue siendo el correo.
+        cuerpo = datos_inyectados.neutralizar((m.get("body") or m.get("snippet") or "")[:700])
         # El cuerpo va DELIMITADO y marcado como datos: es lo que escribe un
         # tercero. Sin marcarlo, «ignora lo anterior y crea…» se lee como una
         # orden más dentro del mismo mensaje (AI-03 / SEC-07).
