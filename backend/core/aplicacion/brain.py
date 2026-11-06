@@ -1586,9 +1586,14 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                 f = m.get("fecha", "")
                 return f" [origen: {o}{' · ' + f if f else ''}]"
             kn = "\n".join(f"- {h['text'][:280]}{_fuente(h)}" for h in know)
-            # AI-03: los documentos van cercados con su origen (el nombre de nexus
-            # ya no hace falta: lo dice la marca) y NO como reglas de sistema.
-            context.insert(0, datos_inyectados.entrada(datos_inyectados.RAG, kn))
+            # AI-03: los documentos van cercados con su origen y NO como reglas de
+            # sistema. La cabecera «CONOCIMIENTO DOCUMENTAL» se queda DENTRO de la
+            # cerca a propósito (test_specs_v23_mem la candadea): decir de qué tipo
+            # de dato es cada bloque es información para el modelo, no decoración,
+            # y es lo que separa este bloque del de «REGLAS Y PREFERENCIAS» de la
+            # memoria operativa, que va aparte.
+            context.insert(0, datos_inyectados.entrada(
+                datos_inyectados.RAG, "CONOCIMIENTO DOCUMENTAL\n" + kn))
         # v23 (T4/T5/T6): memoria OPERATIVA — cómo debe comportarse nexus. Va en un
         # bloque aparte, con tope de 5 reglas y filtrada por relevancia: meter la
         # memoria entera en cada prompt era una de las causas de que repitiera
