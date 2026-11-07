@@ -173,8 +173,20 @@ async def no_cache_estaticos(request, call_next):
 #
 # El `Cache-Control: no-store` del middleware de arriba NO se toca: hubo un
 # incidente real con el HUD sirviendo una versión vieja de caché.
+# T18d: la hoja de Share Tech Mono que `index.html` y `setup.html` piden a Google
+# NO puede quedarse fuera. `d29417a` puso `style-src 'self'` y el HUD pasó a
+# pintarse con la monoespaciada del sistema: una interfaz intacta pero DISTINTA,
+# cambiada sin que nadie la eligiera. Se abren los DOS hostees que usa la hoja de
+# estilos (fonts.googleapis.com para el CSS, fonts.gstatic.com para el woff2) y
+# SOLO para `style-src`/`font-src`: siguen sin poder cargar scripts de fuera, que
+# es lo que la cabecera protege. El coste real, escrito: cada carga del HUD
+# contacta con Google (IP + User-Agent + referer del HUD). Lo limpio es servirla
+# en local desde /static, con la licencia OFL del tipo dentro del repo; eso es
+# T18d y necesita el fichero de la fuente, no un cambio de cabecera.
 _CSP_HUD = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: blob:; "
             "connect-src 'self' ws: wss:; frame-ancestors 'none'; "
             "base-uri 'none'; form-action 'self'; object-src 'none'")
 _RUTAS_HTML = ("/", "/m", "/setup")

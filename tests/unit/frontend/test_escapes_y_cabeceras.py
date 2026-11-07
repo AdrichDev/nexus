@@ -138,7 +138,8 @@ PAYLOAD = 'x" onmouseover="alert(1)'
 # La cabecera, carácter a carácter. Copiada del código a propósito: si alguien
 # la cambia, el cambio se ve aquí y se discute, no se cuela.
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
-       "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+       "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; "
        "connect-src 'self' ws: wss:; frame-ancestors 'none'; "
        "base-uri 'none'; form-action 'self'; object-src 'none'")
 
