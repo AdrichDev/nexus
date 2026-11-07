@@ -30,6 +30,14 @@ SKILL = {
 _conn = {"url": None, "kind": None, "handle": None}
 FORBIDDEN = re.compile(r"\b(insert|update|delete|drop|truncate|alter|create|grant)\b", re.I)
 
+# Motores que abren una CONEXIÓN DE RED a un host y un puerto. Son los que
+# convierten un texto en un sondeo de la red (SEC-11).
+_ESQUEMAS_DE_RED = ("postgresql://", "postgres://", "mysql://",
+                    "mongodb://", "mongodb+srv://")
+# Canales que pueden DECLARAR una base de datos de red: el equipo del operador
+# (teclado y voz salen por `pc`). Ver `_motivo_canal`.
+_CANALES_QUE_DECLARAN = ("pc", "voice")
+
 # SOLO LECTURA, en dos capas. (1) El motor: la conexión se abre de solo lectura. (2) Este
 # validador, que NO es una lista negra de palabras sueltas sino una lista BLANCA: una sola
 # sentencia, que empiece por una orden de lectura, sin órdenes de escritura ni efectos
@@ -78,6 +86,47 @@ def _validar_sql(sql: str) -> str:
 # ----------------------------------------------------------------------
 #  Conexión multi-motor
 # ----------------------------------------------------------------------
+def _canal(ctx) -> str:
+    """Canal que ha pedido la conexión: «pc» si nadie lo dice (HUD/teclado)."""
+    return str((ctx or {}).get("channel") or "pc").strip().lower()
+
+
+def _motivo_canal(url: str, ctx) -> str:
+    """'' si este canal puede declarar esa base; si no, la negativa en español.
+
+    DECISIÓN (SEC-11 / roadmap P3-1) — y por qué NO hay guarda de IPs aquí:
+
+    Conectar con tu propia base es la FUNCIÓN, no el fallo. La base que el
+    operador declara suele estar en su equipo (`127.0.0.1:5433`, el Postgres que
+    levanta nexus) o en su red local, y un filtro de rangos privados —o un
+    interruptor para desactivarlo— rompería justo eso y no protegería de nada:
+    el atacante no escribe la IP, escribe la ORDEN.
+
+    Así que lo que se filtra es el CANAL: una base de datos de red solo la puede
+    declarar el equipo del operador. El texto que entra por el móvil, por
+    Telegram o por un flujo externo (n8n) no abre sockets hacia donde diga: ni
+    escanea puertos ni hace el handshake de Postgres/MySQL contra servicios
+    internos. `sqlite://` va por otro camino y no necesita esto: su freno es
+    `permissions.path_allowed()` (el fichero, no la red).
+
+    LÍMITE CONOCIDO: esto no distingue una orden tecleada por el operador de una
+    inducida por una inyección de prompt que llegue a su mismo chat (el
+    planificador corre en `pc`). Lo que contiene eso es el motor: la sesión se
+    abre de SOLO LECTURA (`set_session(readonly=True)` / `SET SESSION TRANSACTION
+    READ ONLY` / `PRAGMA query_only`), así que una conexión abierta no puede
+    escribir ni borrar nada.
+    """
+    if not (url or "").strip().lower().startswith(_ESQUEMAS_DE_RED):
+        return ""
+    canal = _canal(ctx)
+    if canal in _CANALES_QUE_DECLARAN:
+        return ""
+    return (f"No conecto a una base de datos de red desde «{canal}»: la dirección la "
+            "declaras tú en tu equipo, y desde un canal remoto eso sería usar nexus de "
+            "puente hacia tu red interna (o hacia la de otro). Pídemelo desde el equipo "
+            "y lo abro sin problema.")
+
+
 def _connect(url: str):
     if url.startswith(("postgresql://", "postgres://")):
         import psycopg2
@@ -99,8 +148,17 @@ def _connect(url: str):
         return "mysql", conn
     if url.startswith("sqlite://"):
         import sqlite3
+
+        from backend.core.comun import permissions
         path = url.replace("sqlite://", "", 1)
         fichero = Path(path).expanduser()
+        # SEC-11/SEC-04: `sqlite://<ruta>` abría CUALQUIER fichero del equipo que
+        # existiera (el amplificador de la auditoría: con una ruta inducida se
+        # leía una base que no es del operador). Pasa por la MISMA puerta que el
+        # resto de las skills, que además niega credenciales también en modo
+        # «todo»: aquí no hay lista propia que pueda saltársela.
+        if not permissions.path_allowed(fichero):
+            raise RuntimeError(permissions.deny_msg(fichero))
         if not fichero.is_file():
             # `sqlite3.connect` CREA el fichero si falta: una errata en la ruta dejaba una BD
             # vacía y un «Conectado». Aquí nunca se crea nada.
@@ -278,6 +336,9 @@ def _profile_table(table: str) -> tuple[list[tuple[str, str]], list[tuple], str]
 async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "connect":
         url = match.group("url").strip()
+        negativa = _motivo_canal(url, ctx)
+        if negativa:
+            return {"reply": negativa}
         try:
             kind, handle = _connect(url)
         except Exception as exc:

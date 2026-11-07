@@ -11,6 +11,14 @@ dashboards oscuros tipo Power BI (HTML + Chart.js, se abren en el navegador).
   `sqlite://C:/ruta/archivo.db`, `mongodb://` (pip install pymongo)
 - «desconecta la base de datos» · «qué base de datos está conectada»
 
+Quién puede declararla (SEC-11 de la auditoría): las bases de datos de RED
+(`postgresql://`, `mysql://`, `mongodb://`) solo se aceptan **desde este equipo**
+(teclado y voz del HUD). Si la orden llega del móvil, de Telegram o de un flujo
+externo, nexus no abre el socket ni hace el saludo al servidor: contesta que la
+dirección de la base la declaras tú aquí, porque desde un canal remoto eso sería
+usar nexus de puente hacia la red interna. Con `sqlite://` el freno es otro: el
+fichero tiene que estar en las carpetas autorizadas de ⚙ → Permisos.
+
 La conexión vive en memoria del proceso: al reiniciar nexus hay que rehacerla.
 
 ## Analizar
@@ -40,6 +48,11 @@ La conexión vive en memoria del proceso: al reiniciar nexus hay que rehacerla.
   (REPLACE, ATTACH, PRAGMA, COPY, SELECT INTO…); los textos entre comillas no cuentan. No hay ningún
   modo de escritura que activar.
 - **No crea bases de datos.** Con SQLite, si la ruta no existe da error en vez de crear un fichero vacío.
+- **No abre una base de datos de red que no hayas declarado tú en este equipo**:
+  desde el móvil, Telegram o un flujo externo no se conecta a ninguna (ni escanea
+  puertos ni hace el saludo al servidor).
+- **No abre un fichero SQLite fuera de ⚙ → Permisos**, y nunca uno de credenciales
+  (claves, tokens): eso queda fuera incluso con el permiso de archivos en «todo».
 - No consulta la memoria interna de nexus (pgvector): esa va por su lado.
 - Los dashboards cargan Chart.js desde un CDN, así que necesitan internet para
   dibujarse; el HTML se genera igual sin conexión.

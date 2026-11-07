@@ -30,8 +30,15 @@ def check(c, m):
 
 def main():
     from backend.core.comun import config as cfg
+    from backend.core.comun import net
     from backend.core.aplicacion import skills_loader as sl
     sl.load_skills()
+
+    # SIN RED NI DNS: la guarda de destino (SEC-11) resuelve el nombre de cada
+    # vigilante, así que aquí el resolutor es un doble que dice «todo público».
+    # Así esta suite sigue sin salir del proceso (ni una consulta DNS de verdad).
+    original_direcciones = net._direcciones
+    net._direcciones = lambda host: ["93.184.216.34"]
 
     print("· la skill carga con el cargador REAL (no con importlib a pelo)")
     sk = sl.get_skills().get("vigilancias")
@@ -98,6 +105,41 @@ def main():
 
     print("· intervalo de comprobacion razonable (no es martilleo)")
     check(mod._CHECK_MIN >= 5, f"_CHECK_MIN = {mod._CHECK_MIN} min, no baja de 5")
+
+    print("· el destino se mira ANTES de guardar el vigilante (SEC-11, SSRF)")
+    tmp = Path(tempfile.mkdtemp())
+    old = cfg.DATA_DIR
+    cfg.DATA_DIR = tmp
+    try:
+        ctx = {"settings": {},
+               "channel": "pc"}
+
+        def alta(frase):
+            ruta = sl.route(frase)
+            return asyncio.run(mod.handle(ruta[1], frase, ruta[2], ctx))["reply"]
+
+        # Un resolutor que dice «esto es tu propio equipo»: créelo un atacante por
+        # el canal que sea; la guarda no guarda el vigilante y lo explica.
+        net._direcciones = lambda host: ["127.0.0.1"]
+        r = alta("vigila la web https://interno.example/panel")
+        check(r.startswith("No voy a abrir") and "puente" in r,
+              f"un nombre que resuelve a loopback se rechaza y se explica: {r[:80]}")
+        check(mod._load() == [], "y no se guarda el vigilante")
+        r = alta("avísame si baja el precio de https://interno.example/p")
+        check(r.startswith("No voy a abrir") and mod._load() == [],
+              "tampoco un vigilante de PRECIO sobre un destino interno")
+        net._direcciones = lambda host: ["93.184.216.34"]
+
+        r = alta("vigila la web http://169.254.169.254/latest/meta-data/")
+        check(r.startswith("No voy a abrir") and "169.254.169.254" in r and mod._load() == [],
+              f"los metadatos de la nube se rechazan sin resolver nada: {r[:80]}")
+
+        r = alta("vigila la web https://ejemplo.com/a")
+        check("Vigilancia #1 activada" in r, f"una web pública se sigue vigilando: {r[:60]}")
+        check(len(mod._load()) == 1, "y queda guardada")
+    finally:
+        cfg.DATA_DIR = old
+        net._direcciones = original_direcciones
 
     print("· alta, listado y borrado sobre un data/ TEMPORAL")
     tmp = Path(tempfile.mkdtemp())

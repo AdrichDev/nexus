@@ -222,7 +222,10 @@ def _info_sync(video_id: str) -> dict:
 
 
 async def _descargar(url: str):
-    r = await net.client().get(url, timeout=12)
+    # La URL de la pista de subtítulos la elige YouTube (viene dentro de su JSON),
+    # no el operador: se pide con la guarda de destino (SEC-11), que revalida cada
+    # redirección antes de abrirla.
+    r = await net.safe_get(url, timeout=12)
     r.raise_for_status()
     return r.text
 

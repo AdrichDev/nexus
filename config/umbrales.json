@@ -60,7 +60,9 @@
       "HUD un minuto desactualizado, nada mas: el movil prueba las direcciones una",
       "por una de todas formas."
     ],
-    "cache_sondeo_seg": 120.0
+    "cache_sondeo_seg": 120.0,
+    "_max_redirecciones": "Cuántas redirecciones seguidas se aceptan al abrir un enlace que viene de fuera (una web, un resultado de búsqueda, un mensaje). Cada salto se vuelve a comprobar: si acaba en tu propio equipo, en tu red local o en los metadatos de la nube, se para ahí. Subirlo permite cadenas más largas (las de los acortadores); bajarlo corta antes las que dan vueltas. 0 = no se sigue ninguna.",
+    "max_redirecciones": 5
   },
   "openrouter": {
     "_que_es": "Que le pedimos a OpenRouter sobre QUIEN puede ver tus prompts.",

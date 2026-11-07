@@ -97,6 +97,33 @@ def _canales() -> str:
     return "por el HUD"
 
 
+async def _rechazo_de_destino(url: str) -> str:
+    """La negativa en español si esa URL no se puede abrir; '' si sí se puede.
+
+    SEC-11: la URL de un vigilante la escribe el operador… o la escribe quien
+    meta el texto por un canal que no es él, porque «vigila la web <url>» es una
+    regex. La guarda vive en `backend/core/comun/net.py` (una sola, compartida
+    con la búsqueda web y los subtítulos) y se pasa DOS veces: al crear y en
+    cada comprobación, porque un dominio puede cambiar de direcciones después.
+    """
+    import asyncio
+
+    from backend.core.comun import net
+    try:
+        await asyncio.to_thread(net.asegurar_destino, url)   # el DNS no bloquea el loop
+    except net.DestinoNoPermitido as exc:
+        return str(exc)
+    return ""
+
+
+async def _motivo_de_destino(url: str) -> str:
+    """El motivo CORTO ('' si se puede abrir), para el aviso de salud del vigilante."""
+    import asyncio
+
+    from backend.core.comun import net
+    return await asyncio.to_thread(net.motivo_destino, url)
+
+
 def _add(tipo: str, objetivo: str) -> dict:
     items = _load()
     num = max((int(w.get("num") or 0) for w in items), default=0) + 1
@@ -193,6 +220,16 @@ async def _check_one(w: dict) -> str | None:
     from backend.core.infraestructura import websearch
     est = w.setdefault("estado", {})
     primera = not w.get("ultima")
+    if w["tipo"] in ("web", "precio"):
+        # Antes de pedir nada: ¿sigue siendo un destino público? Un vigilante
+        # creado sobre una web pública puede pasar a resolver a la red local (o
+        # ser un dominio que caduca y lo registra otro). Se dice con la verdad y
+        # no se abre: nexus no se usa de puente (SEC-11).
+        motivo = await _motivo_de_destino(str(w.get("objetivo") or ""))
+        if motivo:
+            return _salud(w, est, False,
+                          f"apunta a {motivo} y no la voy a abrir (no me uso de puente), "
+                          "así que no puedo avisarte de cambios.", primera)
     if w["tipo"] == "web":
         text = await websearch.fetch_page(w["objetivo"], max_chars=6000)
         if not text:
@@ -278,6 +315,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "web":
         url = (gd.get("url") or gd.get("url2") or "").strip().rstrip(".,)")
+        rechazo = await _rechazo_de_destino(url)
+        if rechazo:
+            return {"reply": rechazo}          # no se guarda un vigilante imposible
         ya = _buscar("web", url)
         if ya:
             return {"reply": f"👁 Ya vigilo esa web: es la vigilancia #{ya['num']}. "
@@ -289,6 +329,9 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
 
     if intent == "price":
         url = (gd.get("url") or gd.get("url2") or gd.get("url3") or "").strip().rstrip(".,)")
+        rechazo = await _rechazo_de_destino(url)
+        if rechazo:
+            return {"reply": rechazo}
         ya = _buscar("precio", url)
         if ya:
             return {"reply": f"👁 Ya vigilo el precio de esa página: es la vigilancia #{ya['num']}. "

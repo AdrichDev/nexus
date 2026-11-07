@@ -550,7 +550,12 @@ def extract_text(html: str, max_chars: int = 3500) -> str:
 async def fetch_page(url: str, max_chars: int = 3500) -> str:
     """Descarga una página y extrae su TEXTO legible. Con caché (1 h por URL).
     El troceo del HTML y la escritura de la caché van a un HILO: el event loop
-    (HUD, voz, métricas) no se congela ni con páginas enormes."""
+    (HUD, voz, métricas) no se congela ni con páginas enormes.
+
+    La URL puede venir de una web, de un resultado de búsqueda o de un mensaje
+    (nunca es de fiar), así que se pide con `net.safe_get`: si el destino es el
+    propio equipo, la red local, un rango reservado o una redirección hacia
+    ellos, devuelve "" y no se ha abierto ninguna conexión."""
     import asyncio as _aio
     key = f"p::{url}"
     hit = cache_get(key, TTL_PAGE)
@@ -561,7 +566,11 @@ async def fetch_page(url: str, max_chars: int = 3500) -> str:
     host = urlparse(url).netloc.lower()
     hdrs = _WIKI_HDRS if host.endswith("wikipedia.org") else _HDRS
     try:
-        r = await net.client().get(url, headers=hdrs, timeout=_TIMEOUT)
+        # `net.safe_get`: la guarda de destino (SEC-11). Rechaza esquemas que no son
+        # http/https, hosts del propio equipo / de la red local / de metadatos y
+        # CADA redirección, ANTES de abrir la conexión. Si la rechaza no se pide
+        # nada: "" es la respuesta honesta ("no tengo esa página").
+        r = await net.safe_get(url, headers=hdrs, timeout=_TIMEOUT)
         final_url = str(getattr(r, "url", "") or "")
         html = (r.text or "")[:1_500_000]          # tope de descarga procesada
     except Exception:

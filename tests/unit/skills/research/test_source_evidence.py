@@ -47,6 +47,9 @@ def load_websearch(resp=None):
     fake = FakeHTTP(resp or Resp(""))
     net = types.ModuleType("backend.core.comun.net")
     net.client = lambda: fake
+    # La guarda de destino (SEC-11) vive en `net.safe_get`; este doble solo necesita
+    # que exista, y el que pide es el mismo `fake` que ya apunta las llamadas.
+    net.safe_get = fake.get
     sys.modules["backend.core.comun.net"] = net
     mod = types.ModuleType("backend.core.infraestructura.websearch")
     mod.__file__ = str(ROOT / "backend/core/infraestructura/websearch.py")

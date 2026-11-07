@@ -117,6 +117,16 @@ SAFE_UNIT_SUITES = (
     # doblados y carpetas de usar y tirar. No arranca servidor ni toca un dato
     # del operador.
     "unit/core/test_datos_no_confiables.py",
+    # Destino seguro contra SSRF (SEC-11, roadmap P3-1): la guarda compartida de
+    # `comun/net.py` rechaza loopback, link-local/metadatos, RFC1918, CGNAT,
+    # multicast, esquemas que no son http/https, `usuario:clave@` y los nombres
+    # que resuelven a esas direcciones; `safe_get` revalida cada redirección. La
+    # aplican `websearch.fetch_page`, la descarga de subtítulos de YouTube,
+    # `vigilancias` (al crear y en cada tick) y `datos` (sqlite por
+    # `path_allowed`, bases de red solo desde el equipo del operador). Transporte
+    # y resolutor doblados ANTES de la primera llamada: ni una conexión ni una
+    # consulta DNS de verdad, y config/datos/perfil de usar y tirar.
+    "unit/core/test_destino_seguro.py",
     "unit/skills/places/test_places_honesty.py",
     "unit/skills/datos/test_datos_honesty.py",
     "unit/skills/vigilancias/test_vigilancias_integrity.py",

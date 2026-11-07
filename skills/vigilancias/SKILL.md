@@ -57,6 +57,12 @@ CONTENIDO, no de precio. Para precio hay que nombrarlo.
 
 ## Qué NO hace
 
+- **No abre un destino que no sea público.** Si la URL es de tu propio equipo
+  (127.0.0.1, localhost), de tu red local, de los metadatos de la nube o un nombre
+  que resuelve a cualquiera de ellos, el vigilante NO se crea y se te dice por qué:
+  nexus no se usa de puente. Se vuelve a mirar en cada pasada, porque un dominio
+  puede cambiar de direcciones después; si pasa, el aviso lo cuenta y esa página no
+  se pide.
 - No rellena formularios ni entra en zonas con login: solo lee páginas públicas.
 - No compra ni reserva nada cuando el precio baja: solo avisa.
 - No consulta redes sociales ni datos de audiencias de terceros.

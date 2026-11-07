@@ -47,6 +47,14 @@ def check(cond, msg):
 
 
 TMP = Path(tempfile.mkdtemp(prefix="nexus_datos_test_"))
+# Los permisos los decide ESTA suite, no el settings.json del operador: la
+# carpeta temporal es la única autorizada. Desde SEC-11 una conexión `sqlite://`
+# pasa por `permissions.path_allowed()`, así que sin esto el resultado de la
+# prueba dependería de cómo tenga nexus configurado el equipo de verdad.
+from backend.core.comun.config import settings  # noqa: E402
+
+settings._json["perm_files"] = "carpetas"
+settings._json["perm_folders"] = [str(TMP)]
 datos.REPORTS_DIR = TMP / "reports"
 DB = TMP / "t.db"
 _c = sqlite3.connect(DB)
@@ -128,6 +136,19 @@ falta = TMP / "no_existe.db"
 reply, _ = correr(f"conéctate a la bd sqlite://{falta.as_posix()}")
 check("no existe" in reply.lower() and "Conectado" not in reply, "ruta inexistente: dice que no existe")
 check(not falta.exists(), "ruta inexistente: NO crea el fichero")
+
+# 4b) una ruta FUERA de los permisos no se abre, exista o no (SEC-11 / SEC-04)
+ajena = Path(tempfile.mkdtemp(prefix="nexus_datos_ajena_")) / "ajena.db"
+_c = sqlite3.connect(ajena)
+_c.execute("CREATE TABLE t (a INTEGER)")
+_c.commit()
+_c.close()
+antes = datos._conn["handle"]
+datos._conn.update({"url": None, "kind": None, "handle": None})
+reply, _ = correr(f"conéctate a la bd sqlite://{ajena.as_posix()}")
+check("No tengo permiso" in reply and "Conectado" not in reply,
+      f"ruta fuera de las carpetas autorizadas: se rechaza ({reply[:70]})")
+check(datos._conn["handle"] is None, "y no se abre ninguna conexión a esa ruta")
 reply, _ = correr(f"conéctate a la bd sqlite://{DB.as_posix()}")
 
 # 5) recuentos honestos

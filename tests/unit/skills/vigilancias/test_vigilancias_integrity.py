@@ -27,10 +27,16 @@ except Exception:
     pass
 
 from backend.core.aplicacion import skills_loader as sl  # noqa: E402
+from backend.core.comun import net  # noqa: E402
 from backend.core.infraestructura import telegram_bridge, websearch  # noqa: E402
 
 sl.load_skills()
 vig = sl.get_skills()["vigilancias"].module
+
+# SIN RED NI DNS: la guarda de destino (SEC-11) resuelve el nombre de cada vigilante
+# antes de pedirla, así que aquí el resolutor es un doble que dice «todo público».
+_ORIG_DESTINO = net._direcciones
+net._direcciones = lambda host: ["93.184.216.34"]
 
 _fail, _pass = [], 0
 
@@ -211,6 +217,45 @@ try:
 finally:
     websearch.fetch_page = orig_fetch
     vig._notify = orig_notify
+
+# 6) destino seguro: un vigilante que dejó de ser público no se abre (SEC-11) --------------
+_DESTINO = Path(tempfile.mkdtemp(prefix="nexus_vig_destino_")) / "watchers.json"
+with open(_DESTINO, "w", encoding="utf-8") as fh:
+    json.dump([{"num": 1, "tipo": "web", "objetivo": "http://192.168.1.10/panel",
+                "estado": {}, "creado": 1.0, "ultima": 0.0}], fh)
+vig._file = lambda: _DESTINO
+pedidas: list[str] = []
+
+
+async def _no_llamar(url, max_chars=6000):
+    pedidas.append(url)
+    return "contenido"
+
+
+avisos.clear()
+websearch.fetch_page = _no_llamar
+vig._notify = _captura
+try:
+    comprobar(1)
+finally:
+    websearch.fetch_page = orig_fetch
+    vig._notify = orig_notify
+check(pedidas == [], "destino: un vigilante que pasó a ser interno NO se pide")
+check(len(avisos) == 1 and "192.168.1.10" in avisos[0] and "no la voy a abrir" in avisos[0],
+      f"destino: se avisa con la verdad y no se finge (avisos: {avisos})")
+
+# un vigilante público sigue funcionando después de la guarda
+nuevo_entorno(); avisos.clear()
+run("vigila la web https://sigue.example/w")
+websearch.fetch_page = con_paginas(["contenido estable de la página"] * 2)
+vig._notify = _captura
+try:
+    comprobar(2)
+finally:
+    websearch.fetch_page = orig_fetch
+    vig._notify = orig_notify
+check(avisos == [], f"destino: una web pública se sigue leyendo sin avisos ({avisos})")
+net._direcciones = _ORIG_DESTINO
 
 print(f"\nvigilancias integrity: {_pass} OK, {len(_fail)} FAIL")
 sys.exit(1 if _fail else 0)
