@@ -154,6 +154,13 @@ SAFE_UNIT_SUITES = (
     # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y
     # carpetas de usar y tirar.
     "unit/core/runtime/test_fallback_privacidad.py",
+    # Contador diario de llamadas y caracteres por proveedor y techo que frena la
+    # nube con un mensaje honesto (AI-07, roadmap P2-12): el cliente HTTP va
+    # doblado ANTES de la primera llamada, el reloj se mueve a mano (sin dormir),
+    # el corte de escritura se simula doblando `os.replace` y config/datos viven
+    # en carpetas de usar y tirar. No arranca servidor (`/api/status` va con
+    # httpx.ASGITransport, sin lifespan) ni toca un dato o una clave del operador.
+    "unit/core/runtime/test_presupuesto_llm.py",
     # POST /api/n8n en proceso (httpx.ASGITransport, sin lifespan ni puertos):
     # dobles en vez de proveedor/correo y carpetas de usar y tirar.
     "integration/http/test_n8n_canal.py",

@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass
 
 import httpx
 
-from backend.core.comun import net
+from backend.core.comun import net, presupuesto
 from backend.core.comun.config import settings
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -356,6 +356,31 @@ def _guardar_estado(st: LLMRuntimeStatus) -> LLMRuntimeStatus:
     return st
 
 
+# ── LA PRUEBA DE UN MODELO TAMBIÉN CUENTA (AI-07 / tarea T19) ───────────────
+#
+# `activate_ollama_model` hace una inferencia REAL para averiguar si el modelo
+# funciona, y esa llamada no pasa por `PROVIDERS[...].chat` (usa su propio
+# `OllamaClient`), así que se cuenta aquí. Es una llamada al modelo como
+# cualquier otra y dejarla fuera convertía la prueba en el hueco por el que se
+# podría seguir llamando con el contador mintiendo.
+#
+# La de la NUBE sí pasa por `prov.chat`, que `llm._instalar_contabilidad()`
+# envuelve: se cuenta sola, y su techo se comprueba aquí antes de tocar la
+# configuración para poder decir «se acabó el presupuesto» en vez de «el modelo
+# no responde» (que sería mentira: el modelo está perfecto).
+_SONDA_CLOUD = "Responde únicamente con: OK"
+_SONDA_LOCAL = "Responde únicamente con la palabra OK."
+
+
+async def _contar_sonda(provider: str, caracteres_prompt: int, texto: str,
+                        *, local: bool) -> None:
+    try:
+        await presupuesto.anotar(provider, "chat", caracteres_entrada=caracteres_prompt,
+                                 caracteres_salida=len(texto or ""), local=local)
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
 async def activate_ollama_model(model: str, *, persistir: bool = True) -> LLMRuntimeStatus:
     """Activa un modelo local. Solo lo da por bueno si CONTESTA.
 
@@ -396,9 +421,11 @@ async def activate_ollama_model(model: str, *, persistir: bool = True) -> LLMRun
     try:
         texto, ms = await cli.probe(model)
     except Exception as exc:                                        # noqa: BLE001
+        await _contar_sonda("ollama", len(_SONDA_LOCAL), "", local=True)
         code, publico, tech = _clasifica_excepcion(exc, model)
         return _guardar_estado(_falla(code, publico, tech,
                                       provider="ollama", model=model))
+    await _contar_sonda("ollama", len(_SONDA_LOCAL), texto, local=True)
 
     if not texto.strip():
         return _guardar_estado(_falla("vacio", _msg("vacio", model),
@@ -431,6 +458,16 @@ async def activate_cloud_model(provider: str, model: str = "",
 
     campo = {"openai": "openai_model", "anthropic": "anthropic_model",
              "gemini": "gemini_model", "cloud": "cloud_model"}.get(provider, "")
+    es_local = _llm.localidad_proveedor(provider) == "local"
+    # EL TECHO, ANTES DE TOCAR NADA: si el presupuesto del día está agotado no se
+    # hace la prueba (no sale ninguna petición) y se dice POR QUÉ, en vez de
+    # dejar el HUD diciendo que «el modelo no responde» cuando el modelo está
+    # perfectamente y lo que se ha acabado es el dinero.
+    try:
+        await presupuesto.exigir(provider, len(_SONDA_CLOUD), local=es_local)
+    except presupuesto.PresupuestoAgotado as exc:
+        return _guardar_estado(_falla("presupuesto", exc.publico, exc.tecnico,
+                                      provider=provider, model=model))
     # VERIFICAR NO PUEDE CAMBIAR LO QUE HAY GUARDADO. La sonda llama a
     # `prov.chat()` directamente sobre el proveedor elegido, así que no necesita
     # que `llm_provider` valga nada en concreto: solo el campo del modelo, que es
@@ -457,7 +494,7 @@ async def activate_cloud_model(provider: str, model: str = "",
 
     try:
         texto = await asyncio.wait_for(
-            prov.chat([{"role": "user", "content": "Responde únicamente con: OK"}]),
+            prov.chat([{"role": "user", "content": _SONDA_CLOUD}]),
             timeout=60)
         ok = bool((texto or "").strip())
         if not ok:
@@ -470,6 +507,8 @@ async def activate_cloud_model(provider: str, model: str = "",
             exc if isinstance(exc, Exception) else RuntimeError("fallo"), model)
         return _guardar_estado(_falla(code, publico, tech,
                                       provider=provider, model=model))
+    # La prueba ya se ha contado sola: `prov.chat` está envuelto por
+    # `llm._instalar_contabilidad()`. Sumarla otra vez aquí sería contarla doble.
 
     if not persistir:
         for k, v in previo.items():

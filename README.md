@@ -147,6 +147,43 @@ local, aunque traiga el token del QR. El resto de la configuración sigue
 funcionando desde el móvil y `GET /api/config` sigue contando el modo, para que
 el HUD pueda enseñarlo.
 
+## Presupuesto de modelo (⚙ → costes del día)
+
+La auditoría (AI-07; `07` §5 «Costes y consumo») encontró que nexus no contaba
+nada: un bucle, un flujo de n8n que reenvía el mismo texto o una tarde de
+investigación pesada no tenían techo. El tope de salida (`llm.max_tokens_salida`)
+acota **una** respuesta; esto acota **el día**.
+
+nexus apunta, por día y por proveedor: llamadas (chat, streaming, destilado y
+embeddings), caracteres de prompt y caracteres de respuesta, en
+`data/presupuesto_llm.json`. Se cuentan **caracteres** porque no todos los
+proveedores devuelven el uso; donde sí lo devuelven de verdad (OpenAI y
+compatibles, Anthropic, Gemini, Ollama) se guardan también **tokens reales**, y
+`GET /api/status` dice qué proveedores dieron números de verdad. Nada se estima:
+un contador de gasto con cifras inventadas es peor que no tener contador.
+
+El techo vive en `config/umbrales.json` (sección `llm`) y **se entrega con un
+valor de seguridad, no medido**: 400 llamadas y 5.000.000 de caracteres al día
+para un escritorio de una sola persona. Se cambia ahí o pidiéndoselo a nexus.
+Al 80 % avisa una vez por el HUD; al llegar al techo **deja de llamar a la nube
+hasta el día siguiente** y lo dice en español: qué ha pasado, qué ha contado y
+cómo subirlo. No recorta la respuesta ni se inventa una contestación.
+
+Los modelos **locales** (Ollama, el modo demostración) **no** están dentro del
+techo por defecto: el riesgo del que habla la auditoría es el dinero, y un
+modelo en tu equipo no cuesta dinero. `llm.presupuesto_incluye_locales: true`
+los mete también, si compartes equipo y quieres un límite único. Lo que llevas
+gastado hoy se ve en `GET /api/status` → `presupuesto` (contadores y nombres,
+ni una clave ni un fragmento de prompt).
+
+Los **embeddings** cuentan igual, y es lo que más se te iba a escapar: cada vez
+que nexus vectoriza un documento o un recuerdo hace una llamada al modelo. Los de
+nube (OpenAI, Gemini) pasan por el techo como cualquier otra — es dinero y es
+texto que sale del equipo —, y los de Ollama (`nomic-embed-text`, el defecto)
+no. Cuando el techo corta la vectorización, nexus lo dice con esas palabras («he
+parado la vectorización») y la memoria sigue respondiendo por palabra: degrada,
+no miente.
+
 ## Build a .exe
 
 ```bat

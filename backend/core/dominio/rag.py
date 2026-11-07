@@ -24,6 +24,7 @@ import time
 import unicodedata
 from pathlib import Path
 
+from ..comun import presupuesto
 from ..comun.config import CONFIG_DIR, DATA_DIR, settings
 from ..comun.secretos import redactar
 
@@ -94,12 +95,38 @@ def _umbrales_troceado() -> dict:
     return vals
 
 
+# ── EMBEDDINGS: CONTADOS Y CON TECHO (AI-07 / roadmap P2-12, tarea T19) ────
+#
+# Un embedding es una llamada al modelo como cualquier otra: cuesta dinero
+# cuando va a la nube y saca texto del equipo cuando sale de aquí. Hasta T19 no
+# se contaba NADA de esto, así que una reindexación grande o un bucle de
+# memoria podían gastar sin techo.
+#
+# Los tres van por el GEMELO SÍNCRONO de `comun/presupuesto.py`
+# (`exigir_sync`/`anotar_sync`) por un motivo concreto: son funciones síncronas
+# con `httpx.post` y ya se ejecutan dentro de un `asyncio.to_thread` (de otra
+# forma bloquearían el bucle). Desde ese hilo no se puede esperar una corrutina,
+# así que la suma y el volcado atómico se hacen ahí mismo — igual de fuera del
+# bucle que en el chat.
+#
+# El orden importa: PRIMERO la puerta del techo (si está agotado, no sale la
+# petición) y solo después el transporte. El techo de la nube frena los
+# embeddings de nube; los de Ollama no están sujetos por defecto, porque el
+# riesgo de la auditoría es el dinero y un modelo local no cuesta nada.
+#
+# Los TOKENS solo se guardan donde el proveedor los devuelve de verdad: la API
+# de embeddings de OpenAI manda `usage.prompt_tokens`; las otras dos no mandan
+# nada que se pueda leer como uso, así que no se inventa.
 def _emb_ollama(text: str):
     import httpx
+    entrada = text[:2000]
+    presupuesto.exigir_sync("ollama", len(entrada), local=True, clase="embed")
     r = httpx.post(f"{settings.get('ollama_url').rstrip('/')}/api/embeddings",
                    json={"model": settings.get("embed_model", "nomic-embed-text"),
-                         "prompt": text[:2000]}, timeout=8)
+                         "prompt": entrada}, timeout=8)
     r.raise_for_status()
+    presupuesto.anotar_sync("ollama", "embed", caracteres_entrada=len(entrada),
+                            local=True)
     return r.json().get("embedding")
 
 
@@ -111,11 +138,18 @@ def _emb_openai(text: str):
     if not settings.secret("openai_api_key") and settings.secret("cloud_llm_api_key"):
         base = settings.get("cloud_base_url", base).rstrip("/")
     import httpx
+    entrada = text[:8000]
+    presupuesto.exigir_sync("openai", len(entrada), local=False, clase="embed")
     r = httpx.post(f"{base}/embeddings", headers={"Authorization": f"Bearer {key}"},
                    json={"model": settings.get("embed_model_openai", "text-embedding-3-small"),
-                         "input": text[:8000]}, timeout=15)
+                         "input": entrada}, timeout=15)
     r.raise_for_status()
-    return r.json()["data"][0]["embedding"]
+    datos = r.json()
+    uso = datos.get("usage") if isinstance(datos, dict) else None
+    tokens = uso.get("prompt_tokens") if isinstance(uso, dict) else None
+    presupuesto.anotar_sync("openai", "embed", caracteres_entrada=len(entrada),
+                            tokens_entrada=tokens, local=False)
+    return datos["data"][0]["embedding"]
 
 
 def _emb_gemini(text: str):
@@ -124,10 +158,14 @@ def _emb_gemini(text: str):
         return None
     import httpx
     model = settings.get("embed_model_gemini", "text-embedding-004")
+    entrada = text[:8000]
+    presupuesto.exigir_sync("gemini", len(entrada), local=False, clase="embed")
     r = httpx.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent",
-        params={"key": key}, json={"content": {"parts": [{"text": text[:8000]}]}}, timeout=15)
+        params={"key": key}, json={"content": {"parts": [{"text": entrada}]}}, timeout=15)
     r.raise_for_status()
+    presupuesto.anotar_sync("gemini", "embed", caracteres_entrada=len(entrada),
+                            local=False)
     return r.json()["embedding"]["values"]
 
 

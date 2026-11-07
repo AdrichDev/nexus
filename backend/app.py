@@ -27,7 +27,7 @@ from backend.core.aplicacion import brain
 from backend.core.dominio import contentos
 from backend.core.infraestructura import stt, tts
 from backend.core.infraestructura.app_index import start_background_index
-from backend.core.comun import publicvoice
+from backend.core.comun import presupuesto, publicvoice
 from backend.core.comun.config import FRONTEND_DIR, settings
 from backend.core.comun.events import bus
 from backend.core.aplicacion.hotkey import start_hotkey
@@ -662,6 +662,11 @@ async def api_status():
         # el dueño veía «no hay clave» donde pasa «está y no se abre con esta cuenta».
         # Son NOMBRES, nunca valores: un nombre no es un secreto.
         "secretos_ilegibles": settings.secretos_ilegibles(),
+        # T19 / AI-07: lo que nexus lleva gastado HOY de modelo, por proveedor. Son
+        # contadores y nombres de proveedor/clase — ni una clave, ni un modelo, ni
+        # un fragmento de prompt. Es lo que hace que el techo diario se pueda ver
+        # antes de chocar con él.
+        "presupuesto": presupuesto.resumen(),
     }
 
 

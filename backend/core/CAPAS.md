@@ -39,7 +39,7 @@ detalle de estilo.
 
 | Capa | Módulos |
 | --- | --- |
-| **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice`, `secretos`, `canales`, `atomicos`, `datos_inyectados`, `cripto` |
+| **común** | `config`, `events`, `audit`, `permissions`, `confirm`, `procedencia`, `context`, `net`, `publicvoice`, `secretos`, `canales`, `atomicos`, `datos_inyectados`, `cripto`, `presupuesto` |
 | **infraestructura** | `llm`, `llm_runtime`, `tts`, `stt`, `remote`, `files_io`, `engram_bridge`, `websearch`, `telegram_bridge`, `spotify`, `hardware`, `app_index`, `youtube` |
 | **dominio** | `board`, `purga`, `contentos`, `contentos_demo`, `rag`, `memory`, `selflearn`, `opmem`, `correcciones`, `briefing`, `profile`, `review`, `ingesta`, `pm`, `reglas` |
 | **aplicación** | `brain`, `skills_loader`, `scheduler`, `background`, `jobs`, `wake`, `hotkey`, `voice_cycle`, `aprendizaje` |
@@ -63,6 +63,16 @@ Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
   configuración, ni disco. Lo llama `config`, que está en la misma capa, y
   probarlo no necesita ni un archivo. Ponerlo en infraestructura obligaría a
   `config` a depender de una capa superior para guardar su propio archivo.
+- **`presupuesto` en común**, no en infraestructura. Es el contador diario de
+  llamadas y caracteres por proveedor y el techo que frena la nube (AI-07,
+  tarea T19). No habla con ningún proveedor: suma números, lee
+  `config/umbrales.json` y escribe un JSON con `atomicos`. Vive abajo por dos
+  razones concretas: lo llama `infraestructura/llm` en cada respuesta (una capa
+  por encima, que es la dirección permitida) y NO puede importar la tabla de
+  localidad de `llm.py` sin subir de capa — por eso recibe `local` ya decidido
+  por quien conoce al proveedor, en vez de tener su propia copia de la lista de
+  proveedores locales. Duplicar esa lista habría dejado dos verdades sobre qué
+  es «nube».
 - **`brain` y `voice_cycle` en aplicación**, no en dominio. No contienen reglas
   de negocio: deciden **qué se ejecuta**. `brain` elige skill e intent y lanza
   trabajos; `voice_cycle` escucha, transcribe y se lo pasa al cerebro. Eso es

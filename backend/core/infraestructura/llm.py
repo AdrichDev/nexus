@@ -15,6 +15,8 @@ LM Studio) por si el servidor no está arrancado.
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import datetime as _dt
 import json
 import os
@@ -23,7 +25,7 @@ from pathlib import Path
 
 import httpx
 
-from ..comun import datos_inyectados, net
+from ..comun import datos_inyectados, net, presupuesto
 from ..comun.config import CONFIG_DIR, settings
 
 _DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -167,8 +169,88 @@ y directo. Si de verdad NO lo tienes, dilo en una sola frase y ofrece «busca en
 <tema>» — nunca inventes ni rellenes."""
 
 
+# ── TOKENS REALES DE UNA RESPUESTA (AI-07 / tarea T19) ──────────────────────
+#
+# El contador diario (`comun/presupuesto.py`) mide CARACTERES porque nexus no
+# recibe el uso de tokens de todos los proveedores: si solo se contaran tokens,
+# la mitad de las llamadas no contarían nada. Pero cuando la API devuelve los
+# números de verdad, se guardan también, y estos son los nombres que usa cada
+# una — comprobados en el código que ya habla con ellas:
+#
+#   openai / cloud : usage.prompt_tokens, usage.completion_tokens
+#   anthropic      : usage.input_tokens, usage.output_tokens
+#   gemini         : usageMetadata.promptTokenCount, candidatesTokenCount
+#   ollama         : prompt_eval_count, eval_count
+#   mock           : ninguna (es un simulador, no gasta nada)
+#
+# Lo que NO se hace: estimar tokens a partir de los caracteres. Una cifra
+# inventada en un contador de gasto es peor que no tener contador.
+def _num_token(valor) -> int | None:
+    if isinstance(valor, int) and not isinstance(valor, bool) and valor >= 0:
+        return valor
+    return None
+
+
+def _tokens_de(proveedor: str, data) -> tuple[int | None, int | None]:
+    """(entrada, salida) que el proveedor ha devuelto de verdad, o (None, None)."""
+    if not isinstance(data, dict):
+        return None, None
+    try:
+        if proveedor == "anthropic":
+            uso = data.get("usage") or {}
+            return _num_token(uso.get("input_tokens")), _num_token(uso.get("output_tokens"))
+        if proveedor == "gemini":
+            uso = data.get("usageMetadata") or {}
+            return (_num_token(uso.get("promptTokenCount")),
+                    _num_token(uso.get("candidatesTokenCount")))
+        if proveedor == "ollama":
+            return _num_token(data.get("prompt_eval_count")), _num_token(data.get("eval_count"))
+        uso = data.get("usage")
+        if isinstance(uso, dict):
+            return _num_token(uso.get("prompt_tokens")), _num_token(uso.get("completion_tokens"))
+    except Exception:                                          # noqa: BLE001
+        pass
+    return None, None
+
+
+def _guardar_uso(prov, data) -> None:
+    """Deja en el proveedor los tokens de ESTA respuesta (vacío si no los dio).
+
+    Se limpia siempre para que una respuesta sin números no herede los de la
+    anterior: el contador tiene que decir la verdad de cada llamada."""
+    try:
+        entrada, salida = _tokens_de(prov.name, data)
+        prov._ultimo_uso = ({"entrada": entrada, "salida": salida}
+                            if (entrada is not None or salida is not None) else {})
+    except Exception:                                          # noqa: BLE001
+        prov._ultimo_uso = {}
+
+
+def _anotar_uso_en_stream(prov, data) -> None:
+    """Igual, pero para una fila suelta de un stream: solo la última (o la que
+    traiga `usage`) lleva los números, así que una fila sin ellos NO borra lo
+    que ya se había leído."""
+    try:
+        entrada, salida = _tokens_de(prov.name, data)
+        if entrada is None and salida is None:
+            return
+        previo = getattr(prov, "_ultimo_uso", None) or {}
+        prov._ultimo_uso = {
+            "entrada": entrada if entrada is not None else previo.get("entrada"),
+            "salida": salida if salida is not None else previo.get("salida"),
+        }
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
 class BaseProvider:
     name = "base"
+
+    # TOKENS REALES de la última respuesta (AI-07 / T19). Nace vacío y cada
+    # proveedor lo rellena SOLO si su API devuelve los números; quien no los
+    # devuelve lo deja vacío y el contador se queda con los caracteres, que es lo
+    # único que se puede afirmar sin inventar. Ver `_tokens_de()`.
+    _ultimo_uso: dict = {}
 
     async def chat(self, messages: list[dict]) -> str:
         raise NotImplementedError
@@ -252,7 +334,9 @@ class OllamaProvider(BaseProvider):
                         timeout=180)
                     r.raise_for_status()
                     OllamaProvider._ruta = "chat"
-                    m = r.json().get("message") or {}
+                    _d = r.json()
+                    _guardar_uso(self, _d)
+                    m = _d.get("message") or {}
                     return ((m.get("content") or "").strip()
                             or (m.get("thinking") or m.get("reasoning") or "").strip())
                 r = await net.client().post(
@@ -262,6 +346,7 @@ class OllamaProvider(BaseProvider):
                 r.raise_for_status()
                 OllamaProvider._ruta = "generate"
                 _d = r.json()
+                _guardar_uso(self, _d)
                 return ((_d.get("response") or "").strip()
                         or (_d.get("thinking") or "").strip())
             except httpx.HTTPStatusError as exc:
@@ -302,6 +387,10 @@ class OllamaProvider(BaseProvider):
                             if got:
                                 return
                             raise RuntimeError("Ollama devolvi? NDJSON inv?lido") from exc
+                        # La última fila del NDJSON trae los tokens reales
+                        # (`prompt_eval_count`/`eval_count`): las demás no, así que
+                        # solo se anota cuando vienen.
+                        _anotar_uso_en_stream(self, data)
                         piece = self._stream_piece(data)
                         if piece:
                             got = True
@@ -353,7 +442,9 @@ class OpenAIProvider(BaseProvider):
                                           **self._extra_payload()},
                                     timeout=120)
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+        data = r.json()
+        _guardar_uso(self, data)          # `usage.prompt_tokens`/`completion_tokens`
+        return data["choices"][0]["message"]["content"]
 
 
 
@@ -377,7 +468,13 @@ class OpenAIProvider(BaseProvider):
                 if payload == "[DONE]":
                     return
                 try:
-                    piece = ((_json.loads(payload)["choices"][0].get("delta") or {})
+                    fila = _json.loads(payload)
+                except Exception:
+                    fila = {}
+                if isinstance(fila, dict):
+                    _anotar_uso_en_stream(self, fila)   # si el endpoint manda `usage`
+                try:
+                    piece = ((fila["choices"][0].get("delta") or {})
                              .get("content") or "")
                 except Exception:
                     piece = ""
@@ -470,7 +567,9 @@ class AnthropicProvider(BaseProvider):
                   "max_tokens": 1024, "system": system, "messages": turns},
             timeout=120)
         r.raise_for_status()
-        return "".join(b.get("text", "") for b in r.json()["content"])
+        data = r.json()
+        _guardar_uso(self, data)          # `usage.input_tokens`/`output_tokens`
+        return "".join(b.get("text", "") for b in data["content"])
 
 
 def _gemini_payload(messages: list[dict]) -> dict:
@@ -536,7 +635,9 @@ class GeminiProvider(BaseProvider):
             json=_gemini_payload(messages),
             timeout=120)
         r.raise_for_status()
-        pieces, _finish_reason = _candidate_text(r.json())
+        data = r.json()
+        _guardar_uso(self, data)          # `usageMetadata.promptTokenCount`/`candidatesTokenCount`
+        pieces, _finish_reason = _candidate_text(data)
         text = "".join(pieces).strip()
         if not text:
             raise RuntimeError("Gemini returned no substantive text")
@@ -562,6 +663,7 @@ class GeminiProvider(BaseProvider):
             async for row in _iter_sse_json(r.aiter_lines()):
                 if row.get("error"):
                     raise RuntimeError("Gemini SSE returned an error event")
+                _anotar_uso_en_stream(self, row)    # `usageMetadata`, si viene
                 pieces, finish_reason = _candidate_text(row)
                 for piece in pieces:
                     if not piece.strip():
@@ -708,6 +810,141 @@ def _umbrales_llm() -> dict:
 def _cap_salida() -> int:
     """Tope de tokens de salida de una generación (nunca 0 ni negativo)."""
     return int(_umbrales_llm()["max_tokens_salida"])
+
+
+# ── CONTABILIDAD Y TECHO DIARIO (AI-07 / roadmap P2-12, tarea T19) ──────────
+#
+# El tope de salida de arriba acota UNA respuesta. Lo que faltaba es el techo del
+# DÍA: la auditoría (`07` §5 «Costes y consumo») lo dice tal cual — «contador
+# diario de llamadas y tokens por proveedor, con un límite configurable».
+#
+# DÓNDE SE ENCHUFA, Y POR QUÉ AHÍ Y NO EN CADA LLAMADA: el contador y el techo se
+# instalan en las CLASES de los proveedores (`_instalar_contabilidad()`, al final
+# de este bloque), envolviendo `chat()` y `chat_stream()`. La primera versión los
+# puso en las funciones de este fichero, y al ir a probarla se vio el agujero:
+# `brain.py:906`, `pm.py:48`, `skills/media`, `skills/system_pc` y `app.py:1893`
+# llaman a `prov.chat()` DIRECTAMENTE, sin pasar por `ask_llm`. Un contador que
+# solo mira las puertas bonitas no cuenta lo que de verdad se gasta. Envolviendo
+# la clase, toda llamada a un proveedor pasa por el contador sin tocar una línea
+# de los que llaman.
+#
+# DÓNDE SE ESCRIBE: después de tener la respuesta, nunca antes. `presupuesto.
+# anotar()` suma en memoria (barato) y `volcar()` escribe el JSON en OTRO HILO
+# (`asyncio.to_thread`), así que el bucle de eventos —el que mueve el audio, el
+# WebSocket y la voz— no se queda esperando al disco. Una escritura por llamada
+# al modelo, y una llamada al modelo cuesta cientos de milisegundos: el volcado
+# de unos pocos KB no se nota, y el primer token no espera a nada porque antes de
+# llamar al modelo solo se leen números de memoria.
+_CLASE = contextvars.ContextVar("nexus_llm_clase", default="chat")
+
+
+@contextlib.contextmanager
+def clase_de_llamada(clase: str):
+    """Marca como de otra clase (`distill`) las llamadas hechas aquí dentro.
+
+    Sin esto, el destilado del perfil se contaría como `chat` y el resumen no
+    distinguiría el gasto de hablar del gasto de reentrenar."""
+    token = _CLASE.set(clase if clase in presupuesto.CLASES else "chat")
+    try:
+        yield
+    finally:
+        _CLASE.reset(token)
+
+
+def _caracteres_prompt(messages) -> int:
+    return sum(len(str(m.get("content") or "")) for m in (messages or []))
+
+
+async def _exigir_presupuesto(prov, messages) -> None:
+    """La puerta: si el techo de hoy está alcanzado, NO se llama al proveedor.
+
+    `local` lo decide `localidad_proveedor()` (la misma tabla que usa la política
+    de reserva de AI-01): el techo frena la NUBE, que es lo que se paga. Un fallo
+    del contador (archivo raro, JSON imposible) NO deja a nexus sin hablar: se
+    traga y se sigue; lo único que se propaga es el techo de verdad."""
+    try:
+        await presupuesto.exigir(prov.name, _caracteres_prompt(messages),
+                                 local=localidad_proveedor(prov.name) == "local")
+    except presupuesto.PresupuestoAgotado:
+        raise
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
+async def _anotar_consumo(prov, clase: str, messages, *, caracteres_salida: int = 0) -> None:
+    """Suma la llamada que YA ha ocurrido, con los tokens reales si los hubo."""
+    try:
+        uso = getattr(prov, "_ultimo_uso", None) or {}
+        await presupuesto.anotar(
+            prov.name, clase,
+            caracteres_entrada=_caracteres_prompt(messages),
+            caracteres_salida=max(0, int(caracteres_salida or 0)),
+            tokens_entrada=uso.get("entrada"),
+            tokens_salida=uso.get("salida"),
+            local=localidad_proveedor(prov.name) == "local")
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
+def _envolver_chat(cls) -> None:
+    """Envuelve `cls.chat`: puerta → llamada → contador."""
+    original = cls.chat
+    if getattr(original, "_contabilizado", False):
+        return
+
+    async def chat(self, messages):
+        clase = _CLASE.get()
+        await _exigir_presupuesto(self, messages)
+        texto = await original(self, messages)
+        await _anotar_consumo(self, clase, messages, caracteres_salida=len(texto or ""))
+        return texto
+
+    chat._contabilizado = True                                 # type: ignore[attr-defined]
+    cls.chat = chat
+
+
+def _envolver_stream(cls) -> None:
+    """Envuelve `cls.chat_stream`: se cuenta al final, cuando ya se ha hablado."""
+    original = cls.chat_stream
+    if getattr(original, "_contabilizado", False):
+        return
+
+    async def chat_stream(self, messages):
+        clase = _CLASE.get()
+        clase = "stream" if clase == "chat" else clase
+        await _exigir_presupuesto(self, messages)
+        caracteres = 0
+        try:
+            async for pieza in original(self, messages):
+                caracteres += len(pieza or "")
+                yield pieza
+        finally:
+            # En `finally` a propósito: la llamada al modelo YA ha ocurrido, así
+            # que se cuenta también cuando el stream se corta o quien escucha se
+            # va a mitad. Aquí ya se ha entregado el texto, así que el volcado no
+            # puede retrasar ni el primer token ni la voz.
+            await _anotar_consumo(self, clase, messages, caracteres_salida=caracteres)
+
+    chat_stream._contabilizado = True                           # type: ignore[attr-defined]
+    cls.chat_stream = chat_stream
+
+
+def _instalar_contabilidad() -> None:
+    """Una vez, al importar: ningún proveedor queda fuera del contador.
+
+    `chat_stream` solo se envuelve donde el proveedor lo SOBREESCRIBE: el de
+    `BaseProvider` se limita a llamar a `chat()`, que ya está contado, y
+    envolverlo contaría dos veces. `CloudProvider` hereda el de OpenAI: al ver
+    la marca `_contabilizado` no se envuelve otra vez."""
+    for prov in list(PROVIDERS.values()):
+        cls = type(prov)
+        if cls.chat is not BaseProvider.chat:
+            _envolver_chat(cls)
+        if cls.chat_stream is not BaseProvider.chat_stream:
+            _envolver_stream(cls)
+
+
+_instalar_contabilidad()
 
 
 # El proveedor activo se CACHEA: antes se sondeaba available() (probe HTTP) en CADA
@@ -878,8 +1115,12 @@ def _model_provider(model: str) -> str:
     return ""
 
 
-async def _chat_with(provider: str, model: str, system: str, user: str, max_tokens: int) -> str:
-    """Una generación con un MODELO CONCRETO del proveedor indicado (para el reentreno)."""
+async def _chat_with(provider: str, model: str, system: str, user: str, max_tokens: int,
+                    uso: dict | None = None) -> str:
+    """Una generación con un MODELO CONCRETO del proveedor indicado (para el reentreno).
+
+    `uso`: si se pasa, se rellena con los tokens REALES que devuelva la API, para
+    que el contador diario sepa distinguirlos de los caracteres (ver `_tokens_de`)."""
     if provider == "anthropic":
         key = settings.secret("anthropic_api_key")
         if not key:
@@ -890,7 +1131,9 @@ async def _chat_with(provider: str, model: str, system: str, user: str, max_toke
             json={"model": model, "max_tokens": max_tokens, "system": system,
                   "messages": [{"role": "user", "content": user}]}, timeout=120)
         r.raise_for_status()
-        return "".join(b.get("text", "") for b in r.json()["content"]).strip()
+        data = r.json()
+        _uso_en(uso, provider, data)
+        return "".join(b.get("text", "") for b in data["content"]).strip()
     if provider == "openai":
         key = settings.secret("openai_api_key") or settings.secret("cloud_llm_api_key")
         if not key:
@@ -905,7 +1148,9 @@ async def _chat_with(provider: str, model: str, system: str, user: str, max_toke
                   "messages": [{"role": "system", "content": system},
                                {"role": "user", "content": user}]}, timeout=120)
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"].strip()
+        data = r.json()
+        _uso_en(uso, provider, data)
+        return data["choices"][0]["message"]["content"].strip()
     if provider == "gemini":
         key = settings.secret("gemini_api_key")
         if not key:
@@ -916,31 +1161,57 @@ async def _chat_with(provider: str, model: str, system: str, user: str, max_toke
             json={"contents": [{"role": "user", "parts": [{"text": user}]}],
                   "system_instruction": {"parts": [{"text": system}]}}, timeout=120)
         r.raise_for_status()
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        data = r.json()
+        _uso_en(uso, provider, data)
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
     return ""
+
+
+def _uso_en(uso: dict | None, proveedor: str, data) -> None:
+    """Deja los tokens reales en `uso` (o no toca nada si no se pidió)."""
+    if uso is None:
+        return
+    entrada, salida = _tokens_de(proveedor, data)
+    uso["entrada"], uso["salida"] = entrada, salida
 
 
 async def distill(system: str, user: str, max_tokens: int = 900) -> str:
     """Genera texto para el AUTO-REENTRENAMIENTO con el modelo ELEGIDO por el usuario
     (`retrain_model`). 'auto' (por defecto) usa TU CEREBRO ACTIVO → no consume de más
     (nada de forzar Fable). Un modelo concreto de cualquier LLM se usa si tienes su key.
-    '' si solo está el mock o falla."""
+    '' si solo está el mock o falla.
+
+    Cuenta como `distill` en el contador diario y pasa por el techo como cualquier
+    otra llamada: el reentreno va cada 6 h, pero es una llamada al modelo de
+    verdad y con el prompt más largo de todas (120 interacciones)."""
     rm = (settings.get("retrain_model", "auto") or "auto").strip()
+    caracteres = len(system or "") + len(user or "")
     if rm and rm.lower() != "auto":
         prov = _model_provider(rm)
         if prov:
+            uso: dict = {}
             try:
-                out = await _chat_with(prov, rm, system, user, max_tokens)
+                await presupuesto.exigir(prov, caracteres,
+                                        local=localidad_proveedor(prov) == "local")
+                out = await _chat_with(prov, rm, system, user, max_tokens, uso)
                 if out:
+                    await presupuesto.anotar(
+                        prov, "distill", caracteres_entrada=caracteres,
+                        caracteres_salida=len(out), tokens_entrada=uso.get("entrada"),
+                        tokens_salida=uso.get("salida"),
+                        local=localidad_proveedor(prov) == "local")
                     return out
+            except presupuesto.PresupuestoAgotado:
+                return ""            # el aviso ya se ha publicado en el bus
             except Exception:
                 pass                          # si falla el modelo elegido, cae al cerebro activo
     try:
         prov = await get_provider()           # AUTO / fallback: el cerebro que ya usas
         if prov.name == "mock":
             return ""
-        out = await prov.chat([{"role": "system", "content": system},
-                               {"role": "user", "content": user}])
+        with clase_de_llamada("distill"):
+            out = await prov.chat([{"role": "system", "content": system},
+                                   {"role": "user", "content": user}])
         return (out or "").strip()
     except Exception:
         return ""
@@ -1177,6 +1448,10 @@ async def ask_llm(user_text: str, context: list[dict] | None = None,
         return exc.publico, "ninguno"
     try:
         return await prov.chat(messages), prov.name
+    except presupuesto.PresupuestoAgotado as sin:
+        # El techo del día: NO es un fallo del modelo, así que no se apunta como
+        # caída (el cerebro sigue vivo). Se dice lo que pasa y no se inventa nada.
+        return sin.publico, "ninguno"
     except Exception as exc:
         detalle = _explain_error(prov, exc)
         _anotar_caida(prov, exc, detalle)
@@ -1200,17 +1475,39 @@ async def ask_llm_stream(user_text: str, context: list[dict] | None = None,
 
         return _sin(), "ninguno"
 
+    # EL TECHO SE COMPRUEBA AQUÍ, antes de devolver el generador: si está
+    # alcanzado no sale ni una petición y el operador recibe la explicación, no
+    # un stream vacío que parecería un modelo mudo.
+    try:
+        await _exigir_presupuesto(prov, messages)
+    except presupuesto.PresupuestoAgotado as sin:
+        publico = sin.publico
+
+        async def _sin_presupuesto():
+            yield publico
+
+        return _sin_presupuesto(), "ninguno"
+
     async def _gen():
         got = False
         try:
+            # `chat_stream` de los proveedores está envuelto: cuenta la llamada
+            # (clase `stream`) y pasa por el techo. Aquí no se cuenta nada, para
+            # no contarlo dos veces.
             async for piece in prov.chat_stream(messages):
                 got = True
                 yield piece
+        except presupuesto.PresupuestoAgotado as sin:
+            yield sin.publico                 # el techo, dicho con todas las letras
         except Exception as exc:                           # noqa: BLE001
             if got:
                 return                 # se cortó a mitad: lo dicho, dicho está
             try:
+                # La reserva por respuesta completa es otra llamada al modelo
+                # (clase `chat`), contada y con techo por el envoltorio.
                 yield await prov.chat(messages)
+            except presupuesto.PresupuestoAgotado as sin:
+                yield sin.publico
             except Exception:
                 detalle = _explain_error(prov, exc)
                 _anotar_caida(prov, exc, detalle)
