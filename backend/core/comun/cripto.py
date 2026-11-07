@@ -252,10 +252,13 @@ def cifrar(texto: str) -> str:
 def descifrar(marca: str) -> str:
     """`"dpapi:v1:<base64>"` → el texto. Lanza CriptoError si no se puede.
 
-    Base64 ESTÁNDAR (no urlsafe) a propósito: su alfabeto no incluye `-`, así que
-    dentro de un blob no puede aparecer un `sk-…` que un escáner de secretos
-    confunda con una clave. El escáner (scripts/revisar_antes_de_subir.py) además
-    neutraliza la marca antes de mirar la línea."""
+    Base64 ESTÁNDAR (no urlsafe) a propósito: su alfabeto no incluye `-` ni `_`,
+    así que dentro de un blob no puede aparecer un `sk-…` que un escáner de
+    secretos confunda con una clave. Y por eso el escáner
+    (scripts/revisar_antes_de_subir.py) puede neutralizar por la FORMA —etiqueta +
+    tramo largo de este alfabeto, cerrado ahí mismo— en vez de por la etiqueta a
+    secas: con «empieza por dpapi:» se tragaba también un secreto en crudo
+    pegado detrás (advisory del verificador sobre 562c777)."""
     if not es_cifrado(marca):
         if es_de_dpapi(marca):
             raise CriptoError("está cifrado con una versión de DPAPI que esta "

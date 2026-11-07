@@ -592,6 +592,11 @@ async def api_status():
                 "ollama_model": settings.get("ollama_model"),
                 "cloud_model": settings.get("cloud_model")},
         "skills": len(skills_summary()),
+        # T13 / SEC-09 (advisory del verificador sobre 562c777): una clave que DPAPI no
+        # puede abrir aquí sólo se avisaba por consola AL IMPORTAR, así que sin consola
+        # el dueño veía «no hay clave» donde pasa «está y no se abre con esta cuenta».
+        # Son NOMBRES, nunca valores: un nombre no es un secreto.
+        "secretos_ilegibles": settings.secretos_ilegibles(),
     }
 
 

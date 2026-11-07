@@ -43,6 +43,14 @@ pueden solaparse dentro de un `write_text`+`os.replace`. No hay dos escritores
 concurrentes del mismo almacén (ver el informe de la tarea T16), así que no se
 añade ningún candado.
 
+Lo que SÍ cambió (T13b, advisory del verificador sobre 562c777): el `.tmp` ya no
+se llama `<archivo>.tmp`, que era un nombre FIJO y hacía que dos escritores del
+mismo almacén se pisaran (en Windows el segundo falla con «WinError 32/5»: seguro,
+pero con ruido). Ahora lleva un sufijo único por llamada (pid + `secrets.token_hex`)
+en la MISMA carpeta, y sigue borrándose donde se creó. La sección A2 fija lo que
+importa: nombres distintos por llamada y dos cortes seguidos sin residuo. No se
+lanzan procesos de verdad: la garantía es única + limpieza, no paralelismo.
+
 TODO EN PROCESO y en carpetas de usar y tirar: `NEXUS_DATA_DIR` y
 `NEXUS_CONFIG_DIR` se apuntan ANTES de importar el backend, así que no se lee ni
 se escribe un solo byte de los datos o la configuración del operador.
@@ -258,6 +266,82 @@ if atomicos is not None:
           f"tras el corte el original ha cambiado: {_texto(_sonda)!r}")
     check(not _basura_tmp(_sonda.parent),
           f"tras el corte queda un .tmp huérfano: {_basura_tmp(_sonda.parent)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+print("\n== A2) el .tmp es ÚNICO por llamada: dos escritores no chocan (T13b) ==")
+# ══════════════════════════════════════════════════════════════════════════
+# El nombre del `.tmp` era fijo (`<archivo>.tmp`), así que dos escritores del
+# mismo almacén se pisaban: en Windows el segundo falla con «WinError 32/5» y la
+# escritura se rechaza (falla SEGURO, pero con ruido que el operador ve en cuanto
+# una herramienta guarda mientras la app está abierta). Con un sufijo único por
+# llamada, cada uno publica su propio archivo y el `os.replace` sigue siendo
+# indivisible. Lo que se fija aquí es ÚNICO + LIMPIEZA; no se lanzan procesos.
+if atomicos is None:
+    check(False, "sin ayudante no hay .tmp único que comprobar")
+else:
+    _sonda2 = _DATA / "sonda" / "unico.json"
+    _borra(_sonda2)
+
+    _real_replace = os.replace
+
+    def _nombres_de_tmp(veces: int) -> list[Path]:
+        """Los `.tmp` que el ayudante usa de verdad, apuntados al publicar."""
+        vistos: list[Path] = []
+
+        def _apunta(src, dst):
+            vistos.append(Path(src))
+            return _real_replace(src, dst)
+
+        os.replace = _apunta
+        try:
+            for n in range(veces):
+                atomicos.escribir_json_atomico(_sonda2, {"n": n})
+        finally:
+            os.replace = _real_replace
+        return vistos
+
+    _usados = _nombres_de_tmp(2)
+    check(len(_usados) == 2, f"el ayudante no publicó dos veces: {_usados}")
+    check(_usados[0] != _usados[1],
+          f"el .tmp es el MISMO en las dos llamadas ({_usados[0].name}): dos escritores "
+          "del mismo almacén chocan en Windows")
+    check(all(t.parent == _sonda2.parent for t in _usados),
+          f"algún .tmp no está en la carpeta del destino: {[str(t.parent) for t in _usados]}")
+    check(all(t.name.startswith(_sonda2.name) and t.name.endswith(".tmp") for t in _usados),
+          f"el .tmp ya no se reconoce como el del destino: {[t.name for t in _usados]}")
+    check(not any(t.exists() for t in _usados),
+          "un .tmp se ha quedado en el disco después de publicar")
+    check(not _basura_tmp(_sonda2.parent), f"queda basura .tmp: {_basura_tmp(_sonda2.parent)}")
+
+    # Dos cortes SEGUIDOS (dos intentos de escritura que mueren justo antes del
+    # reemplazo): cada uno usa su propio `.tmp`, ninguno deja residuo y el
+    # archivo bueno sigue siendo el de antes.
+    _borra(_sonda2)
+    atomicos.escribir_json_atomico(_sonda2, {"bueno": True})
+    _rotos: list[Path] = []
+
+    def _apunta_y_muere(src, dst):
+        _rotos.append(Path(src))
+        raise OSError("simulacion de corte a mitad de escritura (dos veces)")
+
+    for _intento in (1, 2):
+        os.replace = _apunta_y_muere
+        try:
+            atomicos.escribir_json_atomico(_sonda2, {"bueno": False, "intento": _intento})
+            check(False, f"el ayudante se ha tragado el corte del intento {_intento}")
+        except OSError:
+            check(True, "")
+        finally:
+            os.replace = _real_replace
+    check(len(_rotos) == 2 and _rotos[0] != _rotos[1],
+          f"los dos cortes usaron el mismo .tmp ({[t.name for t in _rotos]}): no son únicos")
+    check(_texto(_sonda2) == '{"bueno": true}',
+          f"tras dos cortes el archivo bueno ha cambiado: {_texto(_sonda2)!r}")
+    check(not _basura_tmp(_sonda2.parent),
+          f"tras dos cortes queda un .tmp huérfano: {_basura_tmp(_sonda2.parent)}")
+    check(not any(t.exists() for t in _rotos),
+          "algún .tmp de un corte sigue en el disco")
 
 
 # ══════════════════════════════════════════════════════════════════════════

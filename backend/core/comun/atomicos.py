@@ -29,6 +29,17 @@ síncrona, así que dos corrutinas no pueden solaparse entre el `.tmp` y el
 `os.replace`. El candado haría falta el día que dos hilos (o dos procesos)
 escriban el mismo almacén, y ese día hay que traerlo con su prueba.
 
+EL NOMBRE DEL `.tmp` ES ÚNICO (tarea T13b, advisory del verificador independiente
+sobre 562c777). Era `<archivo>.tmp`, un nombre FIJO: cuando dos escritores —dos
+procesos de nexus, o nexus y una herramienta suya— guardaban el mismo almacén a
+la vez, el segundo chocaba con el `.tmp` del primero y en Windows recibía
+«WinError 32/5». Eso falla SEGURO (el archivo bueno no se toca), pero es ruido que
+el operador ve en cuanto guarda algo mientras la app está abierta. Con un sufijo
+único por llamada —pid + `secrets.token_hex`— cada uno escribe SU archivo y
+publica con `os.replace`; el último en publicar gana, y siempre con un archivo
+entero. No se añade ningún candado: esto no promete orden, promete que nadie
+falla por el nombre del vecino.
+
 `tests/unit/core/test_escrituras_atomicas.py` comprueba, almacén por almacén,
 que una escritura interrumpida deja intacto el archivo anterior, que el formato
 en disco no cambia y que nadie vuelve a escribir un JSON de runtime con
@@ -38,8 +49,25 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 from pathlib import Path
+
+
+def _tmp_unico(path: Path) -> Path:
+    """Un `.tmp` NUEVO en la MISMA carpeta que el destino.
+
+    En la misma carpeta a propósito: `os.replace` es indivisible solo dentro del
+    mismo volumen, así que un temporal en `%TEMP%` convertiría la publicación en
+    una copia (y volvería el archivo a medias que este módulo existe para evitar).
+
+    Único por llamada: pid + 4 bytes al azar. El pid separa procesos y el azar
+    separa dos escrituras del mismo proceso (por ejemplo, dos corrutinas que
+    despiertan a la vez con la misma orden del tablero). El nombre sigue
+    empezando por el del destino y acabando en `.tmp` para que cualquiera —el
+    operador, una limpieza, las pruebas— lo reconozca como lo que es.
+    """
+    return path.with_name(f"{path.name}.{os.getpid():x}.{secrets.token_hex(4)}.tmp")
 
 
 def _respalda(path: Path) -> None:
@@ -76,7 +104,7 @@ def escribir_json_atomico(path, data, *, indent: int | None = None,
     path.parent.mkdir(parents=True, exist_ok=True)
     if respaldo:
         _respalda(path)
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = _tmp_unico(path)
     try:
         tmp.write_text(json.dumps(data, indent=indent, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, path)                                  # indivisible

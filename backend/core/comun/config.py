@@ -318,8 +318,18 @@ def _abrir_secretos(crudos: dict) -> tuple[dict, dict, dict]:
         Windows; el disco siempre lleva la marca).
       * `ajenos` — nombre → lo que hay en disco, TAL CUAL, cuando aquí no se
         puede usar: cifrado con otra máquina u otra cuenta de Windows, formato
-        de cifrado que no conocemos, o un valor que no es texto. Se conserva en
-        cada escritura para no destruir la clave del operador.
+        de cifrado que no conocemos, o un valor que no es texto (un número, un
+        booleano, un objeto). Eso es lo que se devuelve al archivo byte a byte
+        en cada escritura, para no destruir ni reinterpretar lo que hay.
+
+        OJO A LA FRONTERA, que es lo que T13 contó mal: «no es un secreto» NO
+        significa «no se toca». Cualquier valor de TEXTO en claro se cifra al
+        migrar, aunque su nombre no esté en `Settings.SECRET_KEYS` — el almacén
+        entero es de credenciales, así que no elige por nombre. De esos valores
+        sobrevive el VALOR, comprobado uno a uno con la ida y vuelta
+        `descifrar(cifrar(v)) == v`; sus BYTES en disco cambian a propósito
+        (cifrar cambia los bytes, ésa es la idea). Byte a byte sólo se conserva
+        lo que aquí no se puede usar: lo que no es texto y los blobs ajenos.
       * `marcas` — nombre → el `dpapi:v1:` que ya estaba, para no volver a
         cifrar (DPAPI añade sal: el blob cambiaría) lo que no ha cambiado. La
         migración actualiza este diccionario EN SU SITIO tras escribir.

@@ -130,15 +130,33 @@ _INOCENTE = re.compile(
 # de ~350 caracteres tiene ~340 ventanas donde eso puede pasar, y con cientos de
 # claves en el archivo el falso positivo deja de ser teórico. Y un falso positivo
 # aquí ABORTA una subida legítima, que es la forma más rápida de que el operador
-# desactive el escáner y entonces no quede ninguno.
+# desactive el escáner y entonces no quede ninguno. Así que primero se QUITA el
+# blob y después se mira: lo que decide es la FORMA del valor cifrado, no su
+# etiqueta. Un `sk-…` en crudo sigue saltando igual.
 #
-# Así que primero se QUITA el blob y después se mira: lo que decide es la
-# etiqueta, no el contenido cifrado. Un `sk-…` en crudo sigue saltando igual.
-_BLOBS_CIFRADOS = re.compile(r"dpapi:v[0-9]+:[A-Za-z0-9+/=]+")
+# Un blob de DPAPI mide ~320 caracteres de base64 (medido: 320 para un valor de
+# un carácter, 344 para una clave normal). El mínimo de 40 deja margen de sobra y,
+# sobre todo, deja FUERA de la neutralización lo que sólo se parece a un blob.
+_LARGO_MINIMO_BLOB = 40
+
+# LA FORMA, NO LA ETIQUETA. Se neutraliza `dpapi:vN:` PEGADO a un tramo largo de
+# base64 ESTÁNDAR (el que emite `cripto.cifrar()`: sin `-` ni `_`) con su relleno
+# `=` opcional y CERRADO ahí mismo. Antes el patrón era `dpapi:v[0-9]+:[A-Za-z0-9+/=]+`,
+# que se comía cualquier cosa que empezara por la etiqueta: `"dpapi:v1:sk-proj-…"`
+# quedaba en `-proj-…`, el patrón `sk-proj-…` ya no casaba y la clave pasaba
+# (advisory del verificador independiente sobre 562c777). El `(?![…])` final es
+# lo que impide que la marca se coma medio token: si el valor sigue con `_`, `-`
+# o más base64, NO tiene la forma real y se deja tal cual para que se mire.
+_BLOBS_CIFRADOS = re.compile(
+    r"dpapi:v[0-9]+:[A-Za-z0-9+/]{%d,}={0,2}(?![A-Za-z0-9+/=_-])" % _LARGO_MINIMO_BLOB)
 
 
 def _sin_blobs_cifrados(linea: str) -> str:
-    """La línea con los valores cifrados sustituidos por una marca inofensiva."""
+    """La línea con los valores cifrados sustituidos por una marca inofensiva.
+
+    Sólo se sustituye lo que tiene la FORMA de un valor cifrado (ver
+    `_BLOBS_CIFRADOS`). Neutralizar por la etiqueta y no por la forma era el
+    agujero: un secreto en crudo con `dpapi:v1:` delante se escondía."""
     return _BLOBS_CIFRADOS.sub("dpapi:<cifrado>", linea)
 
 
@@ -320,6 +338,38 @@ CASOS_CRUDO_JUNTO_A_BLOB = [
      "una clave en crudo al lado de un valor cifrado"),
 ]
 
+# FORMA REAL FRENTE A DISFRAZ (advisory del verificador independiente sobre
+# 562c777). El alfabeto del base64 ESTÁNDAR que emite `cripto.cifrar()` no tiene
+# `-` ni `_`, y un blob de DPAPI mide ~320 caracteres. Así que la neutralización
+# sólo puede tragarse `dpapi:vN:` PEGADO a un tramo LARGO de base64 y cerrado ahí
+# mismo. Si se traga cualquier cosa que empiece por la etiqueta, un secreto en
+# crudo se esconde detrás de dos letras («dpapi:v1:AA» + «sk-…») y el escáner lo
+# deja pasar: eso es un agujero, no una comodidad. Cada caso de aquí lo fija.
+CASOS_BLOB_FALSO = [
+    # El caso que encontró el verificador: la etiqueta PEGADA a la clave, dentro
+    # de la misma cadena. La neutralización vieja se comía `dpapi:v1:sk` y dejaba
+    # `-proj-…`, así que el patrón `sk-proj-…` ya no casaba y la clave pasaba.
+    ('"openai_api_key": "dpapi:v1:sk-proj-' + "A" * 32 + '",',
+     "una clave PEGADA a la etiqueta (la neutralización vieja se comía «sk»)"),
+    ('"openai_api_key": "dpapi:v1:AA" + "sk-proj-' + "A" * 32 + '",',
+     "un secreto en crudo DISFRAZADO con la etiqueta del cifrado"),
+    ('"openai_api_key": "sk-' + "A" * 32 + '",',
+     "una clave en crudo, sin etiqueta ninguna"),
+    ('"a": "dpapi:v1:' + "A" * 40 + '_' + 'sk-proj-' + "A" * 32 + '",',
+     "una etiqueta con «_» (no es base64 estándar) y un secreto detrás"),
+]
+# Y la otra mitad de lo mismo: lo que NO tiene la forma que produce el cifrado no
+# se neutraliza. Si se neutralizara, se estaría tapando texto que no es un valor
+# cifrado, que es exactamente el agujero de arriba.
+CASOS_BLOB_FALSO_NO_NEUTRALIZAR = [
+    ('"a": "dpapi:v1:' + "A" * 40 + '_' + '",',
+     "una etiqueta con «_» dentro (no es base64 estándar)"),
+    ('"a": "dpapi:v1:' + "A" * 40 + '-' + '",',
+     "una etiqueta con «-» dentro (no es base64 estándar)"),
+    ('"a": "dpapi:v1:AA" + "sk-proj-' + "A" * 32 + '",',
+     "la etiqueta pegada a dos letras, sin un tramo largo de base64"),
+]
+
 
 def autotest() -> int:
     fallos = 0
@@ -362,6 +412,27 @@ def autotest() -> int:
             print(f"  ✔ sigue detectando {desc} → {pillado}")
         else:
             print(f"  ✖ SE LE ESCAPA {desc} (el blob tapó la clave)\n      {linea[:90]}")
+            fallos += 1
+    print()
+    for linea, desc in CASOS_BLOB_FALSO:
+        pelada = _sin_blobs_cifrados(linea)
+        pillado = next((d for rx, d in _PELIGRO_RX if rx.search(pelada)), "")
+        if pillado:
+            print(f"  ✔ sigue detectando {desc} → {pillado}")
+        elif pelada != linea:
+            print(f"  ✖ NEUTRALIZADO Y COLADO: {desc}"
+                  f"\n      {linea[:90]}")
+            fallos += 1
+        else:
+            print(f"  ✖ SE LE ESCAPA {desc}\n      {linea[:90]}")
+            fallos += 1
+    for linea, desc in CASOS_BLOB_FALSO_NO_NEUTRALIZAR:
+        pelada = _sin_blobs_cifrados(linea)
+        if pelada == linea:
+            print(f"  ✔ no neutraliza {desc}")
+        else:
+            print(f"  ✖ NEUTRALIZA {desc}: se come texto que no es un valor cifrado"
+                  f"\n      {linea[:90]}")
             fallos += 1
     print("─" * 60)
     print("Todo correcto." if not fallos else f"{fallos} fallo(s) en el detector.")

@@ -24,7 +24,21 @@ Qué se prueba, y por qué:
      control C-09 no se toca. Se comprueba por la interfaz HTTP de verdad, en
      proceso (httpx.ASGITransport, sin lifespan ni puertos).
   I. El escáner de antes de subir NO confunde un blob `dpapi:v1:` con una clave
-     (no aborta una subida legítima) y SIGUE detectando una `sk-…` en crudo.
+     (no aborta una subida legítima) y SIGUE detectando una `sk-…` en crudo —
+     tampoco si va PEGADA a la etiqueta (`"dpapi:v1:sk-…"`) ni disfrazada detrás
+     de dos letras (`"dpapi:v1:AA" + "sk-…"`), y no neutraliza un valor con `_`
+     o `-`, que no es base64 estándar (advisories del verificador sobre 562c777).
+  J. Un almacén que NO se puede escribir (solo lectura, o el destino bloqueado
+     por otra copia de nexus) se queda byte a byte igual, avisa en castellano,
+     conserva las claves en memoria y no deja ni un `.tmp`.
+  K. Un valor que NO es texto (número, booleano, nulo, objeto) sobrevive intacto
+     a la migración y a cualquier escritura, se nombra en los avisos y no rompe
+     `secret()`, que cae a la variable de entorno.
+  L. Poner "" en una clave que aquí no se puede abrir la borra del archivo —solo
+     a ella— y deja intactos los vecinos.
+  M. `GET /api/status` publica los NOMBRES de esas claves ilegibles (y nunca sus
+     valores ni la marca `dpapi:`): un fallo de descifrado por DPAPI no puede
+     quedarse sólo en la consola del que importó el módulo.
 
 NUNCA se toca el material del operador: `NEXUS_CONFIG_DIR` / `NEXUS_DATA_DIR`
 apuntan a carpetas de usar y tirar ANTES de importar el backend, cada caso usa su
@@ -481,6 +495,45 @@ if escaner is not None:
     check(any(rx.search(escaner._sin_blobs_cifrados(crudo_google)) for rx, _d in escaner._PELIGRO_RX),
           "el escáner ya no detecta una clave de Google en crudo")
 
+    # 9c) ADVISORY DEL VERIFICADOR SOBRE 562c777: la neutralización sólo puede
+    # comerse la FORMA que produce de verdad `cripto.cifrar()` —base64 ESTÁNDAR
+    # (sin `-` ni `_`), un tramo largo, pegado a la etiqueta y cerrado ahí—. Si se
+    # come cualquier cosa que empiece por «dpapi:v1:», un secreto en crudo se
+    # esconde detrás de la etiqueta y el escáner lo deja pasar.
+    _pegada = '"openai_api_key": "dpapi:v1:sk-proj-' + "A" * 32 + '",'
+    _pelada = escaner._sin_blobs_cifrados(_pegada)
+    check(_pelada == _pegada,
+          "el escáner neutraliza una clave PEGADA a la etiqueta: se come el «sk» y la clave pasa")
+    check(any(rx.search(_pelada) for rx, _d in escaner._PELIGRO_RX),
+          "una clave pegada a la etiqueta del cifrado se le escapa al escáner")
+
+    _disfrazada = '"openai_api_key": "dpapi:v1:AA" + "sk-proj-' + "A" * 32 + '",'
+    check(any(rx.search(escaner._sin_blobs_cifrados(_disfrazada))
+              for rx, _d in escaner._PELIGRO_RX),
+          "un secreto disfrazado con «dpapi:v1:AA» delante se le escapa al escáner")
+
+    for _sufijo in ("_", "-"):
+        _parecido = '"a": "dpapi:v1:' + "A" * 40 + _sufijo + '",'
+        check(escaner._sin_blobs_cifrados(_parecido) == _parecido,
+              f"el escáner neutraliza un valor con «{_sufijo}» que NO es base64 estándar: "
+              "se come texto sospechoso")
+
+    # La forma REAL se sigue dejando pasar, con y sin DPAPI disponible aquí.
+    _largo = '"gemini_api_key": "' + cripto.PREFIJO + "AIza" + "A" * 300 + '",'
+    _pelada = escaner._sin_blobs_cifrados(_largo)
+    check(cripto.PREFIJO not in _pelada,
+          "un blob largo (la forma real) ya no se neutraliza: saltaría una alarma falsa")
+    check(not any(rx.search(_pelada) for rx, _d in escaner._PELIGRO_RX),
+          "un blob largo con «AIza» dentro hace abortar la subida")
+    if HAY_DPAPI:
+        _real = '"openai_api_key": "' + cripto.cifrar(V1) + '",'
+        _pelada = escaner._sin_blobs_cifrados(_real)
+        check(cripto.PREFIJO not in _pelada and
+              not any(rx.search(_pelada) for rx, _d in escaner._PELIGRO_RX),
+              "un blob REAL de DPAPI (320 caracteres) hace abortar la subida")
+    else:
+        _saltados.append("9c) el blob real del escáner (necesita DPAPI)")
+
     buf = io.StringIO()
     try:
         with redirect_stdout(buf):
@@ -567,6 +620,213 @@ else:
               "proteger_backups() ha borrado el token del operador")
     finally:
         shutil.rmtree(cfg, ignore_errors=True)
+
+# ══════════════════════════════════════════════════════════════════════════
+print("== 11) almacén de SOLO LECTURA: no se toca, se avisa y no queda .tmp ==")
+# ══════════════════════════════════════════════════════════════════════════
+# El caso real que ve el operador: el archivo está bloqueado (otra copia de nexus
+# abierta, el antivirus, una copia de seguridad en curso). La migración tiene que
+# fallar HACIA LO SEGURO: el archivo queda byte a byte como estaba, se avisa en
+# castellano, las claves de esta sesión siguen sirviendo y no queda basura .tmp.
+alm = Almacen({"openai_api_key": V1, "telegram_bot_token": V2})
+antes = alm.bytes()
+modo_previo = alm.ruta.stat().st_mode
+_solo_lectura = False
+try:
+    os.chmod(alm.ruta, 0o444)
+    # ¿De verdad está protegido aquí? En Windows el bit de escritura ES el
+    # atributo de solo lectura, pero como root (o en un sistema de archivos que
+    # lo ignore) no lo estaría y la prueba no probaría nada. Se comprueba.
+    try:
+        with open(alm.ruta, "a", encoding="utf-8"):
+            pass
+        _solo_lectura = False
+    except OSError:
+        _solo_lectura = True
+    if _solo_lectura:
+        ajustes, avisos = alm.cargar()
+        etiqueta = "con el archivo en solo lectura de verdad"
+    else:
+        # Etiquetado: aquí no se puede imponer solo lectura, así que se dobla el
+        # MISMO fallo que da Windows (WinError 5) al reemplazar un destino en uso.
+        _saltados.append("11) solo lectura impuesto por el sistema de archivos")
+        _real_replace = os.replace
+
+        def _bloqueado(_src, _dst):
+            raise PermissionError(13, "Acceso denegado (simulado: archivo en uso)")
+
+        os.replace = _bloqueado
+        try:
+            ajustes, avisos = alm.cargar()
+        finally:
+            os.replace = _real_replace
+        etiqueta = "con el reemplazo bloqueado (equivalente etiquetado)"
+
+    check(alm.bytes() == antes,
+          f"{etiqueta} el almacén se ha reescrito igual: tenía que quedar intacto")
+    check(alm.crudo() == {"openai_api_key": V1, "telegram_bot_token": V2},
+          f"{etiqueta} el almacén ha quedado medio migrado (parte cifrado, parte en claro)")
+    check("AVISO" in avisos and "secrets.json" in avisos,
+          f"{etiqueta} no se avisa de que no se ha podido guardar: {avisos.strip()[:160]}")
+    check(V1 not in avisos and V2 not in avisos,
+          "el aviso de fallo de escritura imprime el VALOR de una clave")
+    check(ajustes.secret("openai_api_key") == V1,
+          f"{etiqueta} nexus se queda sin la clave (tiene que seguir en memoria)")
+    check(ajustes.secret("telegram_bot_token") == V2,
+          f"{etiqueta} nexus pierde la segunda clave")
+    check(not list(alm.carpeta.glob("*.tmp")),
+          f"{etiqueta} el .tmp se queda en la carpeta: {[x.name for x in alm.carpeta.glob('*.tmp')]}")
+    check(set(alm.crudo()) == {"openai_api_key", "telegram_bot_token"},
+          f"{etiqueta} el almacén cambió de claves al no poder escribirse")
+finally:
+    os.chmod(alm.ruta, modo_previo | 0o600)
+alm.borrar()
+
+# ══════════════════════════════════════════════════════════════════════════
+print("== 12) un valor que NO es texto sobrevive a cualquier escritura ==")
+# ══════════════════════════════════════════════════════════════════════════
+# El almacén es un JSON cualquiera: si una versión futura (o el operador a mano)
+# deja ahí un número, un booleano, un nulo o un objeto, NADA de esto puede perder
+# ni reescribir ese valor. No se entiende, así que no se usa — pero no es de
+# nexus borrarlo.
+_ajenos = {"int_key": 5, "bool_key": True, "nul_key": None, "dict_key": {"a": 1}}
+alm = Almacen({**_ajenos, "telegram_bot_token": V2})
+ajustes, avisos = alm.cargar()
+crudo = alm.crudo()
+for _nombre, _valor in _ajenos.items():
+    check(crudo.get(_nombre) == _valor and type(crudo.get(_nombre)) is type(_valor),
+          f"tras migrar, «{_nombre}» ya no está EXACTAMENTE como estaba: {crudo.get(_nombre)!r}")
+    check(_nombre in avisos,
+          f"el aviso no nombra «{_nombre}»: el operador no sabría qué se ha ignorado")
+    check(_nombre in _ilegibles(ajustes),
+          f"«{_nombre}» no aparece entre los valores que nexus no puede usar")
+check(ajustes.secret("telegram_bot_token") == V2,
+      "un valor que no es texto ha tumbado el resto del almacén")
+# Y una escritura normal tampoco los toca.
+with _Doble(config, "SECRETS_FILE", alm.ruta):
+    ajustes.set_secret("openai_api_key", V1)
+crudo = alm.crudo()
+for _nombre, _valor in _ajenos.items():
+    check(crudo.get(_nombre) == _valor and type(crudo.get(_nombre)) is type(_valor),
+          f"escribir otra clave ha reescrito o perdido «{_nombre}»: {crudo.get(_nombre)!r}")
+check(ajustes.secret("openai_api_key") == V1,
+      "la clave nueva no se lee después de guardarla al lado de valores no-texto")
+# `secret()` sobre un nombre así no revienta: cae a la variable de entorno, como
+# cualquier clave que no esté en el almacén.
+os.environ["INT_KEY"] = "desde-el-entorno"
+try:
+    check(ajustes.secret("int_key") == "desde-el-entorno",
+          "secret() sobre un valor no-texto no cae a la variable de entorno")
+    check(ajustes.secret("nul_key") == "",
+          "secret() sobre un nulo no devuelve vacío")
+finally:
+    os.environ.pop("INT_KEY", None)
+alm.borrar()
+
+# ══════════════════════════════════════════════════════════════════════════
+print("== 13) borrar un secreto ilegible: desaparece del disco y los vecinos quedan ==")
+# ══════════════════════════════════════════════════════════════════════════
+# Poner «» es la forma que tiene el operador de quitarse de en medio una clave
+# que aquí no se puede abrir (otra máquina, otra cuenta de Windows). Antes no se
+# podía: el blob volvía al archivo en cada escritura. Ahora se borra, y solo ese.
+if not HAY_DPAPI:
+    _saltados.append("13) borrado de un blob ajeno (necesita DPAPI)")
+else:
+    ajeno = cripto.PREFIJO + base64.b64encode(b"basura de otra maquina" * 4).decode("ascii")
+    alm = Almacen({"openai_api_key": ajeno, "telegram_bot_token": V2,
+                   "anthropic_api_key": V1})
+    ajustes, _avisos = alm.cargar()
+    check("openai_api_key" in _ilegibles(ajustes),
+          "el blob ajeno no se nombra como ilegible antes de borrarlo")
+    check(ajustes.secret("openai_api_key") == "",
+          "un blob ajeno devuelve algo antes de borrarlo")
+    with _Doble(config, "SECRETS_FILE", alm.ruta):
+        ajustes.set_secret("openai_api_key", "")
+    crudo = alm.crudo()
+    check("openai_api_key" not in crudo,
+          "tras borrarlo, el secreto ilegible SIGUE en el archivo (no se puede quitar)")
+    check(ajeno not in alm.bytes().decode("utf-8"),
+          "el blob ilegible sigue escrito en el archivo después de borrarlo")
+    check("openai_api_key" not in _ilegibles(ajustes),
+          "el secreto borrado sigue apareciendo entre los ilegibles")
+    check(ajustes.secret("openai_api_key") == "",
+          "el secreto borrado sigue devolviendo un valor")
+    check(ajustes.secret("telegram_bot_token") == V2,
+          "borrar un ilegible se ha llevado por delante a su vecino")
+    check(ajustes.secret("anthropic_api_key") == V1,
+          "borrar un ilegible se ha llevado por delante al segundo vecino")
+    check(cripto.es_cifrado(crudo.get("telegram_bot_token", ""))
+          and cripto.es_cifrado(crudo.get("anthropic_api_key", "")),
+          "los vecinos han quedado sin cifrar después del borrado")
+    alm.borrar()
+
+# ══════════════════════════════════════════════════════════════════════════
+print("== 14) GET /api/status publica los NOMBRES de las que aquí no se abren ==")
+# ══════════════════════════════════════════════════════════════════════════
+# Advisory iv sobre 562c777: un fallo de descifrado de DPAPI sólo se veía por la
+# consola AL IMPORTAR el módulo. En una ventana sin consola —el .exe, y el día
+# que nexus arranca como servicio— eso es un silencio: el operador ve «no hay
+# clave» cuando lo que pasa es «la clave está y no se puede abrir desde esta
+# cuenta». El estado que el HUD ya pide tiene que poder decirlo. NUNCA devuelve
+# valores, SOLO los nombres: un nombre no es un secreto.
+if servidor is None:
+    check(False, "sin la aplicación no se puede comprobar /api/status")
+else:
+    async def _pide_estado():
+        transporte = httpx.ASGITransport(app=servidor.app, client=("127.0.0.1", 4321))
+        async with httpx.AsyncClient(transport=transporte,
+                                     base_url="http://127.0.0.1:8177") as c:
+            return await c.get("/api/status", headers={"host": "127.0.0.1:8177"})
+
+    try:
+        estado = asyncio.run(_pide_estado())
+    except Exception as exc:                                   # noqa: BLE001
+        check(False, f"GET /api/status ha reventado: {exc}")
+        estado = None
+    if estado is not None:
+        check(estado.status_code == 200, f"GET /api/status devolvió {estado.status_code}")
+        cuerpo = estado.json()
+        check("secretos_ilegibles" in cuerpo,
+              "GET /api/status no publica secretos_ilegibles: el fallo de descifrado "
+              "sigue siendo invisible fuera de la consola")
+        check(cuerpo.get("secretos_ilegibles") == [],
+              f"en un estado limpio la lista no está vacía: {cuerpo.get('secretos_ilegibles')!r}")
+        check({"metrics", "memory", "stt", "tts", "llm", "skills"} <= set(cuerpo),
+              f"el estado ha perdido datos que ya publicaba: {sorted(cuerpo)}")
+
+    if not HAY_DPAPI:
+        _saltados.append("14) la clave ilegible en /api/status (necesita DPAPI)")
+    else:
+        ajeno = cripto.PREFIJO + base64.b64encode(b"basura de otra maquina" * 4).decode("ascii")
+        alm = Almacen({"openai_api_key": ajeno, "telegram_bot_token": V1})
+        with _Doble(config, "SECRETS_FILE", alm.ruta):
+            ajustes, _avisos = alm.cargar()
+        check("openai_api_key" in _ilegibles(ajustes),
+              "el almacén de la prueba no tiene una clave ilegible: no probaría nada")
+        # `app.py` lee el `settings` de su módulo: se le da el almacén de la prueba.
+        with _Doble(servidor, "settings", ajustes):
+            try:
+                estado = asyncio.run(_pide_estado())
+            except Exception as exc:                           # noqa: BLE001
+                check(False, f"GET /api/status ha reventado con un almacén ilegible: {exc}")
+                estado = None
+        if estado is not None:
+            texto = estado.text
+            datos = estado.json()
+            check(estado.status_code == 200,
+                  f"GET /api/status devolvió {estado.status_code} con un almacén ilegible")
+            check(datos.get("secretos_ilegibles") == ["openai_api_key"],
+                  "el estado no nombra la clave que aquí no se puede abrir: "
+                  f"{datos.get('secretos_ilegibles')!r}")
+            check("dpapi:" not in texto,
+                  "el estado publica la marca del cifrado (no aporta nada y confunde)")
+            check(ajeno not in texto,
+                  "el estado publica el BLOB que no se puede abrir")
+            check(V1 not in texto,
+                  "el estado publica el VALOR de una clave en claro")
+            check("telegram_bot_token" not in (datos.get("secretos_ilegibles") or []),
+                  "el estado nombra como ilegible una clave que sí se puede usar")
+        alm.borrar()
 
 # ══════════════════════════════════════════════════════════════════════════
 print("== 10) el almacén de esta suite nunca fue el del operador ==")
