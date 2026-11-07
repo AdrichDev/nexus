@@ -232,9 +232,12 @@ class _TransporteEmb:
 
     def __init__(self):
         self.llamadas: list[tuple[str, dict | None, dict | None]] = []
+        self.cabeceras: list[dict] = []      # T19b: dónde viaja la clave
 
     def post(self, url, json=None, params=None, headers=None, timeout=None, **kw):
         self.llamadas.append((url, json, params))
+        if headers:
+            self.cabeceras.append(dict(headers))
         if "/api/embeddings" in url:
             return _Resp({"embedding": [0.1, 0.2, 0.3]})
         if ":embedContent" in url:
@@ -769,6 +772,45 @@ def test_los_embeddings_se_cuentan():
         _hx.post = _REAL_HTTPX_POST
 
 
+def test_gemini_no_manda_la_clave_en_la_url():
+    """T19b / SEC-13: la clave de Gemini sale de la URL también en embeddings.
+
+    `ce90957` movió los tres sitios de `llm.py` a la cabecera `x-goog-api-key`,
+    pero `rag._emb_gemini` se quedó mandándola como `params={"key": …}`. No es
+    cosmética: httpx arma el mensaje del `HTTPStatusError` desde
+    `request.url`, así que un solo log con el detalle técnico se llevaba la key.
+    Se prueba por la puerta pública (`_embed_sync`) con un transporte doblado, sin
+    red y con una clave SINTÉTICA.
+    """
+    print("· el embedding de Gemini lleva la clave en cabecera, no en la URL")
+    _reset()
+    clave_sintetica = "clave-de-prueba-solo-para-este-test-0001"
+    original = settings.secret("gemini_api_key")
+    doble = _doblado_emb()
+    import httpx as _hx
+    try:
+        settings.set_secret("gemini_api_key", clave_sintetica)
+        vector = rag._embed_sync("un texto cualquiera", proveedor="gemini")
+        check(vector == [0.7, 0.8], f"el embedding de gemini se devuelve ({vector})")
+        urls = doble.urls()
+        check(len(urls) == 1 and ":embedContent" in urls[0],
+              f"salió UNA petición a embedContent ({urls})")
+        check("key=" not in urls[0],
+              f"LA CLAVE VIAJA EN LA URL: {urls[0]!r}")
+        cabeceras = doble.cabeceras or [{}]
+        check(any(h.get("x-goog-api-key") == clave_sintetica for h in cabeceras),
+              f"la cabecera x-goog-api-key no lleva la clave ({cabeceras})")
+        # Y la segunda barrera: ni el URL registrado ni las cabeceras del resto
+        # pueden contener la clave como texto suelto.
+        volcado = " ".join(urls) + " " + str(cabeceras)
+        check(clave_sintetica in volcado and clave_sintetica not in " ".join(urls),
+              "la clave debe estar en la cabecera y en NINGÚN trozo de URL")
+    finally:
+        _hx.post = _REAL_HTTPX_POST
+        if original:
+            settings.set_secret("gemini_api_key", original)
+
+
 def test_el_techo_frena_los_embeddings_de_nube():
     print("· con el techo agotado, un embedding de nube no sale; uno local sí")
     _reset("openai")
@@ -847,6 +889,7 @@ def main() -> int:
                   test_un_contador_roto_no_rompe_el_chat,
                   test_la_clase_embed_esta_en_el_contador,
                   test_los_embeddings_se_cuentan,
+                  test_gemini_no_manda_la_clave_en_la_url,
                   test_el_techo_frena_los_embeddings_de_nube):
             try:
                 f()

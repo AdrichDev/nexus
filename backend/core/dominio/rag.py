@@ -160,9 +160,15 @@ def _emb_gemini(text: str):
     model = settings.get("embed_model_gemini", "text-embedding-004")
     entrada = text[:8000]
     presupuesto.exigir_sync("gemini", len(entrada), local=False, clase="embed")
+    # SEC-13 (T24 lo arregló en llm.py; esto quedaba igual que estaba): la clave
+    # NO viaja en la URL. `params={"key": …}` acaba en el mensaje de
+    # HTTPStatusError que construye httpx desde `request.url`, o sea en cualquier
+    # log o detalle técnico que se guarde. Google acepta la misma clave en la
+    # cabecera `x-goog-api-key`, que no aparece en ninguna URL.
     r = httpx.post(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent",
-        params={"key": key}, json={"content": {"parts": [{"text": entrada}]}}, timeout=15)
+        headers={"x-goog-api-key": key}, json={"content": {"parts": [{"text": entrada}]}},
+        timeout=15)
     r.raise_for_status()
     presupuesto.anotar_sync("gemini", "embed", caracteres_entrada=len(entrada),
                             local=False)
