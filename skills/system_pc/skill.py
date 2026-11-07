@@ -30,6 +30,34 @@ except ImportError:
 
 SHOTS_DIR = Path(__file__).resolve().parents[2] / "data" / "captures"
 
+# Esquema EXPLÍCITO al principio del texto («file:», «smb:», «C:», «https:»).
+# El `(?!\d)` deja fuera el puerto: «marca.com:8080» no es un esquema, es un
+# dominio con puerto.
+_ESQUEMA_RX = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:(?!\d)")
+_NO_ABRO_ESQUEMA = ("Solo abro páginas http y https: lo que me has dado no es una "
+                    "web, así que no lo abro en tu navegador.")
+
+
+def _negativa_web(url: str) -> str:
+    """La negativa de la guarda de destinos, o '' si esa URL se puede abrir.
+
+    Es la MISMA regla que `net.safe_get` (SEC-11): un enlace que nexus no puede
+    pedir tampoco se le manda abrir al navegador del operador, que además lo
+    haría con su sesión y sus cookies. `file:`, `smb:`, una ruta UNC y
+    `usuario:clave@` entran por el mismo sitio. (T20b)
+    """
+    from backend.core.comun import net
+    return net.rechazo_abrible(url)
+
+
+def _abrir_web(url: str) -> str:
+    """Abre `url` en el navegador SOLO si pasa la guarda. Devuelve la negativa."""
+    negativa = _negativa_web(url)
+    if negativa:
+        return negativa
+    webbrowser.open(url)
+    return ""
+
 # Nombre coloquial → nombre real del ejecutable, para que «cierra el navegador»
 # encuentre chrome.exe y «cierra la calculadora» encuentre calc.exe.
 _ALIAS_PROCESO = {
@@ -1085,13 +1113,23 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         gd = match.groupdict()
         raw = (gd.get("url") or gd.get("url2") or "").strip().rstrip(".?!,;:")
         low_raw = raw.lower()
-        # 1) URL o dominio explícito → directo, sin pensar
-        if raw.startswith("http://") or raw.startswith("https://"):
-            webbrowser.open(raw)
-            return {"reply": f"Abriendo {raw}."}
+        # 0) Si el texto TRAE esquema o pinta de ruta, decide la guarda ANTES de
+        #    inventarle un «https://» delante. Antes esta rama no existía y
+        #    «file:///C:/Windows/win.ini» o «\\evil\share» acababan como
+        #    «https://file://…» y «https://\\evil\share», así que el navegador
+        #    del operador abría lo que le pidieran. (T20b)
+        esquema = _ESQUEMA_RX.match(raw)
+        if (esquema and esquema.group(0).lower() not in ("http:", "https:")) \
+                or raw.startswith(("\\\\", "//", "/", "~")):
+            return {"reply": _negativa_web(raw) or _NO_ABRO_ESQUEMA}
+        # 1) URL o dominio explícito → directo, sin pensar (pero por la guarda)
+        if esquema:                                   # http:// o https://
+            negativa = _abrir_web(raw)
+            return {"reply": negativa or f"Abriendo {raw}."}
         if "." in raw and " " not in raw:
-            webbrowser.open("https://" + raw)
-            return {"reply": f"Abriendo https://{raw}."}
+            url = "https://" + raw
+            negativa = _abrir_web(url)
+            return {"reply": negativa or f"Abriendo {url}."}
         # 2) Webs ya APRENDIDAS (el modelo las dedujo antes) → instantáneo
         import json as _json
         from backend.core.comun.config import DATA_DIR
@@ -1101,8 +1139,17 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         except Exception:
             cache = {}
         if low_raw in cache:
-            webbrowser.open(cache[low_raw])
-            return {"reply": f"Abriendo {raw} ({cache[low_raw]})."}
+            negativa = _abrir_web(str(cache[low_raw]))
+            if not negativa:
+                return {"reply": f"Abriendo {raw} ({cache[low_raw]})."}
+            # Lo aprendido apuntaba a algo interno (o a un fichero): no se abre y
+            # se olvida, para que la próxima vez se deduzca de nuevo por la guarda.
+            cache.pop(low_raw, None)
+            try:
+                cache_file.write_text(_json.dumps(cache, ensure_ascii=False, indent=1),
+                                      encoding="utf-8")
+            except Exception:
+                pass
         # 3) El MODELO razona la URL oficial de CUALQUIER web que le pidas
         #    (sin listas fijas). Si acierta, la memoriza para la próxima vez.
         url = ""
@@ -1124,7 +1171,12 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         except Exception:
             pass
         if url:
-            webbrowser.open(url)
+            negativa = _abrir_web(url)
+            if negativa:
+                # El modelo propuso un destino interno o un fichero del disco: se
+                # dice con la verdad y NO se abre (la búsqueda en Google de abajo
+                # sería una salida mentirosa: sí hubo respuesta del modelo).
+                return {"reply": negativa}
             cache[low_raw] = url          # aprendida: la próxima vez ni lo piensa
             try:
                 cache_file.parent.mkdir(parents=True, exist_ok=True)

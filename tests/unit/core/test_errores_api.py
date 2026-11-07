@@ -27,6 +27,13 @@ ni puertos, ni micrófono, ni Telegram. Config y datos en carpetas de usar y tir
 puestas ANTES de importar el backend. Ni una petición real a Spotify: el
 intercambio del código es un espía y el `state` vive en un archivo temporal.
 
+Y `/api/open_url` (SEC-11 / T20b): es la MISMA regla de `net.safe_get` aplicada a
+lo que nexus le manda ABRIR al navegador del operador — un `file:///C:/…`, una
+ruta UNC, `smb://…`, los metadatos de la nube o la API de este equipo se rechazan
+sin llamar al navegador, con la excepción declarada del Home Assistant que el
+operador configuró en ⚙. El navegador y el resolutor van doblados: ni se abre
+nada ni se pregunta un DNS de verdad.
+
 Ejecutar:  .venv\\Scripts\\python.exe tests\\unit\\core\\test_errores_api.py
 """
 from __future__ import annotations
@@ -317,7 +324,152 @@ def _exige_html(nombre: str, r) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  3. EL CANDADO ESTRUCTURAL: no vuelve a colarse un `str(exc)`
+#  4. /api/open_url: UNA regla para «abrir un enlace» (SEC-11 / T20b)
+# ══════════════════════════════════════════════════════════════════════════════
+# El agujero que cierra T20b no es lo que nexus PIDE (eso lo cerró `c1af942`),
+# sino lo que nexus le dice ABRIR al navegador del operador: `file:///…` abre el
+# explorador de Windows, una ruta UNC abre un recurso de red y
+# `http://127.0.0.1:8177/…` llega a la API de este equipo CON LA CARA DEL
+# OPERADOR. Aquí se comprueba contra el servidor de verdad (ASGI, en proceso):
+# cero llamadas al navegador y la negativa en español.
+#
+# La ÚNICA excepción, declarada: el Home Assistant que el operador configuró en ⚙
+# (`homeassistant_url`). Es un destino que ya decidió él — Home Assistant es
+# interno por definición — y sin esta puerta el botón «Abrir Home Assistant» del
+# HUD moriría. Se compara esquema + equipo + puerto, nada más.
+class _Navegador:
+    """`webbrowser.open` de mentira: apunta qué se manda abrir y no abre nada."""
+
+    def __init__(self):
+        self.urls: list[str] = []
+
+    def __call__(self, url, *_a, **_k):
+        self.urls.append(url)
+        return True
+
+
+_DIRECCIONES = {"publico.example": ["93.184.216.34"],
+                "maps.google.com": ["93.184.216.34"],
+                "www.youtube.com": ["93.184.216.34"],
+                "resuelve-a-loopback.example": ["127.0.0.1"]}
+
+
+def _resolver(host: str) -> list[str]:
+    """Resolutor de mentira: ni una consulta DNS de verdad en esta suite."""
+    if host in _DIRECCIONES:
+        return _DIRECCIONES[host]
+    raise OSError(f"nombre fuera de la tabla de la prueba: {host}")
+
+
+ABRIR_RECHAZADAS = [
+    "file:///C:/Windows/win.ini",
+    "\\\\evil\\share",
+    "smb://nas.local/share",
+    "http://127.0.0.1:8177/api/command",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://usuario:clave-secreta@evil.example/",
+    "FILE:///C:/Windows/win.ini",
+    "  HTTP://169.254.169.254/latest/meta-data/  ",
+    "http://127%2e0%2e0%2e1:8177/api/config",
+    "http://resuelve-a-loopback.example/x",
+]
+
+ABRIR_PERMITIDAS = ["https://publico.example/x",
+                    "https://maps.google.com/?q=Madrid",
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+
+
+async def _open_url() -> None:
+    import webbrowser
+
+    from backend.core.comun import net
+
+    nav = _Navegador()
+    previo = cfg.settings._json.get("homeassistant_url")
+    cfg.settings._json["homeassistant_url"] = "http://192.168.1.10:8123"
+    try:
+        with _Doble(net, "_direcciones", _resolver), _Doble(webbrowser, "open", nav):
+            async with _cliente() as c:
+                for url in ABRIR_RECHAZADAS:
+                    nav.urls.clear()
+                    r = await c.post("/api/open_url", headers=CAB, json={"url": url})
+                    check(r.status_code == 400,
+                          f"POST /api/open_url con {url!r} contesta {r.status_code}, no 400")
+                    check(nav.urls == [],
+                          f"¡se ha abierto {url!r} en el navegador!: {nav.urls}")
+                    cuerpo = _cuerpo(r)
+                    check("No voy a abrir" in cuerpo,
+                          f"la negativa de {url!r} no está en español: {cuerpo[:160]}")
+                    check("clave-secreta" not in cuerpo and "usuario:" not in cuerpo,
+                          f"la negativa de {url!r} lleva credenciales: {cuerpo[:160]}")
+
+                for url in ABRIR_PERMITIDAS:
+                    nav.urls.clear()
+                    r = await c.post("/api/open_url", headers=CAB, json={"url": url})
+                    check(r.status_code == 200 and r.json().get("ok") is True,
+                          f"un enlace normal ya no se abre ({url!r}): {r.status_code} {r.text[:120]}")
+                    check(nav.urls == [url],
+                          f"un enlace normal se abre MAL ({url!r}): {nav.urls}")
+
+                # La excepción declarada: el Home Assistant CONFIGURADO por el operador.
+                for url in ("http://192.168.1.10:8123",
+                            "http://192.168.1.10:8123/config/integrations/dashboard",
+                            "http://192.168.1.10:8123/lovelace/0"):
+                    nav.urls.clear()
+                    r = await c.post("/api/open_url", headers=CAB, json={"url": url})
+                    check(nav.urls == [url],
+                          f"el Home Assistant configurado no se abre ({url!r}): "
+                          f"{r.status_code} {nav.urls} {r.text[:120]}")
+
+                # …pero el valor configurado NO se puede reutilizar para abrir OTRO
+                # destino interno: otro puerto, otro equipo, otro esquema o una
+                # URL que se aprovecha del equipo configurado como userinfo.
+                for url in ("http://192.168.1.10:8080/", "http://192.168.1.10:8080/admin",
+                            "http://192.168.1.20:8123/", "http://192.168.1.201:8123/",
+                            "https://192.168.1.10:8123/",
+                            "http://192.168.1.10:8123@evil.example/",
+                            "http://127.0.0.1:8177/api/command"):
+                    nav.urls.clear()
+                    r = await c.post("/api/open_url", headers=CAB, json={"url": url})
+                    check(r.status_code == 400 and nav.urls == [],
+                          f"el Home Assistant configurado ha dejado pasar {url!r}: "
+                          f"{r.status_code} {nav.urls}")
+
+                # El valor guardado tiene que servir por sí solo: uno que no es una
+                # URL http(s) con equipo no blanquea nada.
+                for basura in ("192.168.1.10:8123", "   ", "file:///C:/Windows",
+                               "http://usuario:clave@192.168.1.10:8123"):
+                    cfg.settings._json["homeassistant_url"] = basura
+                    nav.urls.clear()
+                    r = await c.post("/api/open_url", headers=CAB,
+                                     json={"url": "http://192.168.1.10:8123"})
+                    check(r.status_code == 400 and nav.urls == [],
+                          f"un `homeassistant_url` inválido ({basura!r}) blanqueó un destino interno")
+                cfg.settings._json["homeassistant_url"] = "http://192.168.1.10:8123"
+
+                # Sin Home Assistant configurado NO hay default: el que el HUD usa
+                # cuando no hay nada guardado (`http://localhost:8123`) también se
+                # rechaza, con su negativa y sin tocar el navegador.
+                cfg.settings._json.pop("homeassistant_url", None)
+                for url in ("http://192.168.1.10:8123", "http://localhost:8123",
+                            "http://localhost:8123/lovelace/0"):
+                    nav.urls.clear()
+                    r = await c.post("/api/open_url", headers=CAB, json={"url": url})
+                    check(r.status_code == 400 and nav.urls == [],
+                          f"sin `homeassistant_url` se abre un destino interno ({url!r}): "
+                          f"{r.status_code} {nav.urls}")
+                    if url != "http://192.168.1.10:8123":
+                        check("No voy a abrir" in _cuerpo(r),
+                              f"la negativa de {url!r} no está en español: {_cuerpo(r)[:140]}")
+    finally:
+        if previo is None:
+            cfg.settings._json.pop("homeassistant_url", None)
+        else:
+            cfg.settings._json["homeassistant_url"] = previo
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  5. EL CANDADO ESTRUCTURAL: no vuelve a colarse un `str(exc)`
 # ══════════════════════════════════════════════════════════════════════════════
 def _candado_estructural() -> None:
     src = (ROOT / "backend" / "app.py").read_text(encoding="utf-8")
@@ -333,7 +485,7 @@ def _candado_estructural() -> None:
 
 
 def main() -> int:
-    for paso in (_escenarios, _spotify_callback):
+    for paso in (_escenarios, _spotify_callback, _open_url):
         try:
             asyncio.run(paso())
         except Exception as e:                                # noqa: BLE001

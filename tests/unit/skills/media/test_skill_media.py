@@ -42,6 +42,8 @@ SK = REG.get("media")
 check(SK is not None and SK.status != "error",
       f"media no carga: {SK.description if SK else 'no registrada'}")
 MOD = SK.module if SK else None
+_OPEN_URL_REAL = MOD._open_url if MOD else None    # la de verdad: la última sección la restaura
+_YOUTUBE_PLAY_REAL = MOD._youtube_play if MOD else None
 check(MOD is not None and hasattr(MOD, "handle"), "media no expone handle()")
 for i in ("pause", "next", "prev", "stop_music", "svc_answer", "random", "play"):
     check(i in (SK.patterns if SK else {}), f"falta el intent «{i}»")
@@ -329,6 +331,80 @@ try:
 finally:
     _shutil.rmtree(_COBIJA, ignore_errors=True)
     _shutil.rmtree(_COBIJA_DATOS, ignore_errors=True)
+
+print("== 12) el navegador solo recibe URLs que construye la propia skill (T20b) ==")
+# SEC-11 cerró lo que nexus PIDE; esto es lo que nexus manda ABRIR al navegador
+# del operador. En media `_open_url` es el ÚNICO sitio que llama a
+# `webbrowser.open`, y todas sus URLs las arma el módulo: el equipo y el esquema
+# son literales (`https://www.youtube.com/…`, `https://music.apple.com/…`,
+# `spotify.auth_url()`) y lo que viene del texto va por `quote_plus` dentro de la
+# consulta. Por eso aquí no se mete la guarda de destino —una consulta DNS por
+# cada «pon música», y sin conexión dejaría de poner música— sino que se FIJA
+# con pruebas: si alguien pasa texto crudo a `_open_url`, esto se pone rojo.
+import types as _types                                       # noqa: E402
+from pathlib import Path as _Path                            # noqa: E402
+from urllib.parse import urlsplit as _urlsplit               # noqa: E402
+
+_fuente = (_Path(ROOT) / "skills" / "media" / "skill.py").read_text(encoding="utf-8")
+check(_fuente.count("webbrowser.open(") == 1,
+      "media llama a `webbrowser.open` en más de un sitio: el destino ya no lo decide un solo embudo")
+check("webbrowser.open(url)" in _fuente,
+      "el ÚNICO `webbrowser.open` de media ya no es el de `_open_url(url)`")
+
+
+class _RespuestaHttp:
+    def __init__(self, texto):
+        self.text = texto
+
+
+class _ClienteHttp:
+    """httpx de mentira: la búsqueda de YouTube no sale a la red."""
+
+    def __init__(self, texto):
+        self.texto = texto
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_a):
+        return False
+
+    async def get(self, _url, **_kw):
+        return _RespuestaHttp(self.texto)
+
+
+_nav_real = MOD.webbrowser.open
+_httpx_real = MOD.httpx
+_web: list = []
+MOD._open_url = _OPEN_URL_REAL                     # la de verdad, no el doble de arriba
+MOD.webbrowser.open = lambda url, *_a, **_k: (_web.append(url) or True)
+try:
+    MOD._apple_play("Rosalía")
+    check(_web == ["https://music.apple.com/es/search?term=Rosal%C3%ADa"],
+          f"Apple Music ya no abre la misma URL: {_web}")
+
+    MOD.httpx = _types.SimpleNamespace(
+        AsyncClient=lambda **_kw: _ClienteHttp('{"videoId":"dQw4w9WgXcQ"}'))
+    _web.clear()
+    _r = asyncio.run(_YOUTUBE_PLAY_REAL("lofi", CTX))
+    check(_web == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
+          f"YouTube con vídeo encontrado abre otra cosa: {_web}")
+    check("Reproduciendo" in _r, f"y la respuesta deja de decirlo: {_r!r}")
+
+    MOD.httpx = _types.SimpleNamespace(AsyncClient=lambda **_kw: _ClienteHttp("nada"))
+    _web.clear()
+    _r = asyncio.run(_YOUTUBE_PLAY_REAL("lofi", CTX))
+    check(_web == ["https://www.youtube.com/results?search_query=lofi"],
+          f"YouTube sin vídeo abre otra cosa: {_web}")
+
+    check({_urlsplit(u).hostname for u in _web}
+          <= {"www.youtube.com", "music.apple.com", "accounts.spotify.com",
+              "open.spotify.com"},
+          f"media ha abierto un equipo que no fija él mismo: {_web}")
+finally:
+    MOD._open_url = lambda url: (_abiertas.append(url) or True)   # el doble de siempre
+    MOD.webbrowser.open = _nav_real
+    MOD.httpx = _httpx_real
 
 print(f"\n{'#'*54}\n{_pass} comprobaciones OK, {len(_fail)} fallos")
 for m in _fail:

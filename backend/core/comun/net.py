@@ -42,6 +42,20 @@ Por eso las funciones de abajo (`asegurar_destino`, `motivo_destino`,
 
 Las negativas van en español, se pueden enseñar tal cual al operador y NUNCA
 llevan credenciales: solo el host (`host_visible`).
+
+ABRIR EN EL NAVEGADOR (T20b)
+----------------------------
+`safe_get` cerró lo que nexus PIDE; el mismo agujero tiene otro sumidero: lo que
+nexus le dice ABRIR al navegador del operador. Ahí la petición la hace SU
+navegador, con SU sesión y SUS cookies, así que es peor:
+`webbrowser.open("file:///C:/Windows/win.ini")` abre el explorador de Windows,
+una ruta UNC abre un recurso de red, y `http://127.0.0.1:8177/api/command` llega
+a la API de este equipo como si fuera el operador.
+
+Por eso `motivo_abrible` y `rechazo_abrible` son la MISMA regla, no una parecida:
+si nexus no puede pedir una URL, tampoco se la manda abrir al navegador. La única
+excepción son los destinos que el operador configuró él mismo en ⚙
+(`homeassistant_url`), que ya decidió nexus y no vienen de ningún texto.
 """
 from __future__ import annotations
 
@@ -137,6 +151,11 @@ _SUFIJOS_LOCALES = (".localhost", ".local", ".internal", ".home.arpa",
 # (o con el JSON roto) el tope es el de siempre y nadie se queda sin abrir nada.
 _UMBRALES_RED_RESERVA = {"max_redirecciones": 5}
 _REDIRECCIONES = (301, 302, 303, 307, 308)
+
+# El motivo de «no se pudo comprobar», con UNA sola redacción: lo usan
+# `motivo_destino` y `rechazo_abrible`, que cambia su frase cuando el problema es
+# el DNS y no el destino (acusar ahí de «puente» sería mentir).
+_MOTIVO_SIN_RESOLVER = "no consigo resolver ese dominio ahora mismo"
 
 
 class DestinoNoPermitido(RuntimeError):
@@ -252,9 +271,9 @@ def motivo_destino(url: str) -> str:
     try:
         direcciones = _direcciones(nombre)
     except Exception:                            # noqa: BLE001
-        return "no consigo resolver ese dominio ahora mismo"
+        return _MOTIVO_SIN_RESOLVER
     if not direcciones:
-        return "no consigo resolver ese dominio ahora mismo"
+        return _MOTIVO_SIN_RESOLVER
     for texto_ip in direcciones:
         try:
             ip = ipaddress.ip_address(str(texto_ip).split("%")[0])   # sin la zona «%eth0»
@@ -266,9 +285,8 @@ def motivo_destino(url: str) -> str:
     return ""
 
 
-def rechazo_destino(url: str) -> str:
-    """La negativa completa (mensaje en español) o '' si esa URL se puede pedir."""
-    motivo = motivo_destino(url)
+def _negativa(url: str, motivo: str) -> str:
+    """El texto ÚNICO de una negativa: sirve para pedir y para mandar abrir."""
     if not motivo:
         return ""
     return (
@@ -277,6 +295,11 @@ def rechazo_destino(url: str) -> str:
         "quedan fuera, porque si el enlace viene de una web, de un resultado de "
         "búsqueda o de un mensaje, abrirlo sería usar nexus como puente hacia ellos."
     )
+
+
+def rechazo_destino(url: str) -> str:
+    """La negativa completa (mensaje en español) o '' si esa URL se puede pedir."""
+    return _negativa(url, motivo_destino(url))
 
 
 def asegurar_destino(url: str) -> str:
@@ -291,6 +314,79 @@ def asegurar_destino(url: str) -> str:
     if motivo:
         raise DestinoNoPermitido(rechazo_destino(url))
     return url
+
+
+# ══════════════ abrir en el NAVEGADOR del operador (T20b) ══════════════
+# `safe_get` cerró lo que nexus PIDE. Esto cierra lo que nexus le dice ABRIR al
+# navegador del operador, que es el mismo agujero con otro sumidero y peor: aquí
+# la petición la hace el navegador con la SESIÓN y las COOKIES del operador.
+# `webbrowser.open("file:///C:/Windows/win.ini")` abre el explorador de Windows,
+# una ruta UNC (`\\host\share`) abre un recurso de red, y
+# `http://127.0.0.1:8177/api/command` llega a la API de este equipo como si
+# fuera él. Por eso la regla es LA MISMA, no una parecida: si nexus no puede
+# pedir una URL, tampoco se la manda abrir al navegador. La tabla de rangos y el
+# clasificador son los de arriba (`motivo_destino`); aquí no se duplica.
+#
+# La ÚNICA excepción son los destinos que ya decidió el OPERADOR: la URL de Home
+# Assistant que él configuró en ⚙ (`homeassistant_url`). Home Assistant es
+# interno POR DEFINICIÓN, y sin esa puerta el botón «Abrir Home Assistant» del
+# HUD no abriría nada. Es el mismo criterio que ya aplica `remote.py` al sondear
+# 127.0.0.1:8177: un destino que nexus ya conoce no es un destino de texto.
+
+def _cubierto_por(url: str, permitidos) -> bool:
+    """¿Es `url` uno de esos destinos configurados? Esquema + equipo + puerto."""
+    try:
+        a = urlsplit(str(url or "").strip())
+        if (a.scheme or "").lower() not in _ESQUEMAS or "@" in a.netloc:
+            return False
+        equipo, puerto = (a.hostname or "").casefold(), a.port
+    except Exception:                            # noqa: BLE001
+        return False
+    if not equipo:
+        return False
+    for base in permitidos or ():
+        try:
+            b = urlsplit(str(base or "").strip())
+            if (b.scheme or "").lower() != (a.scheme or "").lower() or "@" in b.netloc:
+                continue
+            if (b.hostname or "").casefold() == equipo and b.port == puerto:
+                return True
+        except Exception:                        # noqa: BLE001
+            continue
+    return False
+
+
+def motivo_abrible(url: str, *, permitidos=()) -> str:
+    """'' si esa URL se puede mandar ABRIR; si no, qué le pasa (en español).
+
+    `permitidos` es la lista de destinos que el operador configuró en ⚙. Sin
+    ella, el veredicto es exactamente el de `motivo_destino`.
+    """
+    motivo = motivo_destino(url)
+    if not motivo:
+        return ""
+    if _cubierto_por(url, permitidos):
+        return ""
+    return motivo
+
+
+def rechazo_abrible(url: str, *, permitidos=()) -> str:
+    """La negativa completa para el navegador, o '' si esa URL se puede abrir.
+
+    El MOTIVO es siempre el de `motivo_destino`, así que el operador puede
+    distinguir lo que pasó: un nombre que no resuelve no es un enlace interno. La
+    frase cambia solo en ese caso, porque ahí acusar al enlace de ser un puente
+    hacia la red local sería mentira: lo que pasa es que no se puede comprobar.
+    """
+    motivo = motivo_abrible(url, permitidos=permitidos)
+    if motivo == _MOTIVO_SIN_RESOLVER:
+        return (
+            f"No voy a abrir «{host_visible(url)}»: {motivo}. Puede ser una web "
+            "perfectamente normal, pero sin DNS no puedo comprobar que no sea tu propio "
+            "equipo o una dirección interna, así que no la abro en tu navegador. Si el "
+            "enlace es de fiar, ábrelo tú."
+        )
+    return _negativa(url, motivo)
 
 
 async def safe_get(url: str, *, headers=None, timeout=None,

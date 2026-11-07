@@ -288,6 +288,32 @@ blanca** de herramientas, y lo que no está en ella **no se ejecuta**:
 - **Desde n8n no se puede.** El canal externo tiene su lista blanca y
   `mcp_hands` no está en ella: la orden se rechaza antes de cualquier skill.
 
+## Lo que nexus abre en tu navegador (y lo que no)
+
+Cuando nexus dice «abriendo…» no lo hace él: le pasa la URL a **tu navegador**, que
+la abre con **tu sesión** y tus cookies. Por eso esa puerta tiene la misma regla que
+la de todo lo que nexus descarga (SEC-11): **si nexus no puede pedir una URL,
+tampoco te la manda abrir**.
+
+- Solo `http` y `https`. Un `file:///C:/…`, una ruta de red (`\\equipo\carpeta`), un
+  `smb://…` o un enlace con `usuario:clave@` dentro se quedan fuera con una
+  negativa en español y **sin abrir nada**.
+- Nada de tu propio equipo, tu red local, los metadatos de la nube ni los servicios
+  internos: `http://127.0.0.1:8177/api/command` se rechaza, porque abrirlo en tu
+  navegador sería llegar a la API de nexus **como si fueras tú**.
+- Vale lo mismo para el chat, para «abre la web de …» y para la URL que el modelo
+  deduzca o recuerde de antes: si apunta a dentro, se dice y no se abre.
+- Si el nombre no se puede resolver, nexus **no adivina**: lo dice («no consigo
+  resolver ese dominio ahora mismo») y no acusa al enlace de ser interno, que es
+  otra cosa. Con el DNS caído, «abre marca.com» contesta eso en vez de abrir una
+  página de error del navegador.
+- **La única excepción** es el Home Assistant que tú configuraste en ⚙
+  (`homeassistant_url`): Home Assistant es interno por definición y ese destino ya
+  lo decidiste tú. Se exige mismo equipo, puerto y esquema; nada más entra por ahí.
+
+Google Maps, YouTube, Spotify, Apple Music y la búsqueda de Google no cambian:
+nexus construye esas URLs él mismo, así que se abren igual que siempre.
+
 ## Build a .exe
 
 ```bat

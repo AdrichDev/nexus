@@ -84,6 +84,13 @@ seleccionable para copiar; toda URL en sus respuestas se convierte en enlace que
 el NAVEGADOR real (PC: /api/open_url + webbrowser; móvil: Intent al navegador).
 Instalación desde cero SIN memoria: ni el .exe ni el instalador llevan `data/` — solo
 los nodos de conocimiento predefinidos (knowledge/).
+**Guardas (SEC-11 / T20b):** `/api/open_url` y «abre la web de …» solo abren destinos
+públicos por `http`/`https`. Un `file:///…`, una ruta de red UNC, `smb://…`, un enlace
+con `usuario:clave@` dentro o un destino interno (loopback, red local, CGNAT,
+metadatos de la nube) se rechazan con la negativa en español y **sin llamar al
+navegador**, porque el que abre es el navegador del operador con su sesión. Única
+excepción: el Home Assistant declarado en ⚙ (`homeassistant_url`), comparado por
+esquema + equipo + puerto exactos y **sin valor por defecto**.
 **✔ VALIDADO (Playwright):** enlace renderizado como `<a class="ext">`, clic → POST
 /api/open_url con la URL exacta; user-select:text computado en el chat; instalador sin
 `data/` (SPEC 1); respaldo REST ahora también pinta la respuesta en el chat.

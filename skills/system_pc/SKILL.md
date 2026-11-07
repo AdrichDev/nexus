@@ -4,7 +4,9 @@ Minion de control del equipo local. Lee CPU/RAM/GPU/disco y temperaturas reales
 (psutil + nvidia-smi + LibreHardwareMonitor por WMI en Windows), gestiona procesos,
 abre aplicaciones instaladas (índice del Menú Inicio/registro/Store con verificación
 real de arranque), juegos de Steam ya instalados, webs (con URL razonada por el
-modelo y memorizada en `data/web_urls.json`), hace capturas y fotos de webcam, y
+modelo y memorizada en `data/web_urls.json`, **solo destinos públicos por
+http/https**: lo que nexus no puede pedir tampoco se abre en tu navegador), hace
+capturas y fotos de webcam, y
 apaga o reinicia el PC SIEMPRE con confirmación previa.
 
 ## Órdenes de ejemplo (todas cazadas por los patterns)
@@ -33,6 +35,10 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 - **Abrir cualquier web**, no hay lista de sitios: «abre la web de marca» /
   «ábreme la página de renfe» / «ponme la web del as» / «entra en la web de X» /
   «abre marca.com» / «métete en elmundo.es» / «abre https://…»
+  **Solo webs públicas por http/https**: un `file:///…`, una ruta de red
+  (`\\equipo\carpeta`), un `smb://…`, un enlace con `usuario:clave@` dentro o un
+  destino interno se rechazan con la negativa en español y **sin abrir el
+  navegador** (ver «Seguridad»).
 - «abre youtube y busca lofi»
 - **Volumen, con el destino SIEMPRE dicho por quien da la orden.** Nunca se
   adivina a qué aparato va:
@@ -92,6 +98,19 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
   lo dice y no toca nada.
 - El apagado y el reinicio se lanzan con 15 s de margen (`shutdown /s|/r /t 15`),
   cancelables desde una consola con `shutdown /a`.
+- **Abrir en el navegador solo vale para destinos públicos** (SEC-11 / T20b). Es la
+  misma guarda que todo lo que nexus descarga, porque el que abre aquí es *tu*
+  navegador, con *tu* sesión y *tus* cookies: un `file:///…`, una ruta de red
+  (`\\equipo\carpeta`), un `smb://…`, un enlace con `usuario:clave@` dentro, tu
+  propio equipo (`127.0.0.1`, `localhost`), tu red local (RFC1918, `.local`), el
+  CGNAT de Tailscale o los metadatos de la nube se rechazan con la negativa en
+  español y **sin llamar al navegador**. Una web ya aprendida en
+  `data/web_urls.json` que apunte a dentro se olvida en vez de abrirse.
+- **La única excepción es el Home Assistant que declares en ⚙**
+  (`homeassistant_url`): ese aparato y su dirección los eliges tú, igual que la
+  base de datos de tu equipo, así que su panel sí se abre. Se compara esquema,
+  equipo y puerto exactos: si no hay nada configurado **no hay default**, y el
+  `localhost:8123` que el HUD usaría de reserva también se rechaza.
 
 ## Lo que NO hace
 

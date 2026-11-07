@@ -144,6 +144,9 @@ class Red:
         self.doble = Transporte(respuestas)
         self.tabla = {"ejemplo-publico.example": [PUBLICO],
                       "publico.example": [PUBLICO],
+                      # los dos destinos que T20b abre de verdad
+                      "maps.google.com": [PUBLICO],
+                      "www.youtube.com": [PUBLICO],
                       "otro-publico.example": [PUBLICO_2],
                       "resuelve-a-loopback.example": ["127.0.0.1"],
                       "resuelve-a-interno.example": ["10.0.0.5"],
@@ -553,6 +556,138 @@ finally:
         else:
             sys.modules[k] = v
     DATOS._conn.update({"url": None, "kind": None, "handle": None})
+
+# ═══════════════════ 8b. ABRIR EN EL NAVEGADOR (T20b) ═══════════════════
+print("== 8b) lo que se manda ABRIR al navegador pasa por la MISMA guarda (T20b) ==")
+
+# SEC-11 cerró lo que nexus PIDE; `webbrowser.open` era el mismo agujero con otro
+# sumidero y además peor, porque lo abre el navegador del operador con SU sesión
+# y SUS cookies. La regla es la de `motivo_destino`, no una parecida: se compara
+# veredicto contra veredicto en TODA la matriz de arriba.
+
+with Red():
+    for url in PERMITIDAS + [u for u, _v in RECHAZADAS]:
+        check(net.motivo_abrible(url) == net.motivo_destino(url),
+              f"la guarda del navegador y la de `safe_get` no coinciden en {url!r}: "
+              f"{net.motivo_abrible(url)!r} vs {net.motivo_destino(url)!r}")
+        check((net.rechazo_abrible(url) == "") == (net.rechazo_destino(url) == ""),
+              f"la negativa del navegador aparece donde no toca ({url!r})")
+
+ABRIR_RECHAZADAS = [
+    ("file:///C:/Windows/win.ini", "(sin destino)"),
+    ("\\\\evil\\share", "(sin destino)"),
+    ("smb://nas.local/share", "nas.local"),
+    ("http://127.0.0.1:8177/api/command", "127.0.0.1"),
+    ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
+    ("http://usuario:clave-secreta@evil.example/", "evil.example"),
+    # mayúsculas, espacios alrededor y el truco del tanto por ciento
+    ("FILE:///C:/Windows/win.ini", "(sin destino)"),
+    ("  HTTP://169.254.169.254/latest/meta-data/  ", "169.254.169.254"),
+    ("http://127%2e0%2e0%2e1:8177/api/config", "127.0.0.1"),
+    ("http://resuelve-a-loopback.example/x", "resuelve-a-loopback.example"),
+    ("gopher://93.184.216.34/_x", "93.184.216.34"),
+]
+for url, visible in ABRIR_RECHAZADAS:
+    with Red() as red:
+        motivo = net.motivo_abrible(url)
+        mensaje = net.rechazo_abrible(url)
+        check(bool(motivo), f"no hay motivo para no abrir {url!r}")
+        check(mensaje.startswith("No voy a abrir"),
+              f"la negativa del navegador no empieza como debe ({url!r}): {mensaje[:60]}")
+        check(visible in mensaje, f"la negativa no nombra el destino ({url!r}): {mensaje[:90]}")
+        check("clave-secreta" not in mensaje and "usuario:" not in mensaje,
+              f"la negativa del navegador lleva credenciales ({url!r}): {mensaje[:90]}")
+        check(red.doble.calls == [], f"una guarda no pide nada ({url!r})")
+
+print("· y los enlaces de siempre se siguen pudiendo abrir")
+ABRIR_PERMITIDAS = [
+    "https://maps.google.com/?q=Madrid",
+    "https://maps.google.com/maps/dir/?api=1&destination=Valencia",
+    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "https://www.youtube.com/results?search_query=lofi",
+    "https://publico.example/x",
+    f"http://{PUBLICO}/pagina",
+]
+for url in ABRIR_PERMITIDAS:
+    with Red() as red:
+        check(net.motivo_abrible(url) == "" and net.rechazo_abrible(url) == "",
+              f"se ha dejado de poder abrir un enlace normal ({url!r}): "
+              f"{net.rechazo_abrible(url)[:80]}")
+        check(red.doble.calls == [], f"abrir un enlace no pide nada ({url!r})")
+
+print("· el destino que el OPERADOR configuró en ⚙ sí se abre (Home Assistant)")
+# Home Assistant es interno POR DEFINICIÓN. La excepción no es un agujero: es un
+# destino que ya decidió el operador, igual que los sondeos de `remote.py` a
+# 127.0.0.1:8177. Se compara esquema + equipo + puerto, nada más.
+HA = "http://192.168.1.50:8123"
+for url in (HA, HA + "/config/integrations/dashboard", "http://192.168.1.50:8123/lovelace/0"):
+    with Red():
+        check(net.motivo_abrible(url, permitidos=(HA,)) == "",
+              f"el Home Assistant configurado no se puede abrir ({url!r})")
+        check(net.rechazo_abrible(url, permitidos=(HA,)) == "",
+              f"y su negativa debería estar vacía ({url!r})")
+for url, porque in (
+        ("http://192.168.1.50:8124/", "otro puerto"),
+        ("http://192.168.1.51:8123/", "otro equipo"),
+        ("https://192.168.1.50:8123/", "otro esquema"),
+        ("http://127.0.0.1:8177/api/command", "la API de nexus"),
+        ("http://usuario:clave-secreta@192.168.1.50:8123/", "lleva credenciales"),
+        ("file:///C:/Windows/win.ini", "un fichero del disco"),
+        ("http://169.254.169.254/latest/meta-data/", "los metadatos de la nube")):
+    with Red():
+        check(bool(net.motivo_abrible(url, permitidos=(HA,))),
+              f"la excepción del Home Assistant dejó pasar {porque} ({url!r})")
+with Red():
+    check(bool(net.motivo_abrible(HA, permitidos=("http://usuario:clave@192.168.1.50:8123",))),
+          "un destino configurado CON credenciales no debería blanquear nada")
+    check(bool(net.motivo_abrible(HA)),
+          "sin nada configurado, un Home Assistant interno se rechaza como cualquier otro")
+
+print("· no hay NINGÚN destino de confianza por defecto")
+# Home Assistant se abre SOLO si el operador lo declaró en ⚙ (`homeassistant_url`).
+# El fallback del HUD a `localhost:8123` no es configuración: es un default, y un
+# default no se blanquea desde una prueba.
+with Red():
+    for url in ("http://localhost:8123", "http://localhost:8123/lovelace/0",
+                "http://127.0.0.1:8123"):
+        for permitidos in ((), ("",), ("   ",)):
+            check(bool(net.motivo_abrible(url, permitidos=permitidos)),
+                  f"«{url}» se blanqueó sin estar configurado ({permitidos!r})")
+    # Un valor guardado que no es una URL http(s) con equipo tampoco blanquea.
+    for basura in ("192.168.1.50:8123", "file:///C:/Windows", "no es una url",
+                   "http://usuario:clave@192.168.1.50:8123", "http://192.168.1.50"):
+        check(bool(net.motivo_abrible(HA, permitidos=(basura,))),
+              f"un destino configurado inválido ({basura!r}) blanqueó {HA}")
+    # Y el valor válido se compara EXACTO: equipo, puerto y esquema.
+    for otro in ("http://192.168.1.50:8080/", "http://192.168.1.51:8123/",
+                 "https://192.168.1.50:8123/", "http://192.168.1.5:8123/"):
+        check(bool(net.motivo_abrible(otro, permitidos=(HA,))),
+              f"{otro} se coló con `homeassistant_url` = {HA}")
+
+print("· la negativa dice QUÉ pasó: no es lo mismo un DNS caído que un destino interno")
+# «abre marca.com» con el DNS caído no es un ataque: es que no se puede comprobar
+# a dónde lleva. Y un 192.168.x.x no tiene nada que ver. El operador tiene que
+# poder distinguirlo sin abrir un registro, así que el motivo es el de
+# `motivo_destino` y la frase no acusa a la web de ser un puente cuando no lo es.
+with Red():
+    dns = net.rechazo_abrible("https://noresuelve.example/x")
+    interno = net.rechazo_abrible("http://192.168.1.10/panel")
+    check("no consigo resolver" in dns,
+          f"la negativa de un DNS caído no dice que no se pudo resolver: {dns[:140]}")
+    check("red privada" not in dns and "loopback" not in dns,
+          f"la negativa de un DNS caído lo acusa de ser interno: {dns[:140]}")
+    check("puente" not in dns,
+          f"la negativa de un DNS caído lo acusa de ser un puente: {dns[:160]}")
+    check("dns" in dns.lower() or "conexión" in dns.lower() or "conexion" in dns.lower(),
+          f"la negativa no nombra el DNS ni la conexión: {dns[:160]}")
+    check("red privada" in interno,
+          f"la negativa de una dirección privada no dice qué es: {interno[:140]}")
+    check("no consigo resolver" not in interno,
+          f"una dirección privada se explica como un DNS caído: {interno[:140]}")
+    check("puente" in interno,
+          f"la negativa interna pierde la explicación del puente: {interno[:160]}")
+    check(net.rechazo_abrible("http://127.0.0.1:8177/api/command").count("No voy a abrir") == 1,
+          "la negativa de loopback no empieza como debe")
 
 print("== 9) no se ha abierto nada de verdad: el resolver y el transporte eran dobles ==")
 check(net._direcciones.__name__ == "_direcciones", "el resolutor real queda restaurado al terminar")

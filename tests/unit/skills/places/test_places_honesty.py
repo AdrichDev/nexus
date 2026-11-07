@@ -101,5 +101,44 @@ for f in ("viajes a Madrid", "vuelos a París", "dame viajes a Roma", "busca vue
     r = sl.route(f)
     check(bool(r) and r[0].folder == "places" and r[1] == "flights", f"vuelos: «{f}» sigue llegando a flights")
 
+print("\n== 5) el navegador solo recibe URLs que construye la propia skill (T20b) ==")
+# SEC-11 cerró lo que nexus PIDE; esto es lo que nexus manda ABRIR. En places el
+# equipo y el esquema son LITERALES (`https://www.google.com/…`,
+# `https://www.youtube.com/…`) y lo que viene del texto va por `quote_plus`
+# dentro de la consulta, así que el destino no puede venir del texto. Se fija
+# con una prueba en vez de confiar en la lectura: si mañana alguien pasa texto
+# crudo a `_responder`, esto se pone rojo. Aquí NO se mete la guarda de destino
+# a propósito: cada «abre google maps» pagaría una consulta DNS y sin conexión
+# dejaría de abrirse Google Maps.
+import urllib.parse as _urlparse                              # noqa: E402
+
+_fuente = (ROOT / "skills" / "places" / "skill.py").read_text(encoding="utf-8")
+check(_fuente.count("webbrowser.open(") == 1,
+      "places llama a `webbrowser.open` en más de un sitio: el destino ya no lo decide un solo embudo")
+check("webbrowser.open(url)" in _fuente,
+      "el único `webbrowser.open` de places ya no es el de `_open(url)`")
+
+_FLUJOS = ["abre google maps", "ruta de Madrid a Valencia", "cómo llego a Toledo",
+           "llévame a Segovia", "busca vuelos a París",
+           "busca hoteles en Roma por menos de 90 euros", "busca vídeos de gatos",
+           "busca una farmacia en el mapa", "dónde hay un cajero",
+           # el texto HOSTIL viaja dentro de la consulta y no cambia el destino
+           "busca vídeos de http://127.0.0.1:8177/api/command"]
+for f in _FLUJOS:
+    folder, intent, reply, urls = correr(f, abre=True)
+    check(folder == "places", f"«{f}» ya no llega a places")
+    check(len(urls) == 1, f"«{f}» debería abrir UN enlace y abre {urls}")
+    partes = _urlparse.urlsplit(urls[0]) if urls else None
+    check(partes is not None and partes.scheme == "https",
+          f"«{f}» abre algo que no es https: {urls}")
+    check(partes is not None and partes.hostname in ("www.google.com", "www.youtube.com"),
+          f"«{f}» abre un equipo que places no fija: {urls}")
+_, _, _, urls = correr("abre google maps")
+check(urls == ["https://www.google.com/maps"], f"«abre google maps» abre {urls}")
+_, _, _, urls = correr("ruta de Madrid a Valencia")
+check(urls == ["https://www.google.com/maps/dir/?api=1&origin=Madrid&destination=Valencia"
+               "&travelmode=driving"],
+      f"la ruta ya no es la misma URL de Google Maps: {urls}")
+
 print(f"\nplaces honesty: {_pass} OK, {len(_fail)} FAIL")
 sys.exit(1 if _fail else 0)

@@ -704,6 +704,168 @@ with (patch.object(MOD.sys, "platform", "win32"),
                       "Discord", "Update.exe"), "--processStart", "Discord.exe"],
             {"shell": False})], f"Discord updater argv changed: {launches}")
 
+# --------------------- 6e) el navegador solo abre destinos públicos (T20b)
+print("== 6e) el navegador solo abre destinos públicos (SEC-11 / T20b) ==")
+# `open_web` convierte TEXTO en una URL y se la manda al navegador del operador,
+# que la abre con SU sesión y SUS cookies. Eso es el mismo agujero de SEC-11 con
+# otro sumidero: `file:///C:/Windows/win.ini` abre el explorador de Windows, una
+# ruta UNC abre un recurso de red, `smb://…` también, y
+# `http://127.0.0.1:8177/api/command` llega a la API de ESTE equipo como si
+# fuera él. Aquí se comprueba con el navegador y el resolutor doblados ANTES de
+# la primera llamada: ni DNS, ni red, ni navegador de verdad.
+import shutil as _shutil                                    # noqa: E402
+import tempfile as _tempfile                                # noqa: E402
+
+from backend.core.comun import config as _cfg               # noqa: E402
+from backend.core.comun import net as _net                 # noqa: E402
+from backend.core.infraestructura import llm as _llm        # noqa: E402
+
+_NAV: list = []
+_DIRS = {"marca.com": ["93.184.216.34"], "publico.example": ["93.184.216.34"],
+         "renfe.es": ["93.184.216.34"]}
+_NAV_REAL = MOD.webbrowser.open
+_DIRS_REAL = _net._direcciones
+_DATOS_REAL = _cfg.DATA_DIR
+_DATOS = _tempfile.mkdtemp(prefix="nexus_systempc_web_")
+
+
+def _resolver(host):
+    """Resolutor de mentira: un nombre fuera de la tabla es un DNS que falla."""
+    if host in _DIRS:
+        return _DIRS[host]
+    raise OSError(f"nombre fuera de la tabla de la prueba: {host}")
+
+
+class _Proveedor:
+    """Cerebro de mentira: devuelve la URL que se le diga, ni una petición."""
+
+    name = "doble"
+
+    def __init__(self, respuesta=""):
+        self.respuesta = respuesta
+
+    async def chat(self, *_a, **_k):
+        return self.respuesta
+
+
+_GET_REAL = _llm.get_provider_safe
+
+
+def _abrir(frase, proveedor=None):
+    """Ejecuta la orden con el navegador doblado. Devuelve (respuesta, urls)."""
+    _NAV.clear()
+    r = sl.route(frase)
+    assert r and r[0].folder == "system_pc", f"«{frase}» no llega a system_pc: {r}"
+
+    async def _get():
+        return proveedor
+
+    _llm.get_provider_safe = _get
+    try:
+        res = asyncio.run(MOD.handle(r[1], frase, r[2], CTX))
+    finally:
+        _llm.get_provider_safe = _GET_REAL
+    return res.get("reply", ""), list(_NAV)
+
+
+_ARCHIVO_CACHE = os.path.join(_DATOS, "web_urls.json")
+try:
+    MOD.webbrowser.open = lambda url, *_a, **_k: (_NAV.append(url) or True)
+    _net._direcciones = _resolver
+    _cfg.DATA_DIR = __import__("pathlib").Path(_DATOS)
+
+    RECHAZADAS_WEB = [
+        ("abre la web de file:///C:/Windows/win.ini", "esquema «file»"),
+        ("abre la web de \\\\evil\\share", "ninguno"),
+        ("abre la web de smb://nas.local/share", "smb"),
+        ("abre la web de http://127.0.0.1:8177/api/command", "127.0.0.1"),
+        ("abre la web de http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
+        ("abre la web de http://usuario:clave-secreta@evil.example/", "evil.example"),
+        ("abre la web de FILE:///C:/Windows/win.ini", "file"),
+        ("abre la web de HTTP://169.254.169.254/", "169.254.169.254"),
+        ("abre la web de http://127%2e0%2e0%2e1/", "127.0.0.1"),
+        ("abre la web de http://resuelve-a-loopback.example/x", "resuelve-a-loopback.example"),
+    ]
+    for frase, visible in RECHAZADAS_WEB:
+        reply, urls = _abrir(frase, _Proveedor("https://publico.example/web"))
+        check(urls == [], f"«{frase}» ha abierto algo en el navegador: {urls}")
+        check(reply.startswith("No voy a abrir"),
+              f"«{frase}» no se rechaza en español: {reply[:110]}")
+        check(visible in reply, f"la negativa de «{frase}» no nombra el destino: {reply[:110]}")
+        check("clave-secreta" not in reply and "usuario:" not in reply,
+              f"la negativa de «{frase}» lleva credenciales: {reply[:110]}")
+
+    print("· la negativa distingue un DNS caído de un destino interno")
+    # «abre marca.com» con el DNS caído no es un ataque: es que no se puede
+    # comprobar a dónde lleva. El operador tiene que poder distinguirlo de un
+    # 192.168.x.x sin abrir un registro, así que el motivo es el de
+    # `net.motivo_destino` y la frase no acusa a la web de ser un puente.
+    reply_dns, urls = _abrir("abre noresuelve.com")
+    check(urls == [], f"un dominio que no resuelve se ha abierto: {urls}")
+    check("no consigo resolver" in reply_dns,
+          f"la negativa de un DNS caído no lo dice: {reply_dns[:130]}")
+    check("red privada" not in reply_dns and "loopback" not in reply_dns,
+          f"la negativa de un DNS caído lo acusa de ser interno: {reply_dns[:130]}")
+    check("puente" not in reply_dns,
+          f"la negativa de un DNS caído lo acusa de ser un puente: {reply_dns[:150]}")
+    reply_lan, urls = _abrir("abre la web de http://192.168.1.10:8080/admin")
+    check(urls == [], f"una URL de la red local se ha abierto: {urls}")
+    check("red privada" in reply_lan,
+          f"la negativa de una dirección privada no dice qué es: {reply_lan[:130]}")
+    check("no consigo resolver" not in reply_lan,
+          f"una dirección privada se explica como un DNS caído: {reply_lan[:130]}")
+    check(reply_lan != reply_dns,
+          "las dos negativas son la misma frase: el operador no sabe qué pasó")
+
+    print("· un dominio con pinta de web se sigue abriendo, una sola vez")
+    reply, urls = _abrir("abre marca.com")
+    check(urls == ["https://marca.com"], f"«abre marca.com» abre {urls}")
+    check(reply == "Abriendo https://marca.com.", f"respuesta distinta: {reply!r}")
+
+    reply, urls = _abrir("abre la web de https://publico.example/ruta")
+    check(urls == ["https://publico.example/ruta"],
+          f"una URL pública explícita se abre MAL: {urls}")
+    check(reply == "Abriendo https://publico.example/ruta.", f"respuesta distinta: {reply!r}")
+
+    print("· la URL que deduce el MODELO pasa por la misma guarda")
+    reply, urls = _abrir("abre la web de marca", _Proveedor("https://publico.example/web"))
+    check(urls == ["https://publico.example/web"],
+          f"la URL pública del modelo no se abre: {urls}")
+    check("https://publico.example/web" in reply, f"la respuesta no dice a dónde va: {reply!r}")
+    reply, urls = _abrir("abre la web de marca")
+    check(urls == ["https://publico.example/web"],
+          f"la web aprendida no se abre sin pensar: {urls}")
+
+    reply, urls = _abrir("abre la web de renfe", _Proveedor("http://127.0.0.1:8177/api/command"))
+    check(urls == [], f"el modelo propuso la API de nexus y se abrió: {urls}")
+    check(reply.startswith("No voy a abrir") and "127.0.0.1" in reply,
+          f"una URL interna propuesta por el modelo no se rechaza: {reply[:110]}")
+
+    print("· una web APRENDIDA que ahora es interna se olvida y no se abre")
+    with open(_ARCHIVO_CACHE, "w", encoding="utf-8") as _f:
+        _f.write('{"renfe": "http://127.0.0.1:8177/api/config"}')
+    reply, urls = _abrir("abre la web de renfe", _Proveedor("https://renfe.es/comprar"))
+    check(urls == ["https://renfe.es/comprar"],
+          f"la web envenenada en caché sigue abriendo algo: {urls}")
+    with open(_ARCHIVO_CACHE, encoding="utf-8") as _f:
+        cache = __import__("json").load(_f)
+    check(cache.get("renfe") == "https://renfe.es/comprar",
+          f"la entrada envenenada no se ha sustituido: {cache}")
+
+    print("· PRESERVE: YouTube y la búsqueda de Google siguen igual")
+    reply, urls = _abrir("abre youtube y busca lofi")
+    check(urls == ["https://www.youtube.com/results?search_query=lofi"],
+          f"«abre youtube y busca lofi» abre {urls}")
+    reply, urls = _abrir("abre la web de rinconedsconocido")
+    check(urls == ["https://www.google.com/search?q=rinconedsconocido"],
+          f"el último recurso (Google) cambió: {urls}")
+finally:
+    MOD.webbrowser.open = _NAV_REAL
+    _net._direcciones = _DIRS_REAL
+    _llm.get_provider_safe = _GET_REAL
+    _cfg.DATA_DIR = _DATOS_REAL
+    _shutil.rmtree(_DATOS, ignore_errors=True)
+
 # ------------------------------------------------- 7) agnóstica
 print("== 7) agnóstica: sin nombres propios ni rutas del usuario ==")
 import re as _re                                            # noqa: E402

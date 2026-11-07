@@ -1994,15 +1994,60 @@ async def api_link_stop():
     return await asyncio.to_thread(remote.status)
 
 
+def _permitidos_para_abrir() -> tuple:
+    """El destino que el OPERADOR declaró en ⚙, y SOLO ese (hoy: Home Assistant).
+
+    Home Assistant es un aparato que el operador declara (`homeassistant_url`), así
+    que su dirección es configuración suya y no texto de un canal: es el mismo
+    argumento de confianza que ya usa `remote.py` al sondear 127.0.0.1:8177.
+
+    Tres cosas a propósito:
+      * SIN DEFAULT. Si `homeassistant_url` está vacío o no vale, no se permite
+        nada: el `http://localhost:8123` que el HUD usa cuando no hay nada
+        configurado NO es configuración, y se rechaza con su negativa.
+      * Se valida al leerlo (http/https, con equipo, sin `usuario:clave@`): un
+        valor guardado que no es una URL no blanquea nada.
+      * La comparación (esquema + equipo + puerto, en `net._cubierto_por`) es
+        exacta, así que este valor no sirve para abrir OTRO destino interno.
+    """
+    from urllib.parse import urlsplit
+
+    base = str(settings.get("homeassistant_url", "") or "").strip()
+    if not base:
+        return ()
+    try:
+        partes = urlsplit(base)
+        if (partes.scheme or "").lower() not in ("http", "https"):
+            return ()
+        if "@" in partes.netloc or not (partes.hostname or "").strip():
+            return ()
+        _ = partes.port                       # un puerto ilegible no es una base válida
+    except Exception:                        # noqa: BLE001
+        return ()
+    return (base,)
+
+
 @app.post("/api/open_url")
 async def api_open_url(payload: dict):
-    """Abre una URL en el navegador REAL del PC (los enlaces del chat)."""
+    """Abre una URL en el navegador REAL del PC (los enlaces del chat).
+
+    UNA sola regla para «abrir un enlace» (SEC-11 / T20b), la misma de
+    `net.safe_get`: solo destinos públicos http/https, sin `usuario:clave@`
+    dentro y sin loopback, red local ni metadatos de la nube. Si nexus no puede
+    pedir una URL, tampoco se le manda abrir al navegador — que además la abriría
+    con la SESIÓN y las COOKIES del operador, así que
+    `http://127.0.0.1:8177/api/command` llegaría a la API de este equipo como si
+    fuera él. Un `file:///C:/…`, una ruta UNC o un `smb://…` se rechazan con la
+    negativa en español y sin llamar al navegador.
+    """
+    from backend.core.comun import net
     url = str(payload.get("url", "")).strip()
-    if url.startswith("http://") or url.startswith("https://"):
-        import webbrowser
-        webbrowser.open(url)
-        return {"ok": True}
-    return {"ok": False, "error": "solo http/https"}
+    error = net.rechazo_abrible(url, permitidos=_permitidos_para_abrir())
+    if error:
+        return JSONResponse({"ok": False, "error": error}, status_code=400)
+    import webbrowser
+    webbrowser.open(url)
+    return {"ok": True}
 
 
 @app.get("/m")
