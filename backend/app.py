@@ -212,6 +212,18 @@ _LOOPBACK = ("127.0.0.1", "::1", "localhost")
 # Ruta que autentica con su PROPIO secreto y por eso no pide el token del QR.
 _RUTA_N8N = "/api/n8n"
 
+# Ruta que canjea el CÓDIGO del QR por un token propio (roadmap P3-2 / T21).
+# Está exenta del token porque el móvil que llega con el QR TODAVÍA no tiene
+# ninguno: la autoridad es el propio handler, que compara el código de un solo
+# uso en tiempo constante y lo consume. Es la misma figura que `/api/n8n` (cada
+# una exige lo suyo), y la exención es de la ruta EXACTA.
+_RUTA_CANJE = "/api/link/pair"
+
+# Un solo mensaje para los tres motivos (no existe, caducado, ya usado): decir
+# cuál es darle una pista a quien va probando códigos.
+_ERROR_CANJE = ("código de vinculación no válido, caducado o ya usado — saca otro "
+                "QR en este equipo y vuelve a escanearlo")
+
 
 def _valores_cabecera(headers, nombre: str) -> list:
     """Todos los valores de una cabecera: la petición HTTP puede traerla repetida."""
@@ -330,6 +342,20 @@ def secreto_n8n() -> str:
     return nuevo
 
 
+def _ficha_del_token(tok: str):
+    """La ficha del móvil dueño de este token PROPIO (P3-2), o None.
+
+    Nunca lanza: sin tienda legible no hay tokens de dispositivo válidos (falla
+    cerrado) y la petición sigue por el camino del token compartido, que es el de
+    siempre.
+    """
+    from backend.core.infraestructura import remote
+    try:
+        return remote.device_owner(tok)
+    except Exception:                                          # noqa: BLE001
+        return None
+
+
 @app.middleware("http")
 async def remote_auth(request, call_next):
     """CERRADO POR DEFECTO: manda órdenes quien está vinculado, y nadie más.
@@ -356,10 +382,24 @@ async def remote_auth(request, call_next):
         ANTES de que su comprobación del secreto llegara a correr: los flujos de
         ejemplo no podían funcionar nunca. `/api/n8n/secret` NO está exenta:
         sigue siendo de este equipo y de nadie más.
+
+    Y desde P3-2 (roadmap P3-2) hay una tercera, del mismo tipo: exactamente
+    `/api/link/pair` (`_RUTA_CANJE`). El móvil que escanea el QR no tiene ninguna
+    credencial todavía, así que lo que autoriza es el CÓDIGO de un solo uso, y
+    quien lo comprueba (y lo consume) es el handler.
+
+    LA CREDENCIAL ACEPTADA SON DOS desde P3-2, y esto es una DECISIÓN DE
+    COMPATIBILIDAD, no un descuido: el token PROPIO de cada dispositivo (guardado
+    como digesto en `data/dispositivos.json`) y, por el período de gracia, el
+    token COMPARTIDO de siempre (`remote.link_token()`), que es el que tienen
+    guardado los teléfonos ya instalados. Retirarlo de golpe los dejaría fuera
+    sin explicación; se apaga revocándolo (decisión (a), `remote.revoke_device`).
     """
     ruta = request.url.path
     if ruta == _RUTA_N8N:
         return await call_next(request)   # el handler exige su propio secreto
+    if ruta == _RUTA_CANJE:
+        return await call_next(request)   # el handler exige el código de un solo uso
     if _es_este_equipo(request) or _es_ruta_publica(ruta):
         return await call_next(request)
 
@@ -368,13 +408,14 @@ async def remote_auth(request, call_next):
            or request.headers.get("x-nexus-token", "")
            or request.cookies.get("nexus_token", ""))
     import hmac
-    esperado = remote.link_token()
-    # Comparación en tiempo constante: un `!=` normal deja adivinar el token
-    # carácter a carácter midiendo cuánto tarda en responder.
-    if not esperado or not hmac.compare_digest(str(tok), str(esperado)):
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"error": "no autorizado — vincula el móvil con el QR de nexus"},
-                            status_code=401)
+    # 1) token PROPIO de un dispositivo (P3-2). 2) token COMPARTIDO de siempre.
+    if _ficha_del_token(str(tok)) is None:
+        esperado = remote.link_token()
+        # Comparación en tiempo constante: un `!=` normal deja adivinar el token
+        # carácter a carácter midiendo cuánto tarda en responder.
+        if not esperado or not hmac.compare_digest(str(tok), str(esperado)):
+            return JSONResponse({"error": "no autorizado — vincula el móvil con el QR de nexus"},
+                                status_code=401)
     response = await call_next(request)
     response.set_cookie("nexus_token", tok, max_age=86400 * 365,
                         httponly=True, samesite="lax")
@@ -420,13 +461,27 @@ async def websocket_endpoint(ws: WebSocket):
               and not ws.headers.get("x-forwarded-for")
               and getattr(getattr(ws, "client", None), "host", "")
               in ("127.0.0.1", "::1", "localhost"))
+    # P3-2: por aquí pasan DOS credenciales válidas, el token PROPIO del móvil y
+    # el COMPARTIDO de los ya instalados (período de gracia). `via_antigua` es lo
+    # que luego permite al HUD enseñar «dispositivo antiguo».
+    via_antigua = False
     if not (_local and _trusted_local_ws_origin(ws)):
         import hmac
-        esperado = remote.link_token()
-        if not esperado or not hmac.compare_digest(
-                str(ws.query_params.get("token", "")), str(esperado)):
-            await ws.close(code=4401)
-            return
+        intento = str(ws.query_params.get("token", ""))
+        try:
+            ficha_ws = remote.device_owner(intento)
+        except Exception:                                     # noqa: BLE001
+            # Sin tienda legible no hay tokens de dispositivo (falla cerrado) y se
+            # sigue por el camino del token compartido. Aquí, y no en un ayudante
+            # del módulo, porque este handler también se ejecuta aislado en las
+            # pruebas (ver `test_host_origin.py` sección 7).
+            ficha_ws = None
+        if ficha_ws is None:
+            esperado = remote.link_token()
+            if not esperado or not hmac.compare_digest(intento, str(esperado)):
+                await ws.close(code=4401)
+                return
+            via_antigua = True
     await ws.accept()
     bus.register(ws)
     # Reenvía historial reciente para que el HUD reconecte con contexto
@@ -449,7 +504,7 @@ async def websocket_endpoint(ws: WebSocket):
                       or (ws.client.host if ws.client else ""))
                 my_device = remote.register_device({
                     "id": msg.get("id", ""), "name": msg.get("name", ""),
-                    "ua": msg.get("ua", ""), "ip": ip})
+                    "ua": msg.get("ua", ""), "ip": ip, "antiguo": via_antigua})
                 await ws.send_text(json.dumps({"type": "paired_ack", "data": {
                     "pc": settings.get("operator_name", "tu PC"),
                     "name": my_device["name"]}}, ensure_ascii=False))
@@ -1969,21 +2024,77 @@ async def api_link_tailscale():
                      f"inicia sesión en los dos y vuelve a abrir el QR. {remote.TAILSCALE_WEB}")}
 
 
+@app.post("/api/link/pair")
+async def api_link_pair(payload: dict):
+    """El móvil canjea el CÓDIGO del QR por un token PROPIO (roadmap P3-2 / T21).
+
+    Por qué existe: el QR lleva un código de un solo uso, no una credencial
+    permanente. El móvil lo cambia UNA vez por un token suyo, que a partir de ahí
+    usa como siempre (`?token=`, `x-nexus-token`, cookie `nexus_token` y el
+    WebSocket). Así revocar un teléfono perdido deja de obligar a re-vincular
+    todos los demás.
+
+    Esta ruta está exenta del token en `remote_auth` (`_RUTA_CANJE`) porque quien
+    llega todavía no tiene ninguno: la autoridad es el código, que se compara en
+    tiempo constante y se consume aquí (`remote.pair_device`).
+    """
+    from backend.core.infraestructura import remote
+    # En el bucle, no en un hilo: esto es un canje en memoria + una escritura
+    # corta, y `register_device` toca el registro de dispositivos que el resto de
+    # handlers tocan desde el bucle. Moverlo a un hilo sería mezclar quién escribe
+    # ese registro por ahorrar milisegundos.
+    ficha = remote.pair_device(str(payload.get("codigo") or ""),
+                               str(payload.get("id") or ""),
+                               str(payload.get("name") or ""))
+    if not ficha:
+        # Mismo mensaje para «no existe», «caducado» y «ya usado»: decir cuál de
+        # los tres es darle una pista a quien va probando.
+        return JSONResponse({"error": _ERROR_CANJE}, status_code=403)
+    await bus.emit("log", {"level": "ok", "msg": f"📱 Vinculado: {ficha['name']} "
+                                                      "(token propio de ese móvil)"})
+    return {"ok": True, "id": ficha["id"], "name": ficha["name"],
+            "token": ficha["token"]}
+
+
+@app.post("/api/link/revoke")
+async def api_link_revoke(payload: dict):
+    """Mata el token de UN dispositivo (roadmap P3-2 / T21).
+
+    Si ese móvil usa un token PROPIO, mueren solo el suyo. Si es un «dispositivo
+    antiguo» (el token COMPARTIDO de antes), no hay credencial propia que apagar:
+    se cierra la compartida y el HUD lo dice en su `aviso` (decisión (a)).
+    """
+    from backend.core.infraestructura import remote
+    did = str(payload.get("id") or "")
+    r = remote.revoke_device(did)
+    if not r.get("ok"):
+        return JSONResponse({"error": str(r.get("error") or "no he podido revocar ese móvil")},
+                            status_code=404)
+    await bus.emit("unpaired", {"id": did, "name": r.get("name", ""),
+                                "count": len(remote.devices())})
+    await bus.emit("log", {"level": "info",
+                           "msg": f"📱 {r.get('name') or 'Móvil'} desvinculado"
+                                  + (" (usaba el token compartido)" if r.get("antiguo") else "")})
+    return r
+
+
 @app.post("/api/link/reset")
 async def api_link_reset():
-    """DESVINCULAR: rota el token (QRs y enlaces viejos DEJAN de valer) y olvida los
-    móviles registrados. Cada móvil tendrá que escanear el QR nuevo para volver."""
+    """DESVINCULAR TODO: rota el token compartido, tira los tokens propios, olvida
+    los móviles registrados y rota el código del QR. Cada móvil tendrá que
+    escanear el QR nuevo para volver."""
     from backend.core.infraestructura import remote
-    remote.rotate_token()
-    for d in list(remote.devices()):
-        try:
-            remote.forget_device(d.get("id", ""))
-        except Exception:
-            pass
+    # `revoke_all()` hace las cuatro cosas (P3-2): la lista de tokens propios, las
+    # fichas vivas, el token COMPARTIDO de antes y el código del QR. Antes esto
+    # era `rotate_token()` + olvidar las fichas; ahora hay más credenciales y
+    # dejarse una sería justo el agujero que cierra esta tarea.
+    r = remote.revoke_all()
     await bus.emit("unpaired", {"name": "todos los móviles", "id": "*", "count": 0})
     await bus.emit("log", {"level": "info",
-                           "msg": "📱 Desvinculación: token rotado; los enlaces antiguos ya no valen."})
-    return await asyncio.to_thread(remote.status)
+                           "msg": "📱 Desvinculación: tokens y código rotados; los "
+                                  "enlaces antiguos ya no valen."})
+    estado = await asyncio.to_thread(remote.status)
+    return {**estado, "reset": r}
 
 
 @app.post("/api/link/stop")

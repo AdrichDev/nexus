@@ -827,6 +827,11 @@ window.orbHTML = orbHTML;
     { id: 'm-permfiles', clave: 'perm_files', tipo: 'sel' },
     { id: 'm-permfolders', clave: 'perm_folders', tipo: 'lista' },
     { id: 'm-hw', clave: 'perm_hardware', tipo: 'chk' },
+    // T31b (la dejó abierta T31): la segunda copia de TODO `data/` es una guarda
+    // de la misma clase que el modo de archivos —apunta a dónde sale lo que nexus
+    // sabe— y por eso se toca con las manos en el teclado, nunca desde el móvil
+    // (`backup_destino_extra` está en `_CLAVES_SOLO_LOCALES` desde T17).
+    { id: 'm-backupextra', clave: 'backup_destino_extra', tipo: 'txt' },
     { id: 'm-nubefb', clave: 'permitir_fallback_nube', tipo: 'chk' },
     { id: 'm-nubedel', clave: 'permitir_delegacion_nube', tipo: 'chk' },
   ];
@@ -964,6 +969,8 @@ window.orbHTML = orbHTML;
         <label>Acceso a archivos<select id="m-permfiles">${['sandbox', 'carpetas', 'todo'].map((o) => `<option ${modo === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
         <div id="m-permfiles-aviso">${avisoAccesoArchivos(modo)}</div>
         <label>Carpetas permitidas (una por línea, solo modo «carpetas»)<textarea id="m-permfolders" rows="2" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:8px;border-radius:6px">${esc((cfg.perm_folders || []).join('\n'))}</textarea></label>
+        <label>Copia de seguridad en OTRA carpeta (opcional)<input id="m-backupextra" value="${esc(cfg.backup_destino_extra || '')}" placeholder="ej. D:\\copias\\nexus — otro disco físico" style="width:100%"></label>
+        <div class="chk" style="${pista}">Ahí va una copia de <b>TODO</b> <code>data/</code>: conversaciones, notas, tablero, memoria y registros. Vacío = no se copia a ninguna parte. Apúntala a OTRO disco o a un NAS: si se queda en el mismo disco que <code>data/</code> no protege de un fallo de disco ni de un ransomware. Como el resto de permisos, solo se cambia desde esta ventana: el móvil, el túnel y los flujos no pueden tocarla.</div>
         <div class="chk" style="${pista}">Estos permisos solo se cambian desde la ventana de nexus, en este equipo: el móvil, el túnel y los flujos no pueden tocarlos.</div></fieldset>
       <fieldset><legend>QUÉ PUEDE SALIR DEL EQUIPO</legend>
         <label class="chk"><input type="checkbox" id="m-nubefb" ${puedeReserva ? 'checked' : ''}> Que la nube haga de reserva si el cerebro local falla</label>

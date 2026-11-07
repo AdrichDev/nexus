@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -527,6 +528,33 @@ with _Config(perm_files="carpetas", perm_folders=[]):
     r = _post({"perm_files": "todo"}, peer="192.168.1.77")
     check(r.status_code == 401,
           f"sin token, un POST remoto debe dar 401, dio {r.status_code}")
+
+# 10) EL PANEL ⚙ Y EL 403 REMOTO SON LA MISMA LISTA (T31b, que dejó abierta T31)
+#
+# El trinquete de arriba protege una dirección: una clave de
+# `_CLAVES_SOLO_LOCALES` sin caso en la batería. Este protege la contraria, que es
+# la que de verdad deja un agujero: un control NUEVO en ⚙ que no esté en
+# `_CLAVES_SOLO_LOCALES` nace pudiéndose cambiar desde el móvil. T31b es
+# exactamente eso (el destino de la copia de TODO `data/` no tenía ni control), así
+# que la lista de guardas del panel y la de claves solo-locales no pueden
+# separarse: si algún día se separan, esto se pone rojo y dice cuál falta.
+print("== 10) cada guarda del panel ⚙ está también vetada desde fuera ==")
+_PARAMS_JS = ROOT / "frontend" / "js" / "command.js"
+_m_guardas = re.search(r"const GUARDAS_PANEL = \[(.*?)\];",
+                       _PARAMS_JS.read_text(encoding="utf-8"), re.S)
+check(_m_guardas is not None,
+      "no encuentro `const GUARDAS_PANEL = [...]` en frontend/js/command.js")
+if _m_guardas:
+    _claves_panel = re.findall(r"clave:\s*'([^']+)'", _m_guardas.group(1))
+    print(f"   guardas del panel: {_claves_panel}")
+    check("backup_destino_extra" in _claves_panel,
+          f"T31b sigue abierta: el destino de la copia de data/ no tiene control en "
+          f"⚙ ({_claves_panel})")
+    for _clave_panel in _claves_panel:
+        check(_clave_panel in servidor._CLAVES_SOLO_LOCALES,
+              f"«{_clave_panel}» se puede cambiar desde ⚙ pero NO está en "
+              "_CLAVES_SOLO_LOCALES: desde el móvil o el túnel se puede tocar esa "
+              "guarda. Añádela allí con su porqué (y su caso de prueba)")
 
 print(f"\n{'#' * 58}\nRESULTADO permisos de ficheros: {_pass} OK / {len(_fail)} fallos "
       f"({'' if not _fail else 'REVISAR'})")

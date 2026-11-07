@@ -110,6 +110,14 @@ fábrica, y `permitir_delegacion_nube`, encendido de fábrica porque ese cerebro
 lo elegiste tú). Cada uno explica en una línea qué hace y qué no protege, y se
 ven aquí, no en un JSON.
 
+En esa misma sección está **«Copia de seguridad en OTRA carpeta»**
+(`backup_destino_extra`, vacío de fábrica = sin segunda copia). Ahí va una copia
+de **todo** `data/` —conversaciones, notas, tablero, memoria—, así que apuntarla
+a otro sitio es de la misma clase que cambiar el alcance de archivos: se cambia
+solo desde esa ventana y el móvil, el túnel y los flujos la tienen vetada. Apunta
+a **otro disco** o a un NAS; en el mismo disco que `data/` no protege de un fallo
+ni de un ransomware.
+
 **Siempre vetado, también en `todo`**: el material de credenciales —
 `config/secrets.json`, los tokens OAuth (`*token*.json`, `*credential*` de
 `config/`), el `.env` de la raíz, `data/telegram_owner.txt` y
@@ -157,11 +165,52 @@ No borra nada: enumera los archivos y dice qué hacer con cada uno.
 **Los permisos solo se cambian desde este equipo.** `POST /api/config` rechaza
 con un 403 las claves que controlan una guarda (`perm_files`, `perm_folders`,
 `perm_hardware`, las URLs de n8n y de Home Assistant, `permitir_fallback_nube`,
-`permitir_delegacion_nube`, `llm_local`, `engram_autoinstall`) cuando la petición
+`permitir_delegacion_nube`, `llm_local`, `engram_autoinstall`,
+`backup_destino_extra`) cuando la petición
 no viene de la ventana
 local, aunque traiga el token del QR. El resto de la configuración sigue
 funcionando desde el móvil y `GET /api/config` sigue contando el modo, para que
 el HUD pueda enseñarlo.
+
+## Vincular el móvil (un token por dispositivo)
+
+El QR del HUD **ya no reparte el token de todos**. Reparte un **código de
+vinculación** de 8 caracteres, de **un solo uso** y con caducidad
+(`vinculacion.ttl_codigo_segundos` en `config/umbrales.json`, 5 minutos por
+defecto): lo justo para apuntar la cámara.
+
+1. **📱 → escanear el QR.** La página del móvil canjea el código UNA vez
+   (`POST /api/link/pair`) y recibe un **token propio de ese teléfono**, que a
+   partir de ahí usa exactamente donde antes usaba el del QR (`?token=`, la
+   cabecera `x-nexus-token`, la cookie `nexus_token` y el WebSocket). El código
+   gastado no vuelve a valer: si caduca o ya se usó, se saca otro abriendo el QR.
+2. **Qué se guarda en el PC.** En `data/dispositivos.json` queda el **digesto
+   sha256** del token, nunca el token: ese archivo no lo lee el HUD y lo que el
+   HUD recibe (`GET /api/link/status` → `vinculados`) son id, nombre y estado,
+   sin material de credencial. La comparación es en tiempo constante
+   (`hmac.compare_digest`) y con 32 bytes al azar el digesto no se invierte.
+3. **Revocar UNO.** En el panel del QR, cada móvil tiene su **✕ Revocar**: mata
+   ese token y los demás siguen vinculados. Es lo que antes no se podía: perder
+   un teléfono obligaba a re-vincular todos con «Desvincular».
+4. **Desvincular TODO.** Sigue existiendo y ahora rota las **tres** cosas: los
+   tokens propios, el token compartido de antes y el código del QR. Ningún
+   teléfono conserva acceso y todos vuelven a escanear.
+
+**Móviles ya vinculados (compatibilidad).** Los teléfonos que guardaron el token
+compartido de antes **siguen entrando**: cortarlos de golpe los dejaría fuera sin
+que nadie pudiera explicarlo. El HUD los enseña como **«dispositivo antiguo»**, y
+como esa credencial no se puede acotar a un aparato, revocar uno de ellos cierra
+el token compartido **para todos los antiguos** (los que ya tienen token propio
+no se tocan). El propio aviso del botón lo dice antes de confirmar.
+
+**Lo que NO cambia, y hay que decirlo:** el token sigue viajando en la **query**
+(`/m?host=…&token=…`), porque los APK ya instalados leen `token` del QR y lo
+copian a cada dirección de respaldo (`movil/MainActivity.java`). Sacarlo de la
+URL es la decisión abierta de T12; hoy el APK **no tiene que hacer nada distinto**
+(el canje lo hace la propia página `/m`). Consecuencia: la superficie de fuga es
+la de siempre —el enlace del QR, el propio QR y el `localStorage` del móvil—,
+con una diferencia real: lo que el QR lleva ahora es un código de un solo uso,
+no una credencial para siempre.
 
 ## Presupuesto de modelo (Centro de mando → Consumo y estado)
 

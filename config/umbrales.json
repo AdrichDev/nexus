@@ -546,5 +546,24 @@
     "_ventana_idempotencia_seg": "Segundos durante los que un envio identico (mismo destinatario, mismo asunto y mismo cuerpo, sin distinguir mayusculas ni espacios de mas) NO vuelve a salir: se contesta que ya salio. Subirlo protege mas de los dobles clics pero estorba si de verdad quieres repetir el mismo mensaje; bajarlo deja pasar antes el duplicado. La memoria de envios vive en RAM, asi que un reinicio la borra.",
     "max_caracteres_cuerpo": 600,
     "_max_caracteres_cuerpo": "Cuanto cuerpo cabe en la previsualizacion que se te ensena antes de enviar. Si el texto no cabe, se CORTA y se marca con puntos suspensivos: recortar no es resumir. Subirlo alarga la pregunta (y el mensaje que lees); bajarlo esconde mas texto del que va a salir."
+  },
+  "vinculacion": {
+    "_que_es": [
+      "Cuanto vive, en segundos, el CODIGO de vinculacion del movil. El QR que",
+      "ensena el HUD lleva ese codigo (8 caracteres, sin 0/O/1/I/L), y la pagina del",
+      "telefono lo canjea UNA vez en POST /api/link/pair por un token propio de ESE",
+      "movil. Caducado o usado, no vuelve a valer: se saca otro abriendo el QR.",
+      "",
+      "P3-2 de la auditoria del 30/07/2026 (04 §3): antes el QR repartia UN token",
+      "compartido por todos los moviles y para siempre, asi que revocar un telefono",
+      "perdido desvinculaba TODOS y un token filtrado valia desde cualquier sitio.",
+      "Subirlo alarga la ventana en la que un codigo visto por encima sirve; bajarlo",
+      "obliga a abrir el QR otra vez si tardas en apuntar la camara.",
+      "",
+      "Nada de esto esta escrito en el codigo: cambia el numero, reinicia nexus, y",
+      "cambia el comportamiento (0 o basura = se usa la reserva de 300 s, nunca",
+      "«sin caducidad»)."
+    ],
+    "ttl_codigo_segundos": 300
   }
 }

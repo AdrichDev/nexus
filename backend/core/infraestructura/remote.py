@@ -4,10 +4,23 @@ nexus — Vinculación remota del móvil (QR + túnel, SIN misma WiFi).
 Cómo funciona:
   1. El PC arranca un túnel público con cloudflared («quick tunnel», gratis y
      sin cuenta): https://<algo>.trycloudflare.com → tu nexus local.
-  2. Se genera un TOKEN de vinculación (config/secrets.json → link_token).
-  3. El HUD muestra un QR con la URL del túnel + el token.
-  4. El móvil escanea el QR y ya habla con tu PC desde CUALQUIER red (4G/5G,
-     otra WiFi…), autenticado con el token (middleware en app.py).
+  2. nexus tiene un CÓDIGO de vinculación vigente (`pairing_code`): 8 caracteres
+     de un alfabeto sin equívocos, de un solo uso y con caducidad
+     (`vinculacion.ttl_codigo_segundos` de config/umbrales.json).
+  3. El HUD muestra un QR con la URL del túnel + ese código.
+  4. El móvil escanea el QR, canjea el código UNA vez (`POST /api/link/pair`) y
+     recibe su TOKEN PROPIO, que a partir de ahí usa en cada petición (middleware
+     de app.py). Cada móvil tiene el suyo y se puede revocar uno solo
+     (`POST /api/link/revoke`).
+
+EL TOKEN COMPARTIDO DE ANTES (`link_token`) NO DESAPARECE, y es a propósito
+(roadmap P3-2 / T21): los teléfonos ya instalados lo tienen guardado en su
+`localStorage` y el `movil/MainActivity.java` lo lleva pegado en cada dirección
+que guarda, así que retirarlo de golpe los dejaría fuera sin que nadie pudiera
+explicarlo. Sigue valiendo como PERIODO DE GRACIA, el HUD lo enseña como
+«dispositivo antiguo» y el dueño lo apaga revocándolo (o con «Desvincular», que
+rota las dos credenciales). Lo que ya NO se reparte es el token compartido: el
+QR entrega el código de un solo uso.
 
 Si cloudflared no está: se intenta DESCARGAR solo (GitHub oficial) a la
 carpeta config/; si tampoco se puede, se da el enlace para bajarlo a mano.
@@ -16,6 +29,8 @@ Plan B sin túnel: QR con la IP local (solo misma WiFi).
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import io
 import json
 import re
@@ -26,6 +41,7 @@ import sys
 import time
 from pathlib import Path
 
+from ..comun.atomicos import escribir_json_atomico
 from ..comun.config import CONFIG_DIR, DATA_DIR, ROOT, settings
 
 CLOUDFLARED_URL_WIN = ("https://github.com/cloudflare/cloudflared/releases/"
@@ -84,7 +100,12 @@ _devices: dict[str, dict] = {}
 
 
 def register_device(info: dict) -> dict:
-    """Apunta (o refresca) un móvil vinculado. Devuelve la ficha del dispositivo."""
+    """Apunta (o refresca) un móvil vinculado. Devuelve la ficha del dispositivo.
+
+    `antiguo` = se ha autenticado con el token COMPARTIDO de siempre, no con uno
+    propio (ver el docstring del módulo). No es un detalle cosmético: es lo que
+    el HUD necesita para decir «este móvil hay que re-vincularlo» y para saber
+    que revocarlo cierra la credencial de todos los antiguos, no de uno."""
     did = (str(info.get("id") or "").strip() or pysecrets.token_hex(4))
     prev = _devices.get(did, {})
     dev = {
@@ -96,6 +117,7 @@ def register_device(info: dict) -> dict:
         "last": time.strftime("%H:%M"),
         "ts": time.time(),
         "online": True,
+        "antiguo": bool(info.get("antiguo", prev.get("antiguo", False))),
     }
     _devices[did] = dev
     return dev
@@ -125,7 +147,305 @@ def devices() -> list:
     return sorted(_devices.values(), key=lambda d: d.get("ts", 0), reverse=True)
 
 
-# ------------------------------------------------------------------ token
+# ─────────────────────────────────────────── código de vinculación (un solo uso)
+# POR QUÉ EXISTE (roadmap P3-2 / task T21)
+# ---------------------------------------
+# Antes el QR llevaba EL token: el mismo para todos los móviles y para siempre.
+# De ahí salían dos agujeros de la auditoría (04 §3): revocar un teléfono perdido
+# desvinculaba TODOS (`rotate_token`), y un token filtrado en un móvil valía desde
+# cualquier sitio de la LAN o del túnel sin forma de acotarlo.
+#
+# Ahora el QR reparte un CÓDIGO de un solo uso, corto de vida y de 8 caracteres
+# (31 símbolos sin 0/O/1/I/L, ≈39,6 bits: no se adivina), y el móvil lo canjea
+# UNA vez por un token suyo. Es la misma disciplina que ya está probada en el
+# puente de Telegram (61396b0, SEC-02): `secrets` para generar, la TTL en
+# config/umbrales.json, `hmac.compare_digest` para comparar y borrado al usarlo.
+#
+# DIFERENCIA a propósito con el código de Telegram: aquel se REGENERA en cada
+# `GET /api/telegram/link`; este NO, porque el QR se repinta cada vez que el HUD
+# pregunta por el estado (cada 45 s) y regenerarlo invalidaría el código que el
+# dueño tiene en la pantalla. Aquí el código vive hasta que se canjea o caduca.
+_ALFABETO_CODIGO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_LARGO_CODIGO = 8            # 8 de 31 símbolos ≈ 39,6 bits
+_TTL_CODIGO_RESERVA = 300.0  # 5 min; el valor de verdad está en umbrales.json
+
+
+def ttl_codigo_segundos() -> float:
+    """Cuánto vive el código del QR, desde `config/umbrales.json` («vinculacion»).
+
+    Con reserva si el archivo falta, está roto o el valor no vale: un umbral mal
+    escrito no puede dejar la vinculación sin caducidad."""
+    try:
+        f = CONFIG_DIR / "umbrales.json"
+        if f.is_file():
+            leido = (json.loads(f.read_text(encoding="utf-8")) or {}).get("vinculacion") or {}
+            valor = leido.get("ttl_codigo_segundos")
+            if isinstance(valor, (int, float)) and not isinstance(valor, bool) and valor > 0:
+                return float(valor)
+    except Exception:                                        # noqa: BLE001
+        pass
+    return _TTL_CODIGO_RESERVA
+
+
+def _ahora() -> float:
+    """El reloj del módulo (para poder simular la caducidad en las pruebas)."""
+    return time.time()
+
+
+_pendiente: dict = {"codigo": "", "creado": 0.0}
+
+
+def pairing_code() -> str:
+    """El código de vinculación VIGENTE; lo crea si no hay o si ya caducó.
+
+    Es estable a propósito: quien lo tenga en la mano (el QR del HUD) puede
+    pedirlo las veces que haga falta sin que deje de valer."""
+    ahora = _ahora()
+    if _pendiente["codigo"] and (ahora - _pendiente["creado"]) <= ttl_codigo_segundos():
+        return str(_pendiente["codigo"])
+    nuevo = "".join(pysecrets.choice(_ALFABETO_CODIGO) for _ in range(_LARGO_CODIGO))
+    _pendiente.update(codigo=nuevo, creado=ahora)
+    return nuevo
+
+
+def invalidar_codigo() -> None:
+    """Tira el código pendiente: no vuelve a valer (desvincular, o caducado)."""
+    _pendiente.update(codigo="", creado=0.0)
+
+
+def _codigo_vigente() -> str:
+    if not _pendiente["codigo"]:
+        return ""
+    if (_ahora() - _pendiente["creado"]) > ttl_codigo_segundos():
+        invalidar_codigo()                 # caducado: no revive nunca
+        return ""
+    return str(_pendiente["codigo"])
+
+
+def canjear_codigo(intento: str) -> bool:
+    """¿Este código es el vigente? Si lo es, se CONSUME (un solo uso)."""
+    esperado = _codigo_vigente()
+    intento = str(intento or "").strip().upper()
+    if not esperado or not intento:
+        return False
+    # Tiempo constante, como el secreto de n8n y el código de Telegram: adivinar
+    # carácter a carácter midiendo lo que tarda no debe ser posible. La llamada
+    # se hace SIEMPRE, incluso con el intento vacío, para no abrir un atajo.
+    if not hmac.compare_digest(intento, esperado):
+        return False
+    invalidar_codigo()                     # de un solo uso
+    return True
+
+
+# ─────────────────────────────────────────── token PROPIO por dispositivo
+# DÓNDE VIVE EL TOKEN, Y POR QUÉ ES SUFICIENTE ASÍ
+# ------------------------------------------------
+# En `data/dispositivos.json` se guarda el DIGESTO sha256 del token, nunca el
+# token. El archivo NO está en `config/` (que el HUD lee entero por /api/config)
+# y `status()` no devuelve ningún digesto, así que lo que el HUD lee no vale
+# como credencial. Con un token de 32 bytes al azar (`token_urlsafe(32)`, 256
+# bits) el digesto no se puede invertir ni por fuerza bruta, que es justo la
+# razón por la que aquí un hash basta y no hace falta un derivador lento (no hay
+# contraseña humana que proteger). La comparación es `hmac.compare_digest` del
+# digesto, o sea tiempo constante.
+#
+# LO QUE ESTO **NO** PROTEGE, dicho claro: quien pueda leer el archivo y además
+# espiar la red no gana nada (el digesto no da el token), pero un malware que
+# corra como este usuario puede leer la memoria del proceso nexus y ahí sí están
+# los tokens en claro mientras duran las peticiones. Eso ya era cierto antes con
+# el token compartido y es inherente a un asistente local (04 §4).
+_DEVICES_FILE = DATA_DIR / "dispositivos.json"
+_STORE_VERSION = 1
+
+_fichas_cache: list | None = None
+
+
+def _huella(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
+def _fichas_guardadas() -> list:
+    """Los dispositivos con token propio, leídos del disco una vez.
+
+    Un archivo ilegible devuelve la lista VACÍA (falla cerrado: sin tienda no hay
+    tokens válidos), no una lista de dispositivos con digesto vacío."""
+    global _fichas_cache
+    if _fichas_cache is None:
+        lista: list = []
+        try:
+            if _DEVICES_FILE.is_file():
+                disco = json.loads(_DEVICES_FILE.read_text(encoding="utf-8")) or {}
+                for f in (disco.get("dispositivos") or []):
+                    if isinstance(f, dict) and f.get("id") and f.get("digest"):
+                        lista.append(f)
+        except Exception:                                    # noqa: BLE001
+            lista = []
+        _fichas_cache = lista
+    return _fichas_cache
+
+
+def _guarda_fichas(lista: list) -> bool:
+    """Escribe la tienda de forma atómica. False si no se pudo (y NO se miente)."""
+    global _fichas_cache
+    try:
+        escribir_json_atomico(_DEVICES_FILE,
+                              {"version": _STORE_VERSION,
+                               "dispositivos": list(lista)},
+                              indent=2)
+    except Exception:                                        # noqa: BLE001
+        return False
+    _fichas_cache = list(lista)
+    return True
+
+
+def pair_device(codigo: str, device_id: str = "", name: str = "") -> dict | None:
+    """Canjea el código del QR por un token PROPIO de ese móvil.
+
+    Devuelve `{id, name, token}` o None. El código se consume ANTES de escribir:
+    si el disco falla, el código queda gastado y no se entrega ninguna credencial
+    que no haya quedado guardada (mejor re-escanear el QR que un token que no
+    existe en ningún sitio)."""
+    if not canjear_codigo(codigo):
+        return None
+    token = pysecrets.token_urlsafe(32)
+    did = (str(device_id or "").strip() or pysecrets.token_hex(4))[:40]
+    nombre = (str(name or "").strip() or "Móvil")[:40]
+    fichas = [f for f in _fichas_guardadas() if str(f.get("id")) != did]
+    fichas.append({"id": did, "name": nombre, "digest": _huella(token),
+                   "creado": _ahora()})
+    if not _guarda_fichas(fichas):
+        return None
+    register_device({"id": did, "name": nombre, "antiguo": False})
+    return {"id": did, "name": nombre, "token": token}
+
+
+def device_owner(token: str) -> dict | None:
+    """La ficha del móvil dueño de este token PROPIO, o None.
+
+    Compara digestos con `hmac.compare_digest`; el token en claro no se guarda en
+    ningún sitio y por eso no se puede «leer de vuelta»."""
+    token = str(token or "")
+    if not token:
+        return None
+    objetivo = _huella(token)
+    for ficha in _fichas_guardadas():
+        if hmac.compare_digest(objetivo, str(ficha.get("digest") or "")):
+            return ficha
+    return None
+
+
+def revoke_device(did: str) -> dict:
+    """Mata el token de UN dispositivo.
+
+    DECISIÓN DE COMPATIBILIDAD (a), escrita aquí porque es donde se ve su precio:
+    los móviles que se autentican con el token COMPARTIDO de siempre no tienen
+    una credencial propia que apagar, así que revocar uno de ellos cierra esa
+    credencial para todos los antiguos (y solo para ellos: los que ya tienen
+    token propio siguen dentro). La alternativa era (b), no admitir el token
+    compartido desde el primer arranque: más limpia de libro y deja fuera, sin
+    explicación posible, a todos los teléfonos ya instalados. Se eligió (a)."""
+    did = str(did or "").strip()
+    if not did:
+        return {"ok": False,
+                "error": "no has dicho qué dispositivo revocar (falta el id)"}
+    fichas = _fichas_guardadas()
+    quedan = [f for f in fichas if str(f.get("id")) != did]
+    if len(quedan) != len(fichas):
+        nombre = next((str(f.get("name") or "ese móvil")
+                       for f in fichas if str(f.get("id")) == did), "ese móvil")
+        if not _guarda_fichas(quedan):
+            return {"ok": False,
+                    "error": "no he podido guardar la lista de dispositivos; no se ha revocado nada"}
+        forget_device(did)
+        return {"ok": True, "revocado": True, "id": did, "antiguo": False,
+                "name": nombre,
+                "aviso": f"El token de «{nombre}» ya no vale. Los demás móviles "
+                         "siguen vinculados."}
+    # No tiene token propio: es uno de los móviles ANTIGUOS (token compartido).
+    if did in _devices:
+        nombre = str(_devices[did].get("name") or "ese móvil")
+        rotate_token()                     # la credencial compartida deja de valer
+        for otro, ficha in list(_devices.items()):
+            if ficha.get("antiguo"):
+                forget_device(otro)
+        forget_device(did)
+        return {"ok": True, "revocado": True, "id": did, "antiguo": True,
+                "name": nombre,
+                "aviso": "Ese móvil usaba el token COMPARTIDO de antes, que no se "
+                         "puede acotar a un solo aparato: al revocarlo se cierra "
+                         "para todos los móviles antiguos. Los que tienen token "
+                         "propio siguen vinculados; en los antiguos hay que volver "
+                         "a escanear el QR."}
+    return {"ok": False,
+            "error": "no hay ningún móvil vinculado con ese id (¿ya estaba revocado?)"}
+
+
+def revoke_all() -> dict:
+    """Desvincular TODO: tokens propios, fichas vivas, token compartido y código.
+
+    Es «kill everything and re-pair»: el QR viejo deja de valer (código rotado) y
+    ningún móvil conserva acceso."""
+    cuantas = len(_fichas_guardadas())
+    _guarda_fichas([])
+    for did in list(_devices):
+        forget_device(did)
+    rotate_token()
+    invalidar_codigo()
+    return {"ok": True, "dispositivos": cuantas}
+
+
+def vinculados() -> list:
+    """Los móviles que el HUD puede revocar, uno por uno.
+
+    Incluye los que YA NO están conectados: un teléfono perdido lleva horas con el
+    WebSocket cerrado y sigue teniendo su token, o sea que sigue siendo el que hay
+    que poder quitar de la lista."""
+    vivos = {str(d.get("id")): d for d in _devices.values()}
+    fuera: list = []
+    vistos: set[str] = set()
+    for f in _fichas_guardadas():
+        did = str(f.get("id") or "")
+        if not did:
+            continue
+        vistos.add(did)
+        viva = dict(vivos.get(did) or {})
+        creado = f.get("creado")
+        desde = ""
+        try:
+            if creado:
+                desde = time.strftime("%d/%m/%Y", time.localtime(float(creado)))
+        except Exception:                                    # noqa: BLE001
+            desde = ""
+        fuera.append({
+            "id": did,
+            "name": str(viva.get("name") or f.get("name") or "Móvil")[:40],
+            "ip": str(viva.get("ip") or ""),
+            "since": str(viva.get("since") or ""),
+            "last": str(viva.get("last") or ""),
+            "online": bool(viva.get("online")),
+            "antiguo": False,
+            "vinculado_desde": desde,
+        })
+    for did, ficha in vivos.items():
+        if did in vistos:
+            continue
+        fuera.append({
+            "id": did,
+            "name": str(ficha.get("name") or "Móvil")[:40],
+            "ip": str(ficha.get("ip") or ""),
+            "since": str(ficha.get("since") or ""),
+            "last": str(ficha.get("last") or ""),
+            "online": bool(ficha.get("online")),
+            "antiguo": bool(ficha.get("antiguo")),
+            "vinculado_desde": "",
+        })
+    return fuera
+
+
+# ------------------------------------------------- token COMPARTIDO (gracia)
+# Sigue existiendo SOLO por los móviles ya instalados (decisión (a), ver
+# `revoke_device`). Ya no viaja en el QR: lo que el QR reparte es el código de
+# arriba, así que este token solo envejece.
 def link_token() -> str:
     tok = settings.secret("link_token")
     if not tok:
@@ -625,6 +945,11 @@ def status() -> dict:
     lo que se escanea: va dentro de `link` y lo dibuja `/api/link/qr` (y el HUD
     con `frontend/js/modals/link.js`). Para saber si hay móviles vinculados está
     `paired`, que es lo único que hace falta saber sin el token en la mano.
+
+    Y desde P3-2 lo que `link` lleva es un CÓDIGO de un solo uso, no una
+    credencial permanente: leerlo sirve para vincular un móvil, no para entrar
+    para siempre. Los tokens propios y sus digestos NO salen de aquí (`vinculados`
+    trae id, nombre y estado, nada de material de credencial).
     """
     # OJO CON `alive`: un túnel ADOPTADO no tiene `proc` (lo abrió el nexus
     # anterior y su cloudflared es hijo de aquel proceso). Sin contar la marca,
@@ -638,7 +963,11 @@ def status() -> dict:
                                       "tipo": "wifi", "estable": False}
     host, esquema, via = principal["host"], principal["esquema"], principal["tipo"]
     alternativas = ",".join(f"{d['esquema']}://{d['host']}" for d in dirs[1:])
-    link = (f"{esquema}://{host}/m?host={host}&token={link_token()}"
+    # El `token=` del QR es el CÓDIGO de un solo uso, no el token compartido: el
+    # móvil lo canjea por el suyo (`POST /api/link/pair`). La FORMA del enlace no
+    # cambia a propósito —`movil/MainActivity.java` copia el valor de `token` a
+    # cada dirección de respaldo y la página lo lee igual—, solo cambia QUÉ es.
+    link = (f"{esquema}://{host}/m?host={host}&token={pairing_code()}"
             + (f"&alt={alternativas}" if alternativas else ""))
     return {"tunnel": alive, "url": _state["url"], "error": _state["error"],
             "adoptado": bool(_state["adoptado"]),
@@ -649,6 +978,10 @@ def status() -> dict:
                                  "re-escanear el QR." if _state["url"] else "")),
             "lan": f"{lan_ip()}:8177", "link": link,
             "devices": devices(), "paired": len(_devices),
+            # Los revocables, uno por uno (incluye los apagados y los «antiguos»).
+            # `devices`/`paired` se quedan como estaban: son «los conectados ahora»
+            # y el HUD ya los usa para el contador del botón 📱.
+            "vinculados": vinculados(),
             "via": via, "estable": bool(principal.get("estable")),
             "hosts": dirs, "nombre_local": nombre_local(),
             "tailscale": tailscale_status()}

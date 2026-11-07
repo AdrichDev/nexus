@@ -146,15 +146,31 @@
 <script src="/static/js/reactor.js"></script>
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
-(function () {
+// ASÍNCRONA a propósito: antes de conectar hay que canjear el código del QR por
+// el token propio de este móvil (P3-2) y eso es una petición. Todo lo demás se
+// ejecuta igual, en orden.
+(async function () {
   const $ = (id) => document.getElementById(id);
   // El móvil se conecta al backend del PC. Por defecto, el mismo host que sirvió
   // la página; se puede fijar ?host=192.168.1.50:8177 para apuntar al PC en la LAN.
   const params = new URLSearchParams(location.search);
   const HOST = params.get('host') || location.host;
-  // token de VINCULACIÓN (viene en el QR); se guarda para siempre en el móvil
-  const TOKEN = params.get('token') || localStorage.getItem('nexus_token') || '';
-  if (params.get('token')) localStorage.setItem('nexus_token', params.get('token'));
+  /* ── EL TOKEN ES TUYO, NO DE TODOS (roadmap P3-2) ────────────────────────
+     El QR ya NO trae el token compartido de siempre: trae un CÓDIGO de un solo
+     uso y de vida corta (8 caracteres, `vinculacion.ttl_codigo_segundos` de
+     config/umbrales.json). Esta página lo canjea UNA vez en
+     `POST /api/link/pair` y recibe un token PROPIO de este teléfono, que a
+     partir de ahí se usa exactamente donde antes se usaba el del QR: `?token=`,
+     la cabecera `x-nexus-token`, la cookie `nexus_token` y el WebSocket.
+     En `localStorage` se guarda el token PROPIO, nunca el código: un código ya
+     gastado en el almacén dejaría el móvil fuera en cuanto recargara.
+     Los móviles que ya estaban vinculados siguen con su token de siempre: nexus
+     lo acepta como «dispositivo antiguo» hasta que el dueño lo revoque. ── */
+  const CODIGO_RX = /^[A-HJ-NP-Z2-9]{8}$/;
+  const TOKEN_QR = params.get('token') || '';
+  let TOKEN = CODIGO_RX.test(TOKEN_QR)
+    ? '' : (TOKEN_QR || localStorage.getItem('nexus_token') || '');
+  if (TOKEN) localStorage.setItem('nexus_token', TOKEN);   // el de siempre, como siempre
 
   /* ── LA VINCULACIÓN NO CADUCA ────────────────────────────────────────────
      El problema que arregla esto: el móvil guardaba UNA dirección. Si esa era
@@ -224,7 +240,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 
   const HTTP = `${location.protocol}//${HOST}`;
   const WSP = location.protocol === 'https:' ? 'wss' : 'ws';
-  const TQ = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : '';
+  let TQ = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : '';
 
   // IDENTIDAD del móvil: id persistente + nombre legible (para que el PC muestre
   // «qué dispositivo se ha vinculado»). Se puede renombrar guardando nexus_dev_name.
@@ -240,6 +256,32 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
     const m = ua.match(/\((?:Linux; )?([^;)]+)/);
     const model = m && /Android/i.test(ua) && m[1] && !/Linux/i.test(m[1]) ? ' · ' + m[1].trim() : '';
     return (os + model).slice(0, 38);
+  }
+
+  /* Canjear el código del QR por el token PROPIO. Se llama UNA vez al arrancar,
+     antes de conectar. Si el canje no sale (código caducado, ya usado, PC a
+     medias) se sigue con el token guardado, si lo hay: no se borra nada por un
+     fallo de red. El código NO se guarda nunca. */
+  async function canjeaCodigo() {
+    if (!CODIGO_RX.test(TOKEN_QR)) return false;
+    const base = `${location.protocol}//${location.host}`;
+    try {
+      const r = await fetch(`${base}/api/link/pair`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: TOKEN_QR, id: DEV_ID, name: deviceName() }) });
+      if (r.ok) {
+        const d = await r.json();
+        if (d && d.token) {
+          TOKEN = d.token;
+          TQ = `?token=${encodeURIComponent(TOKEN)}`;
+          try { localStorage.setItem('nexus_token', TOKEN); } catch (_) { /* webview sin storage */ }
+          return true;
+        }
+      }
+    } catch (_) { /* sin red: se sigue con lo que hubiera guardado */ }
+    TOKEN = localStorage.getItem('nexus_token') || '';
+    TQ = TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : '';
+    return false;
   }
 
   (function buildOrb() {
@@ -323,6 +365,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
       }
     };
   }
+  await canjeaCodigo();      // el código del QR → token propio de ESTE móvil
   connect();
 
   // ---- respuesta: texto seleccionable + enlaces clicables + VOZ ----

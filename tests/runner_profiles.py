@@ -168,6 +168,14 @@ SAFE_UNIT_SUITES = (
     # /api/link/status (SEC-03): en proceso (httpx.ASGITransport, sin lifespan ni
     # puertos), direcciones de red dobladas y carpetas de usar y tirar.
     "integration/http/test_host_origin.py",
+    # Un token por dispositivo con revocación individual (P3-2, task T21): código
+    # de vinculación de un solo uso, token propio guardado como digesto sha256 y
+    # `revoke {id}`. En proceso (httpx.ASGITransport, sin lifespan ni puertos), el
+    # WebSocket se ejecuta con el handler real cargado por AST (no abre socket),
+    # `brain.process` va doblado y config/data viven en carpetas de usar y tirar:
+    # no lee ni escribe el `settings.json`, el `secrets.json` ni el `data/` del
+    # operador, y el token compartido del período de gracia es de mentira.
+    "integration/http/test_vinculacion_dispositivos.py",
     # Lista blanca de herramientas MCP, «sí» para las de escritura y la salida
     # como dato (SEC-18 / AI-10, roadmap P3-7): `asyncio.create_subprocess_exec`
     # va doblado ANTES de la primera llamada, así que no arranca ni un `npx`, y

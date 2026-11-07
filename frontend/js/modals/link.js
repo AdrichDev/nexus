@@ -24,6 +24,10 @@ function _drawQR(link) {
 }
 // ---- móviles vinculados (los alimentan los eventos WS 'paired'/'unpaired') ----
 let _pairedDevs = [];
+// Los REVOCABLES, uno por dispositivo (roadmap P3-2): el backend manda en
+// `vinculados` los tokens propios e incluso los móviles que ahora están
+// apagados, que son justo los que hay que poder quitar de la lista.
+let _vinculados = [];
 export function paintLinkBadge() {
   const b = $('#btn-link'); if (!b) return;
   const n = _pairedDevs.length;
@@ -32,16 +36,79 @@ export function paintLinkBadge() {
   b.title = n ? `${n} móvil(es) vinculado(s): ${_pairedDevs.map((d) => d.name).join(', ')}`
               : 'Vincular el móvil (QR)';
 }
+/* ¿Qué es «dispositivo antiguo»? El que se autentica con el token COMPARTIDO de
+   antes de P3-2 (el que llevaban los QR viejos). No tiene credencial propia que
+   apagar, así que revocarlo cierra esa credencial para TODOS los antiguos; el
+   texto del botón lo dice en vez de fingir que es uno solo. */
+function _estadoDispositivo(d) {
+  if (d && d.antiguo) return 'dispositivo antiguo · token compartido';
+  if (d && d.online === false) return 'vinculado · apagado ahora';
+  return 'vinculado · conectado';
+}
 function renderLinkDevices() {
   const box = $('#lk-devices'); if (!box) return;
-  box.innerHTML = _pairedDevs.length
-    ? '<div class="lk-dev-h">📱 Vinculados ahora</div>' + _pairedDevs.map((d) =>
-        `<div class="lk-dev"><b>${esc(d.name)}</b><span>${esc(d.ip || '—')} · ${esc(d.since || '')}</span></div>`).join('')
-    : '';
+  const lista = _vinculados.length ? _vinculados : _pairedDevs;
+  if (!lista.length) { box.innerHTML = ''; return; }
+  const fila = (d) => `<div class="lk-dev${d.antiguo ? ' old' : ''}">
+      <b>${esc(d.name || 'Móvil')}</b>
+      <span>${esc(d.ip || '—')}${d.since ? ' · ' + esc(d.since) : ''}`
+    + `${d.vinculado_desde ? ' · desde ' + esc(d.vinculado_desde) : ''}</span>
+      <span class="lk-dev-est">${esc(_estadoDispositivo(d))}</span>
+      <button class="lk-revoke" data-revoke="${esc(String(d.id == null ? '' : d.id))}"
+        title="Revocar solo este móvil">✕ Revocar</button></div>`;
+  const hayAntiguos = lista.some((d) => d && d.antiguo);
+  box.innerHTML = '<div class="lk-dev-h">📱 Vinculados (' + lista.length + ')</div>'
+    + lista.map(fila).join('')
+    + (hayAntiguos
+      ? '<div class="lk-dev-nota">Los «dispositivos antiguos» usan el token '
+        + 'compartido de antes: revocar uno cierra ese token para todos ellos. '
+        + 'Vuelve a escanear el QR en esos móviles para darles su token propio.</div>'
+      : '');
+  // Delegado en el contenedor: el panel se repinta cada 45 s y no queremos
+  // listeners acumulándose (el mismo fallo que tuvo la rejilla de dispositivos).
+  if (!box._deleg) {
+    box._deleg = 1;
+    box.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-revoke]');
+      if (!b) return;
+      ev.stopPropagation();
+      revocarDispositivo(b.dataset.revoke, b);
+    });
+  }
 }
+
+/* Revocar UN móvil (roadmap P3-2). Antes solo existía «Desvincular» (mataba a
+   todos): perder un teléfono obligaba a re-escanear el QR en los demás. */
+async function revocarDispositivo(id, btn) {
+  if (!id) return;
+  const lista = _vinculados.length ? _vinculados : _pairedDevs;
+  const ficha = lista.find((x) => String(x.id) === String(id));
+  const nombre = (ficha && ficha.name) || 'ese móvil';
+  const aviso = (ficha && ficha.antiguo)
+    ? `¿Revocar «${nombre}»? Usa el token COMPARTIDO de antes, así que se cerrará `
+      + 'para TODOS los móviles antiguos: en ellos habrá que volver a escanear el QR. '
+      + 'Los que ya tienen token propio no se tocan.'
+    : `¿Revocar «${nombre}»? Su enlace deja de valer; los demás móviles siguen vinculados.`;
+  if (!confirm(aviso)) return;
+  if (btn) btn.disabled = true;
+  let r = null;
+  try {
+    r = await api('/api/link/revoke', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+  } catch (e) { /* sin backend: se dice abajo */ }
+  if (btn) btn.disabled = false;
+  if (!r || r.ok !== true) {
+    pushLog('warn', '📱 No he podido revocar ese móvil' + (r && r.error ? ': ' + r.error : '.'));
+    return;
+  }
+  pushLog('info', r.aviso || `📱 «${nombre}» desvinculado.`);
+  await refreshDevices();
+}
+
 export function refreshDevices() {
   return api('/api/link/status').then((st) => {
     _pairedDevs = (st && st.devices) || [];
+    _vinculados = (st && Array.isArray(st.vinculados)) ? st.vinculados : [];
     paintLinkBadge(); renderLinkDevices();
     return st;
   }).catch(() => {});
@@ -92,8 +159,8 @@ export async function openLinkModal() {
   $('#lk-unlink').addEventListener('click', async () => {
     if (!confirm('¿Desvincular TODOS los móviles? El enlace viejo deja de valer y habrá que escanear el QR nuevo.')) return;
     await api('/api/link/reset', { method: 'POST' });
-    _pairedDevs = []; paintLinkBadge(); renderLinkDevices();
-    pushLog('info', '📱 Desvinculado: token nuevo. Escanea el QR para volver a vincular.');
+    _pairedDevs = []; _vinculados = []; paintLinkBadge(); renderLinkDevices();
+    pushLog('info', '📱 Desvinculado TODO: tokens y código nuevos. Escanea el QR para volver a vincular.');
     go(true);
   });
 
@@ -102,7 +169,9 @@ export async function openLinkModal() {
     const st = await api('/api/link/status');
     if (!st || !st.link) { $('#lk-state').textContent = 'Backend sin respuesta — ¿está nexus arrancado?'; return; }
     _drawQR(st.link);
-    _pairedDevs = st.devices || _pairedDevs; paintLinkBadge(); renderLinkDevices();
+    _pairedDevs = st.devices || _pairedDevs;
+    _vinculados = Array.isArray(st.vinculados) ? st.vinculados : _vinculados;
+    paintLinkBadge(); renderLinkDevices();
     /* Tres formas de llegar, y NO son equivalentes. La del túnel cambia de
        dirección en cada arranque, así que el móvil se queda colgado en cuanto
        reinicias el PC. La de Tailscale es fija. Que se vea cuál estás usando. */

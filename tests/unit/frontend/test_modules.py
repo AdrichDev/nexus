@@ -173,6 +173,7 @@ print("== 5) guardas del panel ⚙: pintar y guardar sin ensanchar permisos ==")
 # escribirse fuera del bloque de guardas: una segunda lectura es una segunda
 # oportunidad de poner un valor por defecto que ensanche.
 CLAVES_GUARDAS = ("perm_files", "perm_folders", "perm_hardware",
+                  "backup_destino_extra",
                   "permitir_fallback_nube", "permitir_delegacion_nube")
 
 # El secreto del fixture: si aparece en el HTML que produce el HUD, el HUD lo
@@ -199,7 +200,8 @@ out.sinControles = G.payloadGuardas(() => null);
 
 // 2) con todos los controles
 const todos = { 'm-permfiles': 'todo', 'm-permfolders': 'C:\\A\n\n  C:\\B  ',
-                'm-hw': false, 'm-nubefb': true, 'm-nubedel': false };
+                'm-hw': false, 'm-backupextra': 'D:\\Copias\\nexus',
+                'm-nubefb': true, 'm-nubedel': false };
 out.conTodos = G.payloadGuardas((id) => (id in todos ? todos[id] : null));
 
 // 3) con uno ausente: el resto entra, ese NO
@@ -207,6 +209,10 @@ const parcial = Object.assign({}, todos);
 delete parcial['m-nubedel'];
 out.parcial = G.payloadGuardas((id) => (id in parcial ? parcial[id] : null));
 out.parcialSinPermisos = G.payloadGuardas((id) => (id === 'm-op' ? 'Ana' : null));
+// T31b: sin la caja del destino extra, esa clave NO viaja (no se inventa «sin copia»)
+const sinBackup = Object.assign({}, todos);
+delete sinBackup['m-backupextra'];
+out.sinBackup = G.payloadGuardas((id) => (id in sinBackup ? sinBackup[id] : null));
 
 // 4) la sección: valores de fábrica (config vacía) y en «todo»
 out.permisosFabrica = G.seccionPermisos({});
@@ -216,6 +222,8 @@ out.permisosSandbox = G.seccionPermisos({ perm_files: 'sandbox' });
 // PRESERVE: los tres controles de siempre siguen ahí y siguen leyendo su valor
 out.permisosComoSiempre = G.seccionPermisos(
   { perm_files: 'carpetas', perm_hardware: false, perm_folders: ['C:\\\\MisDocs'] });
+// T31b: la caja del destino extra se pinta con el valor guardado (y vacía de fábrica)
+out.permisosBackup = G.seccionPermisos({ backup_destino_extra: 'D:\\Copias\\nexus' });
 out.avisoTodo = G.avisoAccesoArchivos('todo');
 out.avisoCarpetas = G.avisoAccesoArchivos('carpetas');
 out.avisoSandbox = G.avisoAccesoArchivos('sandbox');
@@ -399,6 +407,8 @@ if res is None:
           "la casilla de la reserva de nube no está, o su defecto no es FALSE")
     check('id="m-nubedel"' in bloque and "permitir_delegacion_nube !== false" in bloque,
           "la casilla de la delegación no está, o su defecto no es TRUE")
+    check('id="m-backupextra"' in bloque and "backup_destino_extra" in bloque,
+          "la caja del destino de la copia (T31b) no está en el bloque de guardas")
     check("async function vincularTelegram" in bloque,
           "no hay manejador del código de Telegram en el bloque")
 else:
@@ -424,6 +434,26 @@ else:
           f"y los que sí están tienen que seguir entrando: {parcial}")
     check(res["parcialSinPermisos"] == {} or not res["parcialSinPermisos"],
           f"sin ningún control de guarda el payload no puede llevar claves: {res['parcialSinPermisos']}")
+
+    # --- T31b: el destino de la copia de TODO `data/` tiene su ⚙ y su regla ---
+    check(todos.get("backup_destino_extra") == "D:\\Copias\\nexus",
+          f"backup_destino_extra no viaja con su valor: {todos}")
+    check("backup_destino_extra" not in res["sinBackup"],
+          f"sin la caja del destino extra, su clave NO puede viajar: {res['sinBackup']}")
+    check(res["sinBackup"].get("perm_files") == "todo",
+          "omitir una guarda no puede llevarse por delante las demás")
+    backup = res["permisosBackup"]
+    check('id="m-backupextra"' in backup,
+          "falta la caja del destino de la copia en PERMISOS (T31b)")
+    check("D:\\Copias\\nexus" in backup,
+          f"la caja no lleva el valor guardado: {backup[:240]}")
+    check("data/" in backup and "TODO" in backup,
+          "la explicación no dice que ahí va una copia de TODO `data/`")
+    check("mismo disco" in backup,
+          "la explicación no avisa de que en el mismo disco no protege de nada")
+    _caja = re.search(r'<input[^>]*id="m-backupextra"[^>]*>', res["permisosFabrica"])
+    check(_caja is not None and 'value=""' in _caja.group(0),
+          f"de fábrica la caja tiene que salir VACÍA (sin segunda copia): {_caja and _caja.group(0)!r}")
 
     # --- los defaults del panel son los del backend (si no, deriva silenciosa) ---
     d = _defaults(*CLAVES_GUARDAS)
@@ -521,6 +551,41 @@ else:
           "sin claves ilegibles no puede haber advertencia")
     check("sk-" not in res["secretos"].replace(SECRETO, ""),
           "queda un prefijo de clave en la advertencia")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6) VINCULACIÓN: revocar UN móvil desde el HUD (roadmap P3-2)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Por qué aquí y no en una e2e: lo que hay que garantizar es que el botón exista
+# POR DISPOSITIVO en el panel del QR —antes solo había «Desvincular», que mata a
+# TODOS— y que el texto no mienta cuando el móvil es «antiguo» (usa el token
+# compartido: revocarlo cierra esa credencial para todos los viejos). Y que nadie
+# cablee la revocación del móvil en `views/devices.js`, que es la rejilla de
+# televisiones y luces: son dos «dispositivos» distintos y confundirlos es la
+# clase de error que esta tarea no puede permitirse.
+print("== 6) el HUD puede revocar UN móvil, y lo cuenta sin mentir ==")
+
+LINK_JS = (JS / "modals" / "link.js").read_text(encoding="utf-8")
+DISPOSITIVOS_JS = (JS / "views" / "devices.js").read_text(encoding="utf-8")
+
+check("/api/link/revoke" in LINK_JS,
+      "link.js no llama a /api/link/revoke: no hay forma de revocar un solo móvil")
+check("data-revoke=" in LINK_JS,
+      "falta el botón por dispositivo en la lista de vinculados (data-revoke)")
+check("lista.map(fila)" in LINK_JS,
+      "el botón de revocar no se pinta POR DISPOSITIVO: tiene que salir de la lista")
+check("st.vinculados" in LINK_JS and "_vinculados" in LINK_JS,
+      "el HUD no lee `vinculados`: sin eso no ve los móviles apagados ni los antiguos")
+check(".antiguo" in LINK_JS and "token COMPARTIDO" in LINK_JS,
+      "el texto no distingue el «dispositivo antiguo» ni avisa de que su token es "
+      "el compartido (revocarlo cierra la credencial de todos los viejos)")
+_tras_revocar = LINK_JS.split("async function revocarDispositivo", 1)
+check(len(_tras_revocar) == 2 and "refreshDevices()" in _tras_revocar[1][:1600],
+      "revocar no refresca la lista: el móvil seguiría apareciendo como vinculado")
+check("/api/link/reset" in LINK_JS,
+      "«Desvincular TODO» tiene que seguir existiendo y ser otra acción distinta")
+check("/api/link/revoke" not in DISPOSITIVOS_JS and "/api/link/status" not in DISPOSITIVOS_JS,
+      "views/devices.js es la rejilla de TVs y luces: la revocación de móviles vive "
+      "en modals/link.js, no ahí")
 
 print(f"\n{'#' * 54}\ntest_frontend_modulos: {_pass} OK, {len(_fail)} fallos")
 for aviso in _saltos:
