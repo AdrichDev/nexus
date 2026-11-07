@@ -128,6 +128,70 @@ async def no_cache_estaticos(request, call_next):
     return resp
 
 
+# ---------- CABECERAS DEL DOCUMENTO DEL HUD (SEC-10, roadmap P2-11) ----------
+# El HUD no llevaba NINGUNA cabecera de seguridad: se podía meter en un iframe
+# ajeno y pinchar por encima (clickjacking), y cualquier script de un origen
+# remoto podía ejecutarse si alguna vez entraba en el HTML.
+#
+# QUÉ BLOQUEA ESTA CABECERA (de verdad):
+#   * `frame-ancestors 'none'` + `X-Frame-Options: DENY` → nadie enmarca el HUD.
+#   * `script-src 'self' 'unsafe-inline'` → ningún script de un origen REMOTO
+#     (cdn, "https://...") se ejecuta, aunque alguien lo inyectara en el HTML.
+#   * `base-uri 'none'` → no se puede secuestrar <base> para que las rutas
+#     relativas del HUD apunten a otro sitio.
+#   * `form-action 'self'` → un formulario inyectado no puede mandar lo escrito
+#     a un dominio de fuera.
+#   * `object-src 'none'` → ni <object>/<embed>/<applet> (plugins).
+#
+# QUÉ **NO** BLOQUEA, y hay que decirlo claro: `script-src` y `style-src`
+# llevan `'unsafe-inline'` porque el HUD de hoy depende de ello. En los tres
+# documentos hay HOY 21 manejadores en línea (`index.html` 4: onload/onerror de
+# los dos logos; `setup.html` 17: 14 onclick, 2 oninput, 1 onchange) más un
+# bloque `<script>` en línea en `mobile.html` y otro en `setup.html`. Eso
+# significa que un `<script>` o un `onerror=` inyectado por un `innerHTML` sin
+# escapar SÍ se ejecuta. Es una cabecera honesta a medias: cierra el enmarcado y
+# los orígenes remotos, NO cierra XSS por HTML inyectado. Quitar
+# `'unsafe-inline'` es T18b (pasar esos 21 manejadores y los 2 bloques en línea a
+# listeners en los módulos), y hasta que eso esté hecho, ponerla más fuerte
+# aquí rompería el HUD sin proteger nada más de lo que ya protege `esc()`.
+# El test `tests/unit/frontend/test_escapes_y_cabeceras.py` cuenta esos 21/2 y se
+# pone rojo si cambian, para que este comentario no se quede mintiendo.
+#
+# EFECTO CONOCIDO Y A PROPÓSITO: `index.html` y `setup.html` piden la fuente
+# Share Tech Mono a fonts.googleapis.com. Con `style-src 'self'` (y sin
+# `font-src` externo) esa hoja ya NO se carga y el HUD se pinta con el respaldo
+# que el CSS ya declara (`Cascadia Code`/`Consolas`/`Courier New`). Es el precio
+# de no pedirle nada a un tercero para pintar la interfaz; si el dueño prefiere
+# su fuente, el camino es servirla desde /static (no reabrir el dominio).
+#
+# Se sirve SOLO en los documentos HTML (`/`, `/m`, `/setup`), que es donde una
+# CSP significa algo: no en `/api/*` (un JSON no se renderiza, la CSP no lo
+# gobierna; añadírsela sería ruido que además taparía cuáles son documentos) ni
+# en `/static/*` (los .js/.css los carga el propio documento, cuya política ya
+# manda). `/docs` (Swagger) se queda SIN ella a propósito: carga su interfaz de
+# un CDN y con esto se quedaría en blanco.
+#
+# El `Cache-Control: no-store` del middleware de arriba NO se toca: hubo un
+# incidente real con el HUD sirviendo una versión vieja de caché.
+_CSP_HUD = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            "connect-src 'self' ws: wss:; frame-ancestors 'none'; "
+            "base-uri 'none'; form-action 'self'; object-src 'none'")
+_RUTAS_HTML = ("/", "/m", "/setup")
+
+
+@app.middleware("http")
+async def cabeceras_hud(request, call_next):
+    resp = await call_next(request)
+    try:
+        if request.url.path in _RUTAS_HTML:
+            resp.headers["Content-Security-Policy"] = _CSP_HUD
+            resp.headers["X-Frame-Options"] = "DENY"
+    except Exception:
+        pass
+    return resp
+
+
 # Lo único que puede pedirse SIN estar vinculado: la página del móvil y sus
 # estáticos (si no, el QR llevaría a una pantalla en blanco y no habría forma de
 # vincularse nunca). No hay ninguna acción detrás de estas rutas.

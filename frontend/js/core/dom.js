@@ -10,12 +10,25 @@ export const $ = (s, r = document) => r.querySelector(s);
 /** Todos los elementos que casan, ya como array. */
 export const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-/** Escapa lo que va a inyectarse como HTML. */
+/* Escapa lo que va a inyectarse como HTML **o dentro de un atributo**.
+   SEC-10 (roadmap P2-11): antes solo escapaba `& < >`. En texto daba igual,
+   pero `esc()` se usa dentro de atributos (`href="${esc(x)}"`, como la
+   permalink de Reels): ahí una comilla del dato CERRABA el atributo y lo que
+   viniera detrás se ejecutaba como HTML. Ahora también escapa `"` y `'` a
+   `&#34;` y `&#39;`, que el navegador decodifica igual en texto y dentro de un
+   atributo, así que no cambia nada de lo que se ve: la entidad la resuelve el
+   navegador al pintar, no nosotros. */
 export const esc = (s) => String(s == null ? '' : s)
-  .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                                  '"': '&#34;', "'": '&#39;' }[c]));
 
-/** Texto de la IA → HTML con las URLs clicables (se abren en el navegador del PC). */
-export const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<>"«»)]+)/g,
+/* Texto de la IA → HTML con las URLs clicables (se abren en el navegador del PC).
+   Ojo con el orden: se escapa PRIMERO (como siempre), así que la comilla del
+   texto ya es `&#34;` cuando llega aquí. La clase de la URL corta en `&` salvo
+   `&amp;` — una entidad a medias (`&#34;`, `&#39;`) no puede colarse dentro del
+   `href` y una query con `&` sí sigue entrando entera (`&amp;` se decodifica a
+   `&` al pintar). */
+export const linkify = (s) => esc(s).replace(/(https?:\/\/(?:&amp;|[^\s<>"'«»)&])+)/g,
   (u) => `<a href="${u}" class="ext" title="Abrir en el navegador">${u}</a>`);
 
 /** GET/POST a la API que nunca lanza: devuelve null si algo falla. */

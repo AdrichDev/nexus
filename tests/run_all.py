@@ -101,7 +101,7 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/skills/research/test_source_evidence.py", "unit/skills/research/test_google_browser.py",
               "unit/skills/backup/test_skill_backup.py", "unit/skills/telefono/test_skill_telefono.py",
               "unit/skills/clima/test_clima_errors.py", "unit/core/test_secretos.py", "unit/core/test_secretos_cifrado.py", "unit/core/test_permisos_ficheros.py", "unit/core/test_redaccion_logs.py", "unit/core/test_telegram_link.py", "unit/core/test_escrituras_atomicas.py", "unit/skills/places/test_places_honesty.py", "unit/skills/datos/test_datos_honesty.py", "unit/skills/vigilancias/test_vigilancias_integrity.py", "unit/skills/ai_media/test_ai_media_honesty.py", "unit/skills/research/test_research_honesty.py", "unit/memory/test_redaccion_memoria.py", "unit/skills/small_skills/test_skills_pequenas_1.py", "unit/skills/small_skills/test_skills_pequenas_2.py", "unit/skills/n8n_flows/test_envios.py",
-              "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py", "unit/core/runtime/test_log_aislado.py", "unit/core/test_resultados_trabajos.py",
+              "unit/frontend/test_modules.py", "unit/frontend/test_escapes_y_cabeceras.py", "unit/core/runtime/test_capas_backend.py", "unit/core/runtime/test_log_aislado.py", "unit/core/test_resultados_trabajos.py",
               "unit/mobile/test_puente_nativo.py",
               "unit/core/test_datos_no_confiables.py",
               "unit/core/test_errores_api.py",

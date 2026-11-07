@@ -312,7 +312,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
           a.href = u; a.target = '_blank'; a.rel = 'noopener';
           document.body.appendChild(a); a.click(); a.remove();
           addMsg('wb', '📲 Abriendo WhatsApp' + (data.to ? ' con el chat de ' + escH(data.to) : '') +
-                       ' — revisa el mensaje y dale a enviar. <a href="' + u +
+                       ' — revisa el mensaje y dale a enviar. <a href="' + escH(u) +
                        '" target="_blank" rel="noopener">Reabrir</a>');
         } else {
           const txt = data.text ? ('<br>Texto: «' + escH(data.text) + '»') : '';
@@ -326,8 +326,15 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
   connect();
 
   // ---- respuesta: texto seleccionable + enlaces clicables + VOZ ----
-  const escH = (x) => String(x == null ? '' : x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  const linkify = (x) => escH(x).replace(/(https?:\/\/[^\s<>"«»)]+)/g,
+  // Copia a mano de esc()/linkify() de frontend/js/core/dom.js: esta página no
+  // carga módulos, así que no puede importarla. SEC-10 (roadmap P2-11): tiene
+  // que escapar `"` y `'` IGUAL que el original, porque aquí también se pinta
+  // dentro de atributos (el `href` del enlace «Reabrir»), y su linkify corta la
+  // URL en la entidad (`&#34;`) para que una comilla no se cuele en el href.
+  const escH = (x) => String(x == null ? '' : x)
+    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                                   '"': '&#34;', "'": '&#39;' }[c]));
+  const linkify = (x) => escH(x).replace(/(https?:\/\/(?:&amp;|[^\s<>"'«»)&])+)/g,
     (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
   let muteAI = localStorage.getItem('nexus_m_ai') === '1';
   let muteMe = false;

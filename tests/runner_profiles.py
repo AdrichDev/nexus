@@ -124,6 +124,15 @@ SAFE_UNIT_SUITES = (
     "unit/skills/research/test_research_honesty.py",
     "unit/memory/test_redaccion_memoria.py",
     "unit/frontend/test_modules.py",
+    # Escapes y cabeceras del HUD (SEC-10, roadmap P2-11): `esc()` escapa también
+    # las comillas (y con ella `linkify`/`mdToHtml` y la ficha de Reels), y el HTML
+    # del HUD (`/`, `/m`, `/setup`) sale con CSP `frame-ancestors 'none'` y
+    # `X-Frame-Options: DENY`. El JavaScript se EJECUTA con `node` (ESM, sin
+    # navegador); si no hay node, esa parte se salta con un aviso explícito y solo
+    # se comprueban las cabeceras, así que un verde sin node NO prueba el escape.
+    # Las cabeceras van con httpx.ASGITransport (sin lifespan, sin puertos) y
+    # config/datos de usar y tirar.
+    "unit/frontend/test_escapes_y_cabeceras.py",
     "unit/core/runtime/test_log_aislado.py",
     # Reserva del cerebro entre clases de localidad (AI-01/PRIV-02) y tope de
     # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y

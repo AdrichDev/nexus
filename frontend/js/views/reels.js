@@ -484,12 +484,12 @@ export async function mountReels() {
         </div>
         <div class="ig-resumen">
           <div class="ig-chip"><b>${esc(String(res.alcance))}</b><span>alcance</span></div>
-          <div class="ig-chip"><b>${res.comentarios}</b><span>comentarios</span></div>
-          <div class="ig-chip"><b>${res.leads}</b><span>leads</span></div>
-          <div class="ig-chip"><b>${res.con_contenido}</b><span>con contenido</span></div>
+          <div class="ig-chip"><b>${esc(String(res.comentarios))}</b><span>comentarios</span></div>
+          <div class="ig-chip"><b>${esc(String(res.leads))}</b><span>leads</span></div>
+          <div class="ig-chip"><b>${esc(String(res.con_contenido))}</b><span>con contenido</span></div>
           <div class="ig-chip ${res.cuadra ? 'ok' : 'mal'}"><b>${res.cuadra ? '✔' : '✖'}</b><span>${res.cuadra ? 'la suma cuadra' : 'no cuadra'}</span></div>
         </div>
-        ${r.odio && r.odio.n ? `<div class="ig-aviso mal">${r.odio.n} comentario(s) de odio, contados aparte: no son objeciones.</div>` : ''}
+        ${r.odio && r.odio.n ? `<div class="ig-aviso mal">${esc(String(r.odio.n))} comentario(s) de odio, contados aparte: no son objeciones.</div>` : ''}
       </header>
       <div class="cos-secs">${(r.secciones || []).map((s) => igSec(s.id, s.titulo, s.n, igCuerpo(s), s.metodo)).join('')}</div>
     </div>`;
