@@ -191,6 +191,14 @@ DEFAULTS = {
     "homeassistant_url": "",           # ej. http://homeassistant.local:8123 (token en secrets)
     "known_devices": [],               # [{name, ip, mac, brand}] de TVs/aparatos conocidos
     "my_devices": [],                  # MIS DISPOSITIVOS del panel (los que usas y controlas)
+    # ---- Copias de seguridad (P2-10 / PRIV-04) ----
+    # Segunda copia del zip diario en OTRO sitio: la letra de un disco externo, un
+    # NAS montado, una carpeta sincronizada con tu nube personal… Vacío (el
+    # defecto) = no se copia a ninguna parte. Importante: si la copia se queda en
+    # el MISMO disco que `data/`, no protege de un fallo de disco ni de un
+    # ransomware; apúntala a otro disco físico. nexus no habla con ninguna nube:
+    # solo copia el archivo con el sistema de archivos.
+    "backup_destino_extra": "",
 }
 
 

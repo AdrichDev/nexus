@@ -478,13 +478,34 @@ with _Config(perm_files="carpetas", perm_folders=[]):
                          ("perm_hardware", False),
                          ("llm_local", False),
                          ("homeassistant_url", "http://10.0.0.9:8123"),
-                         ("engram_autoinstall", False)):
+                         ("engram_autoinstall", False),
+                         # T17: la segunda copia de TODO data/ cae en la misma clase
+                         # (dirigirla a otra carpeta es una exfiltración local).
+                         ("backup_destino_extra", "C:\\Users\\Public\\copia")):
         previo = settings.get(clave)
         r = _post({clave: valor}, peer="192.168.1.77", token=TOK)
         check(r.status_code == 403,
               f"POST remoto de {clave} debe dar 403, dio {r.status_code}")
         check(settings.get(clave) == previo,
               f"el 403 de {clave} no debe cambiar el valor ({previo!r} → {settings.get(clave)!r})")
+
+    # 3b) TRINQUETE: la lista de arriba no puede quedarse atrás.
+    # Si alguien añade una clave a `_CLAVES_SOLO_LOCALES` sin caso en la batería,
+    # esta vuelta extra la prueba igual (con un valor de muestra) y el olvido de
+    # sincronizar la lista deja de ser un agujero silencioso.
+    for clave in sorted(servidor._CLAVES_SOLO_LOCALES):
+        previo = settings.get(clave)
+        r = _post({clave: "valor-de-prueba-desde-fuera"}, peer="192.168.1.77", token=TOK)
+        check(r.status_code == 403,
+              f"POST remoto de {clave} (trinquete) debe dar 403, dio {r.status_code}")
+        check(settings.get(clave) == previo,
+              f"el trinquete de {clave} no debe cambiar el valor")
+    check(set(servidor._CLAVES_SOLO_LOCALES) <= set(
+            {"perm_files", "perm_folders", "perm_hardware", "n8n_webhook_url",
+             "n8n_base_url", "homeassistant_url", "permitir_fallback_nube",
+             "llm_local", "engram_autoinstall", "backup_destino_extra"}),
+          "hay claves nuevas en _CLAVES_SOLO_LOCALES sin motivo escrito aquí: "
+          "añade su caso y su porqué")
 
     # 4) una petición mixta no aplica NADA (ni lo inocente)
     r = _post({"operator_name": "Intruso", "perm_files": "todo"},

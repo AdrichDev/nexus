@@ -253,6 +253,74 @@ que el borrado definitivo destruye sigue exigiendo tu «sí». Y después de
 purificar, la respuesta dice qué se retiró, qué es restaurable y qué sobrevive,
 con el motivo.
 
+## Recuperación (copias de seguridad, RPO y RTO)
+
+El detalle honesto de qué se copia, cada cuánto, cuánto puedes perder y qué hace
+exactamente una restauración. Esto cierra el hallazgo P2-10 / PRIV-04 de la
+auditoría, que anotaba lo peor: la restauración **nunca se había ejecutado**.
+
+| | |
+|---|---|
+| **Qué entra en la copia** | Todo `data/`: memoria en grafo, tablero, contactos, vigilancias, facturas, informes, RAG y la caché. Compresión zip normal. |
+| **Qué NO entra (comprobado en el código, no supuesto)** | `config/` completo — `secrets.json` (las API keys), los tokens de Google y Spotify, `.env` —, `data/backups/` (no se anida) y `data/chrome_nexus/` (el perfil de Chrome). Los archivos de más de 50 MB se quedan fuera. |
+| **Cuándo** | Una copia diaria automática (`data/backups/nexus-data-AAAAMMDD.zip`), y otra cuando dices «haz una copia de seguridad». |
+| **Cuántas se guardan** | 7 diarias (rotación). Los `baks-*.zip` de mantenimiento no cuentan ni rotan. |
+| **RPO** (cuánto puedes perder) | Hasta **24 h** de lo escrito desde la última copia. Si acabas de hacer algo importante, pide «haz una copia de seguridad» y baja el RPO a minutos. |
+| **RTO** (cuánto tardas en volver) | Restaurar son **segundos o pocos minutos** (copiar el zip a una carpeta nueva) + el renombrado a mano de la sección siguiente. Depende del tamaño de tus datos y no está cronometrado con tus cifras concretas. |
+
+**La copia se puede verificar, no solo listar.** Cada zip lleva dentro un
+`nexus-backup-manifest.json` con la ruta, el tamaño y el sha256 de cada archivo,
+así que `«qué copias de seguridad hay»` contesta *«el último backup verificó
+OK»* — o dice qué entrada no cuadra, si no cuadra. Eso demuestra integridad
+(que el zip no se ha corrompido ni se ha tocado por accidente), **no** que nadie
+malintencionado no pueda rehacer zip y manifiesto a la vez: no es una firma.
+
+**Restaurar (lo hace nexus, no tú a mano).** Di «restaura la copia de
+seguridad»: nexus te enseña qué lleva la última copia (archivos, tamaños, fecha,
+si el manifiesto cuadra) y **te pide un «sí»**. Con el sí, extrae el contenido en
+una carpeta **nueva** — `restaurado-AAAA-MM-DD-HHMMSS/`, al lado de `data/` — y
+te dice cuántos archivos y bytes ha dejado. Nunca escribe encima de tu `data/`,
+ni toca `config/`, ni los zips: si la restauración sale mal, tu nexus sigue
+funcionando como estaba y solo hay que borrar esa carpeta. Se niega en firme si
+el archivo no es una copia de nexus, si está corrupto o truncado, si lleva rutas
+que se saldrían de la carpeta (`..` o rutas absolutas), si el manifiesto no
+cuadra o si la carpeta de destino ya tiene algo dentro.
+
+Para **usar** lo restaurado (con nexus cerrado): renombra `data/` a
+`data_viejo/` (no lo borres), renombra la carpeta `restaurado-…` a `data/` y
+arranca. Si algo no cuadra, `data_viejo/` sigue intacta. Ojo: `config/` **no**
+viaja en la copia, así que las claves API siguen siendo las de este equipo; los
+tokens de Google/Spotify hay que volver a vincularlos si has cambiado de PC.
+
+**Fuera del disco.** Un backup en el mismo disco que los datos no protege de un
+fallo de disco ni de un ransomware. Pon la segunda copia en otro disco físico
+(o un NAS montado) con una línea de `config/settings.json`:
+
+```json
+"backup_destino_extra": "E:/Copias nexus"
+```
+
+Cada copia diaria deja entonces una segunda copia idéntica ahí, y si ese disco
+no está disponible la copia local se hace igual y la respuesta te avisa de que
+la segunda falló (no se queda callado). No hay nube ni dependencias nuevas: es
+una copia de archivo normal.
+
+**Los zips NO van cifrados, y es una decisión, no un olvido.** DPAPI (lo que
+cifra `secrets.json`) ata cada blob a *este* equipo y *este* usuario de Windows:
+una copia cifrada así no se abriría justo cuando la necesitas (se rompió el
+disco, se perdió el equipo). La biblioteca estándar de Python no trae ningún
+cifrado autenticado, y montar uno a mano sería peor que no tenerlo. Lo que hay
+que cifrar es el **destino**: BitLocker/VeraCrypt en ese segundo disco, o una
+carpeta cifrada por el sistema operativo. Mientras tanto, el zip es texto
+legible (tu memoria, tu tablero) y así lo dice nexus en cada vista previa.
+
+**Cómo lo pruebas tú mismo** (2 minutos, sin riesgo): di «haz una copia de
+seguridad», luego «qué copias de seguridad hay» (tiene que decir *verificó OK*),
+y por último «restaura la copia de seguridad» y di «sí». Aparecerá una carpeta
+`restaurado-…` con tus archivos y tu `data/` intacto: eso es una restauración
+de verdad, ejecutada. Si quieres, compara una nota: el archivo restaurado tiene
+que ser byte a byte igual al de `data/`.
+
 ## Novedades v3
 
 * **⚙ Configuración pro**: cómo quieres que te llame nexus; check "modelo LOCAL"

@@ -25,10 +25,14 @@ contactos, vigilancias, facturas e informes. Este minion lo protege.
 
 ## Qué NO hace
 
-- **No restaura nada por su cuenta.** Restaurar sobrescribiría tu memoria, tu
-  tablero y tu agenda con nexus corriendo encima, y no tiene vuelta atrás. La
-  skill da las instrucciones (cerrar nexus, renombrar `data/` a `data_viejo/`,
-  descomprimir el zip) y se queda ahí.
+- **Restaura, pero nunca encima de tus datos.** «restaura la copia de seguridad»
+  te enseña ANTES qué lleva el zip (contenido, fecha, si está truncado o si el
+  manifiesto no cuadra), te pide un «sí» y extrae en una carpeta NUEVA
+  (`restaurado-…` de usar y tirar). Tu `data/` actual, tu `config/` y los zips no
+  se tocan: sobrescribir la memoria, el tablero y la agenda con nexus corriendo
+  encima no tiene vuelta atrás, así que para usar la restauración hay que cerrar
+  nexus y renombrar carpetas a mano. Un zip con entradas `..` o absolutas, o con un
+  archivo que no es backup de nexus, se rechaza entero sin extraer nada.
 - **No borra .bak sin confirmación.** Ni sin haber verificado antes el zip.
 - No borra copias diarias fuera de la rotación de 7, y nunca toca los
   `baks-*.zip` (esos no rotan).

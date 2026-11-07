@@ -143,6 +143,12 @@ SAFE_UNIT_SUITES = (
     # Las cabeceras van con httpx.ASGITransport (sin lifespan, sin puertos) y
     # config/datos de usar y tirar.
     "unit/frontend/test_escapes_y_cabeceras.py",
+    # Restaurar de verdad (P2-10 / PRIV-04): manifiesto con sha256, restauración a
+    # una carpeta nueva, rechazo de zip-slip y la copia al segundo disco. En
+    # proceso y sobre árboles `mktemp -d`: no lee el data/ ni el config/ del
+    # operador (apunta NEXUS_DATA_DIR/NEXUS_CONFIG_DIR antes de importar) y no
+    # habla con ningún proveedor.
+    "unit/skills/backup/test_restaurar.py",
     "unit/core/runtime/test_log_aislado.py",
     # Reserva del cerebro entre clases de localidad (AI-01/PRIV-02) y tope de
     # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y

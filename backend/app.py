@@ -1471,6 +1471,9 @@ _CLAVES_SOLO_LOCALES = {
     "n8n_webhook_url": "apuntarlo a otro sitio se lleva lo que nexus envía",
     "n8n_base_url": "mismo destino de salida por API",
     "homeassistant_url": "URL de integración: recibe la orden con su token",
+    "backup_destino_extra": "a dónde sale la copia de TODO data/ (conversaciones, "
+                            "notas, tablero): apuntarlo a otra carpeta local es una "
+                            "exfiltración, la misma clase de agujero que SEC-19",
     # ---- guardas de privacidad del cerebro ----
     "permitir_fallback_nube": "es el consentimiento para sacar el prompt a la nube (AI-01)",
     "llm_local": "decide si el cerebro es local o de nube",

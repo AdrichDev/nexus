@@ -81,6 +81,16 @@ def main():
         check("memory/nota.md" in names and "board.json" in names, "el zip lleva lo que dice")
         check(not any("chrome_nexus" in x for x in names), "y NO lleva el perfil de Chrome")
 
+        print("· el zip lleva MANIFIESTO: la copia se puede verificar, no solo listar")
+        check(mod.MANIFIESTO in names, "con su manifiesto dentro")
+        check(len(names) == 3, f"2 de datos + 1 de metadatos, ni una entrada de mas: {names}")
+        check(mod.verificar_backup(out)["ok"] is True, "y el manifiesto cuadra")
+        check(mod.estado_backups()["verificado"] is True,
+              "el estado dice que el ultimo VERIFICO (no solo que existe un zip)")
+        f_list = "que copias de seguridad hay"
+        r = asyncio.run(mod.handle("list", f_list, sl.route(f_list)[2], {"channel": "pc"}))
+        check("verificó OK" in r["reply"], f"y se lo dice al operador: {r['reply'][:200]!r}")
+
         print("· la rotacion deja exactamente KEEP copias diarias")
         dest = tmp / "backups"
         for i in range(10):
@@ -94,15 +104,19 @@ def main():
         mod.rotate_backups(keep=1)
         check((dest / "baks-20260101.zip").exists(), "el archivo de .bak sigue ahi")
 
-        print("· «restaura» NO restaura nada: explica como hacerlo a mano")
+        print("· «restaura» pregunta antes y deja los pasos para DESPUÉS: no pisa nada")
         ficheros_antes = sorted(p.name for p in tmp.rglob("*"))
+        confirm._pending.clear()
         f = "restaura la copia de seguridad"
         r = asyncio.run(mod.handle("restore", f, sl.route(f)[2], {"channel": "pc"}))
-        check("Restaurar NO lo hago yo" in r["reply"], "lo dice claramente")
-        check("Cierra nexus" in r["reply"], "y da los pasos")
-        check("data_viejo" in r["reply"], "renombrar en vez de borrar")
+        check("¿Lo confirmas?" in r["reply"], "pide confirmacion antes de extraer nada")
+        check("NUEVA" in r["reply"].upper(), "y dice que la carpeta es NUEVA")
+        check("Restaurar NO lo hago yo" not in r["reply"],
+              "ya no se escuda en «no lo hago yo»: restaura en una carpeta aparte")
+        check(bool(confirm.pending("pc")), "la restauracion queda armada, sin ejecutar")
         check(sorted(p.name for p in tmp.rglob("*")) == ficheros_antes,
-              "y no ha tocado un solo archivo")
+              "y no ha tocado un solo archivo antes del «si»")
+        confirm._pending.clear()
 
         print("· ARCHIVAR .bak pide confirmacion ANTES de borrar nada")
         proj = Path(tempfile.mkdtemp())
@@ -162,6 +176,15 @@ def main():
     r = asyncio.run(mod.handle("inexistente", "loquesea", None, {"channel": "pc"}))
     check("no reconocida" in r["reply"].lower(), "responde con la ayuda, sin traceback")
 
+    print("· config/ (claves y tokens) NO entra en la copia: comprobado, no supuesto")
+    data_real = Path(cfg.DATA_DIR).resolve()
+    cfg_real = Path(cfg.CONFIG_DIR).resolve()
+    check(cfg_real != data_real and data_real not in cfg_real.parents,
+          f"el config/ ({cfg_real}) no vive dentro del data/ que se copia ({data_real})")
+    src_bk = (ROOT / "skills" / "backup" / "skill.py").read_text(encoding="utf-8")
+    check("CONFIG_DIR" not in src_bk,
+          "y la skill no tiene una segunda raiz: solo recorre data/")
+
     print("· el scheduler sigue enganchando la copia diaria")
     sch = (ROOT / "backend" / "core" / "aplicacion" / "scheduler.py").read_text(encoding="utf-8")
     check("auto_backup" in sch, "scheduler llama a auto_backup")
@@ -173,9 +196,12 @@ def main():
         check(prohibido not in src, f"skill.py no lleva «{prohibido}»")
         check(prohibido not in doc, f"SKILL.md no lleva «{prohibido}»")
 
-    print("· el SKILL.md dice que no restaura y que pide confirmacion")
+    print("· el SKILL.md y su «no restaura»: pendiente del padre, no se toca aqui")
     check("Qué NO hace" in doc, "SKILL.md tiene la seccion «Qué NO hace»")
-    check("No restaura nada por su cuenta" in doc, "documenta que no restaura")
+    # T17 CAMBIA el contrato (la skill ya restaura, siempre en una carpeta nueva),
+    # pero `skills/backup/SKILL.md` NO esta en las superficies de esta tarea. La
+    # frase «No restaura nada por su cuenta» sigue escrita alli y este check no
+    # puede afirmar lo contrario: la correccion va devuelta en el informe.
     check("sin confirmación" in doc, "documenta que no borra sin confirmar")
 
     print(f"\n{'='*50}\n{_pass} pasados, {len(_fail)} fallados")

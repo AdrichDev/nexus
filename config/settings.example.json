@@ -15,5 +15,6 @@
   "operator_name": "TU NOMBRE",
   "perm_hardware": true,
   "perm_files": "carpetas",
-  "perm_folders": []
+  "perm_folders": [],
+  "backup_destino_extra": ""
 }
