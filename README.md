@@ -345,8 +345,75 @@ nexus/
 ├── assets/           # logo.png del producto (≠ frontend/logo.png, que sirve el HUD)
 ├── scripts/          # utilidades: arranque por palmadas, abrir el puerto, revision de secretos
 ├── installer/        # nexus.spec · build_exe.bat · nexus_installer.nsi · .ico/.bmp
-└── requirements.txt · .env.example · run.bat · INSTALAR_nexus.bat · SUBIR_A_GITHUB.bat
+└── requirements.txt · requirements.lock · .env.example · run.bat · INSTALAR_nexus.bat · SUBIR_A_GITHUB.bat
 ```
+
+## CI: qué cubre y qué no
+
+`.github/workflows/security-ci.yml` es el único workflow y corre en cada
+`push`, en cada `pull_request`, los lunes y a mano. Tres jobs en
+`ubuntu-24.04`:
+
+| Job | Qué hace |
+|-----|----------|
+| `dependencias` | `pip-audit` contra OSV/PyPI sobre `requirements.txt`, `requirements-voice.txt` **y** `requirements.lock` (las versiones realmente fijadas). |
+| `pruebas` | Instala `requirements.lock` y ejecuta **22 suites** de perfil `safe-unit` de `tests/runner_profiles.py` en Python 3.12. |
+| `trivy` | Trivy filesystem (vulnerabilidades + secretos + misconfig) y **falla** ante HIGH/CRITICAL. |
+
+Las tres acciones (`actions/checkout`, `actions/setup-python`,
+`aquasecurity/trivy-action`) están fijadas por **SHA de commit**, no por
+etiqueta: una etiqueta se puede mover, un commit no. Sólo se usan los eventos
+`push`, `pull_request`, `schedule` y manual — **nunca** `pull_request_target`,
+que daría al código de un PR de un fork un token de escritura y los secretos
+del repo. El workflow no usa ningún secreto y el job de pruebas declara
+`permissions: contents: read`.
+
+**Un tick verde NO es prueba global del producto.** Lo que este CI no
+ejecuta, y por qué:
+
+* **94 de las 116 suites registradas.** Las que necesitan Windows
+  (`unit/skills/system_pc/*` con `pycaw`/`wmi`/`keyboard`, `unit/skills/files/*`,
+  `unit/routing/*`, `unit/specs/*`) necesitan un runner de Windows autoalojado.
+* Las **2 suites de servidor real** (`test_acceso_remoto`, `test_entrega_real`):
+  arrancan un uvicorn de verdad y levantan STT, scheduler, long-poll de
+  Telegram y el túnel adoptado. Necesitan Postgres y un runner dedicado.
+* Las **suites con base de datos** (`test_purga`, `test_purga_completa`,
+  `test_memoria_embeddings`): sin Postgres/pgvector se saltan comprobaciones.
+* Las **9 suites `provider-contract`** (Gmail/Calendar/Drive falsos) y la de
+  **domótica** (`authorized-device`): excluidas por
+  `safe_to_run_in_live_checkout: False`, que significa que importan
+  configuración de producción antes de poner sus dobles.
+* **E2E de navegador** (`tests/e2e/run_e2e.py`, Playwright) y las **sondas
+  herméticas** (`tests/hermetic/*`): otra imagen, otro runner.
+* La **auditoría de las 7 dependencias sólo-Windows** (`pycaw`, `comtypes`,
+  `pythonnet`, `clr_loader`, `pywin32`, `pypiwin32`, `WMI`): en Linux se saltan
+  por marcador, así que su versión fijada no se audita en ningún job todavía.
+* **Lint, typecheck, SAST (Bandit/Semgrep), SBOM, CD y firma de código**: no
+  existen. El `.exe` y la APK se construyen en local.
+* **Protección de ramas**: no verificable desde el repositorio local.
+
+El job imprime esa lista (`PENDIENTE …`) al final de cada ejecución, para que
+no haya que deducirla del verde.
+
+### `requirements.lock` (versiones fijadas, todavía sin hashes)
+
+`requirements.txt` sigue siendo el fichero donde se **declaran rangos** (`>=`).
+`requirements.lock` es la **foto fijada del venv de desarrollo** (98 paquetes,
+Python 3.12, generada offline desde `pip freeze`): sirve para que CI y, cuando
+lo aceptes, `run.bat` instalen exactamente lo que ya está probado. Las 7
+líneas con `; sys_platform == "win32"` se saltan solas fuera de Windows.
+
+No lleva **hashes** a propósito: fijar por hash exige una resolución contra el
+índice (`pip-compile --generate-hashes`) y eso es una decisión deliberada del
+dueño, no algo que se cueza en un worker. Mientras tanto protege contra
+**deriva de versiones**, no contra un índice comprometido. Instalación prevista:
+
+```bat
+.venv\Scripts\python.exe -m pip install --no-deps -r requirements.lock
+```
+
+`run.bat` **todavía instala desde `requirements.txt`**: cambiar el instalador
+es una decisión aparte (rompería la reparación automática de hoy).
 
 ## Qué es real y qué es simulado
 

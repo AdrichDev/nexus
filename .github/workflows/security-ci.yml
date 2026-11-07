@@ -1,9 +1,33 @@
 # ============================================================
-#  nexus — Escaneo de seguridad automático
+#  nexus — CI: escaneo de seguridad + suite de pruebas
 #  Corre en cada push / PR y una vez por semana (lunes 06:00 UTC).
 #  Los runners de GitHub SÍ tienen red, así que Trivy funciona aquí
 #  (a diferencia del sandbox de Cowork). pip-audit audita las
 #  dependencias de Python contra la base OSV/PyPI.
+#
+#  QUÉ CUBRE Y QUÉ NO (leer antes de fiarse de un tick verde):
+#  tests/runner_profiles.py clasifica cada suite por perfil y nivel de
+#  evidencia. Este workflow SOLO ejecuta el perfil `safe-unit`
+#  (`safe_to_run_in_live_checkout: True`): 22 suites herméticas que no
+#  necesitan Windows, ni Postgres, ni proveedor real, ni móvil, ni
+#  navegador. Las otras 94 suites registradas NO se ejecutan aquí; el
+#  detalle y el motivo están en el paso «Suites por perfil seguro» y en
+#  README.md («CI: qué cubre y qué no»). Un verde de este job NO es
+#  prueba global del producto.
+#
+#  ACCIONES FIJADAS POR SHA (no por etiqueta): una etiqueta se puede
+#  mover; un commit no. El SHA es el commit al que apuntaba la etiqueta
+#  cuando se fijó (resuelto con `git ls-remote --tags`, sin inventar):
+#    actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1     # v7.0.1
+#    actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+#    aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+#
+#  EVENTOS: solo `push`, `pull_request`, `schedule` y manual. NADA de
+#  `pull_request_target`: ese evento le da al código de un PR venido de
+#  un FORK un token con permisos de escritura y acceso a los secretos del
+#  repo, que es justo lo que no queremos. Con `pull_request` normal, un
+#  PR de un fork corre con token de SOLO LECTURA y sin secretos; este
+#  workflow no usa ningún secreto.
 # ============================================================
 name: seguridad
 
@@ -14,6 +38,8 @@ on:
     - cron: '0 6 * * 1'   # lunes 06:00 UTC
   workflow_dispatch: {}    # botón para lanzarlo a mano
 
+# Permisos mínimos a nivel de workflow. Cada job que necesite menos los
+# recorta otra vez en su propio bloque `permissions`.
 permissions:
   contents: read
   security-events: write   # para subir el SARIF a la pestaña Security
@@ -21,10 +47,10 @@ permissions:
 jobs:
   dependencias:
     name: pip-audit (Python)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.12'
       - name: Instalar pip-audit
@@ -33,14 +59,132 @@ jobs:
         run: |
           pip-audit -r requirements.txt --progress-spinner off
           pip-audit -r requirements-voice.txt --progress-spinner off
-          # Si generas requirements.lock, descomenta para el escaneo exacto:
-          # pip-audit -r requirements.lock --progress-spinner off
+          # requirements.lock: audita las versiones REALMENTE fijadas (no el
+          # rango declarado). Los marcadores `; sys_platform == "win32"` se
+          # evalúan aquí como falsos, así que pycaw/comtypes/pythonnet/
+          # clr_loader/pywin32/pypiwin32/WMI NO se auditan en ningún job:
+          # eso necesita un runner de Windows (ver «PENDIENTE» en el job
+          # `pruebas`). Es un hueco declarado, no una omisión silenciosa.
+          pip-audit -r requirements.lock --progress-spinner off
+
+  pruebas:
+    name: Suites hermeticas (Linux / Python 3.12)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read      # este job no necesita nada más
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'   # 3.13+ rompe faster-whisper/pythonnet (CLAUDE.md)
+
+      # Instala la foto fijada del venv de desarrollo, no los rangos: lo que
+      # se prueba aquí es lo que el operador tiene instalado.
+      # `--no-deps`: requirements.lock ya es el cierre transitivo completo
+      # (98 paquetes, generados offline desde `pip freeze`), así no entra
+      # nada que no esté fijado. Las 7 líneas con `; sys_platform == "win32"`
+      # se saltan solas en Linux (pycaw/comtypes/pythonnet/clr_loader/
+      # pywin32/pypiwin32/WMI), por eso este paso no necesita tocar
+      # requirements.txt.
+      - name: Instalar dependencias fijadas (requirements.lock)
+        run: |
+          python -m pip install --no-deps -r requirements.lock
+          # `pip check` valida GRATIS que el cierre no dejó ninguna
+          # dependencia fuera: si falta algo, se ve aquí y no en import.
+          python -m pip check
+
+      # Subset, no la batería: 22 de las 116 suites registradas. Se elige por
+      # la clasificación que YA existe en tests/runner_profiles.py, no por una
+      # lista copiada a mano que se desincronice del runner.
+      - name: Suites por perfil seguro
+        continue-on-error: false   # explícito: un rojo frena y se ve entero
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import tempfile
+
+          sys.path.insert(0, os.path.join(os.getcwd(), "tests"))
+          from runner_profiles import RUNNER_PROFILES
+
+          # Perfil `safe-unit` Y `safe_to_run_in_live_checkout: True`:
+          # en proceso, con dobles o ficheros temporales, sin proveedor,
+          # dispositivo ni cuenta real. (Los suites `static-safe` también
+          # son perfil safe-unit; difieren solo en el nivel de evidencia S.)
+          suites = sorted(
+              p for p, meta in RUNNER_PROFILES.items()
+              if meta["profile"] == "safe-unit" and meta["safe_to_run_in_live_checkout"]
+          )
+
+          print(f"== {len(suites)} suites de perfil safe-unit, de {len(RUNNER_PROFILES)} registradas ==")
+          print("== (no es prueba global: ver README, «CI: que cubre y que no») ==")
+
+          fails = []
+          for suite in suites:
+              print(f"== suite {suite} ==")
+              env = {
+                  **os.environ,
+                  "PYTHONUTF8": "1",
+                  "PYTHONIOENCODING": "utf-8",
+                  "NEXUS_DATA_DIR": tempfile.mkdtemp(prefix="nexus_ci_data_"),
+              }
+              r = subprocess.run(
+                  [sys.executable, os.path.join("tests", suite)],
+                  capture_output=True, text=True, encoding="utf-8",
+                  errors="replace", env=env,
+              )
+              print("\n".join("  " + l for l in r.stdout.strip().splitlines()[-4:]))
+              if r.returncode != 0:
+                  fails.append(suite)
+                  print("  --- salida completa (ha fallado) ---")
+                  print("\n".join("  " + l for l in r.stdout.strip().splitlines()))
+                  print("  --- stderr ---")
+                  print("\n".join("  " + l for l in r.stderr.strip().splitlines()))
+
+          print()
+          if fails:
+              print("RESULTADO CI: " + str(len(fails)) + "/" + str(len(suites))
+                    + " suites del subset con fallos: " + ", ".join(fails))
+              sys.exit(1)
+          print("RESULTADO CI: " + str(len(suites)) + "/" + str(len(suites))
+                + " suites del subset sin fallos observados (no es prueba global)")
+          print()
+          print("PENDIENTE (fuera de este job, a proposito: requiere otro runner):")
+          print("  - 82 suites de perfil `unsafe-legacy`: pueden importar config de")
+          print("    produccion, todas las skills o modulos acoplados al equipo ANTES")
+          print("    de que sus dobles esten puestos, y varias son de Windows:")
+          print("    unit/skills/system_pc/* (pycaw/wmi/keyboard),")
+          print("    unit/skills/files/* (rutas y papelera de Windows),")
+          print("    unit/routing/* y unit/specs/* (fijan comportamiento del producto).")
+          print("    Hace falta un job con runner de Windows autoalojado.")
+          print("  - 2 suites `isolated-integration` (test_acceso_remoto,")
+          print("    test_entrega_real): arrancan un uvicorn REAL y en su lifespan")
+          print("    levantan STT, scheduler, long-poll de Telegram, micro y tunel.")
+          print("    Necesitan Postgres y un runner dedicado, no un job de CI normal.")
+          print("  - 9 suites `provider-contract` (Gmail/Calendario/Drive falsos,")
+          print("    test_google_browser): excluidas por `safe_to_run_in_live_checkout:")
+          print("    False` (importan config de produccion antes de los dobles).")
+          print("  - 1 suite `authorized-device` (test_dispositivos): ejercita")
+          print("    domotica; requiere aprobacion explicita del duenio.")
+          print("  - Suites respaldadas por Postgres/pgvector (test_purga,")
+          print("    test_purga_completa, test_memoria_embeddings): sin servicio de")
+          print("    BD se saltan comprobaciones; siguen sin probarse en este job.")
+          print("  - E2E de navegador (tests/e2e/run_e2e.py, Playwright) y sondas")
+          print("    hermeticas (tests/hermetic/*): otro runner/imagen, no este job.")
+          print("  - Auditoria de las 7 dependencias solo-Windows: necesitan pip-audit")
+          print("    en un runner de Windows.")
+          PY
 
   trivy:
     name: Trivy (vuln + secretos + misconfig)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Trivy filesystem (tabla en el log)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
