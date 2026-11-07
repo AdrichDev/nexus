@@ -18,6 +18,31 @@ CÓMO FUNCIONA LA CONEXIÓN (esto es lo que fallaba y ahora se AUTO-REPARA):
     data/hermes_gateway.log (antes iban a DEVNULL y nadie sabía por qué moría).
   * «arranca hermes» / «¿está hermes conectado?» / «¿y la respuesta de
     hermes?» son intents PROPIOS — se acabó el bucle de «Hermes está apagado».
+
+LAS TRES FRONTERAS DE T25 (auditoría `05` §5 y `07` §4, roadmap P3-6)
+--------------------------------------------------------------------
+Delegar es entregar trabajo a OTRO agente con su propio modelo, sus
+herramientas y su internet. Eso no puede ser invisible ni repetible a ciegas:
+
+  1. LOCALIDAD Y PERMISO. El encargo solo sale si el cerebro de Hermes es LOCAL
+     (ollama, o un endpoint de loopback) o si está permitido delegar en un
+     cerebro de nube (`permitir_delegacion_nube`, TRUE por defecto: esa nube la
+     eligió el dueño a propósito al configurar a Hermes, no es un cambio de
+     cerebro que nadie pidió). Es una clave DISTINTA de `permitir_fallback_nube`,
+     que gobierna otra cosa —la reserva del cerebro DE NEXUS— y por eso no se
+     reutiliza aquí. La clase la decide `llm.localidad_delegado()`, que reusa la
+     tabla del chat: aquí no se mantiene una segunda lista de proveedores. Con el
+     permiso apagado NO se hace ni una petición, y se dice en español dónde se
+     activa. La frontera real de cada encargo sigue siendo el «sí».
+  2. CONFIRMACIÓN. La primera entrega de un encargo arma `confirm.request()`
+     (tipo `delegacion_hermes`, NO destructiva) enseñando el texto EXACTO que
+     recibirá el ejecutor; solo arranca con un «sí». Un encargo ya aprobado no
+     vuelve a preguntar en sus reintentos.
+  3. NADA DE REENVIAR A CIEGAS. Un fallo ANTES de entregar (no hay conexión) se
+     puede reintentar una vez relanzando el servicio. Un fallo DESPUÉS de
+     entregar (5xx, 401, timeout, corte) NO se reenvía solo: puede haber hecho
+     ya parte del trabajo, y se dice así. Un reintento automático que duplica
+     una navegación, una escritura o un envío es peor que un fallo honesto.
 """
 from __future__ import annotations
 
@@ -189,20 +214,46 @@ def _fmt_age(secs: float) -> str:
     return f"{secs // 3600} h {(secs % 3600) // 60} min"
 
 
-async def delegate(orden: str, ctx, channel: str, request_id: str = "") -> dict:
-    """Encarga a Hermes en 2º plano y devuelve el acuse. Compartido por la orden
-    explícita («hermes: …») y la delegación AUTOMÁTICA del cerebro.
+def _pregunta_delegacion(orden: str, cerebro: dict | None = None) -> str:
+    """La pregunta que arma `confirm.request`: enseña el encargo EXACTO.
 
-    v23 (T8/T9): el encargo hereda el requestId de la petición del operador, queda
-    registrado que el AGENTE ejecutor es Hermes, y los duplicados vivos se bloquean
-    — Hermes no puede acabar haciendo dos veces lo mismo."""
+    Se recorta con «…» cuando no cabe (`confirm.recortar`), nunca se resume: un
+    resumen en una confirmación es enseñar otra cosa de la que se va a enviar.
+    Si el cerebro del ejecutor es de nube, se dice AQUÍ: el operador tiene que
+    saber que lo que confirma sale del equipo antes de decir «sí», no después."""
+    from backend.core.comun import confirm as _cf
+    aviso = ""
+    if cerebro and cerebro.get("clase") != "local":
+        aviso = ("\n\nY ojo: su cerebro (\"" + (cerebro.get("proveedor") or "nube")
+                 + "\") está en la nube, así que el encargo y lo que él decida leer "
+                 "para resolverlo saldrán de este equipo. Si no quieres que salga, pon "
+                 "«permitir_delegacion_nube» en false en ⚙ o dale un modelo local.")
+    return ("Esto lo va a ejecutar un ejecutor externo, con su propio modelo y sus "
+            "propias herramientas: puede navegar, escribir archivos o enviar cosas en "
+            "mi nombre. Le enviaré EXACTAMENTE esto:\n\n«" + _cf.recortar(orden)
+            + "»\n\n¿Lo hago?" + aviso)
+
+
+async def _encargar(orden: str, ctx, channel: str, request_id: str,
+                    cerebro: dict) -> str:
+    """Crea el encargo de verdad (ya autorizado) y devuelve el acuse.
+
+    Es el `action` de la confirmación, así que SOLO se ejecuta detrás de un «sí».
+    Aquí es donde el encargo queda apuntado: en el registro de encargos y en el
+    contador del día (una delegación, sin tokens del delegado; ver
+    `comun/presupuesto.py`)."""
     from backend.core.aplicacion.jobs import jobs as job_mgr
     url, hdr = _cfg(ctx)
     dup = job_mgr.active_duplicate(f"hermes::{orden}", channel)
     if dup:
-        return {"reply": "Eso ya lo tengo en marcha, no lo empiezo dos veces. "
-                         "Te aviso en cuanto lo tenga."}
+        return ("Eso ya lo tengo en marcha, no lo empiezo dos veces. "
+                "Te aviso en cuanto lo tenga.")
     jid, num = _reg_add(orden, channel)
+    try:
+        from backend.core.comun import presupuesto as _pres
+        await _pres.anotar_delegacion(cerebro.get("proveedor") or "")
+    except Exception:                                          # noqa: BLE001
+        pass                                 # un contador roto no frena el encargo
     from backend.core.comun import publicvoice as pv
     await job_mgr.submit(f"#{num}: {orden[:44]}",
                          lambda o=orden, j=jid, n=num: _run_hermes(o, url, hdr, channel, j, n),
@@ -212,7 +263,52 @@ async def delegate(orden: str, ctx, channel: str, request_id: str = "") -> dict:
     # specs v24 (T1/T2/T5): nexus habla en PRIMERA PERSONA. Ni subagente, ni
     # gateway, ni plazos inventados; y la frase cambia según el tipo de tarea.
     activas = len([j for j in job_mgr.active() if j.get("kind") == "hermes"]) - 1
-    return {"reply": pv.frase_inicio(orden, activas=max(0, activas))}
+    return pv.frase_inicio(orden, activas=max(0, activas))
+
+
+async def delegate(orden: str, ctx, channel: str, request_id: str = "") -> dict:
+    """Encarga a Hermes en 2º plano y devuelve el acuse. Compartido por la orden
+    explícita («hermes: …») y la delegación AUTOMÁTICA del cerebro.
+
+    v23 (T8/T9): el encargo hereda el requestId de la petición del operador, queda
+    registrado que el AGENTE ejecutor es Hermes, y los duplicados vivos se bloquean
+    — Hermes no puede acabar haciendo dos veces lo mismo.
+
+    T25 / P3-6: la delegación pasa por DOS puertas antes de salir.
+      1. LOCALIDAD Y PERMISO: si el cerebro de Hermes está en la nube, hace falta
+         `permitir_delegacion_nube` (true por defecto: esa nube la eligió el
+         dueño). Con la clave en false la respuesta es una negativa honesta y NO
+         se hace ni una petición. NO se usa `permitir_fallback_nube`: esa clave
+         gobierna la reserva del cerebro de nexus, no un ejecutor configurado a
+         propósito.
+      2. EL OPERADOR: `confirm.request()` (tipo `delegacion_hermes`, no
+         destructiva) enseña el texto exacto y solo arranca con un «sí».
+    Un encargo ya aprobado no vuelve a preguntar: sus reintentos viven en
+    `_run_hermes`, que no arma nada."""
+    cerebro = cerebro_de_hermes(ctx)
+    if cerebro["clase"] != "local":
+        if not bool(ctx["settings"].get("permitir_delegacion_nube", True)):
+            try:
+                from backend.core.comun.events import bus
+                await bus.emit("log", {"level": "warn", "msg": (
+                    "🚫 Delegación parada: el cerebro del ejecutor "
+                    f"({cerebro['proveedor'] or 'sin configurar'}) no es local y "
+                    "«permitir_delegacion_nube» está en false.")})
+            except Exception:                                  # noqa: BLE001
+                pass
+            return {"reply": _delegacion_nube_apagada(cerebro)}
+        await _avisar_delegacion_nube(cerebro)
+    from backend.core.comun import confirm as _cf
+    pregunta = _cf.request(
+        channel=channel,
+        kind="delegacion_hermes",
+        summary=_pregunta_delegacion(orden, cerebro),
+        request_text=orden,
+        targets=[{"orden": orden[:300]}],
+        destructive=False,
+        action=lambda: _encargar(orden, ctx, channel, request_id, cerebro),
+        cancel_reply="Vale, no le encargo nada.")
+    return {"reply": pregunta}
 
 
 _SETTINGS = [None]
@@ -561,6 +657,100 @@ def configure_brain(ctx, provider: str, model: str, api_key: str) -> dict:
             "hermes_provider": m["hp"], "changes": changes,
             "note": "Reinicia el gateway de Hermes para que cargue el modelo nuevo: "
                     "dilo con «arranca hermes» o yo lo relanzo en el próximo encargo."}
+
+
+def _yaml_get_model(text: str) -> dict:
+    """PURA: lee `provider`, `default` y `base_url` del bloque `model:` de un
+    config.yaml de Hermes, sin PyYAML (la misma cirugía de texto que
+    `_yaml_set_model`). Devuelve {} si no hay bloque o no dice nada."""
+    import re as _re
+    out: dict = {}
+    m = _re.search(r"(?m)^model:[ \t]*\n((?:[ \t]+[^\n]*\n?)*)", text or "")
+    if not m:
+        return out
+    for linea in m.group(1).splitlines():
+        clave, _, valor = linea.strip().partition(":")
+        clave = clave.strip().lower()
+        if clave in ("provider", "default", "base_url"):
+            limpio = valor.strip().strip('"').strip("'")
+            if limpio:
+                out[clave] = limpio
+    return out
+
+
+def _read_text(path: str) -> str:
+    """El texto de un fichero de configuración, o "" si no existe / no se puede
+    leer. Nunca lanza: la clase de localidad no puede tumbar un encargo."""
+    import io
+    import os
+    try:
+        if os.path.exists(path):
+            return io.open(path, encoding="utf-8", errors="replace").read()
+    except Exception:                                          # noqa: BLE001
+        pass
+    return ""
+
+
+def cerebro_de_hermes(ctx) -> dict:
+    """Con qué proveedor piensa Hermes y de qué CLASE es («local» o «nube»).
+
+    El dato sale del bloque `model:` de su config.yaml (lo que Hermes CARGA de
+    verdad, y lo que escribe `configure_brain`) y, si ahí no hay nada, de
+    `hermes_provider` en los ajustes de nexus. La clase la decide
+    `llm.localidad_delegado()`, la MISMA tabla que usa el chat."""
+    from backend.core.infraestructura.llm import localidad_delegado
+    cfg = _yaml_get_model(_read_text(_hermes_config_path()))
+    try:
+        en_ajustes = ctx["settings"].get("hermes_provider") or ""
+    except Exception:                                          # noqa: BLE001
+        en_ajustes = ""
+    proveedor = (cfg.get("provider") or en_ajustes or "").strip().lower()
+    base = (cfg.get("base_url") or "").strip()
+    if not base:
+        base = (_PROV_MAP.get(proveedor) or {}).get("base", "")
+    return {"proveedor": proveedor, "modelo": cfg.get("default", ""),
+            "base_url": base, "clase": localidad_delegado(proveedor, base)}
+
+
+def _delegacion_nube_apagada(cerebro: dict) -> str:
+    """La negativa honesta cuando el dueño ha apagado la delegación a la nube.
+
+    Dice el hecho (la delegación a un cerebro de nube está desactivada), la clave
+    que lo decide y dónde está, y la alternativa que no necesita permiso (un
+    cerebro local). No lleva ninguna clave ni valor de secreto: solo el nombre del
+    proveedor, que no es un secreto."""
+    quien = (f"consta como «{cerebro.get('proveedor')}»" if cerebro.get("proveedor")
+             else "no es local")
+    return (
+        "La delegación a un cerebro de nube está desactivada en este equipo: "
+        "«permitir_delegacion_nube» está en false, así que no le entrego el encargo a "
+        f"un ejecutor cuyo modelo sale de aquí (su cerebro {quien}). No he hecho "
+        "ninguna petición ni he encargado nada. Se activa en ⚙ (o en "
+        "config/settings.json) poniendo «permitir_delegacion_nube» en true, o dándole "
+        "a Hermes un modelo local (ollama): con un cerebro local no hace falta ese "
+        "permiso.")
+
+
+async def _avisar_delegacion_nube(cerebro: dict) -> None:
+    """El aviso de que el encargo cruza a la nube, calcado del de T6
+    (`llm._avisar_reserva_nube`): por el bus que ya existe, sin inventar interfaz.
+
+    No es cosmético: el texto del encargo y lo que el ejecutor decida leer para
+    resolverlo salen del equipo, así que se dice con esas palabras y se recuerda
+    cómo se apaga (la clave es distinta de la de la reserva del cerebro). Ni una
+    clave en el mensaje: solo el nombre del proveedor."""
+    try:
+        from backend.core.comun.events import bus
+        nombre = cerebro.get("proveedor") or "sin nombre"
+        await bus.emit("log", {"level": "warning", "msg": (
+            f"🪽 El encargo lo ejecutará el ejecutor con su cerebro «{nombre}», que está "
+            "en la nube: a partir de aquí el texto del encargo (y lo que él decida leer "
+            "para resolverlo) sale de este equipo con destino a ese proveedor. Si no "
+            "quieres que salga, pon «permitir_delegacion_nube» en false en ⚙ (o en "
+            "config/settings.json) o dale un modelo local; cada encargo lo confirmas "
+            "tú de todos modos.")})
+    except Exception:                                          # noqa: BLE001
+        pass
 
 
 # ============= ENGANCHAR HERMES A ENGRAM (memoria de proyecto por MCP) =============
@@ -934,16 +1124,37 @@ def respuesta_es_error(texto: str) -> str:
     return t[:200].replace("\n", " ") if m else ""
 
 
+def _no_reposteado(motivo: str) -> str:
+    """El mensaje de un fallo que ocurrió DESPUÉS de entregar el encargo (T25).
+
+    No puede decir «no se ha realizado ningún cambio» (puede que sí) ni prometer
+    un reintento automático (lo duplicaría). Dice qué pasó, que NO se repite, y
+    que mirar lo que quedó y reintentar son decisiones del operador."""
+    return (f"{motivo}. El encargo ya había salido y puede haber hecho parte del "
+            "trabajo: NO lo repito para no duplicarlo. Pregúntame por el trabajo para "
+            "ver qué quedó; si quieres reintentarlo, dímelo y te lo vuelvo a pedir "
+            "confirmación.")
+
+
 async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = "", num: int = 0) -> dict:
     """El encargo de verdad (puede tardar MINUTOS): corre como job en 2º plano.
-    - 5xx (gateway envenenado por PYTHONPATH) → relanza limpio y reintenta 1 vez.
-    - 401 «invalid_api_key» (nuestra clave al gateway) → re-provisiona y reintenta 1 vez.
-    - 401 «Missing Authentication header» (el MODELO interno de Hermes sin credenciales)
-      → mensaje claro y accionable; reintentar no sirve, es config del propio Hermes."""
-    import asyncio as _a
+
+    REINTENTOS (T25 / P3-6): la posición del fallo respecto a la entrega decide si
+    se puede reintentar, y esa es la única regla:
+      * ANTES de entregar (ConnectError/ConnectTimeout: no hubo conexión) → el
+        encargo no ha llegado a nadie; se relanza el gateway limpio y se prueba
+        UNA vez más. No hay nada que duplicar.
+      * DESPUÉS de entregar (una respuesta HTTP con error —5xx, 401 de mi clave—,
+        un timeout de lectura, un corte a mitad) → el encargo ya viajó y puede
+        haber navegado, escrito o enviado algo. NO se reenvía solo: se dice que
+        puede haber ocurrido ya y cómo seguir.
+    El 401 «Missing Authentication header» (el MODELO interno de Hermes sin
+    credenciales) conserva su mensaje accionable: reintentar no sirve y es config
+    del propio Hermes."""
     import httpx
     from backend.core.comun.events import bus
     error = False
+    _puede_haber_actuado = False
     _intentos = [0]
     try:
         # ARRANQUE BAJO DEMANDA: si el gateway está apagado, nexus lo levanta él
@@ -957,10 +1168,31 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
         for intento in (1, 2):
             _intentos[0] = intento
             url2, hdr2 = _cfg({"settings": _SETTINGS[0]})   # la clave puede haberse re-provisionado
-            async with httpx.AsyncClient(timeout=900) as cli:
-                r = await cli.post(f"{url2}/v1/chat/completions", headers=hdr2,
-                                   json={"model": "hermes-agent",
-                                         "messages": [{"role": "user", "content": orden}]})
+            try:
+                async with httpx.AsyncClient(timeout=900) as cli:
+                    r = await cli.post(f"{url2}/v1/chat/completions", headers=hdr2,
+                                       json={"model": "hermes-agent",
+                                             "messages": [{"role": "user", "content": orden}]})
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                # ANTES DE ENTREGAR: no hubo conexión, así que el encargo no ha
+                # llegado a nadie. Relanzar y probar UNA vez más no duplica nada.
+                if intento == 1:
+                    await bus.emit("log", {"level": "warn",
+                                   "msg": f"🪽 No pude entregar el encargo ({type(exc).__name__}); "
+                                          "relanzo su gateway con entorno limpio y lo intento "
+                                          "una vez más…"})
+                    if await ensure_up({"settings": _SETTINGS[0]}, force=True):
+                        continue
+                raise RuntimeError(
+                    f"No pude entregar el encargo a Hermes ({type(exc).__name__}: {exc}); "
+                    "no lo ha recibido nadie, así que no hay nada a medias.") from exc
+            except httpx.HTTPError as exc:
+                # DESPUÉS DE ENTREGAR: la petición salió y no llegó respuesta. No se
+                # sabe si llegó a ejecutarse, así que NO se reenvía sola.
+                _puede_haber_actuado = True
+                raise RuntimeError(_no_reposteado(
+                    "Se cortó la conexión después de enviar el encargo "
+                    f"({type(exc).__name__})")) from exc
             if r.status_code < 400:
                 out = (r.json().get("choices") or [{}])[0].get("message", {}).get("content", "")
                 break
@@ -968,20 +1200,11 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
             # 401/403 del CEREBRO interno de Hermes (sin credenciales) → mensaje claro, sin reintento
             if _is_upstream_auth_error(r.status_code, detalle):
                 raise RuntimeError(_UPSTREAM_AUTH_MSG)
-            if intento == 1 and r.status_code >= 500:
-                await bus.emit("log", {"level": "warn",
-                               "msg": f"🪽 Hermes devolvió {r.status_code}; relanzo su gateway "
-                                      "con entorno limpio y reintento el encargo…"})
-                if await ensure_up({"settings": _SETTINGS[0]}, force=True):
-                    continue
-            if intento == 1 and r.status_code in (401, 403):
-                # nuestra clave al gateway no vale → re-provisionar y reintentar 1 vez
-                await bus.emit("log", {"level": "warn",
-                               "msg": "🪽 Hermes rechaza mi clave del gateway; re-provisiono y reintento…"})
-                await _a.to_thread(provision_env, {"settings": _SETTINGS[0]})
-                if await ensure_up({"settings": _SETTINGS[0]}, force=True):
-                    continue
-            raise RuntimeError(f"Hermes devolvió HTTP {r.status_code}: {detalle}")
+            # CUALQUIER respuesta del ejecutor es POST-ENTREGA (5xx, 401 de mi clave,
+            # etc.): el encargo ya viajó. Se dice la verdad y NO se reenvía.
+            _puede_haber_actuado = True
+            raise RuntimeError(_no_reposteado(
+                f"Hermes me contestó HTTP {r.status_code} al entregarle el encargo"))
         motivo = respuesta_es_error(out)
         if motivo:
             # el gateway respondió 200 pero el contenido ES un error: NO es «hecho»
@@ -990,8 +1213,13 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
             _reg_set(jid, estado="hecho", resultado=out[:8000], t1=time.time())
     except Exception as exc:                                   # noqa: BLE001
         error = True
-        out = (f"{type(exc).__name__}: {exc}. "
-               "Mira data/hermes_gateway.log o dime «diagnostica hermes».")
+        if _puede_haber_actuado:
+            # El encargo YA salió: el mensaje no puede decir «no se ha realizado
+            # ningún cambio» (puede que sí) ni pasar por la clasificación genérica.
+            out = str(exc)
+        else:
+            out = (f"{type(exc).__name__}: {exc}. "
+                   "Mira data/hermes_gateway.log o dime «diagnostica hermes».")
         if jid:
             _reg_set(jid, estado="error", resultado=str(exc)[:500], t1=time.time())
     tag = f" #{num}" if num else ""
@@ -1000,7 +1228,9 @@ async def _run_hermes(orden: str, url: str, hdr: dict, channel: str, jid: str = 
     from backend.core.comun import publicvoice as pv
     if error:
         # Un único mensaje FUNCIONAL: el detalle técnico se queda en el log.
-        reply = pv.mensaje_fallo(out, intentos=_intentos[0])
+        # Si el encargo pudo ejecutarse, el mensaje es el honesto de T25: la
+        # clasificación genérica añadiría «No se ha realizado ningún cambio».
+        reply = out if _puede_haber_actuado else pv.mensaje_fallo(out, intentos=_intentos[0])
         await bus.emit("log", {"level": "error",
                                "msg": f"[trabajo {tag or ''}] {out[:400]}"})
     elif not (out or "").strip():

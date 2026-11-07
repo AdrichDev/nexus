@@ -758,6 +758,38 @@ def localidad_proveedor(nombre: str) -> str:
     return LOCALIDAD.get((nombre or "").strip().lower(), "nube")
 
 
+def _endpoint_local(url: str) -> bool:
+    """¿Esta URL apunta a ESTE equipo? Solo loopback: el endpoint de casa."""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse((url or "").strip()).hostname or "").strip().lower()
+    except Exception:                                          # noqa: BLE001
+        return False
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+def localidad_delegado(proveedor: str, base_url: str = "") -> str:
+    """«local» o «nube» para el cerebro de un EJECUTOR DELEGADO (Hermes).
+
+    Reusa la MISMA tabla `LOCALIDAD` que el chat: aquí no hay una segunda lista
+    de proveedores que se pueda quedar desfasada de la primera. La única
+    diferencia con `localidad_proveedor()` es el caso que el nombre no resuelve:
+    Hermes llama «custom» a un endpoint compatible-OpenAI (puede ser la nube o un
+    llama.cpp en este mismo equipo) y su proveedor local se escribe «ollama».
+    Para un nombre desconocido manda el ENDPOINT: loopback = local; cualquier
+    otra cosa (o ninguno) = nube. Ante la duda se repite la regla de arriba: el
+    error es no mandar los datos fuera, no mandarlos.
+
+    Por qué existe: desde T25/P3-6 la delegación pasa por el mismo
+    consentimiento de nube que el chat (`permitir_fallback_nube`). Sin esta
+    función, hermes/skill.py tendría que copiar la tabla de proveedores —dos
+    verdades sobre lo mismo, y una se quedaría vieja."""
+    nombre = (proveedor or "").strip().lower()
+    if nombre in LOCALIDAD:
+        return LOCALIDAD[nombre]
+    return "local" if _endpoint_local(base_url) else "nube"
+
+
 def _orden_reserva(pedido: str) -> list[str]:
     """Proveedores de reserva con los LOCALES siempre por delante.
 

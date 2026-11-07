@@ -142,7 +142,8 @@ No borra nada: enumera los archivos y dice qué hacer con cada uno.
 **Los permisos solo se cambian desde este equipo.** `POST /api/config` rechaza
 con un 403 las claves que controlan una guarda (`perm_files`, `perm_folders`,
 `perm_hardware`, las URLs de n8n y de Home Assistant, `permitir_fallback_nube`,
-`llm_local`, `engram_autoinstall`) cuando la petición no viene de la ventana
+`permitir_delegacion_nube`, `llm_local`, `engram_autoinstall`) cuando la petición
+no viene de la ventana
 local, aunque traiga el token del QR. El resto de la configuración sigue
 funcionando desde el móvil y `GET /api/config` sigue contando el modo, para que
 el HUD pueda enseñarlo.
@@ -183,6 +184,42 @@ texto que sale del equipo —, y los de Ollama (`nomic-embed-text`, el defecto)
 no. Cuando el techo corta la vectorización, nexus lo dice con esas palabras («he
 parado la vectorización») y la memoria sigue respondiendo por palabra: degrada,
 no miente.
+
+## Delegación en un ejecutor externo (⚙ → núcleo IA)
+
+Nexus puede delegar un encargo agéntico (navegar, investigar en varias webs,
+rellenar un formulario) en un ejecutor que corre en tu PC y tiene **su propio
+modelo, sus herramientas y su internet**. Eso son tres fronteras, y las tres se
+ven en el chat:
+
+- **Local o nube.** El cerebro del ejecutor se clasifica con **la misma tabla**
+  que el chat (`llm.localidad_delegado`). Si es local (`ollama`, o un endpoint de
+  loopback) el trabajo no sale del equipo y no hace falta nada más. Si es de nube,
+  quien lo decide es `permitir_delegacion_nube`, una clave **propia de la
+delegación** con defecto **`true`**: esa nube la elegiste tú al configurar a
+  Hermes, así que el defecto **no apaga la función**. Ponla en `false` si quieres
+  una política estricta de «nada sale por la delegación»: entonces **no se hace ni
+  una petición** y se dice en el chat cómo se activa (⚙ o `config/settings.json`)
+  o la alternativa que no necesita permiso (un modelo local). Es una clave
+  **distinta** de `permitir_fallback_nube`, que gobierna otra cosa (que el cerebro
+  *de nexus* caiga a la nube si el elegido no responde), y esa no interviene aquí.
+  Con `true` se avisa por el log de que el encargo (y lo que el ejecutor decida
+  leer) sale hacia ese proveedor, y la propia confirmación lo dice antes del «sí».
+- **Confirmación.** La primera entrega arma una confirmación con el texto
+  **exacto** que recibirá el ejecutor («sí» / «no», como los envíos). Cambiar de
+  tema la desarma. Un encargo ya aprobado no vuelve a preguntar en sus
+  reintentos. **El «sí» por orden sigue siendo la frontera real**: el `true` por
+  defecto no significa «sin control», significa «la nube que configuraste no se
+  apaga sola».
+- **Sin reenvíos a ciegas.** Si no se pudo *entregar* (no hubo conexión), nexus
+  relanza el servicio y prueba una vez más. Si el ejecutor **contestó con error o
+  se cortó después de recibirlo**, no se reenvía: podría ejecutarlo dos veces. La
+  respuesta dice que puede haber ocurrido ya y que reintentar es una decisión tuya.
+
+Los tokens que gasta el ejecutor **no los ve nexus**: el contador del día apunta
+la delegación (encargos, por proveedor) en su propia sección de
+`data/presupuesto_llm.json` y no inventa llamadas, caracteres ni tokens. Se ve en
+`GET /api/status` → `presupuesto.delegaciones`.
 
 ## Build a .exe
 
@@ -251,6 +288,12 @@ de n8n); no lo ejecuta. Y el informe diario ya no se sube a Drive ni se manda
 por correo: ésas eran órdenes de escritura y ahora se rechazan. El informe se
 queda en la salida de los nodos, en el panel de ejecuciones de n8n. Si lo
 quieres por correo, se manda desde n8n con credenciales propias de n8n.
+
+Tampoco se puede **delegar en el ejecutor externo** desde n8n: el rechazo del
+canal ocurre antes que cualquier delegación. Y cuando la delegación se pide
+desde el HUD o la voz, pasa por las tres fronteras de la sección «Delegación en
+un ejecutor externo»: localidad y `permitir_delegacion_nube` (true por defecto),
+confirmación con el encargo exacto y nada de reenvíos a ciegas.
 
 ## Micro abierto (conversación fluida)
 

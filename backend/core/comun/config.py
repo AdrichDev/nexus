@@ -85,6 +85,18 @@ DEFAULTS = {
     "hermes_exe": "",                        # ruta a hermes.exe (vacío = autodetectar)
     "hermes_provider": "",                   # cerebro de Hermes: openai|anthropic|gemini|openrouter
     "hermes_model": "",                      # modelo concreto del cerebro de Hermes
+    # DELEGAR EN UN EJECUTOR CON CEREBRO DE NUBE (T25/P3-6). NO es lo mismo que
+    # `permitir_fallback_nube`: aquel gobierna un CAMBIO de cerebro que nadie
+    # pidió (el elegido cae y nexus se planta en otro proveedor), y este gobierna
+    # si se puede ENTREGAR un encargo a un ejecutor cuyo modelo el dueño eligió a
+    # propósito (Hermes con Gemini, por ejemplo). Son dos consentimientos
+    # distintos y por eso son dos claves: con el de arriba como condición, toda
+    # delegación de un Hermes que el dueño configuró él mismo quedaba apagada sin
+    # que nadie lo hubiera pedido. Defecto TRUE: la función no se apaga sola; la
+    # frontera real de cada encargo sigue siendo la confirmación (un «sí» por
+    # orden) y el aviso por el bus de qué cerebro es y a dónde va. Quien quiera
+    # una política estricta de «nada sale por la delegación» la pone en false.
+    "permitir_delegacion_nube": True,
     "openrouter_model": "openai/gpt-4o-mini",  # modelo si el proveedor cloud es OpenRouter
     "ollama_model": "llama3.1",
     "openai_model": "gpt-5.6-luna",          # barato; el tope es gpt-5.6-sol

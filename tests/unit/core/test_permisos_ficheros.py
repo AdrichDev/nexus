@@ -475,6 +475,7 @@ with _Config(perm_files="carpetas", perm_folders=[]):
                          ("n8n_webhook_url", "http://10.0.0.9:5678/webhook/x"),
                          ("n8n_base_url", "http://10.0.0.9:5678"),
                          ("permitir_fallback_nube", True),
+                         ("permitir_delegacion_nube", False),
                          ("perm_hardware", False),
                          ("llm_local", False),
                          ("homeassistant_url", "http://10.0.0.9:8123"),
@@ -503,7 +504,8 @@ with _Config(perm_files="carpetas", perm_folders=[]):
     check(set(servidor._CLAVES_SOLO_LOCALES) <= set(
             {"perm_files", "perm_folders", "perm_hardware", "n8n_webhook_url",
              "n8n_base_url", "homeassistant_url", "permitir_fallback_nube",
-             "llm_local", "engram_autoinstall", "backup_destino_extra"}),
+             "llm_local", "engram_autoinstall", "backup_destino_extra",
+             "permitir_delegacion_nube"}),
           "hay claves nuevas en _CLAVES_SOLO_LOCALES sin motivo escrito aquí: "
           "añade su caso y su porqué")
 

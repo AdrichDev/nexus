@@ -1,6 +1,7 @@
 {
   "llm_provider": "ollama",
   "permitir_fallback_nube": false,
+  "permitir_delegacion_nube": true,
   "ollama_url": "http://localhost:11434",
   "ollama_model": "llama3.1",
   "cloud_base_url": "https://api.openai.com/v1",

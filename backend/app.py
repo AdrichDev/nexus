@@ -1482,6 +1482,12 @@ _CLAVES_SOLO_LOCALES = {
     # ---- guardas de privacidad del cerebro ----
     "permitir_fallback_nube": "es el consentimiento para sacar el prompt a la nube (AI-01)",
     "llm_local": "decide si el cerebro es local o de nube",
+    # T25/P3-6: no es el mismo consentimiento que `permitir_fallback_nube` (aquel
+    # cubre un cambio de cerebro no pedido; este, entregar un ENCARGO a un
+    # ejecutor cuya nube el dueño eligió). Apagarlo decide si lo que nexus delega
+    # puede salir del equipo, así que se toca con las manos en el teclado.
+    "permitir_delegacion_nube": ("decide si un encargo delegado puede salir a un "
+                                 "cerebro de nube (T25)"),
     # ---- ejecución de software en el equipo ----
     "engram_autoinstall": "instala un binario en el equipo sin preguntar",
 }

@@ -254,6 +254,13 @@ UNSAFE_LEGACY_SUITES = (
     "unit/skills/domotica/test_skill_domotica.py",
     "unit/skills/hermes/test_empty_response.py",
     "unit/skills/hermes/test_skill_hermes.py",
+    # Delegación en el ejecutor (T25 / P3-6): localidad del cerebro de Hermes con
+    # el consentimiento de nube de T6, confirmación con el encargo exacto y
+    # reintentos que no reenvían un encargo que ya pudo ejecutarse. Todo en
+    # proceso con el transporte doblado antes de la primera llamada y config/datos
+    # en carpetas de usar y tirar; se etiqueta unsafe-legacy por el mismo motivo
+    # honesto que sus dos hermanas (importa backend/config antes de armar dobles).
+    "unit/skills/hermes/test_delegacion.py",
     "unit/skills/files/test_skill_files.py",
     "unit/skills/system_pc/test_skill_system_pc.py",
     "unit/skills/system_pc/test_volumen_destino.py",

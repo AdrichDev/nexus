@@ -87,6 +87,18 @@ de llamadas para, aun así, no poder contarlo en las llamadas directas a
 medio relleno mentiría. Un flujo de n8n que reenvía el mismo texto se ve igual
 de bien en lo que sí se cuenta: las llamadas del día se disparan en minutos y el
 techo las corta.
+
+LAS DELEGACIONES SÍ SE CUENTAN, PERO NO SON TOKENS (T25 / P3-6)
+--------------------------------------------------------------
+Cuando nexus delega un encargo en un ejecutor externo (Hermes), quien habla con
+el proveedor es el EJECUTOR, con su propia clave: nexus no ve ese consumo, ni
+sus tokens, ni sus caracteres. Así que aquí se cuenta **el encargo**, no el
+gasto del delegado: `delegaciones[fecha][proveedor_del_ejecutor]` suma uno por
+encargo aceptado y **nada más**. No se estima ningún token a partir del texto
+del encargo, no se suman llamadas ni caracteres a los del chat y no se aplica el
+techo diario: un número inventado en un contador de gasto es peor que no
+tenerlo. Vive en su propia sección del mismo archivo justo para que no se
+confunda con lo que nexus sí mide, y `GET /api/status` lo publica con el resto.
 """
 from __future__ import annotations
 
@@ -158,7 +170,7 @@ def ruta_archivo() -> Path:
 
 
 def _vacio() -> dict:
-    return {"version": 1, "localidad": {}, "dias": {}}
+    return {"version": 1, "localidad": {}, "dias": {}, "delegaciones": {}}
 
 
 def _leer() -> dict:
@@ -173,6 +185,8 @@ def _leer() -> dict:
                 datos.setdefault("version", 1)
                 if not isinstance(datos.get("localidad"), dict):
                     datos["localidad"] = {}
+                if not isinstance(datos.get("delegaciones"), dict):
+                    datos["delegaciones"] = {}
                 return datos
     except Exception:                                          # noqa: BLE001
         pass
@@ -184,11 +198,19 @@ def _poda(doc: dict) -> None:
     dias = doc.get("dias") or {}
     if not isinstance(dias, dict):
         doc["dias"] = {}
+    else:
+        permitidos = (_hoy(), _ayer())
+        for clave in list(dias):
+            if clave not in permitidos:
+                dias.pop(clave, None)
+    deleg = doc.get("delegaciones")
+    if not isinstance(deleg, dict):
+        doc["delegaciones"] = {}
         return
     permitidos = (_hoy(), _ayer())
-    for clave in list(dias):
+    for clave in list(deleg):
         if clave not in permitidos:
-            dias.pop(clave, None)
+            deleg.pop(clave, None)
 
 
 def _documento() -> dict:
@@ -458,6 +480,37 @@ def anotar_sync(proveedor: str, clase: str, *, caracteres_entrada: int = 0,
     return _volcar_sync()
 
 
+def _cubo_delegaciones(doc: dict) -> dict:
+    """La sección de DELEGACIONES de hoy, por proveedor del cerebro del ejecutor.
+
+    Deliberadamente FUERA de `dias`: ahí viven las llamadas de los proveedores
+    de nexus, con sus clases y sus caracteres, y sumarle encargos ajenos
+    envenenaría el techo diario con una cuenta que no es la suya."""
+    deleg = doc.get("delegaciones")
+    if not isinstance(deleg, dict):
+        deleg = doc["delegaciones"] = {}
+    return deleg.setdefault(_hoy(), {})
+
+
+async def anotar_delegacion(proveedor: str, *, encargos: int = 1) -> bool:
+    """Suma UN encargo delegado al ejecutor externo, por proveedor de su cerebro.
+
+    Qué cuenta: la delegación (el encargo aceptado). Qué NO cuenta: los tokens,
+    caracteres o llamadas del DELEGADO — los paga y los ejecuta él, nexus no los
+    ve, y estimarlos sería inventar cifras. Por eso tampoco toca `llamadas` ni
+    `caracteres` ni el techo diario. No lanza nunca; devuelve si el volcado fue
+    bien."""
+    global _ultimo_error
+    nombre = (proveedor or "desconocido").strip().lower() or "desconocido"
+    try:
+        cubo = _cubo_delegaciones(_documento())
+        cubo[nombre] = int(cubo.get(nombre) or 0) + max(0, int(encargos or 0))
+    except Exception as exc:                                   # noqa: BLE001
+        _ultimo_error = f"{type(exc).__name__}: {exc}"
+        return False
+    return await volcar()
+
+
 def _volcar_sync() -> bool:
     """El volcado, tal cual: lo llama el contador síncrono (ya está en un hilo) y
     el asíncrono a través de `asyncio.to_thread`."""
@@ -542,6 +595,10 @@ def resumen() -> dict:
                 "clases": clases,
             }
         total = _totales(doc, incluir_locales=lim["presupuesto_incluye_locales"])
+        # DELEGACIONES: encargos del día, por proveedor del cerebro del EJECUTOR.
+        # Nombres y números, nunca una clave ni un token (no los tenemos).
+        deleg_hoy = (doc.get("delegaciones") or {}).get(_hoy()) or {}
+        delegaciones = {str(p): int(n or 0) for p, n in deleg_hoy.items()}
         return {
             "dia": _hoy(),
             "llamadas": total["llamadas"],
@@ -554,9 +611,12 @@ def resumen() -> dict:
             "agotado": bool(total["llamadas"] >= lim["presupuesto_diario_llamadas"]
                             or total["caracteres"] >= lim["presupuesto_diario_caracteres"]),
             "por_proveedor": por_proveedor,
+            "delegaciones": delegaciones,
+            "delegaciones_total": sum(delegaciones.values()),
             "tokens_reales": sorted(tokens_reales),
             "error_guardado": _ultimo_error,
         }
     except Exception as exc:                                   # noqa: BLE001
-        return {"dia": _hoy(), "por_proveedor": {}, "tokens_reales": [],
+        return {"dia": _hoy(), "por_proveedor": {}, "delegaciones": {},
+                "delegaciones_total": 0, "tokens_reales": [],
                 "error_guardado": f"{type(exc).__name__}: {exc}"}

@@ -37,6 +37,69 @@ comparar precios en varias webs, informe de mercado…), nexus se lo pasa a Herm
 sin que digas «hermes». Solo si Hermes está vivo o instalado. Se desactiva con
 ⚙ `hermes_auto=false`.
 
+## Tres fronteras antes de delegar (T25 / P3-6)
+
+Delegar es entregar trabajo a **otro agente** con su propio modelo, sus
+herramientas y su internet. Por eso ningún encargo sale sin pasar estas tres
+puertas, tanto si lo pides tú («hermes: …») como si lo decide la delegación
+automática:
+
+### 1. Localidad y permiso: lo que se delega también puede salir del equipo
+
+El cerebro de Hermes puede ser local (`ollama`, o un endpoint de loopback) o de
+nube (openai, anthropic, gemini, openrouter…). La clase la decide **la misma
+tabla que el chat** (`llm.localidad_delegado`, que reusa `LOCALIDAD`): no hay una
+segunda lista de proveedores que se pueda quedar desfasada. Se lee del bloque
+`model:` de `~/.hermes/config.yaml` (lo que Hermes carga de verdad) y, si ahí no
+hay nada, de ⚙ `hermes_provider`.
+
+- **Local** → el trabajo no sale del equipo: se delega sin pedir ningún permiso.
+- **Nube y `permitir_delegacion_nube: true`** (el **defecto**) → se delega. Esa
+  nube la elegiste tú al configurar a Hermes, así que el defecto **no apaga la
+  función**; se **avisa por el bus** de que el texto del encargo (y lo que el
+  ejecutor decida leer para resolverlo) sale hacia ese proveedor, y la
+  confirmación lo dice también **antes** del «sí». El «sí» por orden sigue
+  siendo la frontera real: `true` significa «la nube que configuraste no se
+  apaga sola», no «sin control».
+- **Nube y `permitir_delegacion_nube: false`** → **no se delega**: el chat dice
+  que la delegación a un cerebro de nube está desactivada, nombra la clave y
+  dónde se activa (⚙ o `config/settings.json`) y ofrece la alternativa que no
+  necesita permiso (ponerle a Hermes un modelo local). **No se hace ni una
+  petición** ni se arma confirmación.
+
+`permitir_delegacion_nube` es una clave **distinta** de `permitir_fallback_nube`,
+y esa no interviene en la delegación: `permitir_fallback_nube` gobierna el CAMBIO
+del cerebro *de nexus* cuando el elegido no responde (T6). Reutilizarla aquí
+apagaba toda delegación de un Hermes configurado a propósito. Las dos son
+claves de este equipo: `POST /api/config` remoto las rechaza con 403.
+
+### 2. Confirmación: una vez, con el encargo exacto
+
+La primera entrega de un encargo arma `confirm.request` (tipo
+`delegacion_hermes`, **no destructiva**) con el texto **exacto** que recibirá el
+ejecutor — recortado con «…» si no cabe, nunca resumido — y solo arranca con un
+«sí». «No» no encarga nada, y cambiar de tema lo desarma. La respuesta se acepta
+solo desde texto o voz, como todas las confirmaciones.
+
+Un encargo **ya aprobado no vuelve a preguntar**: sus reintentos ocurren dentro
+del trabajo y no arman nada.
+
+### 3. Nada de reenviar a ciegas
+
+La posición del fallo decide si se puede reintentar:
+
+- **Antes de entregar** (no hubo conexión: `ConnectError`/`ConnectTimeout`) → el
+  encargo no ha llegado a nadie. Nexus relanza el gateway con entorno limpio y
+  prueba **una vez más**. No hay nada que duplicar.
+- **Después de entregar** (una respuesta con error —5xx, 401 de mi clave—, un
+  timeout de lectura, un corte a mitad) → el encargo ya viajó y puede haber
+  navegado, escrito o enviado algo. **No se reenvía solo**: la respuesta dice que
+  puede haber ocurrido ya, que nexus no lo repite, y que mirar lo que quedó y
+  reintentar son decisiones del operador (que volverá a confirmar).
+
+Un 401 «Missing Authentication header» sigue siendo otra cosa (el modelo interno
+de Hermes sin credenciales): no se reintenta y se explica cómo arreglarlo.
+
 ## El operador NO se entera de que existe esto
 
 Regla de arquitectura: **el usuario solo habla con nexus.** Que un encargo lo
@@ -87,7 +150,9 @@ real: sin eso no se puede diagnosticar nada.
   que llama a `/api/hermes/configure` y escribe `~/.hermes/.env` y el bloque
   `model:` de `~/.hermes/config.yaml`) o en terminal con `hermes model` +
   `hermes auth add <proveedor>`. Proveedores mapeados: openai, anthropic,
-  gemini, openrouter.
+  gemini, openrouter. Ese proveedor decide además si delegar es local o de nube,
+  y por tanto si aplica `permitir_delegacion_nube` (true por defecto): ver «Tres
+  fronteras» arriba.
 - **Dependencia**: `httpx` (ya en `requirements.txt`).
 
 ## Autoarranque y resiliencia
@@ -96,14 +161,23 @@ Si el gateway está apagado, nexus lo levanta (`hermes gateway run --replace`,
 con entorno limpio —sin `PYTHONPATH`/`VIRTUAL_ENV` heredados, que rompían su
 Python— y log en `data/hermes_gateway.log`) y espera hasta 60 s.
 
-- 5xx → relanza el gateway limpio y reintenta una vez.
-- 401 `invalid_api_key` → re-provisiona la clave y reintenta una vez.
+- No se pudo **entregar** (sin conexión) → relanza limpio y prueba una vez más.
+- El ejecutor **contestó con error** (5xx, 401 de mi clave) → NO se reenvía: el
+  encargo ya había salido y podría ejecutarse dos veces. Se dice y se para.
 - 401 «Missing Authentication header» → no reintenta; explica que falta
   configurar el modelo interno de Hermes.
 - Respuesta 200 cuyo TEXTO es un error del proveedor → el encargo consta como
   fallido, no como terminado.
 
 Timeout de encargo: 15 min.
+
+## Contabilidad de los encargos
+
+Los tokens del cerebro de Hermes **no los ve nexus**: los paga y los cuenta el
+ejecutor. Por eso el contador del día apunta la **delegación** (un encargo por
+proveedor del ejecutor) en su propia sección de `data/presupuesto_llm.json`,
+visible en `GET /api/status`, y **no** suma llamadas ni caracteres ni inventa
+tokens. Un número inventado en un contador sería peor que no tenerlo.
 
 ## Engram (memoria de proyecto compartida)
 
@@ -122,6 +196,15 @@ hermes» (línea «Engram (memoria de proyecto)»).
 
 ## Qué NO hace
 
+- **No delega a la nube con la delegación apagada.** Con
+  `permitir_delegacion_nube: false` y un cerebro que no es local, no se hace ni
+  una petición y se dice dónde se activa (o que un modelo local no necesita
+  permiso). Con el defecto `true` lo que nexus delega sí puede salir del equipo,
+  y eso lo sabes antes de decir «sí»: el panel de la confirmación lo dice y el
+  aviso queda en el log. El «sí» por orden sigue siendo la frontera real.
+- **No repite un encargo que pudo ejecutarse.** Un fallo después de entregarlo
+  se cuenta tal cual: puede haber hecho parte del trabajo, y reintentarlo a
+  ciegas lo duplicaría.
 - **No inventa resultados.** Si el gateway no está o el modelo interno de Hermes
   no tiene credenciales, lo dice con la causa concreta; nunca devuelve un
   informe de ejemplo. Un encargo sin verificar no se canta como hecho.
