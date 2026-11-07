@@ -229,6 +229,34 @@ def terminos(texto: str, cfg: dict | None = None) -> set[str]:
             if len(t) >= minimo and t not in vacias}
 
 
+# ── UNA CONSULTA CON NOMBRE PROPIO (T37) ──────────────────────────────────────
+# El clasificador de arriba solo conoce las categorías CERRADAS de
+# `umbrales.json`/`purga_local.json`. Un «olvida que me divorcié» dicho por voz no
+# es una categoría: es el operador nombrando una nota con sus propias palabras, y
+# sin esto no había forma de que llegara a la previsualización. La selección la
+# hace `_notas_de_la_consulta()`; esta constante es el id de la categoría con la
+# que viajan las notas que NO estaban clasificadas en ninguna otra.
+CATEGORIA_CONSULTA = "consulta"
+
+
+def consulta_util(consulta: str) -> tuple[bool, str]:
+    """¿La frase con la que se pide olvidar sirve para barrer algo? `(ok, motivo)`.
+
+    Reusa la regla que YA decide qué palabra es distintiva (`terminos()`:
+    `longitud_minima_termino` caracteres y fuera de `palabras_vacias`) en vez de
+    inventar un mínimo nuevo. Una consulta sin ninguna palabra distintiva
+    —«olvida eso», «olvida la cosa»— no selecciona nada y podría arrastrar media
+    memoria, así que se rechaza y se pide una frase más concreta. El umbral es
+    DATO: sale de `config/umbrales.json → purga.emparejar_por_contenido`."""
+    cfg = _cfg_contenido()
+    if terminos(consulta or "", cfg):
+        return True, ""
+    minimo = int(cfg.get("longitud_minima_termino", 4))
+    return False, (f"«{(consulta or '').strip()}» no tiene ninguna palabra distintiva: "
+                   f"hacen falta palabras de {minimo}+ caracteres que no sean de "
+                   f"relleno («eso» no sirve)")
+
+
 def titulo_encabezado(texto: str) -> str:
     """Primera línea de un texto si es un encabezado markdown, ya limpia.
 
@@ -340,9 +368,93 @@ def _notas_del_plan(categorias: list[dict]) -> list[dict]:
     return out
 
 
-def previsualizar(incluir_logs: bool = False) -> dict:
-    """`{id, caduca, categorias, almacenes, incluir_logs}`. NO cambia nada — ni
-    un fichero se mueve, ni una fila se toca. Ninguna categoría viene marcada.
+def _casa_palabra(buscada: str, propias: set, corte: int) -> bool:
+    """¿La nota tiene esta palabra de la consulta?
+
+    Igual, o con los primeros `corte` caracteres en común: eso es lo que empareja
+    «divorcié» con «divorcio» sin meter un diccionario ni un stemmer. `corte` es
+    `longitud_minima_termino`, el mismo mínimo con el que `terminos()` decide qué
+    palabra cuenta — una sola definición de «palabra» en todo el módulo."""
+    # `corte` viene de `umbrales.json`: si alguien lo deja en 0, el prefijo sería
+    # la cadena vacía y CUALQUIER palabra casaría. Un valor absurdo en la
+    # configuración no puede ensanchar lo que se purga.
+    corte = max(1, int(corte or 1))
+    prefijo = buscada[:corte]
+    for p in propias:
+        if p == buscada or (len(p) >= corte and p.startswith(prefijo)):
+            return True
+    return False
+
+
+def _notas_de_la_consulta(consulta: str, clasif: dict) -> dict:
+    """Las notas que HABLAN de lo que el operador ha nombrado, con su motivo.
+
+    Devuelve el mismo `{ruta_rel: {categoria, personal, regla, ruta_abs}}` que
+    `clasificar()`, para que el resto de la previsualización (filas ligadas,
+    huérfanas por contenido, inventario de almacenes, `aplicar()`) siga
+    funcionando sin una sola rama nueva.
+
+    Casa por DOS caminos, los dos explicables:
+      1. la nota CONTIENE la frase tal cual, normalizada con `_plano()` (la misma
+         normalización que usa el cotejo del barrido: una sola definición de «el
+         mismo texto»);
+      2. la nota tiene TODAS las palabras distintivas de la consulta.
+
+    Se exige que casen TODAS, no una: aquí un falso positivo significa enseñar —y
+    luego mover— una nota que no era, así que ante la duda NO se casa.
+
+    `personal` a True en la categoría de consulta es deliberado: lo que el
+    operador guardó de sí mismo se exporta legible ANTES de moverse (la regla de
+    las categorías personales de la purga), y el borrado duro sigue sin ser su
+    acción por defecto."""
+    cfg = _cfg_contenido()
+    corte = int(cfg.get("longitud_minima_termino", 4))
+    buscados = terminos(consulta, cfg)
+    frase = _plano(consulta)
+    out: dict[str, dict] = {}
+    for path in _notas():
+        # El espejo de la ingesta NO es una nota: es material DERIVADO que viaja a
+        # la papelera con su nota, y lo barre `_barrer_documentos()`. Seleccionarlo
+        # aquí lo metería dos veces en el mismo lote y los dos movimientos se
+        # pelearían por el mismo nombre en la papelera.
+        if _dentro(path, DOCUMENTOS_DIR):
+            continue
+        try:
+            texto = f"{path.name}\n{path.read_text(encoding='utf-8', errors='replace')}"
+        except Exception:                                  # noqa: BLE001
+            continue
+        plano = _plano(texto)
+        if frase and frase in plano:
+            motivo = f"contiene «{consulta.strip()}» tal cual"
+        elif buscados and all(_casa_palabra(t, terminos(plano, cfg), corte)
+                              for t in buscados):
+            motivo = ("comparte " + ", ".join(sorted(buscados)) +
+                      f" (hacen falta todas las palabras distintivas de la consulta)")
+        else:
+            continue
+        rel = str(path.relative_to(MEMORY_DIR))
+        info = clasif.get(rel)
+        out[rel] = {
+            "categoria": info["categoria"] if info else CATEGORIA_CONSULTA,
+            "personal": bool(info["personal"]) if info else True,
+            "regla": (f"lo nombras tú: {motivo}" if not info else
+                      f"lo nombras tú: {motivo}; además está en la categoría "
+                      f"«{info['categoria']}» por {info['regla']}"),
+            "ruta_abs": str(path),
+        }
+    return out
+
+
+def previsualizar(incluir_logs: bool = False, consulta: str = "") -> dict:
+    """`{id, caduca, categorias, almacenes, incluir_logs, consulta}`. NO cambia
+    nada — ni un fichero se mueve, ni una fila se toca. Ninguna categoría viene
+    marcada.
+
+    `consulta` (T37, aditivo): en vez de barrer TODAS las categorías conocidas,
+    se barre solo lo que HABLE de lo que el operador ha nombrado («olvida que me
+    divorcié»). Sin `consulta` el comportamiento es exactamente el de siempre.
+    El resto del contrato no cambia: lo que se enseña aquí es lo que `aplicar()`
+    ejecuta, y el «todavía no se ha tocado nada» sigue siendo literal.
 
     Cada fila llega con SU motivo, igual que las notas: o la marca de origen la
     delata, o la casó el vocabulario (y entonces se dice cuánto solapa).
@@ -359,7 +471,14 @@ def previsualizar(incluir_logs: bool = False) -> dict:
     auditoría, de recall y los resultados de trabajos. Por defecto NO: son la
     traza del incidente y la regla es no tocar lo que no se pidió."""
     from . import memory
+    consulta = (consulta or "").strip()
     clasif = clasificar()
+    if consulta:
+        # La consulta SUSTITUYE a la clasificación cerrada como criterio de
+        # selección: el operador ha dicho con sus palabras qué quiere olvidar, y
+        # barrer además todo lo que casara con una categoría de `umbrales.json`
+        # sería tocar lo que nadie pidió.
+        clasif = _notas_de_la_consulta(consulta, clasif)
     cfg = _umbrales_purga().get("categorias") or {}
     cfg_cont = _cfg_contenido()
     huerfanas = _huerfanas_con_terminos(cfg_cont)
@@ -397,7 +516,10 @@ def previsualizar(incluir_logs: bool = False) -> dict:
             "ruta": ruta, "motivo": clasif[ruta]["regla"],
             "filas_pg": len(filas), "filas": filas})
 
-    if "duplicados-exactos" in cfg:
+    # Los duplicados exactos son filas SUELTAS de la base de datos, sin nota que
+    # las nombre: no pueden casar con lo que el operador ha dicho, así que con
+    # consulta NO entran (barrerlos sería tocar lo que no pidió).
+    if not consulta and "duplicados-exactos" in cfg:
         grupos = memory.pg.duplicados_exactos() if memory.pg.online else []
         items = [{"ruta": None, "fila_id": fila["id"],
                   "motivo": (f"duplicado exacto de la huella {g['huella'][:12]}… "
@@ -406,15 +528,22 @@ def previsualizar(incluir_logs: bool = False) -> dict:
         if items:
             por_cat["duplicados-exactos"] = items
 
-    categorias_out = [{"id": cat_id, "personal": bool(cfg.get(cat_id, {}).get("personal", False)),
-                       "items": items} for cat_id, items in por_cat.items()]
+    categorias_out = [
+        {"id": cat_id,
+         # La categoría de la consulta es personal POR DEFINICIÓN (es lo que el
+         # operador guardó de sí mismo): se exporta copia legible antes de mover
+         # y el borrado duro no es su acción por defecto.
+         "personal": (bool(cfg.get(cat_id, {}).get("personal", False))
+                      or (bool(consulta) and cat_id == CATEGORIA_CONSULTA)),
+         "items": items}
+        for cat_id, items in por_cat.items()]
     plan_id = f"purga-{uuid.uuid4().hex[:10]}"
     minutos = int(_umbrales_purga().get("minutos_vigencia_plan", 30))
     caduca_dt = dt.datetime.now() + dt.timedelta(minutes=minutos)
     almacenes = _inventario_almacenes(_notas_del_plan(categorias_out), incluir_logs)
     plan = {"id": plan_id, "caduca": caduca_dt.isoformat(timespec="seconds"),
             "categorias": categorias_out, "almacenes": almacenes,
-            "incluir_logs": bool(incluir_logs)}
+            "incluir_logs": bool(incluir_logs), "consulta": consulta}
     _planes[plan_id] = {**plan, "_caduca_dt": caduca_dt,
                         "_huella_corpus": _huella_corpus()}
     return plan

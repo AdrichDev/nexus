@@ -133,14 +133,25 @@ def test_corpus_prometido_256_distintas():
     # encogió porque nexus dejó de prometer mentiras, que es exactamente lo que
     # este candado quiere reflejar. El mecanismo no cambia: si alguien añade o
     # quita una promesa real, esta cifra se mueve y tiene que decir por qué.
-    print("== B2.1) corpus_prometido() saca las 256 frases de los SKILL.md ==")
+    #
+    # T37 (hallazgo declarado en el cierre de T15): 260/264, y las CUATRO que
+    # suben son de `skills/memory_graph/SKILL.md` — las cuatro formas de pedir
+    # que se olvide algo («olvida que...», «olvidate de...», «borra el recuerdo
+    # de...», «no recuerdes...»). No es que el corpus crezca por gusto: esa skill
+    # contestaba «dime «olvida que...» y lo quito» SIN el intent, asi que la
+    # promesa se iba al planificador (que se inventa las cosas) y el barrido
+    # completo de T15 era inalcanzable para una persona hablando. Ahora las
+    # cuatro tienen duenno (`memory_graph/olvidar`) y este candado las mide como
+    # cualquier otra promesa. La prueba de que el patron nuevo no se lleva frases
+    # de otras skills vive en `tests/unit/skills/memory_graph/test_olvidar.py`.
+    print("== B2.1) corpus_prometido() saca las 260 frases de los SKILL.md ==")
     frases = reglas.corpus_prometido()
-    check(len(frases) == 256,
-          f"corpus_prometido() devuelve {len(frases)} frases distintas, no 256: "
+    check(len(frases) == 260,
+          f"corpus_prometido() devuelve {len(frases)} frases distintas, no 260: "
           "si has anadido o quitado ordenes de un SKILL.md, actualiza esta cifra")
     check(len(set(frases)) == len(frases), "corpus_prometido() devuelve repetidas")
-    check(len(reglas.corpus_prometido(con_origen=True)) == 260,
-          "con_origen=True ya no devuelve las 260 apariciones (una orden puede "
+    check(len(reglas.corpus_prometido(con_origen=True)) == 264,
+          "con_origen=True ya no devuelve las 264 apariciones (una orden puede "
           "estar documentada en dos skills a proposito)")
     check("pon la tele" in frases,
           "una frase que domotica/SKILL.md promete no esta en el corpus")

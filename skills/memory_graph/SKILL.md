@@ -22,8 +22,34 @@ enteras (texto/código, PDF y Word) troceándolos en fragmentos consultables.
 - **Todo sobre mí**: «qué sabes de mí» · «cuánto sabes de mí» ·
   «lista los archivos de conocimiento que tienes sobre mí» · «todo lo que has aprendido de mí»
 - **Perfil**: «mi perfil» · «quién soy» · «háblame de mí» · «perfil del operador»
+- «olvida que me divorcié» · «olvídate de la mudanza» → enseña **qué nota** lo dice y
+  **en qué almacenes** está copiada, y pide un «sí» antes de tocar nada (ver «Olvidar»)
+- «borra el recuerdo de la entrevista» · «no recuerdes el número de la cuenta» → lo mismo,
+  con las otras dos formas de pedirlo
 - **Grafo**: «muéstrame el grafo» · «enséñame el grafo» · «grafo de notas» · «mapa de memoria»
 - **Estado**: «estado de la memoria» · «cómo va tu memoria»
+
+## Olvidar (dos tiempos, y el segundo no lo doy yo)
+
+- La frase tiene que traer **palabras distintivas**: «olvida eso» se rechaza y se pide
+  una frase más concreta (el umbral es el mismo que usa la purga para emparejar notas:
+  4+ caracteres y fuera de la lista de palabras vacías de `umbrales.json`).
+- Si no encuentra nada, lo dice («no encontré nada sobre X en mi memoria») y **no** arma
+  ninguna confirmación.
+- Si encuentra algo: enseña la nota, las filas de la base de datos y **la lista de
+  almacenes** (cuáles se tocan y cuáles no, con su motivo), y espera un «sí».
+  Antes del «sí» no se mueve **ni un byte**.
+- Con «sí»: la nota y el espejo del documento van a la **papelera** (se restauran), las
+  categorías personales dejan antes una **copia legible** en
+  `data/exportado_purga/personal/<lote>/`, y se barren el almacén vectorial local, la
+  memoria operativa, Engram y la caché web de la lista enseñada.
+- Los **registros** de conversación/auditoría/recall y los resultados de trabajos NO se
+  tocan desde aquí: son la traza del incidente y solo salen si se piden expresamente
+  (`incluir_logs` en la purga, `/api/memoria/purga/*`). Por voz todavía no hay atajo.
+- Las **copias de seguridad** tampoco se reescriben: se nombran con sus fechas y el
+  camino es dejar que roten solas o borrarlas a mano en `data/backups/`.
+- El **borrado definitivo** (`borrar_definitivo`) es otro paso, irreversible, y no lo
+  inicia esta skill.
 
 ## Notas técnicas
 
@@ -43,6 +69,8 @@ enteras (texto/código, PDF y Word) troceándolos en fragmentos consultables.
 
 - No guarda nada que no le hayas dicho: solo escribe el texto literal del hecho
   o el contenido real del archivo. No resume con el LLM ni rellena huecos.
-- No borra recuerdos: para eso está la purga (`backend/core/purga.py`).
+- No borra recuerdos de forma definitiva: el único destructor es `borrar_definitivo` de la
+  purga, y solo lo arranca el operador. Aquí «olvida …» deja todo en la papelera,
+  restaurable.
 - «recuérdame X el viernes» NO es esta skill: es un recordatorio del coach.
   Aquí el disparador es «recuerda QUE …».

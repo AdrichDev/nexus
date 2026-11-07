@@ -32,6 +32,24 @@ SKILL = {
     # Orden del dict: específicos (aprender carpeta/doc) ANTES que los amplios
     # (recall al final, que ahora acepta «qué sabes de X»).
     "patterns": {
+        # «OLVIDA QUE …» (T37) — la promesa que esta skill YA hacía al final de
+        # «qué sabes de mí» («dime «olvida que…» y lo quito») y que nadie cazaba:
+        # la frase caía al planificador del cerebro, que contestaba algo plausible
+        # y NO tocaba nada. El trabajo de borrado existe desde T15 (barrido de
+        # ocho almacenes); aquí solo se le da una puerta por voz y texto.
+        #
+        # Anclado al principio (^) y con las CUATRO formas que se dicen de verdad,
+        # para no quitarle frases a nadie: el router es primera coincidencia sobre
+        # las carpetas en orden alfabético, y «borra la tarea», «borra el fichero»
+        # o «olvida la regla …» (engram) ya tienen dueño. Por eso «borra» solo
+        # entra como «borra el recuerdo de», y «olvida» lleva un lookahead que
+        # deja fuera los sustantivos de regla aunque engram vaya antes.
+        "olvidar": r"^\s*(?:olv[ií]da(?:te)?|borra\s+(?:el|ese|este)\s+recuerdo"
+                   r"|no\s+recuerdes)"
+                   r"(?!\s+(?:la|esa|esta|mi|una)\s+(?:regla|norma|preferencia|"
+                   r"restricci[oó]n|correcci[oó]n|orden)\b)"
+                   r"(?:\s+(?:de|que|lo\s+que|todo\s+lo\s+que|lo\s+de))?"
+                   r"\s+(?P<q>.+?)\s*$",
         # v20: perfil del operador — disparadores PROPIOS («qué sabes de mí»
         # sigue siendo de list_knowledge por contrato de tests).
         "profile": r"\bmi\s+perfil\b|qui[eé]n\s+soy\s*(?:yo)?\s*\??\s*$"
@@ -142,6 +160,167 @@ def es_sobre_el_usuario(entrada) -> bool:
     return len(t) >= 8 and not _NO_ES_SOBRE_TI.search(t)
 
 
+# ── OLVIDAR: LA PUERTA QUE FALTABA (T37) ────────────────────────────────────
+# T15 (`db5f1b8`) dejó el borrado completo hecho: `purga.previsualizar()` enseña
+# TODOS los almacenes donde el hecho está copiado —y los que no se pueden tocar,
+# con su motivo— y `aplicar()` barre esa lista. Lo que no había era forma de
+# llegar desde una frase: esta skill prometía «dime «olvida que…» y lo quito» y
+# su router no tenía el intent, así que la frase acababa en el planificador, que
+# contestaba algo plausible y no tocaba nada. Esto NO reimplementa nada: pide la
+# previsualización al motor, la enseña y arma el «sí» con el MISMO plan.
+#
+# DOS COSAS QUE ESTE CAMINO NO HACE, a propósito:
+#   * `incluir_logs` NO se pasa nunca: los registros de conversación/auditoría son
+#     la traza del incidente y solo salen si el operador lo pide expresamente;
+#   * el borrado duro (`borrar_definitivo`) tampoco: este paso deja todo en la
+#     papelera, restaurable, y el segundo tiempo lo da el operador.
+
+
+def _canal(ctx) -> str:
+    try:
+        return str((ctx or {}).get("channel") or "pc")
+    except Exception:                                          # noqa: BLE001
+        return "pc"
+
+
+def _recorte(texto, limite: int = 150) -> str:
+    """Un motivo, cortado y diciendo que se ha cortado. No resume: recorta."""
+    t = " ".join(str(texto or "").split())
+    return t if len(t) <= limite else t[:limite].rstrip() + "…"
+
+
+def _linea_almacen(a: dict) -> str:
+    """Una línea del inventario de almacenes, en el idioma del operador."""
+    que = a.get("que") or a.get("id") or "almacén"
+    estado = a.get("estado")
+    n = int(a.get("elementos") or 0)
+    if estado == "incluido":
+        accion = {"retirar": "se retira", "papelera": "va a la papelera",
+                  "olvidar": "se le pide olvidar"}.get(str(a.get("accion") or ""),
+                                                          "se toca")
+        return f"   · {que}: {n} elemento(s) — {accion}"
+    if estado == "no_incluido":
+        return (f"   · {que}: NO incluido ({n} casarían) — no los toco si no me lo "
+                f"pides expresamente")
+    if estado == "no_disponible":
+        return (f"   · {que}: ahora mismo no se puede ({_recorte(a.get('motivo'))}) — "
+                f"se dirá NO COMPLETADO, nunca «hecho»")
+    if estado == "no_se_toca":
+        return (f"   · {que}: INTACTAS a propósito — {n} contienen lo que vas a olvidar "
+                f"y no se reescriben ni se borran")
+    return f"   · {que}: fuera de alcance — {_recorte(a.get('motivo'))}"
+
+
+def _resumen_previsualizacion(consulta: str, plan: dict, export_dir) -> str:
+    """Lo que el operador LEE antes de decir «sí»: qué se ha encontrado, qué
+    almacén se toca y cuál no, y qué se queda."""
+    lineas = [f"🧠 Voy a olvidar lo que case con «{consulta}». Esto es lo que he "
+              f"encontrado — NADA se ha tocado todavía:", ""]
+    personal = False
+    for cat in plan.get("categorias") or []:
+        personal = personal or bool(cat.get("personal"))
+        for it in cat.get("items") or []:
+            if not it.get("ruta"):
+                continue
+            filas = int(it.get("filas_pg") or 0)
+            extra = f" y {filas} fila(s) de la base de datos" if filas else ""
+            lineas.append(f"   · «{it['ruta']}»{extra}")
+    lineas.append("")
+    lineas.append("Almacenes (esta lista es la que voy a ejecutar, ni uno más):")
+    for a in plan.get("almacenes") or []:
+        lineas.append(_linea_almacen(a))
+    lineas.append("")
+    if personal:
+        # La regla de las categorías personales: copia legible ANTES de mover.
+        lineas.append("Las notas van a la PAPELERA (se restauran) y antes dejo una copia "
+                      f"legible en {export_dir} — es la regla para lo personal: nada se "
+                      "mueve sin copia, y el borrado definitivo no lo hago yo.")
+    else:
+        lineas.append("Las notas van a la PAPELERA: se restauran cuando quieras y el "
+                      "borrado definitivo no lo hago yo.")
+    lineas.append("Los REGISTROS de conversación y auditoría NO se tocan: son la traza del "
+                  "incidente y solo salen si lo pides expresamente. Las COPIAS DE "
+                  "SEGURIDAD tampoco se reescriben.")
+    lineas.append("")
+    lineas.append("¿Lo hago? «sí» o «no».")
+    return "\n".join(lineas)
+
+
+def _respuesta_aplicada(r: dict) -> str:
+    """El informe de T15, más lo que este camino tiene que decir por su cuenta:
+    qué NO se tocó y cómo se pide, para que nadie crea que se ha borrado todo."""
+    lote = r.get("lote") or ""
+    backups = (r.get("almacenes") or {}).get("backups") or {}
+    fechas = ", ".join(backups.get("fechas") or [])
+    lineas = [f"🧠 Hecho (lote «{lote}»).", r.get("resumen") or ""]
+    lineas.append("")
+    lineas.append("Los REGISTROS de conversación, auditoría y recall NO se han tocado: son "
+                  "la traza del incidente y solo salen si lo pides expresamente "
+                  "(`incluir_logs` en la purga, /api/memoria/purga/previsualizar). Por "
+                  "voz todavía no hay atajo para eso, así que no lo he pedido yo por ti.")
+    if backups.get("resultado") == "no_se_toca":
+        lineas.append("Las COPIAS DE SEGURIDAD siguen intactas"
+                      + (f" ({fechas})" if fechas else "")
+                      + ": no las reescribo ni las borro — son tu única red. El camino "
+                        "documentado es dejar que roten solas o borrarlas a mano en "
+                        "data/backups/.")
+    lineas.append("Si te arrepientes, «restaurar» devuelve el lote desde la papelera. El "
+                  "borrado definitivo es otro paso y solo lo das tú.")
+    return "\n".join(l for l in lineas if l)
+
+
+def _aplicar_purga(plan: dict, categorias: list) -> str:
+    """Lo que corre SOLO si el operador dice «sí» (`confirm.request`).
+
+    `acepto_personal=True` no salta ninguna guarda: lo que hace es EXPORTAR la
+    copia legible antes de mover, y el operador ya lo autorizó al decir «sí» a una
+    previsualización que lo enseña. `incluir_logs` no se pasa: por defecto."""
+    from backend.core.dominio import purga
+    r = purga.aplicar(plan["id"], categorias, acepto_personal=True)
+    if not r.get("ok"):
+        return (f"No he podido completarlo: {r.get('error') or 'sin motivo'}. No doy nada "
+                f"por olvidado; vuelve a pedírmelo y te enseño el plan nuevo.")
+    return _respuesta_aplicada(r)
+
+
+def _olvidar(text: str, match, ctx) -> dict:
+    """Previsualiza y arma. Nada se mueve hasta el «sí»."""
+    from backend.core.dominio import purga
+    gd = match.groupdict() if match else {}
+    q = (gd.get("q") or "").strip().strip("«»\"'").strip().rstrip(".")
+    if not q:
+        return {"reply": "¿Qué quieres que olvide? Dímelo con una frase: «olvida que…»."}
+    # La consulta tiene que ser barrible: el mínimo no se inventa aquí, lo decide
+    # el motor de purga con su propio umbral (`longitud_minima_termino` +
+    # `palabras_vacias`), el mismo que usa para emparejar notas.
+    ok, motivo = purga.consulta_util(q)
+    if not ok:
+        return {"reply": (f"No voy a vaciar la memoria con eso: {motivo}. Dime una frase "
+                          f"más concreta —«olvida que me divorcié»— y te enseño "
+                          f"exactamente qué se va ANTES de tocar nada.")}
+    plan = purga.previsualizar(consulta=q)        # incluir_logs NUNCA desde aquí
+    cats = [c["id"] for c in plan.get("categorias") or []]
+    if not cats:
+        return {"reply": (f"No encontré nada sobre «{q}» en mi memoria, así que no hay "
+                          f"nada que quitar ni que confirmar. Si está guardado con otras "
+                          f"palabras, dímelo como lo apunté («qué recuerdas de…» lo enseña).")}
+    targets = [{"id": cat.get("id", ""), "title": it.get("ruta") or "",
+                "state": cat.get("id", "")}
+               for cat in plan["categorias"] for it in cat.get("items") or []
+               if it.get("ruta")]
+    from backend.core.comun import confirm
+    pregunta = confirm.request(
+        channel=_canal(ctx), kind="purga_memoria",
+        summary=_resumen_previsualizacion(q, plan, purga.EXPORT_DIR / "personal"),
+        request_text=text, targets=targets,
+        action=lambda: _aplicar_purga(plan, cats),
+        cancel_reply="Vale: no he tocado nada. Tus recuerdos siguen como estaban.")
+    return {"reply": pregunta,
+            "data": {"confirm": True, "plan_id": plan["id"], "categorias": cats,
+                     "almacenes": [{k: a.get(k) for k in ("id", "estado", "elementos")}
+                                   for a in plan.get("almacenes") or []]}}
+
+
 async def handle(intent: str, text: str, match, ctx) -> dict:
     if intent == "profile":
         from backend.core.dominio.profile import build_profile
@@ -149,6 +328,10 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
         return {"reply": await _a.to_thread(build_profile)}
 
     pg, graph = ctx["pg"], ctx["graph"]
+
+    if intent == "olvidar":
+        # La puerta del «olvida …»: previsualiza el motor de purga y ARMA el «sí».
+        return _olvidar(text, match, ctx)
 
     if intent == "remember":
         fact = match.group("fact").strip().rstrip(".")
@@ -307,7 +490,8 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
             # Sin modelo no se calla: se enseña lo que hay, tal cual.
             texto = "Esto es lo que tengo tuyo:\n" + "\n".join(f"· {d}" for d in datos[:25])
         return {"reply": texto.strip() +
-                         "\n\nSi algo no cuadra, dime «olvida que…» y lo quito."}
+                         "\n\nSi algo no cuadra, dime «olvida que…»: te enseño qué hay y "
+                         "qué se quita, y no toco nada hasta que digas «sí»."}
 
     if intent == "recall":
         topic = (match.group("topic") or match.group("topic2") or "").strip().rstrip("?¿.")
@@ -339,4 +523,5 @@ async def handle(intent: str, text: str, match, ctx) -> dict:
                          f"en el grafo — DB {db_txt}"}
 
     return {"reply": "🧠 Esa orden de memoria no la tengo. Prueba «recuerda que …», "
-                     "«qué recuerdas de …», «aprende el documento <ruta>» o «muéstrame el grafo»."}
+                     "«qué recuerdas de …», «aprende el documento <ruta>», "
+                     "«olvida que …» o «muéstrame el grafo»."}

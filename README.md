@@ -435,6 +435,16 @@ que el borrado definitivo destruye sigue exigiendo tu «sí». Y después de
 purificar, la respuesta dice qué se retiró, qué es restaurable y qué sobrevive,
 con el motivo.
 
+**También se pide hablando, que era el hueco.** Desde T37 la skill de Memoria
+entiende «olvida que me divorcié», «olvídate de la mudanza», «borra el recuerdo
+de la entrevista» y «no recuerdes el número de la cuenta»: busca las notas que
+lo dicen, enseña la lista de la tabla de arriba y **arma la misma confirmación**
+y el mismo plan. Antes esa frase no la cazaba ninguna skill y acababa en el
+modelo, que contestaba algo plausible y no tocaba nada — la peor variante de
+«parece que lo hizo». Dos límites, dichos aquí y en la respuesta: una frase sin
+palabras distintivas («olvida eso») se rechaza pidiendo algo más concreto, y los
+registros y las copias de seguridad **nunca** entran por esta puerta.
+
 ## Recuperación (copias de seguridad, RPO y RTO)
 
 El detalle honesto de qué se copia, cada cuánto, cuánto puedes perder y qué hace

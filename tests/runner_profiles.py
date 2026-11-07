@@ -277,6 +277,12 @@ UNSAFE_LEGACY_SUITES = (
     "unit/skills/datos/test_skill_datos.py",
     "unit/skills/vigilancias/test_skill_vigilancias.py",
     "unit/memory/test_skill_memory_graph.py",
+    # T37: la puerta por voz/texto del «olvida...». Previsualiza y arma la
+    # confirmación del motor de purga (T15) contra un árbol de usar y tirar, con
+    # Postgres offline y Engram doblado; se etiqueta unsafe-legacy por el mismo
+    # motivo honesto que sus hermanas: carga TODAS las skills antes de armar sus
+    # dobles por caso (aunque config/ y data/ ya vienen redirigidos al importar).
+    "unit/skills/memory_graph/test_olvidar.py",
     "unit/skills/coach/test_skill_coach.py",
     "unit/skills/tools/test_skill_tools.py",
     "unit/skills/research/test_skill_research.py",

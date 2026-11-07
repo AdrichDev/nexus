@@ -96,7 +96,7 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/skills/autoprovision/test_skill_autoprovision.py", "unit/skills/media/test_skill_media.py",
               "unit/skills/chrome/test_skill_chrome.py", "unit/skills/content_os/test_skill_content_os.py",
               "unit/skills/datos/test_skill_datos.py", "unit/skills/vigilancias/test_skill_vigilancias.py",
-              "unit/memory/test_skill_memory_graph.py", "unit/skills/coach/test_skill_coach.py",
+              "unit/memory/test_skill_memory_graph.py", "unit/skills/memory_graph/test_olvidar.py", "unit/skills/coach/test_skill_coach.py",
               "unit/skills/tools/test_skill_tools.py", "unit/skills/research/test_skill_research.py",
               "unit/skills/research/test_source_evidence.py", "unit/skills/research/test_google_browser.py",
               "unit/skills/backup/test_skill_backup.py", "unit/skills/backup/test_restaurar.py", "unit/skills/telefono/test_skill_telefono.py",
