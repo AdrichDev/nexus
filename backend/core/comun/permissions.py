@@ -200,7 +200,18 @@ def carpetas_permitidas() -> list[Path]:
 def _allowed_roots() -> list[Path]:
     roots = [SANDBOX_DIR.resolve()]
     if files_mode() == "carpetas":
+        # El propio `data/` de nexus entra SIEMPRE en «carpetas». No es un colado:
+        # el modo acota los DOCUMENTOS DEL OPERADOR que están fuera de la
+        # instalación, no el cajón donde nexus vive (notas, papelera de la purga,
+        # `data/memory/inbox` de la ingesta, informes, capturas, exportaciones de
+        # categorías personales). Sin esto, `ingerir la carpeta de mis notas` o
+        # `exportar antes de purgar` se rechazaban a sí mismos en el modo nuevo,
+        # que es justo lo que destapó migrar la config del dueño de `todo` a
+        # `carpetas`: el candado le cerraba la puerta de su propia casa.
+        roots.append(DATA_DIR.resolve())
         roots.extend(carpetas_permitidas())
+    # En «sandbox» NO se añade `data/` entero: ahí la promesa del modo es que
+    # nexus solo escriba en `data/sandbox`, y esa palabra significa algo.
     return roots
 
 

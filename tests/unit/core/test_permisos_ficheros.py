@@ -407,6 +407,47 @@ check("No puedo tocar" in reply,
 check(_grafo.llamadas == [],
       f"memory_graph NO debe escribir la credencial en el grafo: {_grafo.llamadas!r}")
 
+
+# --------- 7) «carpetas» no puede cerrar la casa de nexus (T41)
+# Lo destapó migrar la config del dueño de `todo` a `carpetas`: con el modo nuevo
+# `ingerir la carpeta de mis notas` se rechazaba a sí mismo porque
+# `data/memory/inbox` no estaba entre las raíces, y `exportar antes de purgar`
+# tampoco podía escribir en `data/exportado_purga`. El modo acota los DOCUMENTOS
+# DEL OPERADOR fuera de la instalación, no el cajón donde nexus vive.
+print("== 7) en «carpetas», el data/ de nexus sigue siendo suyo ==")
+from backend.core.comun.config import DATA_DIR as _D
+
+with _Config(perm_files="carpetas", perm_folders=[]):
+    for _r in (_D / "memory" / "inbox" / "nota.md",
+               _D / "memory" / "documentos" / "plan.txt",
+               _D / "capturas" / "pantallazo.png",
+               _D / "informes" / "competencia.md",
+               _D / "exportado_purga" / "personal" / "x.md",
+               _D / "reports" / "informe.md"):
+        check(permissions.path_allowed(_r) is True,
+              f"en «carpetas» nexus no puede tocar su propia casa: {_r}")
+    # la ingesta real, por su puerta: antes se devolvía a sí misma un «sin permiso»
+    from backend.core.dominio import ingesta as _ing
+    (_D / "memory" / "inbox").mkdir(parents=True, exist_ok=True)
+    _res = _ing.ingerir_carpeta(str(_D / "memory" / "inbox"))
+    check("no está entre las carpetas permitidas" not in str(_res.get("error") or ""),
+          f"la ingesta de su propio inbox se rechaza a sí misma: {_res.get('error')!r}")
+
+# y el candado de credenciales sigue dentro de data/, modo tras modo
+for _modo in ("carpetas", "todo", "sandbox"):
+    with _Config(perm_files=_modo):
+        for _nombre in ("telegram_owner.txt", "telegram_link_code.txt"):
+            check(permissions.path_allowed(_D / _nombre) is False,
+                  f"«{_nombre}» debe seguir denegado en modo «{_modo}»")
+
+# en «sandbox» la promesa es otra: ahí data/ NO abre, solo data/sandbox
+with _Config(perm_files="sandbox"):
+    check(permissions.path_allowed(_D / "memory" / "inbox" / "nota.md") is False,
+          "en «sandbox» data/memory no puede quedar abierto (la palabra significa algo)")
+    check(permissions.path_allowed(permissions.SANDBOX_DIR / "dentro.png") is True,
+          "en «sandbox» data/sandbox sí")
+
+
 # ---------------------------------------------------- 9) SEC-12: solo local
 print("== 9) SEC-12: los permisos solo se cambian desde este equipo ==")
 TOK = "token-de-prueba-del-qr"
