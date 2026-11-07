@@ -247,6 +247,9 @@ UNSAFE_LEGACY_SUITES = (
     "unit/skills/n8n_flows/test_envios.py",
     "unit/core/runtime/test_capas_backend.py",
     "unit/core/test_resultados_trabajos.py",
+    # Errores de la API sin fugas (SEC-16) y callback de Spotify con `state` (SEC-15).
+    # En proceso (ASGITransport, sin lifespan) y con config/datos de usar y tirar.
+    "unit/core/test_errores_api.py",
     "unit/core/learning/test_reglas_valores.py",
     "unit/core/learning/test_reglas_contrato.py",
     "unit/core/learning/test_aprendizaje_puertas.py",

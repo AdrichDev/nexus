@@ -172,6 +172,68 @@ for otro in ("Sistema/PC", "Domótica", "Tablero"):
     check(otro in doc, f"el SKILL.md no deriva a «{otro}»")
 check("scraping" not in doc.lower(), "el SKILL.md menciona scraping")
 
+print("== 10) Spotify: el `state` del OAuth es de un solo uso (SEC-15) ==")
+# Auditoría del 30/07/2026, roadmap P3-5: el callback aceptaba el `code` sin
+# mirar `state`, así que un enlace ajeno podía dejar vinculada la cuenta de
+# Spotify de otra persona (login CSRF). Aquí se comprueba la MITAD que vive en
+# `spotify.py` (crear, comparar y consumir); la ruta del callback —que exige el
+# `state` antes de canjear— se prueba en tests/unit/core/test_errores_api.py,
+# donde ya hay un backend en proceso con configuración de usar y tirar.
+import json as _json
+import shutil as _shutil
+import tempfile as _tempfile
+import time as _time
+import urllib.parse as _urlparse
+from pathlib import Path as _Path
+
+from backend.core.infraestructura import spotify as _sp
+
+_CARPETA = _Path(_tempfile.mkdtemp(prefix="nexus_spotify_state_"))
+_PENDIENTE_PREVIO, _TOKEN_PREVIO = _sp.PENDING_FILE, _sp.TOKEN_FILE
+# Los DOS archivos de estado se apuntan a la carpeta de usar y tirar: ni se lee
+# ni se escribe el config/spotify_token.json del operador desde aquí.
+_sp.PENDING_FILE = _CARPETA / "spotify_pending.json"
+_sp.TOKEN_FILE = _CARPETA / "spotify_token.json"
+
+
+def _estado_de(url: str) -> str:
+    return (_urlparse.parse_qs(_urlparse.urlparse(url).query).get("state") or [""])[0]
+
+
+try:
+    s1 = _estado_de(_sp.auth_url())
+    check(bool(s1), "auth_url() no incluye `state`: un callback ajeno se aceptaría")
+    check(len(s1) >= 16, f"el `state` es demasiado corto para ser impredecible ({len(s1)} caracteres)")
+    check("state=" in _sp.auth_url(), "la URL de autorización no enseña el `state`")
+    s2 = _estado_de(_sp.auth_url())
+    check(s1 != s2, "dos autorizaciones seguidas usan el MISMO `state`")
+
+    check(_sp.consumir_estado(s2) is True,
+          "el `state` recién creado no se acepta: no se podría autorizar nunca")
+    check(_sp.consumir_estado(s2) is False, "el `state` vale DOS veces (replay aceptado)")
+    check(not _sp.PENDING_FILE.exists(), "el `state` consumido se queda guardado en disco")
+    check(_sp.consumir_estado("") is False, "un callback SIN `state` se acepta")
+    check(_sp.consumir_estado("inventado") is False, "un `state` inventado se acepta")
+    check(not _sp.TOKEN_FILE.exists(),
+          "crear o gastar el `state` ha escrito en el token de Spotify")
+
+    # Un intento fallido NO quema el que estaba pendiente: si lo hiciera, cualquiera
+    # que mande un callback falso te tumba la autorización en curso.
+    s3 = _estado_de(_sp.auth_url())
+    check(_sp.consumir_estado("basura") is False, "«basura» se acepta como `state`")
+    check(_sp.consumir_estado(s3) is True,
+          "un callback con `state` falso ha quemado el bueno (ya no se puede autorizar)")
+
+    # Caducado: un `state` viejo no puede revivir.
+    _sp.PENDING_FILE.write_text(_json.dumps({"state": "viejo",
+                                             "creado": _time.time() - _sp.TTL_ESTADO - 60}),
+                                encoding="utf-8")
+    check(_sp.consumir_estado("viejo") is False, "un `state` caducado se acepta")
+    check(not _sp.PENDING_FILE.exists(), "el `state` caducado se queda en disco")
+finally:
+    _sp.PENDING_FILE, _sp.TOKEN_FILE = _PENDIENTE_PREVIO, _TOKEN_PREVIO
+    _shutil.rmtree(_CARPETA, ignore_errors=True)
+
 print(f"\n{'#'*54}\n{_pass} comprobaciones OK, {len(_fail)} fallos")
 for m in _fail:
     print("  -", m)

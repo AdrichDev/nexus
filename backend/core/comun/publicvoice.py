@@ -367,3 +367,28 @@ def limpia_trabajo(job: dict) -> dict:
                 salida = salida if salida is not None else dict(job)
                 salida[campo] = limpio
     return salida if salida is not None else job
+
+
+# ── 5. ERRORES DE API: LO PÚBLICO Y LO TÉCNICO ────────────────────────────────
+# SEC-16 de la auditoría del 30/07/2026 (roadmap P3-5). Varios handlers de
+# `backend/app.py` devolvían `str(exc)` —o `f"{type(exc).__name__}: {exc}"`— en
+# el JSON de error, así que una ruta del disco del operador o un nombre de host
+# interno acababan delante del cliente. `sanitize()` es la red de seguridad del
+# chat; esto es la puerta de la API, donde ya no hay nada que sanear después:
+# se elige qué sale.
+#
+# El reparto es el de siempre en este proyecto: el usuario recibe un mensaje
+# honesto y accionable, y el TIPO de la excepción se queda en el log, que es
+# donde sirve para diagnosticar y donde no lo lee nadie de fuera.
+MENSAJE_ERROR_GENERICO = ("No he podido completar la operación. No se ha realizado "
+                          "ningún cambio; el detalle queda en el registro.")
+
+
+def fallo(exc: BaseException | None = None, *, mensaje: str = "") -> tuple[str, str]:
+    """(mensaje para el usuario, tipo de la excepción para el log).
+
+    `mensaje` es para cuando el handler sabe decir algo más concreto («no he
+    podido enviar la orden»); pasa igualmente por `sanitize()`, para que ni por
+    descuido se cuele una dirección o un término de fontanería."""
+    tecnico = type(exc).__name__ if exc is not None else "Error"
+    return sanitize(mensaje or MENSAJE_ERROR_GENERICO), tecnico

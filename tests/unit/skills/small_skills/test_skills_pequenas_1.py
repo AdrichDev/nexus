@@ -174,6 +174,68 @@ NO_TOCAR = [
 ]
 
 
+class _OsDoble:
+    """`os` de mentira: apunta lo que la skill de juegos le pide hacer.
+
+    `system` es lo que acabaría en cmd.exe; `startfile` es la URI que se abre."""
+
+    def __init__(self):
+        self.shell = []          # os.system(...)
+        self.uris = []           # os.startfile(...)
+        self.system = self.shell.append
+        self.startfile = self.uris.append
+
+
+def _games_appid_seguro(reg):
+    """SEC-14 (auditoría 30/07/2026, roadmap P3-5): el `appid` sale del JSON de la
+    tienda de Steam y se interpolaba en `os.system(f'start "" steam://…')`. Un dato
+    que no fuera numérico llegaba a cmd.exe. Ahora se exige que sean DÍGITOS y se
+    abre con `os.startfile`, que recibe la URI tal cual: ni shell, ni `start`, ni
+    comillas que cerrar."""
+    import asyncio
+
+    mod = reg["games"].module
+    doble = _OsDoble()
+    previos = (mod.os, mod._steam_appid)
+    mod.os, mod._steam_appid = doble, lambda _nombre: ("570", "Juego de prueba")
+    try:
+        print("· games: el `appid` se valida antes de abrir nada (SEC-14)")
+        check(mod._steam_do("run", "570") is True, "un `appid` numérico ya no abre Steam")
+        check(doble.uris == ["steam://run/570"],
+              f"la URI de siempre ha cambiado: {doble.uris}")
+        check(doble.shell == [], f"se sigue pasando por el shell: {doble.shell}")
+
+        for malo in ("570; calc", "570 & calc", "570|calc", "abc", "", None,
+                     "570 570", "-1", "5.7"):
+            check(mod._steam_do("run", malo) is False, f"«{malo}» no se rechaza")
+            check(doble.shell == [], f"«{malo}» ha llegado al shell: {doble.shell}")
+            if malo:
+                check(all(str(malo) not in u for u in doble.uris),
+                      f"«{malo}» ha llegado a os.startfile: {doble.uris}")
+
+        # lo que de verdad puede traer el JSON de la tienda: un id que no son dígitos
+        mod._steam_appid = lambda _nombre: ("570;calc", "Juego de prueba")
+        doble.uris.clear()
+        reply = asyncio.run(mod._resolve_and_do(None, "Juego de prueba", "run", "Lanzando"))
+        check(doble.shell == [] and doble.uris == [],
+              f"con un id hostil se ha abierto algo: {doble.shell} / {doble.uris}")
+        check("no he podido abrir Steam" in reply,
+              f"con un id hostil no se dice la verdad: {reply!r}")
+
+        # y el camino bueno sigue construyendo EXACTAMENTE la misma URI
+        mod._steam_appid = lambda _nombre: (570, "Juego de prueba")   # entero, como Steam
+        doble.uris.clear()
+        reply = asyncio.run(mod._resolve_and_do(None, "Juego de prueba", "install", "Instalando"))
+        check(doble.uris == ["steam://install/570"],
+              f"la URI de instalación cambió: {doble.uris}")
+        check("appid 570" in reply, f"la respuesta ya no dice qué appid usó: {reply!r}")
+    finally:
+        mod.os, mod._steam_appid = previos
+
+    src = (ROOT / "skills" / "games" / "skill.py").read_text(encoding="utf-8")
+    check("os.system" not in src, "games vuelve a construir un comando para el shell")
+
+
 def main():
     from backend.core.aplicacion import skills_loader as sl
     reg = sl.load_skills()
@@ -195,6 +257,8 @@ def main():
         r = sl.route(frase)
         got = r[0].folder if r else ""
         check(got != prohibida, f"«{frase}» NO es de {prohibida} (fue a {got or 'ningún sitio'})")
+
+    _games_appid_seguro(reg)
 
     print("· todo intent declarado está atendido en handle()")
     for f in DOCE:

@@ -104,6 +104,7 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/frontend/test_modules.py", "unit/core/runtime/test_capas_backend.py", "unit/core/runtime/test_log_aislado.py", "unit/core/test_resultados_trabajos.py",
               "unit/mobile/test_puente_nativo.py",
               "unit/core/test_datos_no_confiables.py",
+              "unit/core/test_errores_api.py",
               "unit/core/learning/test_reglas_valores.py", "unit/core/learning/test_reglas_contrato.py",
               "unit/core/learning/test_aprendizaje_puertas.py", "unit/core/learning/test_aprendizaje_no_robo.py",
               "unit/core/learning/test_opmem_candado.py",

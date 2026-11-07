@@ -66,11 +66,23 @@ def _steam_appid(name: str):
 
 
 def _steam_do(action: str, appid) -> bool:
-    """action: run | install | validate."""
+    """action: run | install | validate.
+
+    SEC-14 (auditoría 30/07/2026, roadmap P3-5). Antes el appid se interpolaba
+    en una orden para `cmd.exe` (`start "" steam://…`), y sale del JSON de la
+    tienda de Steam: un dato que no fuera numérico llegaba tal cual al shell.
+    Ahora son dos barreras: el `appid` tiene que ser DÍGITOS, y la URI se abre
+    con `os.startfile`, que la recibe sin pasar por ningún shell (ni `start`, ni
+    comillas que cerrar). Un valor raro devuelve False y quien llama dice la
+    verdad («no he podido abrir Steam»); la URI numérica es exactamente la de
+    antes."""
     if sys.platform != "win32":
         return False
+    appid = "" if appid is None else str(appid)
+    if not appid.isdigit():        # nada de "; calc", "abc", "", "-1" ni "1.5"
+        return False
     try:
-        os.system(f'start "" steam://{action}/{appid}')
+        os.startfile(f"steam://{action}/{appid}")      # type: ignore[attr-defined]
         return True
     except Exception:
         return False

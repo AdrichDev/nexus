@@ -39,6 +39,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import httpx
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 _fail = []
 _pass = 0
@@ -77,6 +79,7 @@ from backend.core.infraestructura import llm_runtime as rt  # noqa: E402
 import os as _os, sys as _sys; _sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "..", "..")))
 from _frontend_js import js_hud  # el HUD entero, no solo command.js
 from backend.core.comun import publicvoice as pv  # noqa: E402
+from backend.core.comun import net             # noqa: E402
 from backend.core.comun.config import settings                  # noqa: E402
 
 
@@ -507,12 +510,160 @@ def test_voz_publica():
               f"«{c}» no enseña códigos ni direcciones")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 13. LA CLAVE DE GEMINI VA EN CABECERA Y NUNCA EN LA URL (SEC-13)
+# ══════════════════════════════════════════════════════════════════════════════
+# Auditoría del 30/07/2026, roadmap P3-5: `llm.py` mandaba la clave como
+# `?key=…`. Va cifrada en TLS, pero la URL aparece en el mensaje de httpx cuando
+# la respuesta no es 2xx (`raise_for_status()` la copia), y de ahí pasa al detalle
+# técnico del runtime y al panel de diagnóstico. Google acepta la clave en la
+# cabecera `x-goog-api-key`, así que la URL deja de llevarla.
+CLAVE_GEMINI_FALSA = "clave-sintetica-de-prueba-0001"       # no es una clave real
+SSE_OK = ('data: {"candidates": [{"content": {"parts": [{"text": "OK"}]}, '
+          '"finishReason": "STOP"}]}\n\n')
+
+
+class _GeminiDoble:
+    """Transporte httpx EN MEMORIA (`httpx.MockTransport`): sin sockets ni TLS.
+
+    Apunta CADA petición tal y como sale del módulo —URL, parámetros y
+    cabeceras— y contesta lo que diga el escenario. Es la única manera honesta
+    de comprobar dónde viaja una clave sin mandarla a ninguna parte."""
+
+    def __init__(self, status=200, json_cuerpo=None, sse=""):
+        self.status = status
+        self.json_cuerpo = json_cuerpo if json_cuerpo is not None else {}
+        self.sse = sse
+        self.peticiones = []
+
+    def _responde(self, request):
+        self.peticiones.append(request)
+        if self.sse:
+            return httpx.Response(self.status, text=self.sse,
+                                 headers={"content-type": "text/event-stream"})
+        return httpx.Response(self.status, json=self.json_cuerpo)
+
+    def cliente(self):
+        return httpx.AsyncClient(transport=httpx.MockTransport(self._responde), timeout=5.0)
+
+
+def _con_doble_gemini(doble, correr):
+    """Instala el doble en `net.client` ANTES de la primera llamada, y restaura."""
+    previo = net.client
+    cliente = doble.cliente()
+    net.client = lambda: cliente
+    try:
+        return correr()
+    finally:
+        net.client = previo
+        try:
+            # Cierra el cliente EN EL MISMO proceso: sin esto queda abierto un
+            # iterador de líneas (el streaming retorna al ver `finishReason`) y
+            # asyncio avisa al morir de una tarea pendiente.
+            run(cliente.aclose())
+        except Exception:                                    # noqa: BLE001
+            pass
+
+
+def test_gemini_cabecera():
+    print("· la clave de Gemini va en cabecera y NUNCA en la URL (SEC-13)")
+    proveedor = _llm.GeminiProvider()
+    una_vez = [{"role": "user", "content": "hola"}]
+    cuerpo_chat = {"candidates": [{"content": {"parts": [{"text": "OK"}]}}]}
+
+    def _chat():
+        return run(proveedor.chat(una_vez))
+
+    def _chat_stream():
+        async def _recoge():
+            gen = proveedor.chat_stream(una_vez)
+            try:
+                return "".join([t async for t in gen])
+            finally:
+                await gen.aclose()      # ni un generador abandonado por el camino
+        return run(_recoge())
+
+    def _reentreno():
+        return run(_llm._chat_with("gemini", "gemini-2.5-flash", "eres nexus", "hola", 64))
+
+    settings.set("gemini_model", "gemini-2.5-flash")
+    settings.set_secret("gemini_api_key", CLAVE_GEMINI_FALSA)
+    try:
+        def _revisa(nombre, doble):
+            check(len(doble.peticiones) >= 1, f"{nombre}: no ha salido ninguna petición")
+            for p in doble.peticiones:
+                check("key" not in p.url.params,
+                      f"{nombre}: la URL lleva el parámetro `key` ({p.url})")
+                check("key=" not in str(p.url),
+                      f"{nombre}: la URL enseña `key=` ({p.url})")
+                check(CLAVE_GEMINI_FALSA not in str(p.url),
+                      f"{nombre}: LA CLAVE VIAJA EN LA URL ({p.url})")
+                check(p.headers.get("x-goog-api-key") == CLAVE_GEMINI_FALSA,
+                      f"{nombre}: la cabecera x-goog-api-key no lleva la clave")
+
+        # ── (a,b) la petición buena: URL limpia y cabecera con el valor
+        for nombre, correr, doble in (
+                ("chat", _chat, _GeminiDoble(json_cuerpo=cuerpo_chat)),
+                ("chat_stream", _chat_stream, _GeminiDoble(sse=SSE_OK)),
+                ("_chat_with", _reentreno, _GeminiDoble(json_cuerpo=cuerpo_chat))):
+            respuesta = _con_doble_gemini(doble, correr)
+            _revisa(nombre, doble)
+            check(str(respuesta).strip() == "OK",
+                  f"{nombre}: el proveedor ha dejado de contestar ({respuesta!r})")
+            if nombre == "chat_stream":
+                check("alt=sse" in str(doble.peticiones[0].url),
+                      f"{nombre}: el modo SSE se ha perdido ({doble.peticiones[0].url})")
+
+        # ── (c) una respuesta que NO es 2xx: ni el mensaje de la excepción ni el
+        # detalle técnico del runtime pueden llevar la clave.
+        for nombre, correr in (("chat", _chat), ("chat_stream", _chat_stream),
+                               ("_chat_with", _reentreno)):
+            doble = _GeminiDoble(status=401,
+                                json_cuerpo={"error": {"code": 401,
+                                                       "message": "API key not valid"}})
+            exc = None
+            try:
+                _con_doble_gemini(doble, correr)
+            except Exception as e:                           # noqa: BLE001
+                exc = e
+            check(exc is not None, f"{nombre}: un 401 no ha levantado excepción")
+            if exc is None:
+                continue
+            check(CLAVE_GEMINI_FALSA not in f"{type(exc).__name__}: {exc}",
+                  f"{nombre}: el mensaje de la excepción lleva la clave "
+                  f"({type(exc).__name__}: {str(exc)[:120]!r})")
+            check(CLAVE_GEMINI_FALSA not in rt._clasifica_excepcion(exc, "gemini")[2],
+                  f"{nombre}: el detalle técnico del runtime lleva la clave")
+            check(CLAVE_GEMINI_FALSA not in _llm._explain_error(proveedor, exc),
+                  f"{nombre}: el detalle de _explain_error lleva la clave")
+
+        # ── regresión: lo mismo con cualquier error raro, no solo los de httpx
+        raro = RuntimeError("no pude abrir https://generativelanguage.googleapis.com"
+                            f"/v1beta/models/x:generateContent?key={CLAVE_GEMINI_FALSA}")
+        check(CLAVE_GEMINI_FALSA not in _llm._explain_error(proveedor, raro),
+              "una excepción cualquiera sigue arrastrando la clave al detalle técnico")
+
+        # ── regresión estructural: ninguna URL de llm.py se construye con ?key=
+        fuente = (Path(ROOT) / "backend" / "core" / "infraestructura"
+                  / "llm.py").read_text(encoding="utf-8")
+        check('params={"key"' not in fuente,
+              "llm.py vuelve a mandar la clave como parámetro de la URL")
+        check("?key=" not in fuente and "&key=" not in fuente,
+              "llm.py construye una URL con ?key=")
+        check(fuente.count("x-goog-api-key") >= 3,
+              f"faltan cabeceras x-goog-api-key: hay {fuente.count('x-goog-api-key')} "
+              "(chat, streaming y reentreno)")
+    finally:
+        settings.set_secret("gemini_api_key", "")
+
+
 def main() -> int:
     for f in (test_clasificacion, test_activacion_correcta, test_ollama_apagado,
               test_modelo_ausente_y_etiqueta, test_embeddings_no_valen,
               test_variantes_de_fallo, test_verificacion_no_persiste,
               test_el_cerebro_elegido_sobrevive_al_reinicio, test_catalogo,
-              test_sin_fallback_simulado, test_codigo_entregado, test_voz_publica):
+              test_sin_fallback_simulado, test_codigo_entregado, test_voz_publica,
+              test_gemini_cabecera):
         try:
             f()
         except Exception as e:                                   # noqa: BLE001

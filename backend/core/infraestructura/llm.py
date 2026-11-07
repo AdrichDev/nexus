@@ -528,7 +528,11 @@ class GeminiProvider(BaseProvider):
         model = settings.get("gemini_model")
         r = await net.client().post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            params={"key": settings.secret("gemini_api_key")},
+            # SEC-13: la clave va en CABECERA (`x-goog-api-key`, que Google
+            # acepta desde siempre), nunca como parámetro de la URL. En la URL
+            # acaba dentro del mensaje de httpx cuando la respuesta no es 2xx, y
+            # de ahí pasa al detalle técnico del runtime y al panel de diagnóstico.
+            headers={"x-goog-api-key": settings.secret("gemini_api_key")},
             json=_gemini_payload(messages),
             timeout=120)
         r.raise_for_status()
@@ -544,7 +548,10 @@ class GeminiProvider(BaseProvider):
                 "POST",
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{model}:streamGenerateContent",
-                params={"alt": "sse", "key": settings.secret("gemini_api_key")},
+                # `alt=sse` se queda como parámetro (es lo que elige el formato);
+                # lo que sobra de la URL es la clave (SEC-13).
+                params={"alt": "sse"},
+                headers={"x-goog-api-key": settings.secret("gemini_api_key")},
                 json=_gemini_payload(messages),
                 timeout=120) as r:
             if r.status_code >= 400:
@@ -905,7 +912,7 @@ async def _chat_with(provider: str, model: str, system: str, user: str, max_toke
             return ""
         r = await net.client().post(
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            params={"key": key},
+            headers={"x-goog-api-key": key},        # misma regla que en chat (SEC-13)
             json={"contents": [{"role": "user", "parts": [{"text": user}]}],
                   "system_instruction": {"parts": [{"text": system}]}}, timeout=120)
         r.raise_for_status()
@@ -1379,7 +1386,33 @@ def _diagnostico_ollama_404(model: str, cuerpo: str = "") -> str:
             f"en ⚙ (tienes: {', '.join(instalados[:5])})")
 
 
+_CLAVES_CONFIG = ("gemini_api_key", "openai_api_key", "anthropic_api_key",
+                  "cloud_llm_api_key")
+
+
+def _sin_claves(texto: str) -> str:
+    """Quita de un texto técnico cualquier clave de API configurada.
+
+    SEC-13. Aunque la clave viaje en cabecera, el detalle de un fallo puede
+    arrastrar la URL (es lo que hace `str(exc)` de httpx), y ese detalle se
+    escribe en el log y sale en el panel de diagnóstico. Segunda barrera: si
+    apareciera, se tapa."""
+    out = str(texto or "")
+    for nombre in _CLAVES_CONFIG:
+        try:
+            clave = settings.secret(nombre) or ""
+        except Exception:                                      # noqa: BLE001
+            clave = ""
+        if len(clave) >= 8 and clave in out:
+            out = out.replace(clave, "[clave]")
+    return out
+
+
 def _explain_error(prov: BaseProvider, exc: Exception) -> str:
+    return _sin_claves(_explain_error_crudo(prov, exc))
+
+
+def _explain_error_crudo(prov: BaseProvider, exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         if code == 404 and prov.name == "ollama":

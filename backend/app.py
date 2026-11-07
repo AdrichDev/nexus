@@ -27,6 +27,7 @@ from backend.core.aplicacion import brain
 from backend.core.dominio import contentos
 from backend.core.infraestructura import stt, tts
 from backend.core.infraestructura.app_index import start_background_index
+from backend.core.comun import publicvoice
 from backend.core.comun.config import FRONTEND_DIR, settings
 from backend.core.comun.events import bus
 from backend.core.aplicacion.hotkey import start_hotkey
@@ -914,8 +915,16 @@ async def api_calendar(desde: str = "", hasta: str = ""):
 
 
 @app.get("/api/spotify/callback")
-async def api_spotify_callback(code: str = "", error: str = ""):
-    """Callback OAuth de Spotify (autorización de una sola vez)."""
+async def api_spotify_callback(code: str = "", state: str = "", error: str = ""):
+    """Callback OAuth de Spotify (autorización de una sola vez).
+
+    SEC-15 (auditoría 30/07/2026, roadmap P3-5). Antes canjeaba el `code` sin
+    mirar `state`, así que cualquiera podía pegar en el navegador un callback con
+    SU código y dejar vinculada a nexus la cuenta de Spotify del atacante
+    (login CSRF). Ahora se exige el `state` que generó `spotify.auth_url()`:
+    comparación en tiempo constante y gastado ANTES del intercambio, así que un
+    callback repetido no canjea nada. Si no cuadra, la página lo dice en
+    cristiano y no se toca ni un token."""
     from backend.core.infraestructura import spotify
     from fastapi.responses import HTMLResponse
     page = ("<html><body style='background:#020a06;color:#7fe9f7;"
@@ -925,6 +934,13 @@ async def api_spotify_callback(code: str = "", error: str = ""):
         return HTMLResponse(page.format(
             msg="✕ Autorización cancelada",
             sub="Vuelve a nexus y prueba otra vez cuando quieras."))
+    if not spotify.consumir_estado(state):
+        await bus.emit("log", {"level": "warn",
+                               "msg": "Spotify: callback rechazado (state inválido o caducado)"})
+        return HTMLResponse(page.format(
+            msg="✕ No he podido validar esta autorización",
+            sub="Ese enlace no es el que abrí yo, o ya ha caducado. Vuelve a nexus y "
+                "pídeme la canción otra vez: te abriré uno nuevo."))
     ok = await spotify.exchange_code(code)
     if ok:
         await bus.emit("log", {"level": "ok",
@@ -1014,8 +1030,11 @@ async def api_home_scan():
     try:
         return await sk.module.scan_api({"settings": settings, "bus": bus, "graph": graph})
     except Exception as exc:  # noqa: BLE001
-        await bus.emit("log", {"level": "error", "msg": f"Escaneo de red: {type(exc).__name__}: {exc}"})
-        return {"devices": [], "error": str(exc)}
+        # SEC-16: el cliente recibe un mensaje y el TIPO se queda en el log.
+        publico, tecnico = publicvoice.fallo(exc)
+        await bus.emit("log", {"level": "error",
+                               "msg": f"Escaneo de red: {tecnico}: {exc}"})
+        return {"devices": [], "error": publico}
 
 
 @app.post("/api/home/control")
@@ -1028,7 +1047,10 @@ async def api_home_control(payload: dict):
     try:
         return await sk.module.control_api({"settings": settings, "bus": bus, "graph": graph}, payload)
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "reply": f"No pude enviar la orden: {type(exc).__name__}: {exc}"}
+        publico, tecnico = publicvoice.fallo(
+            exc, mensaje="No he podido enviar la orden. No se ha realizado ningún cambio.")
+        await bus.emit("log", {"level": "error", "msg": f"Domótica, orden: {tecnico}: {exc}"})
+        return {"ok": False, "reply": publico}
 
 
 @app.get("/api/home/ha_status")
@@ -1131,7 +1153,9 @@ async def api_home_install_ha():
             return {"ok": True, "url": "http://localhost:8123", "out": "Home Assistant ya existia; lo he arrancado."}
         return {"ok": False, "error": text[-300:] or "docker run fallo"}
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        publico, tecnico = publicvoice.fallo(exc)
+        await bus.emit("log", {"level": "error", "msg": f"Home Assistant: {tecnico}: {exc}"})
+        return {"ok": False, "error": publico}
 
 
 @app.get("/api/hermes/status")
@@ -1144,7 +1168,10 @@ async def api_hermes_status():
     try:
         return await sk.module.diagnose({"settings": settings, "bus": bus})
     except Exception as exc:  # noqa: BLE001
-        return {"error": f"{type(exc).__name__}: {exc}"}
+        publico, tecnico = publicvoice.fallo(exc)
+        await bus.emit("log", {"level": "error",
+                               "msg": f"Hermes, diagnóstico: {tecnico}: {exc}"})
+        return {"error": publico}
 
 
 @app.post("/api/hermes/start")
@@ -1159,7 +1186,9 @@ async def api_hermes_start():
         diag = await sk.module.diagnose({"settings": settings, "bus": bus})
         return {"ok": bool(ok), "diag": diag}
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        publico, tecnico = publicvoice.fallo(exc)
+        await bus.emit("log", {"level": "error", "msg": f"Hermes, arranque: {tecnico}: {exc}"})
+        return {"ok": False, "error": publico}
 
 
 @app.post("/api/hermes/configure")
@@ -1184,7 +1213,10 @@ async def api_hermes_configure(payload: dict):
             asyncio.create_task(sk.module.ensure_up({"settings": settings, "bus": bus}, force=True))
         return res
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        publico, tecnico = publicvoice.fallo(exc)
+        await bus.emit("log", {"level": "error",
+                               "msg": f"Hermes, configuración: {tecnico}: {exc}"})
+        return {"ok": False, "error": publico}
 
 
 @app.post("/api/home/rename")
@@ -1739,8 +1771,11 @@ async def api_setup_docker():
         if ok:
             settings.set("db_url", f"postgresql://{user}:{pwd}@localhost:5433/{db}")
         return {"ok": ok, "out": (out.stdout + out.stderr)[-800:]}
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        publico, tecnico = publicvoice.fallo(exc)
+        await bus.emit("log", {"level": "error",
+                               "msg": f"Docker (base de datos): {tecnico}: {exc}"})
+        return {"ok": False, "error": publico}
 
 
 @app.post("/api/setup/scan_models")
@@ -1790,6 +1825,10 @@ async def api_llm_check():
             try:
                 info["error"] = _llm._explain_error(prov, exc)
             except Exception:
+                # SEC-16 NO toca este `{type}: {exc}`: `/api/llm_check` es el
+                # diagnóstico de ESTE equipo (se abre en el navegador de casa),
+                # igual que `/api/llm/status_full`. Los dos son un hallazgo
+                # aparte, no el «errores devueltos al cliente» de la API.
                 info["error"] = f"{type(exc).__name__}: {exc}"
         out[name] = info
         await bus.emit("log", {"level": "ok" if info["disponible"] else "warn",
@@ -1827,8 +1866,10 @@ async def api_link_qr():
         est = await asyncio.to_thread(remote.status)
         png = await asyncio.to_thread(remote.qr_png, est["link"])
         return Response(content=png, media_type="image/png")
-    except Exception as exc:
-        return {"error": f"instala qrcode (run.bat): {exc}"}
+    except Exception as exc:  # noqa: BLE001
+        publico, tecnico = publicvoice.fallo(exc)
+        await bus.emit("log", {"level": "error", "msg": f"QR del móvil: {tecnico}: {exc}"})
+        return {"error": publico}
 
 
 @app.get("/api/link/tailscale")
