@@ -18,9 +18,11 @@ import asyncio
 import hashlib
 import json
 import math
+import os
 import re
 import time
 import unicodedata
+from pathlib import Path
 
 from ..comun.config import CONFIG_DIR, DATA_DIR, settings
 from ..comun.secretos import redactar
@@ -425,6 +427,114 @@ async def add(text: str, kind: str = "knowledge", meta: dict | None = None,
     _append({"id": f"{kind}:{abs(hash(text)) % 10**9}", "text": text, "kind": kind,
              "meta": meta or {}, "vec": vec, "ts": time.time()})
     return True
+
+
+# ───────────── supresión completa del almacén local (PRIV-03 / P2-8) ─────────
+#
+# EL HUECO QUE CIERRA ESTO (auditoría del 30/07/2026, PRIV-03): un «olvida X»
+# retiraba la nota y las filas de Postgres, y el texto seguía escrito AQUÍ, en
+# `data/rag/knowledge.jsonl`. Las filas retiradas no se devolvían en `search()`,
+# que es peor que inútil: el operador veía «ya no lo recuerdo» mientras el
+# texto seguía en claro en el disco (y dentro de cada copia de seguridad).
+#
+# El criterio de identidad es probatorio, no de parecido — igual que el cotejo
+# de `purga.borrar_carpeta_definitivo()`:
+#   1. `meta.source` es el nombre de un fichero purgado (lo escribe
+#      `reindex()`), o
+#   2. el texto del registro CONTIENE una muestra del texto purgado. Las
+#      muestras las calcula `purga._muestras()`: trozos de 120 caracteres del
+#      principio, el medio y el final, normalizados. Una muestra de 40+
+#      caracteres no aparece por casualidad.
+#
+# Lo que NO se hace: borrar el fichero entero. Se reescribe con lo que se queda,
+# conservando la LÍNEA ORIGINAL byte a byte de cada registro que sobrevive (no
+# se reserializa: un `json.dumps` distinto cambiaría bytes que nadie pidió
+# tocar). La publicación es la del resto de almacenes de runtime: un temporal
+# ÚNICO de `comun/atomicos.py` —el mismo nombre y el mismo `os.replace`— para
+# que un corte a mitad deje el archivo de antes, entero, y nunca medio archivo.
+# `atomicos.escribir_json_atomico()` no sirve aquí porque el formato es JSONL
+# (una línea por registro), no un único documento JSON; se reutiliza su
+# primitiva en vez de inventar otra nomenclatura de temporales.
+_RE_MUESTRA = re.compile(r"\s+")
+
+
+def plano(texto: str) -> str:
+    """Texto normalizado para comparar (NFKC + espacios colapsados). Es la
+    misma normalización que usa el cotejo de purga: dos textos iguales con otro
+    espaciado tienen que casar, y las tildes NO se tocan."""
+    return _RE_MUESTRA.sub(" ", unicodedata.normalize("NFKC", texto or "")).strip()
+
+
+def purgar_fuentes(fuentes=None, muestras=None) -> dict:
+    """Quita del almacén local los registros de una fuente PURGADA.
+
+    `fuentes`: nombres de fichero (notas y espejos) que se acaban de retirar.
+    `muestras`: trozos de su texto (ver `purga._muestras()`). Un registro se va
+    si su `meta.source` está en `fuentes` o si su texto contiene una muestra.
+
+    Devuelve `{ok, eliminados, quedan, indexados_limpiados, error}`. Nunca
+    lanza: la purga sigue con los demás almacenes y REPORTA lo que pasó."""
+    fuentes = {str(f) for f in (fuentes or []) if str(f)}
+    muestras = [m for m in (muestras or []) if m]
+    res = {"ok": True, "eliminados": 0, "quedan": 0,
+           "indexados_limpiados": 0, "error": ""}
+    try:
+        lineas = _STORE.read_text(encoding="utf-8").splitlines() if _STORE.is_file() else []
+    except Exception as exc:                                   # noqa: BLE001
+        res.update(ok=False, error=f"no pude leer {_STORE.name}: {type(exc).__name__}")
+        return res
+
+    quedan: list[str] = []
+    for linea in lineas:
+        if not linea.strip():
+            continue
+        try:
+            rec = json.loads(linea)
+        except Exception:                                      # noqa: BLE001
+            quedan.append(linea)          # ilegible: no se tira nada que no se entienda
+            continue
+        fuente = str((rec.get("meta") or {}).get("source") or "")
+        texto = plano(str(rec.get("text") or ""))
+        if (fuente and Path(fuente).name in fuentes) or any(m in texto for m in muestras):
+            res["eliminados"] += 1
+            continue
+        quedan.append(linea)
+    res["quedan"] = len(quedan)
+
+    if res["eliminados"]:
+        try:
+            from ..comun.atomicos import _tmp_unico
+            _STORE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _tmp_unico(_STORE)
+            try:
+                tmp.write_text("".join(l + "\n" for l in quedan), encoding="utf-8")
+                os.replace(tmp, _STORE)                      # indivisible
+            except BaseException:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+        except Exception as exc:                               # noqa: BLE001
+            res.update(ok=False, error=f"no pude reescribir {_STORE.name}: {type(exc).__name__}")
+            return res
+        global _mem
+        _mem = None                    # la caché en RAM tenía los registros purgados
+
+    # `indexed.json` guarda ruta y mtime de lo ya indexado, no texto. Se limpia
+    # igual: la ruta de un fichero que el operador acaba de olvidar tampoco
+    # tiene por qué quedarse apuntada.
+    if fuentes and _SEEN.is_file():
+        seen = _seen()
+        keep = {k: v for k, v in seen.items() if Path(k).name not in fuentes}
+        if len(keep) != len(seen):
+            from ..comun.atomicos import escribir_json_atomico
+            try:
+                escribir_json_atomico(_SEEN, keep)
+                res["indexados_limpiados"] = len(seen) - len(keep)
+            except Exception:                                  # noqa: BLE001
+                pass
+    return res
 
 
 async def search(query: str, k: int = 4, kinds: tuple | None = None) -> list[dict]:

@@ -355,6 +355,124 @@ async def _http_post(url: str, json: dict | None = None, timeout: float = 8) -> 
         return await cli.post(url, json=json)
 
 
+# ─────────────── OLVIDAR (borrado real) — SÍNCRONO A PROPÓSITO ──────────────
+#
+# POR QUÉ HAY UNA VERSIÓN SÍNCRONA AQUÍ. El motor de purga (`dominio/purga.py`)
+# es SÍNCRONO: su protocolo son dos pasos sobre ficheros (previsualizar →
+# aplicar) y su contrato público lo llama así el HUD y las suites. Volverlo
+# `async` para poder borrar en Engram habría cambiado ese contrato por una
+# llamada HTTP opcional, así que la puerta síncrona vive aquí, junto a la
+# asíncrona, en vez de obligar a `purga` a inventarse un bucle de eventos.
+#
+# LÍMITE DECLARADO Y HONESTO: el resto de endpoints de este puente están
+# verificados a mano contra el binario real (ver el docstring del módulo).
+# `DELETE /observations/{id}` **no** lo está: se intenta y, si el servidor no lo
+# conoce (404/405) o no responde, el resultado es `ok=False` con
+# `no_completado=True`. La purga NO cuenta eso como hecho y lo dice en su
+# informe. Inventar que se ha borrado en Engram cuando no se ha borrado es
+# exactamente el fallo que esta unidad existe para cerrar.
+
+
+def _alive_sync(url: str, timeout: float = 4) -> bool:
+    """`/health` en síncrono, con la MISMA caché de 60 s que `alive_cached()`.
+    No arranca el servidor: olvidar no es motivo para lanzar procesos."""
+    now = time.monotonic()
+    if now - _ALIVE["ts"] < 60:
+        return _ALIVE["ok"]
+    try:
+        r = httpx.get(f"{url}/health", timeout=timeout)
+        ok = r.status_code == 200
+    except Exception:
+        ok = False
+    _ALIVE.update(ok=ok, ts=now)
+    return ok
+
+
+def _http_get_sync(url: str, params: dict | None = None, timeout: float = 8) -> httpx.Response:
+    """Envoltorio síncrono de lectura (los tests sustituyen esta única función)."""
+    return httpx.get(url, params=params, timeout=timeout)
+
+
+def _http_delete_sync(url: str, params: dict | None = None,
+                      timeout: float = 8) -> httpx.Response:
+    """Envoltorio síncrono del borrado (los tests sustituyen esta única función)."""
+    return httpx.delete(url, params=params, timeout=timeout)
+
+
+def forget_sync(ctx, query: str, timeout: float = 8) -> dict:
+    """Olvida en Engram lo que case con `query`. NUNCA lanza.
+
+    Devuelve:
+      `{ok: True,  borrados: n, ids: [...], consulta, nota}`     borrado hecho
+      `{ok: True,  borrados: 0, ...}`                             no había nada
+      `{ok: False, no_completado: True, error}`                   NO se pudo
+
+    `no_completado=True` incluye el caso del servidor sin endpoint de borrado,
+    que es el que más importa: sin eso, la purga diría «hecho» y el recuerdo
+    seguiría en Engram."""
+    query = redactar((query or "").strip())[0]
+    res = {"ok": False, "no_completado": True, "borrados": 0, "ids": [],
+           "consulta": query, "error": "", "nota": ""}
+    if not query:
+        res.update(error="sin texto que olvidar")
+        return res
+    url = _base_url(ctx)
+    if not _alive_sync(url):
+        res.update(error=("Engram no responde ahora mismo"
+                           + (f" ({_LAST['err']})" if _LAST.get("err") else "")
+                           + ": no lo cuento como olvidado"))
+        return res
+    try:
+        r = _http_get_sync(f"{url}/search", params={"q": query, "project": PROJECT},
+                           timeout=timeout)
+        if r.status_code != 200:
+            res.update(error=f"la búsqueda en Engram devolvió HTTP {r.status_code}")
+            return res
+        hits = list(r.json() or [])
+    except Exception as exc:                                   # noqa: BLE001
+        res.update(error=f"no pude buscarlo en Engram: {type(exc).__name__}: {exc}")
+        return res
+    if not hits:
+        res.update(ok=True, no_completado=False, nota="no había nada en Engram que casara")
+        return res
+
+    sin_soporte, fallos = None, []
+    for h in hits:
+        oid = h.get("id") if isinstance(h, dict) else None
+        if oid is None:
+            continue
+        try:
+            d = _http_delete_sync(f"{url}/observations/{oid}",
+                                  params={"project": PROJECT}, timeout=timeout)
+        except Exception as exc:                               # noqa: BLE001
+            fallos.append(f"id {oid}: {type(exc).__name__}")
+            continue
+        if d.status_code in (200, 202, 204):
+            res["ids"].append(oid)
+        elif d.status_code in (404, 405, 501):
+            # 404 exacto sobre el id podría ser «ya no está»; pero NO se puede
+            # distinguir de «este servidor no sabe borrar». Se trata como no
+            # soportado y se DICE: es preferible un «no completado» a un falso
+            # «hecho».
+            sin_soporte = d.status_code
+            break
+        else:
+            fallos.append(f"id {oid}: HTTP {d.status_code}")
+    res["borrados"] = len(res["ids"])
+    if sin_soporte is not None:
+        res.update(ok=False, no_completado=True, error=(
+            f"este Engram no expone borrado de recuerdos (HTTP {sin_soporte}): "
+            f"{len(hits)} recuerdo(s) siguen ahí y no los cuento como olvidados"))
+        return res
+    if fallos:
+        res.update(ok=False, no_completado=True,
+                   error="no pude borrar en Engram: " + "; ".join(fallos[:3]))
+        return res
+    res.update(ok=True, no_completado=False,
+               nota=f"{res['borrados']} recuerdo(s) borrados de Engram")
+    return res
+
+
 async def _alive(url: str) -> bool:
     try:
         r = await _http_get(f"{url}/health", timeout=4)

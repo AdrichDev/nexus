@@ -210,6 +210,12 @@ UNSAFE_LEGACY_SUITES = (
     "unit/memory/test_hermes_engram.py",
     "unit/memory/test_memoria_embeddings.py",
     "unit/memory/test_purga.py",
+    # Supresión completa (PRIV-03 / P2-8): el dato purgado no queda en ningún
+    # almacén. Todo el árbol es de usar y tirar, Engram es un doble en memoria y
+    # Postgres se fuerza offline; se etiqueta unsafe-legacy por el mismo motivo
+    # honesto que test_purga.py: importa la configuración de producción antes de
+    # que sus dobles estén puestos.
+    "unit/memory/test_purga_completa.py",
     "unit/memory/test_ingesta_documentos.py",
     "unit/core/runtime/test_openrouter_privacidad.py",
     "unit/skills/content_os/test_content_os_honestidad.py",

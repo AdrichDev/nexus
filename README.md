@@ -228,6 +228,31 @@ Botón **◈ NODOS**: mapa de nodos de colores — nexus en el centro, cada skil
 su órbita con su color, y tus notas de memoria como nodos cian. Pulsa
 cualquier nodo y se abre su panel de acciones de un clic.
 
+## Olvidar de verdad (supresión completa)
+
+Cuando le dices a nexus que olvide algo, el hecho está copiado en más de un
+sitio. Desde la corrección de PRIV-03 (roadmap P2-8) la purga lo RECORRE todo y
+lo DICE, sin prometer de más:
+
+| Almacén | Qué pasa |
+|---------|----------|
+| `data/memory/` (la nota) | Va a la papelera. Restaurable. |
+| `memories` (pgvector) | La fila recibe `retirado_en`: deja de aparecer en las búsquedas. Reversible. |
+| `data/rag/knowledge.jsonl` | Los fragmentos de esa fuente SALEN del archivo (se reescribe de forma atómica, y los demás registros quedan idénticos byte a byte). Se puede reconstruir reindexando mientras la nota siga en la papelera. |
+| `data/memory/documentos/` (espejo de la ingesta) | Va a la MISMA papelera que la nota y se restaura con ella. |
+| Memoria operativa (`data/engram_ops.json`) | El recuerdo de comportamiento que contenga ese texto se olvida. |
+| Engram (memoria de proyecto) | Se le pide olvidar por su puerta. Si no responde —o si no expone borrado— el resultado se informa como **NO COMPLETADO**, nunca como hecho. |
+| `data/webcache.json` | Se van las entradas de caché cuyo texto o pregunta es eso. |
+| `data/interactions.jsonl`, `logs/audit.jsonl`, `logs/recall.jsonl`, `data/jobs.json` | **No se tocan por defecto**: son la traza de lo que pasó. Solo se limpian si lo pides expresamente (`incluir_logs`), y entonces se quitan líneas enteras dejando las demás intactas. |
+| `data/backups/*.zip` | **No se reescriben ni se borran**: son tu única red. El informe te dice cuántas copias lo contienen y con qué fechas, y el camino es dejarlas rotar (7 diarias) o borrarlas a mano. |
+
+El orden es siempre el mismo que ya conocías: **previsualizar** (que ahora
+enseña esa lista, con lo que se va a tocar, lo que no se puede tocar y por qué)
+y después **aplicar** — que actúa sobre esa misma lista, ni una tienda más. Lo
+que el borrado definitivo destruye sigue exigiendo tu «sí». Y después de
+purificar, la respuesta dice qué se retiró, qué es restaurable y qué sobrevive,
+con el motivo.
+
 ## Novedades v3
 
 * **⚙ Configuración pro**: cómo quieres que te llame nexus; check "modelo LOCAL"

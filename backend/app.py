@@ -1531,10 +1531,15 @@ async def api_memoria_vector_limpiar_respaldo(payload: dict | None = None):
 
 
 @app.post("/api/memoria/purga/previsualizar")
-async def api_memoria_purga_previsualizar():
+async def api_memoria_purga_previsualizar(payload: dict | None = None):
     # B5.1: SIEMPRE lo primero — nada se mueve ni se toca aquí.
+    # PRIV-03 / P2-8: el plan trae además `almacenes`, la lista de TODOS los
+    # sitios donde el hecho está copiado (lo que se va a tocar, lo que no se
+    # puede tocar y por qué, y las copias de seguridad que lo conservan con sus
+    # fechas). Campo ADITIVO: quien no lo mire, no se entera y sigue igual.
+    # `incluir_logs` es el alcance opt-in de los registros (por defecto NO).
     from backend.core.dominio import purga
-    return purga.previsualizar()
+    return purga.previsualizar(incluir_logs=bool((payload or {}).get("incluir_logs", False)))
 
 
 @app.post("/api/memoria/purga/aplicar")
@@ -1542,11 +1547,16 @@ async def api_memoria_purga_aplicar(payload: dict):
     # B5.1: confirmación propia del protocolo de purga (plan_id + categorías
     # explícitas + acepto_personal) — NO usa confirm.request() de chat porque
     # ya exige una previsualización previa y una selección explícita.
+    # PRIV-03: `incluir_logs` solo puede CONFIRMAR lo que la previsualización ya
+    # enseñó; pedirlo cuando el plan no lo incluía se rechaza dentro de
+    # `purga.aplicar()` (no se amplía en silencio lo prometido).
     from backend.core.dominio import purga
     plan_id = payload.get("plan_id", "")
     categorias = payload.get("categorias") or []
     acepto_personal = bool(payload.get("acepto_personal", False))
-    return purga.aplicar(plan_id, categorias, acepto_personal=acepto_personal)
+    incluir_logs = bool(payload.get("incluir_logs", False))
+    return purga.aplicar(plan_id, categorias, acepto_personal=acepto_personal,
+                         incluir_logs=incluir_logs)
 
 
 @app.get("/api/memoria/purga/papelera")

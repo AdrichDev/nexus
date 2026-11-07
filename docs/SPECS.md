@@ -88,6 +88,38 @@ los nodos de conocimiento predefinidos (knowledge/).
 /api/open_url con la URL exacta; user-select:text computado en el chat; instalador sin
 `data/` (SPEC 1); respaldo REST ahora también pinta la respuesta en el chat.
 
+## SPEC 9 — Supresión completa (un dato purgado no queda en ningún almacén)
+**Qué:** «olvida X» deja de ser una promesa parcial. `POST
+/api/memoria/purga/previsualizar` devuelve, además del plan de siempre, la lista
+`almacenes`: cada sitio donde el hecho está copiado, con qué se va a hacer con
+él, cuántos elementos lleva lo purgado (por categoría), qué se declara fuera de
+alcance y por qué. `POST /api/memoria/purga/aplicar` actúa sobre ESA lista.
+
+Alcance por almacén: la nota y las filas de `memories` a la papelera/retiradas
+(como hasta ahora); los fragmentos de `data/rag/knowledge.jsonl` salen del
+almacén local; el espejo de `data/memory/documentos/` va a la MISMA papelera y
+se restaura con la nota; la memoria operativa (`data/engram_ops.json`) y Engram
+reciben la orden de olvidar; `data/webcache.json` pierde la entrada. Los
+registros (`interactions.jsonl`, `logs/audit.jsonl`, `logs/recall.jsonl`) y
+`data/jobs.json` son un alcance APARTE (`incluir_logs`, por defecto apagado): se
+quitan líneas enteras y las demás quedan intactas byte a byte. Los zips de
+`data/backups/` NO se reescriben ni se borran: el informe dice cuántos son y con
+qué fechas, y el camino es la rotación (7 diarias) o el borrado a mano.
+
+Honestidad obligatoria: si Engram no responde, no está instalado o no expone
+borrado, el resultado es **no completado** (y aparece en «sobrevive» con su
+motivo), nunca «hecho». Igual si el plan no incluye los registros y se pide
+incluirlos al aplicar: se rechaza y se pide una previsualización nueva.
+El candado del borrado duro no cambia: `borrar_definitivo` sigue exigiendo el
+«sí» del operador y es el único que destruye ficheros.
+**✔ VALIDADO (suite):** `tests/unit/memory/test_purga_completa.py` (116
+comprobaciones) — previsualización con todos los almacenes y las fechas de los
+backups; barrido real con Engram doblado, caché invalidada en RAM y resto de
+registros intactos byte a byte; Engram caído y Engram sin endpoint de borrado
+reportados como no completados; restaurar devuelve nota Y espejo; nada de lo
+ajeno se mueve; el barrido se niega cuando la carpeta de memoria no está dentro
+del `data/` que le toca.
+
 ---
 ### Pendiente de probar EN VIVO en tu PC/móvil (no reproducible en sandbox)
 1. El túnel cloudflared real (primera vez descarga ~60 MB a config/).
