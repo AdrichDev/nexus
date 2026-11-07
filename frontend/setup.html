@@ -332,13 +332,52 @@ ol{margin:8px 0 8px 20px;font-size:12.5px;line-height:1.8;color:var(--txt)}
     $('#db-docker-box').style.display = v === 'docker' ? 'block' : 'none';
     $('#db-server-box').style.display = v === 'server' ? 'block' : 'none'; });
 
+  // INICIO bloque de escape del wizard — lo ejecuta tests/unit/frontend/test_escapes_y_cabeceras.py
+  /* SEC-10, cola (task T18c): este wizard pintaba `href="${r.download}"`,
+     `${r.out}` y `${r.error}` TAL CUAL salían de /api/setup/docker. Es el mismo
+     fallo que se cerró en el HUD, pero en el asistente de primer arranque, que
+     se sirve con la CSP nueva… y con `script-src 'unsafe-inline'`, así que un
+     manejador en línea inyectado aquí SÍ se ejecutaría.
+
+     Esta página se sirve como documento suelto y su script va EN LÍNEA: no
+     puede importar un módulo ES. Por eso el escape es una copia a mano de
+     `esc()` de frontend/js/core/dom.js — LA FUENTE DE VERDAD — y tiene que
+     escapar exactamente lo mismo: `& < > " '`. Si `esc()` cambia allí, cambia
+     aquí: esta suite extrae este bloque, lo EJECUTA y lo compara vector a
+     vector con el `esc()` de verdad.
+
+     Y solo `http:`/`https:` llegan a un `href`. ¿Por qué hace falta la
+     comprobación en un wizard local? Porque el `download` no lo elige el
+     operador: viene de la RESPUESTA del backend, y un enlace que el operador
+     pulsa es exactamente el gesto que un `javascript:` necesita. Con esquema
+     validado, un valor raro se enseña como texto y no se convierte en botón. */
+  const _escapeHtml = (x) => String(x == null ? '' : x)
+    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                                   '"': '&#34;', "'": '&#39;' }[c]));
+  /** La URL si es http(s); cadena vacía si no. Nada más llega a un href. */
+  const _urlSegura = (u) => (/^https?:\/\//i.test(String(u == null ? '' : u)) ? String(u) : '');
+
+  // HTML del resultado de «crear contenedores». Va en su propia función (y no
+  // dentro del clic) para poder ejecutarlo sin navegador.
+  function htmlDocker(r) {
+    if (!r) return '';
+    if (r.ok) return '<span class="ok">✔ Contenedores creados: BD semántica y n8n en marcha.</span>';
+    let html = `<span class="bad">✕ ${_escapeHtml(r.error)}</span>\n${_escapeHtml(r.out)}`;
+    if (r.download) {
+      const u = _urlSegura(r.download);
+      html += u
+        ? `\nDescarga Docker aquí: <a href="${_escapeHtml(u)}" target="_blank" rel="noopener">${_escapeHtml(u)}</a>`
+        : `\nDescarga Docker aquí: <code>${_escapeHtml(r.download)}</code> (no es http(s): no la abro)`;
+    }
+    return html;
+  }
+  // FIN bloque de escape del wizard
+
   $('#btn-docker').addEventListener('click', async () => {
     $('#out-docker').textContent = 'Creando contenedores (puede tardar la primera vez)…';
     const r = await api('/api/setup/docker', { method: 'POST' });
     if (!r) { $('#out-docker').textContent = '✕ sin respuesta del backend'; return; }
-    $('#out-docker').innerHTML = r.ok ? '<span class="ok">✔ Contenedores creados: BD semántica y n8n en marcha.</span>'
-      : `<span class="bad">✕ ${r.error || ''}</span>\n${r.out || ''}` +
-        (r.download ? `\nDescarga Docker aquí: <a href="${r.download}" target="_blank">${r.download}</a>` : '');
+    $('#out-docker').innerHTML = htmlDocker(r);
   });
 
   $('#btn-scan').addEventListener('click', async () => {

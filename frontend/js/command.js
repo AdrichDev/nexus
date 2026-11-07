@@ -589,10 +589,10 @@ window.orbHTML = orbHTML;
           <div class="core-title" id="core-title"><div class="core-aura"></div><div class="core-ring"></div><h1>${_sysLow()}</h1></div>
         </div>
         <div class="kpis">
-          ${kpi('Interacciones', `<span id="kpi-inter">${interactions}</span>`, 'sesión')}
+          ${kpi('Interacciones', interactions, 'sesión', 0, 'kpi-inter')}
           ${kpi('Habilidades', String(state.skills.length || '—'), 'activas', 1)}
-          ${kpi('Memoria', `<span id="kpi-notes">${state.status?.memory?.graph_notes ?? '—'}</span>`, 'notas')}
-          ${kpi('Procesos', '<span id="kpi-procs">—</span>', 'sistema')}
+          ${kpi('Memoria', state.status?.memory?.graph_notes ?? '—', 'notas', 0, 'kpi-notes')}
+          ${kpi('Procesos', '—', 'sistema', 0, 'kpi-procs')}
         </div>
       </div>
       <div class="cc-col">
@@ -619,26 +619,28 @@ window.orbHTML = orbHTML;
     if (!d) { grid.innerHTML = '<div class="empty">No he podido cargar el día.</div>'; return; }
     const sub = $('#today-sub');
     if (sub) sub.textContent = `${d.fecha} · ${d.hora} — a sus órdenes, ${d.operador}.`;
-    const esc2 = (x) => String(x == null ? '' : x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    // SEC-10 (T18c): aquí había un `esc2`, copia a mano del esc() VIEJO (sin
+    // comillas). Se usa el `esc()` de core/dom.js, que ya viene importado: una
+    // sola implementación de escape en todo el HUD.
     const cards = [];
-    if (d.clima) cards.push(`<div class="panel"><h2>Clima</h2><div style="font-size:14px;line-height:1.6">${esc2(d.clima)}</div></div>`);
+    if (d.clima) cards.push(`<div class="panel"><h2>Clima</h2><div style="font-size:14px;line-height:1.6">${esc(d.clima)}</div></div>`);
     const t = d.tareas || {};
     const tRows = []
-      .concat((t.vencidas || []).map((x) => `<div>🔴 ${esc2(x.title)} <small style="color:var(--txt-dim)">${esc2(x.due)}</small></div>`))
-      .concat((t.proximas || []).map((x) => `<div>🟡 ${esc2(x.title)} <small style="color:var(--txt-dim)">${esc2(x.due)}</small></div>`))
-      .concat((t.en_marcha || []).map((x) => `<div>▶ ${esc2(x.title)}</div>`));
+      .concat((t.vencidas || []).map((x) => `<div>🔴 ${esc(x.title)} <small style="color:var(--txt-dim)">${esc(x.due)}</small></div>`))
+      .concat((t.proximas || []).map((x) => `<div>🟡 ${esc(x.title)} <small style="color:var(--txt-dim)">${esc(x.due)}</small></div>`))
+      .concat((t.en_marcha || []).map((x) => `<div>▶ ${esc(x.title)}</div>`));
     cards.push(`<div class="panel"><h2>Tareas <span class="link" data-view="tasks">tablero</span></h2>
       <div style="display:flex;flex-direction:column;gap:6px;font-size:13px">${tRows.join('') || '<div style="color:var(--txt-dim)">Nada urgente. ' + ((t.pendientes || 0) + ' pendientes en el tablero.') + '</div>'}</div></div>`);
     if ((d.hermes || []).length) {
-      const hs = d.hermes.map((j) => `<div>${j.estado === 'hecho' ? '✔' : j.estado === 'error' ? '✖' : '⏳'} <b>#${esc2(j.num)}</b> ${esc2(j.orden)}</div>`).join('');
+      const hs = d.hermes.map((j) => `<div>${j.estado === 'hecho' ? '✔' : j.estado === 'error' ? '✖' : '⏳'} <b>#${esc(j.num)}</b> ${esc(j.orden)}</div>`).join('');
       cards.push(`<div class="panel"><h2>Encargos a Hermes</h2><div style="display:flex;flex-direction:column;gap:6px;font-size:13px">${hs}</div></div>`);
     }
     if ((d.vigilancias || []).length) {
-      const vs = d.vigilancias.map((w) => `<div>👁 <b>#${esc2(w.num)}</b> ${esc2(w.tipo)}: ${esc2(w.objetivo)}</div>`).join('');
+      const vs = d.vigilancias.map((w) => `<div>👁 <b>#${esc(w.num)}</b> ${esc(w.tipo)}: ${esc(w.objetivo)}</div>`).join('');
       cards.push(`<div class="panel"><h2>Vigilancias</h2><div style="display:flex;flex-direction:column;gap:6px;font-size:13px">${vs}</div></div>`);
     }
     if ((d.informes || []).length) {
-      const ifs = d.informes.map((n) => `<div>📚 ${esc2(n)}</div>`).join('');
+      const ifs = d.informes.map((n) => `<div>📚 ${esc(n)}</div>`).join('');
       cards.push(`<div class="panel"><h2>Informes recientes</h2><div style="display:flex;flex-direction:column;gap:6px;font-size:13px">${ifs}</div></div>`);
     }
     grid.innerHTML = cards.join('');

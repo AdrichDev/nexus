@@ -234,6 +234,102 @@ finally:
     _sp.PENDING_FILE, _sp.TOKEN_FILE = _PENDIENTE_PREVIO, _TOKEN_PREVIO
     _shutil.rmtree(_CARPETA, ignore_errors=True)
 
+print("== 11) Spotify: los ficheros de estado respetan NEXUS_CONFIG_DIR (T36) ==")
+# T36, hallazgo de T13: `spotify.py` construía sus rutas como `ROOT / "config"`
+# en vez de con `CONFIG_DIR`, así que IGNORABA `NEXUS_CONFIG_DIR` y escribía en
+# el `config/` del repositorio incluso dentro de las pruebas. Aquí se ejecuta el
+# módulo en un PROCESO aparte —la única forma de que `CONFIG_DIR` se lea ya con
+# la variable puesta— y se mira DÓNDE caen sus rutas.
+#
+# El guion hijo NO escribe si las rutas se le escapan de la carpeta de usar y
+# tirar: así el rojo de esta prueba (si alguien vuelve a `ROOT / "config"`) no
+# deja un `spotify_token.json` falso en el config/ del operador. Del config/
+# real solo se listan NOMBRES, antes y después: nunca se lee su contenido.
+import json as _json2
+import re as _re
+import subprocess as _subprocess
+
+_SPOTIFY_FUENTE = (_Path(ROOT) / "backend" / "core" / "infraestructura" /
+                   "spotify.py").read_text(encoding="utf-8")
+check('ROOT / "config"' not in _SPOTIFY_FUENTE,
+      "spotify.py vuelve a montar sus rutas con ROOT + config: ignora NEXUS_CONFIG_DIR")
+check("CONFIG_DIR" in _SPOTIFY_FUENTE,
+      "spotify.py no usa CONFIG_DIR para sus dos ficheros de estado")
+
+_GUION_T36 = r'''
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])          # la raíz del repo, explícita
+from backend.core.comun.config import CONFIG_DIR, ROOT
+from backend.core.infraestructura import spotify
+
+tmp = Path(sys.argv[1]).resolve()
+
+def dentro(p):
+    try:
+        Path(p).resolve().relative_to(tmp)
+        return True
+    except ValueError:
+        return False
+
+salida = {"config_dir": str(CONFIG_DIR), "root": str(ROOT),
+          "token": str(spotify.TOKEN_FILE), "pendiente": str(spotify.PENDING_FILE),
+          "circuito": "", "escrituras": [],
+          "existe_token": False, "existe_pendiente": False}
+if not (dentro(spotify.TOKEN_FILE) and dentro(spotify.PENDING_FILE)):
+    salida["circuito"] = "las rutas se salen de NEXUS_CONFIG_DIR: no escribo nada"
+else:
+    spotify._save_token({"refresh_token": "de-prueba", "access_token": "x"})
+    spotify.auth_url()          # escribe el `state` pendiente
+    salida["escrituras"] = sorted(p.name for p in tmp.iterdir())
+    salida["existe_token"] = spotify.TOKEN_FILE.exists()
+    salida["existe_pendiente"] = spotify.PENDING_FILE.exists()
+print(json.dumps(salida))
+'''
+
+_CONFIG_REAL = _Path(ROOT) / "config"
+_NOMBRES_ANTES = (sorted(p.name for p in _CONFIG_REAL.iterdir())
+                  if _CONFIG_REAL.is_dir() else [])
+_COBIJA = _Path(_tempfile.mkdtemp(prefix="nexus_spotify_cfg_"))
+_COBIJA_DATOS = _Path(_tempfile.mkdtemp(prefix="nexus_spotify_data_"))
+try:
+    _guion = _COBIJA_DATOS / "guion_t36.py"
+    _guion.write_text(_GUION_T36, encoding="utf-8")
+    _entorno = dict(os.environ)
+    _entorno["NEXUS_CONFIG_DIR"] = str(_COBIJA)
+    _entorno["NEXUS_DATA_DIR"] = str(_COBIJA_DATOS)
+    _entorno["PYTHONIOENCODING"] = "utf-8"
+    _proc = _subprocess.run([sys.executable, str(_guion), str(_COBIJA), ROOT], cwd=ROOT,
+                            env=_entorno, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=120)
+    check(_proc.returncode == 0,
+          "el módulo de Spotify no arranca con NEXUS_CONFIG_DIR: "
+          + (_proc.stderr or "").strip()[-400:])
+    _salida: dict = {}
+    if _proc.returncode == 0:
+        _salida = _json2.loads((_proc.stdout or "{}").strip().splitlines()[-1])
+    check(_salida.get("config_dir") == str(_COBIJA),
+          f"CONFIG_DIR no apunta a NEXUS_CONFIG_DIR: {_salida.get('config_dir')!r}")
+    check(str(_salida.get("token", "")).startswith(str(_COBIJA)),
+          f"TOKEN_FILE se sale de NEXUS_CONFIG_DIR: {_salida.get('token')!r}")
+    check(str(_salida.get("pendiente", "")).startswith(str(_COBIJA)),
+          f"PENDING_FILE se sale de NEXUS_CONFIG_DIR: {_salida.get('pendiente')!r}")
+    check(_salida.get("circuito") == "",
+          f"no se escribió nada: {_salida.get('circuito')!r}")
+    check(_salida.get("escrituras") == ["spotify_pending.json", "spotify_token.json"],
+          f"los dos ficheros de estado no caen en la carpeta de usar y tirar: "
+          f"{_salida.get('escrituras')!r}")
+    check(_salida.get("existe_pendiente") is True and _salida.get("existe_token") is True,
+          "el token y el `state` pendiente no se han escrito donde toca")
+    _NOMBRES_DESPUES = (sorted(p.name for p in _CONFIG_REAL.iterdir())
+                        if _CONFIG_REAL.is_dir() else [])
+    check(_NOMBRES_ANTES == _NOMBRES_DESPUES,
+          "escribir el token de Spotify ha tocado el config/ del repositorio: "
+          f"{sorted(set(_NOMBRES_DESPUES) - set(_NOMBRES_ANTES))}")
+finally:
+    _shutil.rmtree(_COBIJA, ignore_errors=True)
+    _shutil.rmtree(_COBIJA_DATOS, ignore_errors=True)
+
 print(f"\n{'#'*54}\n{_pass} comprobaciones OK, {len(_fail)} fallos")
 for m in _fail:
     print("  -", m)

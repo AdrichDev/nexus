@@ -4,9 +4,20 @@
    ========================================================== */
 import { esc } from '../core/dom.js';
 
+/* T18c (la cola de SEC-10): aquí se interpolaban datos sin escapar —`name`,
+   `val`, `delta`, `lbl`, `ic`, la `view` de un atributo—. Hoy los llamantes
+   pasan literales y números, así que no había nada explotable, pero es
+   exactamente la deriva que produjo SEC-10: el día que un dato del servidor
+   caiga en el sitio equivocado, ya está abierto. Ahora se escapa TODO.
+   `val` de kpi() era una ranura de HTML a propósito (el HUD actualiza tres
+   cifras en vivo por su `id`), así que el `id` pasa a ser un parámetro: kpi()
+   escapa el valor y lo envuelve en su `<span>`. Las cuatro llamadas reales de
+   command.js pintan byte a byte lo mismo que antes (lo compara esta rama en
+   tests/unit/frontend/test_escapes_y_cabeceras.py). */
+
 /** Tarjeta de la rejilla de resumen: icono, nombre, subtítulo y piloto ON/OFF. */
 export const ovCard = (ic, name, sub, on) =>
-  `<div class="ov-card"><div class="ov-ic">${ic}</div><div><b>${name}</b>`
+  `<div class="ov-card"><div class="ov-ic">${esc(ic)}</div><div><b>${esc(name)}</b>`
   + `<small>${esc(sub)}</small></div>`
   + `<span class="st ${on ? 'on' : 'off'}">${on ? 'ON' : 'OFF'}</span></div>`;
 
@@ -15,24 +26,26 @@ const GCOL = { cpu: '#22e6ff', ram: '#4d9bff', disk: '#ffd23a', gpu: '#4dff9e' }
 
 /** Aguja circular de porcentaje. El valor lo escribe luego updateMetrics(). */
 export const gauge = (k, label) =>
-  `<div class="gauge"><div class="ring" id="g-${k}" style="--gc:${GCOL[k] || '#22d3ee'}">`
-  + `<b id="gv-${k}" style="color:${GCOL[k] || '#eaf6ff'}">0%</b></div>`
-  + `<div class="glabel">${label}</div></div>`;
+  `<div class="gauge"><div class="ring" id="g-${esc(k)}" style="--gc:${GCOL[k] || '#22d3ee'}">`
+  + `<b id="gv-${esc(k)}" style="color:${GCOL[k] || '#eaf6ff'}">0%</b></div>`
+  + `<div class="glabel">${esc(label)}</div></div>`;
 
-/** Cifra grande con etiqueta y variación. */
-export const kpi = (lbl, val, delta, cy) =>
-  `<div class="kpi"><div class="lbl">${lbl}</div>`
-  + `<div class="val ${cy ? 'cy' : ''}">${val}</div><div class="delta">${delta}</div></div>`;
+/** Cifra grande con etiqueta y variación. `id` = nodo que updateMetrics() refresca. */
+export const kpi = (lbl, val, delta, cy, id) =>
+  `<div class="kpi"><div class="lbl">${esc(lbl)}</div>`
+  + `<div class="val ${cy ? 'cy' : ''}">`
+  + `${id ? `<span id="${esc(id)}">${esc(val)}</span>` : esc(val)}</div>`
+  + `<div class="delta">${esc(delta)}</div></div>`;
 
 /** Chip de acción rápida. El clic lo recoge la delegación del router. */
 export const qc = (i, label, cmd, isPrompt, view) =>
-  `<div class="qc" data-cmd="${cmd ? esc(cmd) : ''}" data-prompt="${isPrompt ? 1 : ''}" `
-  + `data-view="${view || ''}"><i>${i}</i> ${label}</div>`;
+  `<div class="qc" data-cmd="${esc(cmd)}" data-prompt="${isPrompt ? 1 : ''}" `
+  + `data-view="${esc(view)}"><i>${esc(i)}</i> ${esc(label)}</div>`;
 
 /** Botón de acción del panel lateral de nodo. Lo cablea wireNs(). */
 export const nsBtn = (label, cmd, isP, view) =>
-  `<button class="ns-act" data-cmd="${cmd ? esc(cmd) : ''}" data-p="${isP ? 1 : ''}" `
-  + `data-v="${view || ''}">▸ ${esc(label)}</button>`;
+  `<button class="ns-act" data-cmd="${esc(cmd)}" data-p="${isP ? 1 : ''}" `
+  + `data-v="${esc(view)}">▸ ${esc(label)}</button>`;
 
 /**
  * Orbe de carga: 12 puntos en anillo con desfase creciente → onda.

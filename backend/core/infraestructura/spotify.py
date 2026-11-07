@@ -14,6 +14,13 @@ Configuración (una sola vez):
 
 El token se guarda en config/spotify_token.json y se refresca solo.
 
+Las DOS rutas de estado se montan con `CONFIG_DIR` (comun/config.py), nunca con
+la raíz del proyecto a mano: el 30/07/2026 se descubrió (task T36, al cerrar T13)
+que `spotify.py` las construía desde `ROOT`, así que ignoraba `NEXUS_CONFIG_DIR`
+y dejaba un `spotify_pending.json` y un `spotify_token.json` en el `config/` del
+repositorio incluso con una carpeta de usar y tirar. `CONFIG_DIR` es la única
+fuente de verdad para "dónde vive la configuración".
+
 El `state` del OAuth (SEC-15, auditoría 30/07/2026) se guarda aparte, en
 config/spotify_pending.json, y VIVE UN SOLO USO: lo escribe `auth_url()`, lo
 comprueba y lo gasta `consumir_estado()`, y caduca a los `TTL_ESTADO` segundos.
@@ -34,10 +41,10 @@ from urllib.parse import quote, urlencode
 
 from ..comun import net
 from ..comun.atomicos import escribir_json_atomico
-from ..comun.config import ROOT, settings
+from ..comun.config import CONFIG_DIR, settings
 
-TOKEN_FILE = ROOT / "config" / "spotify_token.json"
-PENDING_FILE = ROOT / "config" / "spotify_pending.json"
+TOKEN_FILE = CONFIG_DIR / "spotify_token.json"
+PENDING_FILE = CONFIG_DIR / "spotify_pending.json"
 REDIRECT_URI = "http://127.0.0.1:8177/api/spotify/callback"
 SCOPES = "user-modify-playback-state user-read-playback-state"
 # Diez minutos para ir al navegador, iniciar sesión y volver: de sobra, y corto
