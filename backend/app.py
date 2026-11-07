@@ -412,8 +412,18 @@ async def remote_auth(request, call_next):
     if _ficha_del_token(str(tok)) is None:
         esperado = remote.link_token()
         # Comparación en tiempo constante: un `!=` normal deja adivinar el token
-        # carácter a carácter midiendo cuánto tarda en responder.
-        if not esperado or not hmac.compare_digest(str(tok), str(esperado)):
+        # carácter a carácter midiendo cuánto tarda en responder. En BYTES
+        # (`remote.mismo_secreto`): con `str`, un `?token=ñ…` lanzaba TypeError y
+        # el middleware devolvía un 500 en vez del 401 que es.
+        # En BYTES: con `str`, `hmac.compare_digest` lanza TypeError si alguno
+        # trae algo fuera de ASCII, y un `?token=ñ…` de la barra del navegador
+        # convertía el 401 en un 500. Mismo tiempo constante, mismo «se llama
+        # siempre» (también con el intento vacío, para no dejar un atajo).
+        # Autocontenido a propósito: este handler se ejecuta también extraído por
+        # AST en `test_host_origin.py`, donde no existen los imports del módulo.
+        if not esperado or not hmac.compare_digest(
+                str(tok or "").encode("utf-8", "replace"),
+                str(esperado).encode("utf-8", "replace")):
             return JSONResponse({"error": "no autorizado — vincula el móvil con el QR de nexus"},
                                 status_code=401)
     response = await call_next(request)
@@ -478,7 +488,9 @@ async def websocket_endpoint(ws: WebSocket):
             ficha_ws = None
         if ficha_ws is None:
             esperado = remote.link_token()
-            if not esperado or not hmac.compare_digest(intento, str(esperado)):
+            if not esperado or not hmac.compare_digest(
+                    str(intento or "").encode("utf-8", "replace"),
+                    str(esperado).encode("utf-8", "replace")):
                 await ws.close(code=4401)
                 return
             via_antigua = True

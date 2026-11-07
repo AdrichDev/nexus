@@ -22,6 +22,7 @@ una URL). Reglas de diseño:
 """
 from __future__ import annotations
 
+import hmac
 import re
 
 OCULTO = "[SECRETO-OCULTO]"
@@ -130,3 +131,31 @@ def redactar_seguro(texto) -> str | None:
         return redactar(texto)[0]
     except Exception:                                  # noqa: BLE001
         return None
+
+
+def mismo_secreto(intento, esperado) -> bool:
+    """`hmac.compare_digest` en BYTES, para material secreto que escribe un humano.
+
+    Por qué existe: con `str`, CPython lanza `TypeError` si alguno de los dos
+    textos trae algo fuera de ASCII («comparing strings with non-ASCII characters
+    is not supported»). Un `?token=ñ…` en la barra del navegador del móvil, un
+    pegado con comillas tipográficas o un campo escrito a mano en
+    `data/dispositivos.json` no son un ataque: son usos normales. Antes de este
+    helper daban un 500 —fallaba cerrado, pero se podía tumbar el middleware de
+    toda la app con una tecla—. Lo encontró el verificador independiente de T21
+    comparando el token compartido y el código de vinculación.
+
+    Comparar bytes conserva lo que nos importa: tiempo constante y llamada
+    SIEMPRE (también con el intento vacío, para no dejar un atajo temporal). No
+    normaliza nada: quien quiera mayúsculas lo hace ANTES de llamar, como hace el
+    código de vinculación. Un texto que no se puede codificar sale con bytes de
+    relleno: es una cadena DISTINTA, nunca una coincidencia por accidente.
+
+    Vive aquí, y no en `remote`, porque lo consumen a la vez el middleware de
+    `app.py`, el WebSocket, el código de vinculación y la tienda de digestos: en
+    `comun` no depende de ningún módulo que las pruebas doblen.
+    """
+    if not esperado:
+        return False
+    return hmac.compare_digest(str(intento or "").encode("utf-8", "replace"),
+                               str(esperado).encode("utf-8", "replace"))

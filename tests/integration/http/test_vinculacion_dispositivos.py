@@ -241,7 +241,13 @@ async def _codigo() -> None:
             return self._real.compare_digest(a, b)
 
     espia = _HmacEspia()
-    with _Doble(remote, "hmac", espia):
+    # El espía va en `secretos`, no en `remote`: desde T21 la comparación en
+    # tiempo constante del código de vinculación vive en
+    # `comun/secretos.py::mismo_secreto` (comparar en BYTES para que un código
+    # escrito a mano con ñ no tire un 500). Lo que se comprueba sigue siendo lo
+    # mismo: que se llama a `hmac.compare_digest` y no a `==`.
+    from backend.core.comun import secretos as _secretos_mod
+    with _Doble(_secretos_mod, "hmac", espia):
         await _empareja("Intruso 2", codigo="AAAAAAAA")
         await _empareja("Intruso 3", codigo="AAAAAAAB")
     check(len(espia.llamadas) >= 1,
@@ -385,6 +391,15 @@ def _websocket(token: str) -> None:
         check(not ws.accepted and ws.closed == 4401,
               f"un token de dispositivo desconocido se cierra con 4401 "
               f"(aceptado={ws.accepted}, código={ws.closed})")
+        # BLOQUEO ENCONTRADO POR EL VERIFICADOR (T21): comparar con `str` lanza
+        # TypeError si el intento trae no-ASCII, y el 500 sustituía al 4401.
+        ws = await probe("ññññññññ")
+        check(not ws.accepted and ws.closed == 4401,
+              f"un token NO-ASCII en el WebSocket se cierra con 4401, no revienta "
+              f"(aceptado={ws.accepted}, código={ws.closed})")
+        ws = await probe("“token”")
+        check(not ws.accepted and ws.closed == 4401,
+              f"un token con comillas tipográficas se cierra con 4401 (código={ws.closed})")
 
     asyncio.run(casos())
 
@@ -593,6 +608,38 @@ async def main() -> None:
     await _disco()
     await _fronteras()
     await _hud()
+    await _no_ascii()
+
+
+# ── ENTRADAS NO-ASCII: 401/403, nunca 500 (bloqueo del verificador de T21) ────
+async def _no_ascii() -> None:
+    """Un texto raro escrito por un humano no puede tumbar el middleware.
+
+    `hmac.compare_digest` con `str` lanza TypeError fuera de ASCII. El efecto era
+    un 500 en `remote_auth` (cualquier ruta), en el canje del QR y en el
+    WebSocket: fallaba cerrado, pero una tecla rompía la frontera de toda la app.
+    Se compara en BYTES (`secretos.mismo_secreto` / el inline del WS), así que un
+    intento raro es simplemente UN INTENTO MÁS: 401 o 403.
+    """
+    espia = _Espia()
+    with _Doble(brain, "process", espia):
+        async with _cliente(OTRA_RED) as c:
+            r = await c.get("/api/status", params={"token": "ññññññññ"})
+            check(r.status_code == 401,
+                  f"un ?token=ñ… debe dar 401, no 500 (dio {r.status_code})")
+            r = await c.get("/api/status", params={"token": "“token”"})
+            check(r.status_code == 401,
+                  f"un token con comillas tipográficas debe dar 401 (dio {r.status_code})")
+            r = await c.post("/api/link/pair",
+                             json={"codigo": "ÑÑÑÑÑÑÑÑ", "id": "intruso", "name": "y"})
+            check(r.status_code == 403,
+                  f"un código NO-ASCII en el canje debe dar 403, no 500 (dio {r.status_code})")
+            r = await c.post("/api/command", params={"token": "AAAÑ"},
+                             json={"text": "hola"})
+            check(r.status_code == 401,
+                  f"una mezcla ascii/no-ascii debe dar 401 (dio {r.status_code})")
+    check(espia.llamadas == [],
+          f"ninguna de esas entradas llegó al cerebro, se llamó {espia.llamadas!r}")
 
 
 asyncio.run(main())

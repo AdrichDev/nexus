@@ -43,6 +43,7 @@ from pathlib import Path
 
 from ..comun.atomicos import escribir_json_atomico
 from ..comun.config import CONFIG_DIR, DATA_DIR, ROOT, settings
+from ..comun import secretos as _secretos   # mismo_secreto: comparar material secreto en bytes
 
 CLOUDFLARED_URL_WIN = ("https://github.com/cloudflare/cloudflared/releases/"
                        "latest/download/cloudflared-windows-amd64.exe")
@@ -231,7 +232,7 @@ def canjear_codigo(intento: str) -> bool:
     # Tiempo constante, como el secreto de n8n y el código de Telegram: adivinar
     # carácter a carácter midiendo lo que tarda no debe ser posible. La llamada
     # se hace SIEMPRE, incluso con el intento vacío, para no abrir un atajo.
-    if not hmac.compare_digest(intento, esperado):
+    if not _secretos.mismo_secreto(intento, esperado):
         return False
     invalidar_codigo()                     # de un solo uso
     return True
@@ -329,7 +330,7 @@ def device_owner(token: str) -> dict | None:
         return None
     objetivo = _huella(token)
     for ficha in _fichas_guardadas():
-        if hmac.compare_digest(objetivo, str(ficha.get("digest") or "")):
+        if _secretos.mismo_secreto(objetivo, ficha.get("digest") or ""):
             return ficha
     return None
 
