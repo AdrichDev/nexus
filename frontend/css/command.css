@@ -221,6 +221,17 @@ body::after{
 .cc-sensors{display:flex;flex-wrap:wrap;gap:10px;overflow-y:auto;
   min-height:0;flex:1;align-content:flex-start;padding-right:2px}
 .cc-feed{flex:1;min-height:0;display:flex;flex-direction:column}
+/* Consumo y estado (T19/T13 + T31): contadores de hoy y el aviso de claves que
+   DPAPI no abre. Tres líneas cortas, sin tabla y sin scroll propio: si no hay
+   datos, se dice y no se inventa una cifra. */
+.cc-cons{flex:0 0 auto}
+.cc-cons-body{display:flex;flex-direction:column;gap:5px;font-size:11px;line-height:1.5}
+.cc-cons-line{display:flex;flex-wrap:wrap;gap:4px;color:var(--txt-dim)}
+.cc-cons-line span{color:var(--cy-soft);min-width:104px}
+.cc-cons-line b{color:#eaf6ff;font-weight:600}
+.cc-cons-ko b,.cc-cons-ko{color:var(--err,#ff5470)}
+.cc-alerta{font-size:11px;line-height:1.5;color:#ffd7a8;border:1px solid rgba(255,94,94,.45);
+  border-left:3px solid #ff5e5e;border-radius:8px;padding:7px 9px;background:rgba(255,94,94,.08)}
 .cc-feed #cc-feed{flex:1;overflow-y:auto;min-height:0}
 .cc-chat-panel{flex:0 0 auto}
 .cc-mid{display:flex;flex-direction:column;gap:12px;min-height:0}
@@ -1261,6 +1272,13 @@ textarea.ac-in{resize:vertical;min-height:44px}
 .api-estado.si{color:var(--ok);border-color:var(--ok)}
 .api-estado.no{color:var(--txt-dim);border-color:var(--line)}
 .api-pie{display:block;margin-top:3px;font-size:10.5px;color:var(--txt-dim);line-height:1.4}
+/* Vincular Telegram (T31): botón + el código. Vive pegado al bloque de claves de
+   mensajería, que es donde está el token del bot. */
+.tg-link{margin:2px 0 14px;padding:10px;border:1px dashed var(--line2);border-radius:9px;
+  display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.tg-link .chk{font-size:11px;color:var(--txt-dim);line-height:1.5}
+.tg-link #m-tg-code:empty{display:none}
+#m-tg-code.err{color:var(--err,#ff5470)}
 @media (max-width:1100px){.ac-cards{grid-template-columns:1fr}}
 
 /* ===== Asistente guiado de Home Assistant (3 pasos) ===== */

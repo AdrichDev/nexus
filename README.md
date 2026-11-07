@@ -97,6 +97,19 @@ no hay permiso y te dice cómo añadir esa carpeta en ⚙ → Permisos. Las carp
 sembradas se crean la primera vez que hacen falta; no hay que migrar ningún
 `settings.json` guardado.
 
+El desplegable avisa **en el acto** al elegir `todo`: el aviso sale dentro del
+propio panel, sin ventana emergente y sin esperar a «Guardar», porque el aviso
+llega tarde si hay que guardar para verlo. Y si el panel no se ha pintado
+entero, las claves de permiso **no se envían**: un control ausente nunca deja
+el modo en el más amplio (era el bug que convertía un panel a medio pintar en
+`perm_files: "todo"`).
+
+**⚙ → Permisos → «Qué puede salir del equipo»** tiene además los dos
+consentimientos de nube del cerebro (`permitir_fallback_nube`, apagado de
+fábrica, y `permitir_delegacion_nube`, encendido de fábrica porque ese cerebro
+lo elegiste tú). Cada uno explica en una línea qué hace y qué no protege, y se
+ven aquí, no en un JSON.
+
 **Siempre vetado, también en `todo`**: el material de credenciales —
 `config/secrets.json`, los tokens OAuth (`*token*.json`, `*credential*` de
 `config/`), el `.env` de la raíz, `data/telegram_owner.txt` y
@@ -117,7 +130,9 @@ JSON, así que el archivo sigue siendo legible por nombres pero no por contenido
 Windows deriva la clave de **tu cuenta**, así que el archivo solo se descifra en
 **este equipo con este usuario**; si lo restauras en otro PC (o en otra cuenta de
 Windows) nexus avisa en vez de arrancar como si no hubiera ninguna clave, y te
-pide volver a pegarla en ⚙ → Claves API. Un `secrets.json` viejo en claro se
+pide volver a pegarla en ⚙ → Claves API. Ese aviso se ve en el HUD, en el panel
+**Consumo y estado** del Centro de mando, y **nombra las claves** que no se
+pueden abrir (nombres, nunca valores). Un `secrets.json` viejo en claro se
 cifra solo al arrancar —y antes de reescribirlo se comprueba que cada valor
 vuelve igual, de uno en uno—. En Linux/Docker (los contenedores de CI) no hay
 DPAPI: allí el almacén se queda en JSON plano y nexus funciona igual.
@@ -148,7 +163,7 @@ local, aunque traiga el token del QR. El resto de la configuración sigue
 funcionando desde el móvil y `GET /api/config` sigue contando el modo, para que
 el HUD pueda enseñarlo.
 
-## Presupuesto de modelo (⚙ → costes del día)
+## Presupuesto de modelo (Centro de mando → Consumo y estado)
 
 La auditoría (AI-07; `07` §5 «Costes y consumo») encontró que nexus no contaba
 nada: un bucle, un flujo de n8n que reenvía el mismo texto o una tarde de
@@ -175,7 +190,10 @@ techo por defecto: el riesgo del que habla la auditoría es el dinero, y un
 modelo en tu equipo no cuesta dinero. `llm.presupuesto_incluye_locales: true`
 los mete también, si compartes equipo y quieres un límite único. Lo que llevas
 gastado hoy se ve en `GET /api/status` → `presupuesto` (contadores y nombres,
-ni una clave ni un fragmento de prompt).
+ni una clave ni un fragmento de prompt) y, sin terminal, en el panel **Consumo y
+estado** del Centro de mando: llamadas y caracteres de hoy contra su techo,
+qué proveedores dieron **tokens reales** y cuántos encargos se delegaron. Si no
+hay contadores todavía lo dice; no se inventa una cifra.
 
 Los **embeddings** cuentan igual, y es lo que más se te iba a escapar: cada vez
 que nexus vectoriza un documento o un recuerdo hace una llamada al modelo. Los de
@@ -210,7 +228,8 @@ delegación** con defecto **`true`**: esa nube la elegiste tú al configurar a
   tema la desarma. Un encargo ya aprobado no vuelve a preguntar en sus
   reintentos. **El «sí» por orden sigue siendo la frontera real**: el `true` por
   defecto no significa «sin control», significa «la nube que configuraste no se
-  apaga sola».
+  apaga solo»: se apaga y se enciende en **⚙ → Permisos**, casilla «Delegar un
+  encargo a un Hermes con cerebro de nube».
 - **Sin reenvíos a ciegas.** Si no se pudo *entregar* (no hubo conexión), nexus
   relanza el servicio y prueba una vez más. Si el ejecutor **contestó con error o
   se cortó después de recibirlo**, no se reenvía: podría ejecutarlo dos veces. La
@@ -241,8 +260,17 @@ Nunca se usa tu contraseña: es OAuth oficial de Google (~5 min, una vez):
 
 1. En Telegram habla con **@BotFather** → `/newbot` → copia el token
 2. Pégalo en `.env`: `TELEGRAM_BOT_TOKEN=123456:ABC...`
-3. Reinicia nexus y escribe cualquier cosa a tu bot: el primer chat queda
-   registrado como propietario y desde ahí puedes darle CUALQUIER orden del HUD
+3. Reinicia nexus y abre **⚙ → Claves API**: en «Mensajería», pulsa
+   **🔗 Sacar el código de vinculación**. Sale un código de 8 caracteres que solo
+   se muestra **en ese equipo**: ni el móvil ni el túnel lo reciben, porque quien
+   lo recibiera podría vincular su chat y darte órdenes.
+4. Mándaselo al bot desde el chat que quieras vincular, **tal cual** o como
+   `/start CÓDIGO`. Ese chat queda registrado como propietario y desde ahí puedes
+   darle CUALQUIER orden del HUD. El código **caduca solo** (10 minutos por
+   defecto, `telegram.ttl_vinculacion_segundos` en `config/umbrales.json`), solo
+   sirve **una vez** y cada vez que sacas uno nuevo **el anterior deja de valer**
+   — por eso el HUD lo pide al pulsar el botón y nunca lo refresca solo. Mientras
+   no haya propietario, el bot no ejecuta nada: solo contesta cómo vincularse.
 
 ## WhatsApp + n8n
 

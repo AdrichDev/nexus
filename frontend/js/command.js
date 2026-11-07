@@ -163,6 +163,19 @@ window.orbHTML = orbHTML;
     const ns = $('#nav-skills'); if (ns) ns.textContent = state.skills.length;
     const ki = $('#kpi-notes'); if (ki) ki.textContent = state.status?.memory?.graph_notes ?? '—';
     const ks = document.querySelector('.kpis .kpi:nth-child(2) .val'); if (ks) ks.textContent = state.skills.length;
+    paintConsumo();
+  }
+  /* CONSUMO Y ESTADO (T19/T13 + T31). Tres líneas con los números que manda
+     `/api/status` (ni una clave, ni un modelo, ni un prompt) y, si DPAPI no
+     puede abrir alguna clave, un aviso que la NOMBRA. El backend ya no manda
+     valores; `textoSecretosIlegibles` es la segunda mitad del candado. */
+  function paintConsumo() {
+    const box = $('#cc-consumo'); if (!box) return;
+    const st = state.status || {};
+    const aviso = textoSecretosIlegibles(st.secretos_ilegibles);
+    const cons = htmlPresupuesto(st.presupuesto);
+    box.innerHTML = (aviso ? `<div class="cc-alerta">${aviso}</div>` : '')
+      + (cons || '<div class="empty" style="font-size:11px">sin contadores todavía</div>');
   }
   // WHITE-LABEL: nombre del sistema (para marca, plantillas y wake word).
   function _sysName() { const c = state.config || {}; return ((c.assistant_name || 'nexus').trim()) || 'nexus'; }
@@ -583,6 +596,9 @@ window.orbHTML = orbHTML;
         <div class="panel cc-gauges"><h2>Recursos <span class="link" data-view="hardware">ver equipo</span></h2>
           <div id="cc-sensors" class="cc-sensors"><div class="empty"><span class="dots">leyendo sensores</span></div></div>
         </div>
+        <div class="panel cc-cons"><h2>Consumo y estado</h2>
+          <div id="cc-consumo" class="cc-cons-body"><div class="empty"><span class="dots">leyendo contadores</span></div></div>
+        </div>
       </div>
       <div class="cc-mid">
         <div class="cc-core"><div id="core3d"></div>
@@ -784,6 +800,179 @@ window.orbHTML = orbHTML;
       web: 'openrouter.ai/keys' },
   ];
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     GUARDAS DEL PANEL ⚙ (tarea T31 de la auditoría) — se leen y se escriben
+     desde UN solo sitio.
+
+     Por qué existe este bloque. Las guardas que salieron de P1/P2 (modo de
+     archivos, hardware, y los dos consentimientos de nube) no se veían en el
+     HUD: para cambiarlas había que editar config/settings.json a mano. Al
+     cablearlas apareció el bug de la línea 2061 —`perm_files: $('#m-permfiles')
+     ? … : 'todo'`—: si el panel se pintaba a medias, el valor por defecto del
+     formulario era el permiso MÁS AMPLIO que existe. Un control ausente no
+     puede ensanchar un permiso: por eso `payloadGuardas()` OMITE la clave en
+     vez de inventarse un valor.
+
+     Las funciones de aquí son PURAS a propósito (no tocan el DOM, no piden
+     nada): `tests/unit/frontend/test_modules.py` saca este trozo TAL CUAL entre
+     los dos marcadores y lo EJECUTA con node. Si mueves o renombras los
+     marcadores, esa suite se pone roja. Es a propósito.
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  /* ================ INICIO bloque de guardas del panel ================ */
+  /* Las claves que gobiernan permisos o consentimientos, con el control que las
+     edita. `tipo` dice cómo se lee: chk (marcado), sel (valor), lista (una por
+     línea). Esta lista es la ÚNICA fuente: pintar y guardar leen de aquí. */
+  const GUARDAS_PANEL = [
+    { id: 'm-permfiles', clave: 'perm_files', tipo: 'sel' },
+    { id: 'm-permfolders', clave: 'perm_folders', tipo: 'lista' },
+    { id: 'm-hw', clave: 'perm_hardware', tipo: 'chk' },
+    { id: 'm-nubefb', clave: 'permitir_fallback_nube', tipo: 'chk' },
+    { id: 'm-nubedel', clave: 'permitir_delegacion_nube', tipo: 'chk' },
+  ];
+
+  function valorGuarda(g, leer) {
+    const v = leer(g.id);
+    if (v === null || v === undefined) return undefined;   // el control no está
+    if (g.tipo === 'chk') return !!v;
+    if (g.tipo === 'lista') return String(v).split('\n').map((x) => x.trim()).filter(Boolean);
+    return String(v);
+  }
+
+  /* El payload de las guardas. Si el control NO está en el DOM, su clave NO
+     viaja: el backend se queda con lo que ya tenía. Nunca un valor por defecto. */
+  function payloadGuardas(leer) {
+    const fuera = {};
+    GUARDAS_PANEL.forEach((g) => {
+      const v = valorGuarda(g, leer);
+      if (v !== undefined) fuera[g.clave] = v;
+    });
+    return fuera;
+  }
+
+  /* El aviso de SEC-04: «todo» es el amplificador que la auditoría señaló. Se
+     dice lo que abre Y lo que NO salta, porque las dos cosas son verdad. */
+  const AVISO_ACCESO_TODO = '⚠ <b style="color:#ff5e5e">Modo «todo»: se puede leer '
+    + 'CUALQUIER documento del equipo.</b> Cualquier canal que llegue al asistente '
+    + '—el chat, el móvil, Telegram, un flujo de n8n— puede pedirle que abra un '
+    + 'documento de cualquier carpeta. La lista de credenciales y rutas denegadas '
+    + '(claves, tokens, <code>secrets.json</code>, <code>.ssh</code>…) se sigue '
+    + 'comprobando ANTES del modo y «todo» NO la salta. Si te vale con dos carpetas, '
+    + 'el modo «carpetas» hace lo mismo sin abrir el resto del disco.';
+
+  function avisoAccesoArchivos(modo) {
+    return String(modo || '') === 'todo' ? AVISO_ACCESO_TODO : '';
+  }
+
+  /* Un NOMBRE de clave es corto y sin espacios. Cualquier otra cosa —un valor,
+     un blob «dpapi:v1:…», una clave pegada por error— se tapa aquí: el HUD no es
+     sitio para un secreto y esta es la última línea antes de pintarlo. */
+  function nombreClaveSeguro(x) {
+    const s = String(x == null ? '' : x).trim();
+    const segura = /^[A-Za-z0-9_.-]{1,64}$/.test(s)
+      && !/^(dpapi|sk-|pk-|xox|ghp|aiza)/i.test(s);
+    return segura ? s : 'una clave';
+  }
+
+  /* DPAPI es del equipo Y de la cuenta: una clave que no se abre se ve como si
+     no estuviera. Se nombran las claves, NUNCA sus valores (el backend ya manda
+     solo nombres; esto es la segunda mitad del candado). */
+  function textoSecretosIlegibles(lista) {
+    const items = (Array.isArray(lista) ? lista : []).map(nombreClaveSeguro);
+    if (!items.length) return '';
+    return `⚠ ${items.length} de tus claves están guardadas pero NO se pueden abrir con `
+      + `esta cuenta de Windows: ${items.join(', ')}. nexus las ve como si no estuvieran, `
+      + 'así que te dirá que faltan donde sí están. Vuelve a pegarlas en «Claves API» '
+      + 'desde ESTE equipo y con esta cuenta (DPAPI no cruza de PC ni de usuario).';
+  }
+
+  const _miles = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '0';
+    return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  };
+
+  /* El consumo de HOY (T19/AI-07), en tres líneas y con los números del backend.
+     Nada estimado: los tokens solo se enseñan de los proveedores que los
+     reportan de verdad (`tokens_reales`). */
+  function htmlPresupuesto(p) {
+    if (!p || typeof p !== 'object') return '';
+    const lim = p.limites || {};
+    const soloNombres = (xs) => (Array.isArray(xs) ? xs : [])
+      .map(nombreClaveSeguro).filter((x) => x !== 'una clave').map(esc);
+    const tok = soloNombres(p.tokens_reales);
+    const quien = soloNombres(Object.keys(p.delegaciones || {}));
+    const total = Number(p.delegaciones_total) || 0;
+    const filas = [
+      `<div class="cc-cons-line"><span>Modelo · hoy</span><b>${_miles(p.llamadas)}</b>`
+      + ` de ${_miles(lim.llamadas)} llamadas · <b>${_miles(p.caracteres)}</b>`
+      + ` de ${_miles(lim.caracteres)} caracteres`
+      + `${lim.incluye_locales ? '' : ' · los locales no cuentan'}</div>`,
+      `<div class="cc-cons-line"><span>Tokens reales</span>${tok.length ? tok.join(', ')
+        : 'ninguno: solo se cuentan los que el proveedor reporta'}</div>`,
+      `<div class="cc-cons-line"><span>Encargos delegados</span><b>${_miles(total)}</b>`
+      + `${quien.length ? ' · ' + quien.join(', ') : ''}</div>`,
+    ];
+    if (p.agotado) {
+      filas.push('<div class="cc-cons-line cc-cons-ko"><span>Techo</span>hoy ya no se '
+        + 'llama a la nube; los modelos locales siguen</div>');
+    }
+    return filas.join('');
+  }
+
+  /* El código de vinculación de Telegram. El endpoint REGENERA el código en cada
+     GET, así que esto se llama SOLO al pulsar el botón, nunca en un refresco. */
+  function textoCodigoTelegram(r) {
+    const codigo = esc(String((r && r.codigo) || ''));
+    if (!codigo) return '';
+    const min = Math.max(1, Math.round((Number(r.ttl_segundos) || 600) / 60));
+    return 'Mándale al bot esto desde el chat que quieras vincular: '
+      + `<b style="color:#ffd23a;font-size:16px;letter-spacing:2px">${codigo}</b>`
+      + ` — o <b>/start ${codigo}</b>. Caduca en ${min} min y solo sirve UNA vez. `
+      + 'Cada vez que saques un código nuevo, el anterior deja de valer: si no lo vas '
+      + 'a usar ahora, no lo saques.';
+  }
+
+  /* Un clic = UNA petición. `pedir` y `pintar` entran de fuera para poder
+     ejecutar esto en una prueba sin DOM y sin red. */
+  async function vincularTelegram(pedir, pintar) {
+    pintar('<span class="dots">sacando el código…</span>', false);
+    let r = null;
+    try { r = await pedir(); } catch (e) { r = null; }
+    const texto = textoCodigoTelegram(r);
+    if (!texto) {
+      pintar('✕ No he podido sacar el código: solo se muestra en ESTE equipo, en la '
+        + 'ventana de nexus. Desde el móvil o por el túnel no sale, a propósito.', true);
+      return false;
+    }
+    pintar(texto, false);
+    return true;
+  }
+
+  /* La sección PERMISOS. Los valores por defecto son los de `DEFAULTS` en
+     backend/core/comun/config.py, y están aquí a la vista: `fallback` es FALSE
+     (la nube no es reserva por defecto) y `delegación` es TRUE (esa nube la
+     eligió el dueño). La suite compara las dos cosas para que no deriven. */
+  function seccionPermisos(c) {
+    const cfg = c || {};
+    const modo = cfg.perm_files ? String(cfg.perm_files) : 'carpetas';
+    const puedeReserva = cfg.permitir_fallback_nube === true;
+    const puedeDelegar = cfg.permitir_delegacion_nube !== false;
+    const pista = 'font-size:11px;color:var(--txt-dim);line-height:1.5';
+    return `<fieldset><legend>PERMISOS (estilo sandbox)</legend>
+        <label class="chk"><input type="checkbox" id="m-hw" ${cfg.perm_hardware !== false ? 'checked' : ''}> Leer hardware (CPU/RAM/placa/discos/temps)</label>
+        <label>Acceso a archivos<select id="m-permfiles">${['sandbox', 'carpetas', 'todo'].map((o) => `<option ${modo === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+        <div id="m-permfiles-aviso">${avisoAccesoArchivos(modo)}</div>
+        <label>Carpetas permitidas (una por línea, solo modo «carpetas»)<textarea id="m-permfolders" rows="2" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:8px;border-radius:6px">${esc((cfg.perm_folders || []).join('\n'))}</textarea></label>
+        <div class="chk" style="${pista}">Estos permisos solo se cambian desde la ventana de nexus, en este equipo: el móvil, el túnel y los flujos no pueden tocarlos.</div></fieldset>
+      <fieldset><legend>QUÉ PUEDE SALIR DEL EQUIPO</legend>
+        <label class="chk"><input type="checkbox" id="m-nubefb" ${puedeReserva ? 'checked' : ''}> Que la nube haga de reserva si el cerebro local falla</label>
+        <div class="chk" style="${pista}">Apagado de fábrica, y así se queda si no lo tocas: si Ollama no contesta, nexus dice que no tiene cerebro en vez de saltar solo a OpenAI, Anthropic o Gemini. Encendido, la reserva puede ser de nube y por el prompt viajan tu memoria, tu perfil y los documentos recuperados. No cambia el cerebro que elegiste: decide qué pasa cuando falla.</div>
+        <label class="chk"><input type="checkbox" id="m-nubedel" ${puedeDelegar ? 'checked' : ''}> Delegar un encargo a un Hermes con cerebro de nube</label>
+        <div class="chk" style="${pista}">Encendido de fábrica, y es a propósito: ese cerebro de nube lo elegiste tú en Núcleo IA, y la frontera de verdad es el «sí» de cada encargo — antes de salir ves el texto exacto y, si el cerebro es de nube, que va fuera del equipo. Apagado, ningún encargo se entrega a un ejecutor de nube (los locales siguen funcionando). Ojo: no es la casilla de arriba; aquella decide si nexus CAMBIA de cerebro solo, esta si puede ENTREGAR un encargo al que ya configuraste.</div></fieldset>`;
+  }
+  /* ================= FIN bloque de guardas del panel ================= */
+
   function apisHTML(c) {
     const grupos = [];
     APIS.forEach((a) => {
@@ -800,7 +989,27 @@ window.orbHTML = orbHTML;
         .filter(Boolean).join(' · ');
       return `<label class="api-fila"><span class="api-lbl">${esc(a.l)} ${marca}</span>${campo}
         ${pie ? `<span class="api-pie">${pie}</span>` : ''}</label>`;
-    }).join('')).join('');
+    }).join('') + (gr.g === 'Mensajería' ? telegramLinkHTML() : '')).join('');
+  }
+
+  /* VINCULAR TELEGRAM (SEC-02 / P1-2) — el bot solo obedece al chat vinculado y
+     el código que lo vincula SOLO se muestra en este equipo. `GET
+     /api/telegram/link` REGENERA el código en cada petición y anula el anterior,
+     así que se pide al pulsar el botón y NUNCA en un refresco ni con un
+     temporizador: pedirlo de más rompe el código que el dueño tiene en la mano.
+     La forma que acepta el puente (`_posible_codigo` en telegram_bridge.py) es el
+     código a secas o «/start <código>», y eso es lo que dice el texto. */
+  function telegramLinkHTML() {
+    return `<div class="tg-link">
+      <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">
+        <b style="color:#ffd23a">Vincular Telegram.</b> El bot solo obedece al chat
+        vinculado, y el código se saca aquí, en este equipo. Pulsa el botón y mándale
+        al bot el código <b>tal cual</b> o como <b>/start CÓDIGO</b> desde el chat que
+        quieras vincular. Cada código caduca solo, sirve una vez y, al sacar otro,
+        el anterior deja de valer.</div>
+      <button type="button" class="mini" id="m-tg-link">🔗 Sacar el código de vinculación</button>
+      <div class="chk" id="m-tg-code" style="font-size:11.5px;line-height:1.6"></div>
+    </div>`;
   }
 
   const acModelOpts = (models, sel) =>
@@ -1542,7 +1751,7 @@ window.orbHTML = orbHTML;
         coreReactor = window.WABIKS_REACTOR.attach(cv, { particles: 90 });
       }
       updateMetrics(); renderLogsInto(); renderLLM(); renderCCChat();
-      renderMainSensors();
+      renderMainSensors(); paintConsumo();
       if (ccSensTimer) clearInterval(ccSensTimer);
       ccSensTimer = setInterval(() => { if (current === 'command') renderMainSensors(); }, 4000);
       const cs = $('#cc-chat-send'), ci = $('#cc-chat-input');
@@ -1895,11 +2104,7 @@ window.orbHTML = orbHTML;
         <label class="chk"><input type="checkbox" id="m-pmstrong" ${c.pm_strong !== false ? 'checked' : ''}> <b style="color:var(--cy)">Modo PM fuerte</b>: crea tareas de lo que hablo y las mueve según le respondo</label>
         <div class="chk" style="font-size:11px;color:var(--txt-dim);line-height:1.5">Con el modo fuerte, si dices «tengo que llamar al proveedor» te lo apunta como tarea solo; y cuando te pregunte «¿cómo vas con X?», tu respuesta («ya está», «a medias», «aún no») mueve la tarea en el tablero. Apágalo si prefieres que no toque nada sin pedírselo.</div></fieldset>` },
 
-    { id: 'permisos', titulo: 'Permisos', icono: '🛡', color: '#ff5e5e', html: (c) => `
-      <fieldset><legend>PERMISOS (estilo sandbox)</legend>
-        <label class="chk"><input type="checkbox" id="m-hw" ${c.perm_hardware !== false ? 'checked' : ''}> Leer hardware (CPU/RAM/placa/discos/temps)</label>
-        <label>Acceso a archivos<select id="m-permfiles">${['sandbox', 'carpetas', 'todo'].map((o) => `<option ${c.perm_files === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
-        <label>Carpetas permitidas (una por línea, solo modo «carpetas»)<textarea id="m-permfolders" rows="2" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-family:inherit;padding:8px;border-radius:6px">${esc((c.perm_folders || []).join('\n'))}</textarea></label></fieldset>` },
+    { id: 'permisos', titulo: 'Permisos', icono: '🛡', color: '#ff5e5e', html: seccionPermisos },
 
     { id: 'red', titulo: 'Red y casa', icono: '🏠', color: '#c77dff', html: (c) => `
       <fieldset><legend>RED / AUTOMATIZACIÓN</legend>
@@ -1978,6 +2183,27 @@ window.orbHTML = orbHTML;
     $$('#config-body .cfg-op').forEach((b) =>
       b.addEventListener('click', () => abrirSeccionConfig(b.dataset.sec)));
     $('#m-scan-open')?.addEventListener('click', () => { cerrarConfig(); render('home'); });
+    /* El aviso del modo «todo» (SEC-04) se actualiza AL INSTANTE al mover el
+       desplegable: si hay que pulsar «guardar» para enterarse, el aviso llega
+       tarde. No pide nada ni guarda nada: solo pinta el texto que corresponde. */
+    $('#m-permfiles')?.addEventListener('change', (e) => {
+      const caja = $('#m-permfiles-aviso');
+      if (caja) caja.innerHTML = avisoAccesoArchivos(e.target.value);
+    });
+    /* VINCULAR TELEGRAM: el código se pide AL PULSAR y solo al pulsar. El
+       endpoint lo regenera en cada GET, así que aquí no hay ni un temporizador
+       ni una llamada de cortesía: refrescar la ventana ya anula el código. */
+    $('#m-tg-link')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget, salida = $('#m-tg-code');
+      const pintarTg = (html, mal) => {
+        if (!salida) return;
+        salida.className = 'chk' + (mal ? ' err' : '');
+        salida.innerHTML = html;
+      };
+      if (btn) btn.disabled = true;
+      vincularTelegram(() => api('/api/telegram/link'), pintarTg)
+        .finally(() => { if (btn) btn.disabled = false; });
+    });
     // cerrar pulsando fuera del recuadro (en el fondo oscuro)
     $('#config-modal').onclick = (e) => { if (e.target === $('#config-modal')) cerrarConfig(); };
     // voces: filtradas por motor, sin duplicados, solo motores disponibles
@@ -2049,7 +2275,18 @@ window.orbHTML = orbHTML;
        SEIS secciones a la vez — por eso los seis paneles están siempre en el DOM. */
     const guardar = async () => {
       const cfgApis = {};          // identificadores del apartado APIS (no son claves)
+      /* Las GUARDAS (permisos y consentimientos de nube) NO se leen a mano: van
+         por `payloadGuardas`, que OMITE la clave si su control no está pintado.
+         Antes, un `perm_files: … : 'todo'` convertía un panel a medias en el
+         permiso más amplio que existe. Un control ausente no ensancha nada. */
+      const leerControl = (id) => {
+        const el = $('#' + id);
+        if (!el) return null;
+        if (el.type === 'checkbox') return !!el.checked;
+        return el.value;
+      };
       const cfg = { operator_name: $('#m-op').value || 'Operador', devil_mode: true,
+        ...payloadGuardas(leerControl),
         personality: $('#m-pers') ? $('#m-pers').value : 'jarvis',
         reasoning_level: $('#m-reason') ? $('#m-reason').value : 'equilibrado',
         self_learning: $('#m-selflearn') ? $('#m-selflearn').checked : true,
@@ -2057,9 +2294,6 @@ window.orbHTML = orbHTML;
         proactive_speak: $('#m-proactivespeak') ? $('#m-proactivespeak').checked : true,
         pm_strong: $('#m-pmstrong') ? $('#m-pmstrong').checked : true,
         retrain_model: $('#m-retrain') ? $('#m-retrain').value : 'auto',
-        perm_hardware: $('#m-hw') ? $('#m-hw').checked : true,
-        perm_files: $('#m-permfiles') ? $('#m-permfiles').value : 'todo',
-        perm_folders: $('#m-permfolders') ? $('#m-permfolders').value.split('\n').map((x) => x.trim()).filter(Boolean) : [],
         tts_engine: $('#m-tts').value, tts_voice: $('#m-voice').value, whisper_model: $('#m-whisper').value,
         input_device: $('#m-indev') ? $('#m-indev').value : '', output_sink_id: $('#m-outdev') ? $('#m-outdev').value : '',
         wake_enabled: $('#m-wake').checked, wake_word: $('#m-wakeword').value || ('despierta ' + ((state.config.assistant_name||'nexus').toLowerCase())),

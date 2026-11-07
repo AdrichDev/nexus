@@ -6,7 +6,9 @@
 
 /**
  * Lo que el HUD sabe del backend en cada momento.
- *  status  — /api/status (motores, memoria, métricas)
+ *  status  — /api/status (motores, memoria, métricas, y desde T31 también el
+ *            consumo de modelo del día (`presupuesto`) y los NOMBRES de las
+ *            claves que DPAPI no puede abrir aquí (`secretos_ilegibles`))
  *  skills  — catálogo cargado por skills_loader
  *  config  — /api/config (ajustes del usuario)
  *  board   — tablero kanban
