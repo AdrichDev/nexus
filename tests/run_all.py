@@ -112,7 +112,11 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/core/learning/test_aprendizaje_ciclo.py", "unit/core/learning/test_correcciones_confirmadas.py",
               "unit/routing/test_lo_prometido.py", "unit/memory/test_grafo_solo_conocimiento.py",
               "unit/conversation/test_saludo_una_vez.py", "unit/conversation/test_calla_al_escribir.py", "unit/conversation/test_no_promete_trabajo.py", "unit/conversation/test_apunta_no_es_siempre_memoria.py", "unit/conversation/test_regresion_conversacion.py", "unit/conversation/test_que_sabes_de_mi.py",
-              "unit/memory/test_grafo_vista.py"):
+              "unit/memory/test_grafo_vista.py",
+              # Lista blanca de herramientas MCP (SEC-18 / AI-10, P3-7): el
+              # lanzamiento de servidores va doblado antes de la primera llamada,
+              # así que no arranca ni un `npx`.
+              "unit/skills/mcp/test_mcp_permisos.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.

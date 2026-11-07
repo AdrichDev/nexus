@@ -1,20 +1,50 @@
 {
-  "_comment": "Copia este archivo como mcp_servers.json y activa lo que quieras. Necesitas Node.js para los servidores npx. Estos son los MISMOS tipos de conector que usa Cowork.",
+  "_comment": "Copia este archivo como mcp_servers.json y activa lo que quieras. Necesitas Node.js para los servidores npx. Estos son los MISMOS tipos de conector que usa Cowork. Un servidor solo arranca con «enabled»: true, y además necesita SU lista «tools» (ver las dos claves siguientes).",
+  "_tools": "«tools» es la LISTA BLANCA de ese servidor: lo que no esté ahí NO se ejecuta, y se rechaza ANTES de arrancar el proceso. Si «tools» falta, está vacía o no se entiende, ese conector no puede usar NINGUNA herramienta: denegar por defecto, no al revés. Cada herramienta declara «escritura»: false = solo lee (se ejecuta sin preguntar); true = puede cambiar cosas (nexus pide un «sí» enseñando servidor, herramienta y los argumentos EXACTOS, y hasta el «sí» no arranca nada). Si a una herramienta le FALTA «escritura», o el valor no es true/false de verdad, se trata como ESCRITURA: fallar cerrado cuesta un «sí» de más; escribir sin preguntar cuesta un archivo. La forma corta (una lista de nombres) también vale y significa que todas piden «sí». Las herramientas listadas aquí son las que traen esos paquetes hoy; si una versión nueva añade o renombra alguna, aparece en «qué manos tienes» como «(no permitida)» hasta que la añadas.",
+  "_secretos": "En «args» puedes escribir ${NOMBRE_DEL_SECRETO} y nexus lo sustituye por el valor guardado en config/secrets.json (⚙ → APIS) o en el .env. El nombre solo admite letras, dígitos y guión bajo ([A-Za-z0-9_]+); cualquier otra llave entre ${...} o {...} dentro de «args» impide arrancar el conector A PROPÓSITO: ahí no se interpola texto del operador jamás, solo valores de secretos validados. El valor del secreto nunca se enseña en el chat ni en los registros —si el servidor lo repite al fallar, se enmascara—.",
   "filesystem": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\ruta\\a\\tu\\carpeta"],
-    "enabled": false
+    "enabled": false,
+    "tools": {
+      "read_file": {"escritura": false},
+      "read_multiple_files": {"escritura": false},
+      "list_directory": {"escritura": false},
+      "directory_tree": {"escritura": false},
+      "search_files": {"escritura": false},
+      "get_file_info": {"escritura": false},
+      "list_allowed_directories": {"escritura": false},
+      "write_file": {"escritura": true},
+      "edit_file": {"escritura": true},
+      "create_directory": {"escritura": true},
+      "move_file": {"escritura": true},
+      "delete_entry": {"escritura": true}
+    }
   },
   "github": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-github"],
-    "env_hint": "define GITHUB_PERSONAL_ACCESS_TOKEN en tu .env",
-    "enabled": false
+    "env_hint": "define GITHUB_PERSONAL_ACCESS_TOKEN en tu .env (o en config/secrets.json y pon ${GITHUB_PERSONAL_ACCESS_TOKEN} en «args»)",
+    "enabled": false,
+    "tools": {
+      "search_repositories": {"escritura": false},
+      "get_file_contents": {"escritura": false},
+      "list_issues": {"escritura": false},
+      "list_pull_requests": {"escritura": false},
+      "create_issue": {"escritura": true},
+      "create_pull_request": {"escritura": true},
+      "create_or_update_file": {"escritura": true},
+      "push_files": {"escritura": true}
+    }
   },
   "brave-search": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-brave-search"],
-    "env_hint": "define BRAVE_API_KEY en tu .env",
-    "enabled": false
+    "env_hint": "define BRAVE_API_KEY en tu .env (o en config/secrets.json y pon ${BRAVE_API_KEY} en «args»)",
+    "enabled": false,
+    "tools": {
+      "brave_web_search": {"escritura": false},
+      "brave_local_search": {"escritura": false}
+    }
   }
 }

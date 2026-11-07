@@ -398,7 +398,7 @@ def test_rag_y_memoria():
 # ═════════ 3) HERRAMIENTA MCP Y TRABAJO: CERRADOS EN EL HISTORIAL ════════════
 def _mcp_doblado():
     mod = get_skills()["mcp_hands"].module
-    mod._load_config = lambda: {"archivos": {"command": "npx", "args": [], "enabled": True}}
+    mod._load_config = lambda: {"archivos": {"command": "npx", "args": [], "enabled": True, "tools": {"read_file": {"escritura": False}}}}
 
     async def _fake_with_server(nombre, cfg, fn):
         return {"content": [{"type": "text", "text": "CONTENIDO-DEVUELTO-POR-MCP"}]}

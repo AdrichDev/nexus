@@ -168,6 +168,11 @@ SAFE_UNIT_SUITES = (
     # /api/link/status (SEC-03): en proceso (httpx.ASGITransport, sin lifespan ni
     # puertos), direcciones de red dobladas y carpetas de usar y tirar.
     "integration/http/test_host_origin.py",
+    # Lista blanca de herramientas MCP, «sí» para las de escritura y la salida
+    # como dato (SEC-18 / AI-10, roadmap P3-7): `asyncio.create_subprocess_exec`
+    # va doblado ANTES de la primera llamada, así que no arranca ni un `npx`, y
+    # config/datos viven en carpetas de usar y tirar.
+    "unit/skills/mcp/test_mcp_permisos.py",
 )
 
 STATIC_SAFE_SUITES = (
