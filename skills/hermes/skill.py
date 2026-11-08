@@ -43,6 +43,19 @@ herramientas y su internet. Eso no puede ser invisible ni repetible a ciegas:
      entregar (5xx, 401, timeout, corte) NO se reenvía solo: puede haber hecho
      ya parte del trabajo, y se dice así. Un reintento automático que duplica
      una navegación, una escritura o un envío es peor que un fallo honesto.
+
+CUALQUIER CEREBRO COMPATIBLE OPENAI (T42)
+-----------------------------------------
+Su modelo interno no está atado a cuatro proveedores. `_PROV_MAP` tiene los
+presets de siempre (openai, anthropic, gemini, openrouter) más `nan` (NaN
+Builders, compatible OpenAI) y, al lado, un camino ABIERTO: cualquier etiqueta
+CON una `base_url` escrita por el operador (Groq, DeepSeek, un llama.cpp de
+casa). La dirección se valida con la guarda de destinos de SEC-11 antes de
+escribir nada —solo http/https, sin `usuario:clave@`, con host— y el loopback se
+permite porque un gateway en este mismo equipo es legítimo. Esa misma dirección
+es la que decide la LOCALIDAD del encargo (loopback = local, público = nube), así
+que el consentimiento de `permitir_delegacion_nube` sigue cubriendo al delegado
+sin excepciones nuevas.
 """
 from __future__ import annotations
 
@@ -549,12 +562,91 @@ def _clean_env() -> dict:
 # Mapa proveedor (UI) -> (var de entorno que Hermes lee, provider de Hermes, base_url).
 # Con esto nexus deja el .env y el config.yaml de Hermes listos para que su modelo
 # interno funcione — arregla el 401 «Missing Authentication header».
+#
+# T42 — CUALQUIER ENDPOINT COMPATIBLE OPENAI, Y NaN POR SU NOMBRE.
+# Hermes llama «custom» a un endpoint compatible OpenAI (su adaptador habla
+# `/chat/completions` con `Authorization: Bearer`): es el MISMO provider que ya
+# usaba el preset `openai`. Desde T42 ese camino deja de ser una lista cerrada de
+# cuatro nombres:
+#   * los cuatro presets siguen EXACTAMENTE como estaban (misma variable de
+#     entorno, mismo `hp`, misma base) porque hay `~/.hermes/config.yaml` y
+#     pruebas que dependen de esos bytes;
+#   * `nan` es un preset documentado de NaN Builders (compatible OpenAI);
+#   * y cualquier otra etiqueta CON una `base_url` entra por el camino ABIERTO
+#     (`_PROV_ABIERTO`), que sirve igual para Groq, DeepSeek o un llama.cpp de
+#     casa. La etiqueta se guarda para poder nombrarlo; el endpoint manda.
+#
+# POR QUÉ LA CLAVE VA A `OPENAI_API_KEY` EN EL .env DE HERMES Y NO A `NAN_API_KEY`:
+# esa variable no la elige nexus, la lee el proveedor `custom` de Hermes — es
+# exactamente la que ya escribía el preset `openai`, que también es `hp: custom`.
+# Inventar `NAN_API_KEY` (o un campo `api_key_env` en su config.yaml) sería
+# escribir un nombre que su binario no conoce y dejar el preset roto con una
+# traza bonita, y añadir campos que Hermes no documenta es justo lo que no se
+# hace aquí. Tampoco se pierde nada: cada `configure_brain` REESCRIBE la variable
+# con la clave del endpoint que se acaba de elegir, así que lo que hay en ella
+# corresponde siempre al `base_url` que va tres líneas más abajo en el config.yaml.
+#
+# DÓNDE VA LA CLAVE EN NEXUS, QUE ES OTRA COSA: en `config/secrets.json`, bajo un
+# nombre propio por endpoint (`nan_api_key`, `hermes_custom_api_key`). Reutilizar
+# `openai_api_key` para el endpoint de otro es exactamente cómo una clave acaba
+# en el host equivocado: `openai_api_key` es la que `llm.OpenAIProvider` manda a
+# api.openai.com, y con DPAPI (T13) el almacén es uno solo para todo nexus.
+# Además, como los dos nombres están en `Settings.SECRET_KEYS`, `GET /api/config`
+# los quita SIEMPRE y publica `has_nan_api_key` / `has_hermes_custom_api_key`,
+# que es la señal que ⚙ enseña.
 _PROV_MAP = {
     "openai":     {"env": "OPENAI_API_KEY",     "hp": "custom",     "base": "https://api.openai.com/v1", "secret": "openai_api_key"},
     "anthropic":  {"env": "ANTHROPIC_API_KEY",  "hp": "anthropic",  "base": "",                          "secret": "anthropic_api_key"},
     "gemini":     {"env": "GEMINI_API_KEY",     "hp": "gemini",     "base": "",                          "secret": "gemini_api_key"},
     "openrouter": {"env": "OPENROUTER_API_KEY", "hp": "openrouter", "base": "",                          "secret": "openrouter_api_key"},
+    # NaN Builders (nan.builders/docs/getting-started): compatible OpenAI, base
+    # `/v1` y `Authorization: Bearer sk-…`. Su catálogo es SUYO y cambia sin
+    # avisar a nexus (deepseek-v4-flash y glm5.3, el segundo de su plan premium),
+    # así que el modelo lo escribe el operador y nexus no promete ni cuotas ni
+    # precios: no los conoce.
+    "nan":        {"env": "OPENAI_API_KEY",     "hp": "custom",     "base": "https://api.nan.builders/v1", "secret": "nan_api_key"},
 }
+
+# El nombre del camino ABIERTO (lo que Hermes entiende) y el nombre con el que
+# nexus recuerda SU clave. Uno es de Hermes, el otro es de nexus: no se mezclan.
+_PROV_ABIERTO = "custom"
+_SECRET_ABIERTO = "hermes_custom_api_key"
+
+
+def validar_base_url(base: str) -> tuple[str, str]:
+    """(dirección normalizada, motivo del rechazo en español) — T42.
+
+    La regla es la guarda de destinos de SEC-11 (`net.motivo_destino`, T20) y no
+    una tabla de rangos nueva que se pueda quedar vieja: solo http/https, nada de
+    `usuario:clave@` dentro del enlace, hace falta un host, y el destino tiene que
+    ser o de casa (loopback) o público y resoluble.
+
+    LOOPBACK SÍ, y es la ÚNICA excepción a propósito: un gateway en este mismo
+    equipo (llama.cpp, LM Studio, Ollama) es el caso legítimo y además el único
+    que no necesita `permitir_delegacion_nube`. Es la misma excepción que ya hace
+    `net.motivo_abrible` con los destinos que el operador configuró él.
+
+    Lo que no sea ni de casa ni público —metadatos `169.254.169.254`, red privada
+    o doméstica, nombre interno, dominio que no resuelve— NO se configura: nexus
+    no sabría a dónde manda los encargos, y ante la duda la respuesta es que no.
+    La negativa es la de la guarda, palabra por palabra (y sin credenciales: solo
+    el host, `net.host_visible`).
+    """
+    from backend.core.comun import net
+    from backend.core.infraestructura import llm
+    texto = (base or "").strip()
+    if not texto:
+        return "", ("hace falta la dirección base del endpoint (por ejemplo "
+                     "«https://api.nan.builders/v1»)")
+    if any(c.isspace() for c in texto):
+        return "", "la dirección base lleva espacios en blanco"
+    motivo = net.motivo_destino(texto)
+    if not motivo:
+        return texto.rstrip("/"), ""            # público y resoluble
+    if llm.localidad_delegado("", texto) == "local":    # loopback: es de casa
+        return texto.rstrip("/"), ""
+    return "", ("no puedo usar esa dirección como base de Hermes. "
+                + net.rechazo_destino(texto))
 
 
 def _env_set_var(text: str, key: str, value: str) -> str:
@@ -595,39 +687,127 @@ def _yaml_set_model(text: str, hp: str, model: str, base: str) -> str:
     return _re.sub(r"(?m)^model:[ \t]*\n(?:[ \t]+[^\n]*\n?)*", block, text, count=1)
 
 
-def configure_brain(ctx, provider: str, model: str, api_key: str) -> dict:
+def configure_brain(ctx, provider: str, model: str, api_key: str,
+                    base_url: str = "") -> dict:
     """Deja el CEREBRO de Hermes operativo: escribe la clave del proveedor en
     ~/.hermes/.env (con backup) y el modelo/proveedor en ~/.hermes/config.yaml.
-    Guarda también la elección en los settings de nexus. Devuelve un resumen."""
+    Guarda también la elección en los settings de nexus. Devuelve un resumen.
+
+    T42: `base_url` es la dirección que teclea el operador para un endpoint
+    compatible OpenAI que no es ninguno de los presets. Se VALIDA antes de tocar
+    un solo fichero (`validar_base_url`): si no vale, la respuesta es un error en
+    español y NO se escribe nada — ni el .env, ni el config.yaml, ni los ajustes
+    de nexus, que es la mitad del asunto (una base rechazada no puede dejar el
+    cerebro a medio cambiar). La base de un PRESET no se valida: es una constante
+    de nexus, no texto de nadie, y tumbarla por un DNS caído sería absurdo."""
     import io
     import os
     provider = (provider or "").strip().lower()
+    base_pedida = (base_url or "").strip()
     m = _PROV_MAP.get(provider)
-    if not m:
-        return {"ok": False, "error": f"proveedor no soportado: {provider}"}
+    if m is None:
+        # CAMINO ABIERTO (T42): un nombre que nexus no conoce solo vale CON una
+        # dirección. Sin ella no hay nada que configurar, y decir «no soportado»
+        # es más honesto que escribir un proveedor a medias. La excepción es la
+        # etiqueta «custom», que ya DICE que es un endpoint abierto: ahí lo que
+        # falta se nombra (la dirección), no el proveedor.
+        if not base_pedida and provider != _PROV_ABIERTO:
+            return {"ok": False, "error": f"proveedor no soportado: {provider}"}
+        base, motivo = validar_base_url(base_pedida)
+        if motivo:
+            return {"ok": False, "error": motivo}
+        if not (model or "").strip():
+            return {"ok": False, "error": (
+                "para un endpoint compatible OpenAI hace falta el modelo: "
+                "no todos usan el mismo nombre y nexus no se lo inventa")}
+        provider = provider or _PROV_ABIERTO
+        m = {"env": "OPENAI_API_KEY",           # lo que lee su provider «custom»
+             "hp": _PROV_ABIERTO, "base": base, "secret": _SECRET_ABIERTO}
+    elif base_pedida and base_pedida.rstrip("/") != (m["base"] or "").rstrip("/"):
+        # Un preset tiene SU endpoint. Ignorar en silencio el que teclea el
+        # operador sería mentirle (guardaría su clave y apuntaría a otra base),
+        # así que se dice y no se escribe nada.
+        fijo = m["base"] or "ninguno"
+        return {"ok": False, "error": (
+            f"«{provider}» usa un endpoint fijo ({fijo}): para otro endpoint elige "
+            "«Otro endpoint compatible OpenAI» y escribe ahí la dirección")}
+    # 2a) LA CLAVE SE RESUELVE ANTES DE TOCAR NADA (T42-C1).
+    #
+    # El campo de la clave puede venir vacío a propósito: ⚙ pregunta la clave una
+    # sola vez y después la tiene guardada en su almacén cifrado (T13). Pero la
+    # variable que Hermes lee para su proveedor `custom` es UNA sola
+    # (`OPENAI_API_KEY`), así que cambiar de endpoint sin resolver la clave dejaba
+    # `base_url: NaN` con `Authorization: Bearer <clave de OpenAI>`. Eso no es una
+    # molestia: es una credencial entregada al host equivocado, y en el sentido
+    # contrario también (la de NaN a api.openai.com).
+    #
+    # La regla, en orden: la clave tecleada ahora → si no, la que nexus ya tiene
+    # para ESE endpoint (`m["secret"]`) → si tampoco hay ninguna, NO se configura
+    # nada y se dice qué falta. Nunca se deja una base nueva con la clave vieja.
+    key = (api_key or "").strip()
+    clave_desde_almacen = False
+    if not key:
+        try:
+            guardada = ctx["settings"].secret(m["secret"])
+        except Exception:                                  # noqa: BLE001
+            guardada = ""
+        if guardada:
+            key = guardada
+            clave_desde_almacen = True
+    if not key:
+        # Un gateway de casa (loopback) suele NO tener clave, y no es un riesgo
+        # que la no tenga: no hay credencial que filtrar. Pero tampoco se puede
+        # dejar la del proveedor anterior apuntando a su base, así que la
+        # variable se escribe VACÍA y la respuesta lo dice. Para un endpoint
+        # público sí es bloqueante: sin clave no hay nada auténtico que poner, y
+        # la alternativa era enviar la de otro host.
+        from backend.core.infraestructura import llm as _llm
+        es_local = bool(m["base"]) and _llm.localidad_delegado("", m["base"]) == "local"
+        if not es_local:
+            donde = m["base"] or "su endpoint"
+            return {"ok": False, "error": (
+                f"no tengo ninguna clave para «{provider}» ({donde}) y no voy a dejar "
+                "ese endpoint con la clave del proveedor anterior: Hermes guarda la de "
+                "su proveedor «custom» en una única variable. Teclea la clave, o dime "
+                f"primero «configura el cerebro de hermes con {provider}» escribiendo "
+                "la clave. No cambié nada.")}
+
     changes = []
     # 1) settings de nexus (para la UI y para saber qué modelo pedimos)
     try:
         ctx["settings"].set("hermes_provider", provider)
         if model:
             ctx["settings"].set("hermes_model", model)
+        # La dirección EFECTIVA se guarda siempre (también la del preset): es lo
+        # que ⚙ enseña al reabrir y la usa `cerebro_de_hermes` cuando el
+        # config.yaml todavía no tiene `base_url`. `hermes_base_url` está en
+        # `_CLAVES_SOLO_LOCALES` desde T42: decide a dónde van los encargos y si
+        # hace falta consentimiento de nube, así que no se toca desde el móvil.
+        ctx["settings"].set("hermes_base_url", m["base"])
     except Exception:
         pass
-    # 2) clave del proveedor en ~/.hermes/.env (lo que arregla el 401)
-    key = (api_key or "").strip()
+    # 2) clave del proveedor en ~/.hermes/.env (lo que arregla el 401). `key` ya
+    # está resuelta arriba, así que ESTE paso se escribe SIEMPRE: la variable de
+    # Hermes tiene que corresponderse con la base que se va a poner en el
+    # config.yaml tres líneas más tarde.
     env_path = _hermes_env_path()
     try:
         old = io.open(env_path, encoding="utf-8", errors="replace").read() if os.path.exists(env_path) else ""
     except Exception:
         old = ""
-    if key:
+    if True:
         new_env = _env_set_var(old, m["env"], key)
         try:
             os.makedirs(os.path.dirname(env_path), exist_ok=True)
             if old:
                 io.open(env_path + ".bak_nexus", "w", encoding="utf-8").write(old)
             io.open(env_path, "w", encoding="utf-8", newline="\n").write(new_env)
-            changes.append(f"{m['env']} escrita en ~/.hermes/.env")
+            changes.append(f"{m['env']} escrita en ~/.hermes/.env"
+                           + (" (la que ya tenía nexus para este endpoint)"
+                              if clave_desde_almacen else "")
+                           + (" — dejada VACÍA: un endpoint local no necesita clave, "
+                              "y la del proveedor anterior tampoco podía quedarse aquí"
+                              if not key else ""))
         except Exception as exc:
             return {"ok": False, "error": f"no pude escribir el .env de Hermes: {exc}"}
         # 2b) persistir la clave en los SECRETS de nexus (config/secrets.json) para que
@@ -636,7 +816,8 @@ def configure_brain(ctx, provider: str, model: str, api_key: str) -> dict:
         #     se enteraba de que ya estaba puesta → parecía que «no se guardaba».
         try:
             ctx["settings"].set_secret(m["secret"], key)
-            changes.append(f"clave recordada en nexus ({m['secret']})")
+            if not clave_desde_almacen:
+                changes.append(f"clave recordada en nexus ({m['secret']})")
         except Exception:
             pass
     # 3) modelo + provider en ~/.hermes/config.yaml
@@ -654,7 +835,7 @@ def configure_brain(ctx, provider: str, model: str, api_key: str) -> dict:
             changes.append(f"(no pude escribir config.yaml: {exc}; la clave sí quedó puesta)")
     _ALIVE.update(ok=False, ts=0.0)          # forzar recomprobación
     return {"ok": True, "provider": provider, "model": model,
-            "hermes_provider": m["hp"], "changes": changes,
+            "hermes_provider": m["hp"], "base_url": m["base"], "changes": changes,
             "note": "Reinicia el gateway de Hermes para que cargue el modelo nuevo: "
                     "dilo con «arranca hermes» o yo lo relanzo en el próximo encargo."}
 
@@ -691,24 +872,66 @@ def _read_text(path: str) -> str:
     return ""
 
 
+def _nombre_del_cerebro(hp: str, base: str, en_ajustes: str = "") -> str:
+    """PURA: cómo se llama ese cerebro para el operador y para el contador (T42).
+
+    Su config.yaml solo puede decir «custom» —es lo que Hermes entiende— y ese
+    nombre no le dice nada a nadie: el operador leería «consta como custom» y el
+    contador del día acabaría con un cubo «custom» donde caben un llama.cpp de
+    casa y la nube de NaN a la vez. Así que el nombre se resuelve por la
+    DIRECCIÓN BASE contra la MISMA tabla de presets (una sola fuente de verdad) y,
+    si no casa, por la etiqueta que el operador eligió en ⚙ — pero solo si esa
+    etiqueta no es un preset con otro `hp`: un config.yaml escrito a mano manda
+    sobre el recuerdo de nexus."""
+    nombre = (hp or "").strip().lower()
+    if nombre and nombre != _PROV_ABIERTO:
+        return nombre
+    limpia = (base or "").strip().rstrip("/")
+    for etiqueta, preset in _PROV_MAP.items():
+        if preset["base"] and limpia and preset["base"].rstrip("/") == limpia:
+            return etiqueta
+    recordado = (en_ajustes or "").strip().lower()
+    preset = _PROV_MAP.get(recordado)
+    if recordado and (preset is None or preset["hp"] == _PROV_ABIERTO):
+        return recordado
+    return nombre
+
+
 def cerebro_de_hermes(ctx) -> dict:
     """Con qué proveedor piensa Hermes y de qué CLASE es («local» o «nube»).
 
     El dato sale del bloque `model:` de su config.yaml (lo que Hermes CARGA de
     verdad, y lo que escribe `configure_brain`) y, si ahí no hay nada, de
     `hermes_provider` en los ajustes de nexus. La clase la decide
-    `llm.localidad_delegado()`, la MISMA tabla que usa el chat."""
+    `llm.localidad_delegado()`, la MISMA tabla que usa el chat.
+
+    T42: cuando el provider del config.yaml es «custom» (NaN o cualquier endpoint
+    abierto), el NOMBRE que se devuelve es el que eligió el operador («nan»,
+    «groq», «custom») — ver `_nombre_del_cerebro` — para que el contador del día
+    y los mensajes no digan «custom» a secas. La clase sigue saliendo del
+    ENDPOINT, así que renombrar no cambia ni un permiso."""
     from backend.core.infraestructura.llm import localidad_delegado
     cfg = _yaml_get_model(_read_text(_hermes_config_path()))
     try:
         en_ajustes = ctx["settings"].get("hermes_provider") or ""
     except Exception:                                          # noqa: BLE001
         en_ajustes = ""
-    proveedor = (cfg.get("provider") or en_ajustes or "").strip().lower()
+    hp = (cfg.get("provider") or en_ajustes or "").strip().lower()
     base = (cfg.get("base_url") or "").strip()
     if not base:
-        base = (_PROV_MAP.get(proveedor) or {}).get("base", "")
-    return {"proveedor": proveedor, "modelo": cfg.get("default", ""),
+        base = (_PROV_MAP.get(hp) or {}).get("base", "")
+    if not base and hp in ("", _PROV_ABIERTO):
+        # lo último que nexus recuerda de lo que él mismo configuró (⚙), y SOLO
+        # cuando el config.yaml no nombra un proveedor o nombra el abierto: con
+        # un nombre que nexus no conoce, una base vieja en los ajustes no puede
+        # convertir en «local» un cerebro que no sabemos qué es (falla cerrada).
+        try:
+            base = (ctx["settings"].get("hermes_base_url") or "").strip()
+        except Exception:                                      # noqa: BLE001
+            base = ""
+    proveedor = _nombre_del_cerebro(hp, base, en_ajustes)
+    return {"proveedor": proveedor, "provider_hermes": hp,
+            "modelo": cfg.get("default", ""),
             "base_url": base, "clase": localidad_delegado(proveedor, base)}
 
 

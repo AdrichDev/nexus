@@ -547,7 +547,7 @@ with _Config(perm_files="carpetas", perm_folders=[]):
             {"perm_files", "perm_folders", "perm_hardware", "n8n_webhook_url",
              "n8n_base_url", "homeassistant_url", "permitir_fallback_nube",
              "llm_local", "engram_autoinstall", "backup_destino_extra",
-             "permitir_delegacion_nube"}),
+             "permitir_delegacion_nube", "hermes_base_url"}),
           "hay claves nuevas en _CLAVES_SOLO_LOCALES sin motivo escrito aquí: "
           "añade su caso y su porqué")
 

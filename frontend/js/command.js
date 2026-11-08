@@ -758,11 +758,23 @@ window.orbHTML = orbHTML;
     openrouter: { name: 'OpenRouter',         prov: 'cloud',     keyField: 'cloud_llm_api_key', modelField: 'cloud_model',     models: AC_MODELS.openrouter, base: 'https://openrouter.ai/api/v1' },
   };
   // Proveedores para el CEREBRO de Hermes (mismos 4 principales).
+  /* Cerebros de Hermes que nexus sabe configurar (T42).
+     `base` es la dirección del endpoint cuando el proveedor es compatible OpenAI:
+     si viene puesta, es un preset y ⚙ la ENSEÑA pero no la deja editar (una
+     dirección escrita a mano con nombre de preset es una mentira silenciosa); si
+     viene vacía (`custom`), el operador tiene que escribirla y el backend la
+     valida antes de guardar nada. `keyField` es el nombre en config/secrets.json
+     — con nombre propio por endpoint, nunca reutilizando `openai_api_key` — y de
+     ahí sale el `has_…` que pinta «conectada ✓». */
   const HERMES_PROVS = {
-    openai:     { name: 'OpenAI (GPT)',       keyField: 'openai_api_key',    models: AC_MODELS.openai },
+    openai:     { name: 'OpenAI (GPT)',       keyField: 'openai_api_key',    models: AC_MODELS.openai, base: 'https://api.openai.com/v1' },
     anthropic:  { name: 'Anthropic (Claude)', keyField: 'anthropic_api_key', models: AC_MODELS.anthropic },
     gemini:     { name: 'Google Gemini',      keyField: 'gemini_api_key',    models: AC_MODELS.gemini },
     openrouter: { name: 'OpenRouter',         keyField: 'openrouter_api_key', models: AC_MODELS.openrouter },
+    nan:        { name: 'NaN Builders (compatible OpenAI)', keyField: 'nan_api_key',
+                  models: ['deepseek-v4-flash', 'glm5.3'], base: 'https://api.nan.builders/v1' },
+    custom:     { name: 'Otro endpoint compatible OpenAI (escribir)', keyField: 'hermes_custom_api_key',
+                  models: [], base: '' },
   };
   /* ─────────────────────────────────────────────────────────────────────────
      APARTADO «APIS» DE LA CONFIGURACIÓN — el único sitio donde van las claves.
@@ -798,6 +810,17 @@ window.orbHTML = orbHTML;
     { g: 'Casa y automatización', k: 'hermes_api_key', l: 'Hermes · API key' },
     { g: 'Casa y automatización', k: 'openrouter_api_key', l: 'OpenRouter (cerebro de Hermes)',
       web: 'openrouter.ai/keys' },
+    /* T42: el cerebro de Hermes en un endpoint compatible OpenAI. Con nombre
+       propio por endpoint y NO reutilizando `openai_api_key`: esa es la que nexus
+       manda a api.openai.com, y meter ahí la clave de NaN (o de Groq) es cómo una
+       credencial acaba en el host equivocado. `nan_api_key` es la del preset de
+       NaN Builders; `hermes_custom_api_key`, la de cualquier otro endpoint que
+       escribas en ⚙ → Núcleo IA → Hermes. */
+    { g: 'Casa y automatización', k: 'nan_api_key', l: 'NaN Builders (cerebro de Hermes)',
+      web: 'nan.builders' },
+    { g: 'Casa y automatización', k: 'hermes_custom_api_key',
+      l: 'Hermes · clave del endpoint compatible OpenAI que escribas',
+      ayuda: 'Se usa con el proveedor «Otro endpoint compatible OpenAI» de ⚙ → Núcleo IA.' },
   ];
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -1024,6 +1047,27 @@ window.orbHTML = orbHTML;
     + ((sel && !models.includes(sel)) ? `<option selected>${esc(sel)}</option>` : '')
     + '<option value="__custom__">✎ otro (escribir)…</option>';
 
+  /* T42 · El endpoint del cerebro de Hermes. Se pinta UNA vez en la vista y otra
+     al cambiar de proveedor, sin re-renderizar el resto del panel (eso se
+     llevaría por delante lo que el operador ya había escrito).
+       · preset con `base` (openai, nan) → se ENSEÑA: es la del backend, y escrita
+         a mano con nombre de preset sería una mentira silenciosa;
+       · preset sin `base` (anthropic, gemini, openrouter) → no hay endpoint que
+         enseñar: su proveedor de Hermes no lo usa;
+       · `custom` (`base: ''`) → se EDITA, y el backend la valida antes de guardar
+         nada (http/https, sin usuario:clave, host; loopback permitido). */
+  function hBaseHTML(p, c) {
+    if (p.base === '') {
+      // El endpoint que nexus tenga guardado, venga de «custom» o de una etiqueta
+      // puesta por API («groq»): el campo se edita y el backend lo revalida.
+      return `<input id="ac-hbase" class="ac-in" value="${esc(c.hermes_base_url || '')}" placeholder="https://…/v1">`;
+    }
+    if (!p.base) {
+      return '<div class="ac-in" style="opacity:.7">— este proveedor no usa endpoint propio —</div>';
+    }
+    return `<div class="ac-in" style="opacity:.75">${esc(p.base)}</div>`;
+  }
+
   views.aicore = () => {
     const c = state.config;
     // proveedor cloud activo actual (según llm_provider del backend)
@@ -1034,9 +1078,13 @@ window.orbHTML = orbHTML;
     const cp = CLOUD_PROVS[curCloud];
     const cloudModel = c[cp.modelField] || cp.models[0];
     // Hermes
-    const curH = HERMES_PROVS[c.hermes_provider] ? c.hermes_provider : 'openai';
+    /* Una etiqueta que este panel no conoce («groq», puesta por API) NO se pinta
+       como OpenAI —eso sería mentir sobre el endpoint—: se enseña como el camino
+       abierto, con su dirección, que es lo que de verdad hay configurado. */
+    const curH = HERMES_PROVS[c.hermes_provider] ? c.hermes_provider
+      : (c.hermes_provider && c.hermes_base_url ? 'custom' : 'openai');
     const hp = HERMES_PROVS[curH];
-    const hModel = c.hermes_model || hp.models[0];
+    const hModel = c.hermes_model || (hp.models[0] || '');
     /* v24 · «EN USO» ya NO sale de la preferencia guardada: sale del runtime,
        que solo lo pone a true si el modelo ha CONTESTADO a una prueba real. */
     const rt = state.llm || {};
@@ -1091,7 +1139,10 @@ window.orbHTML = orbHTML;
           </select>
           <label class="ac-lbl">Modelo</label>
           <select id="ac-hmodel" class="ac-sel">${acModelOpts(hp.models, hModel)}</select>
-          <input id="ac-hcustom" class="ac-in" style="display:none" placeholder="escribe el modelo exacto…">
+          <input id="ac-hcustom" class="ac-in" style="display:${hp.models.length ? 'none' : 'block'}" placeholder="escribe el modelo exacto…">
+          <label class="ac-lbl">Endpoint (dirección base)</label>
+          <div id="ac-hbasewrap">${hBaseHTML(hp, c)}</div>
+          <div class="ac-desc" style="margin:2px 0 0">Solo http/https, sin usuario:clave dentro del enlace. Vale un gateway de este equipo (loopback) y cualquier API pública compatible OpenAI; lo demás se rechaza y no se escribe nada.</div>
           <label class="ac-lbl">API key ${c['has_' + hp.keyField] ? '<span class="ac-conn">conectada ✓</span>' : ''}</label>
           <input id="ac-hkey" class="ac-in" type="password" autocomplete="off" placeholder="${c['has_' + hp.keyField] ? '•••• guardada (escribe para cambiarla)' : 'pega la API key…'}">
           <button class="ac-btn" id="ac-savehermes">Guardar cerebro de Hermes</button>
@@ -2013,9 +2064,17 @@ window.orbHTML = orbHTML;
     // ---- Card 3: Hermes (provider select → model select → key → configura Hermes) ----
     $('#ac-hprov')?.addEventListener('change', () => {
       const id = $('#ac-hprov').value; const p = HERMES_PROVS[id];
-      const cur = (state.config.hermes_provider === id ? state.config.hermes_model : '') || p.models[0];
+      const cur = (state.config.hermes_provider === id ? state.config.hermes_model : '') || (p.models[0] || '');
       $('#ac-hmodel').innerHTML = acModelOpts(p.models, cur);
-      $('#ac-hcustom').style.display = 'none';
+      // Sin catálogo (endpoint abierto) el modelo se escribe SIEMPRE: si el
+      // «✎ otro» ya viniera marcado, el `change` no saltaría y el campo se
+      // quedaría escondido sin manera de escribir nada.
+      $('#ac-hcustom').style.display = p.models.length ? 'none' : 'block';
+      // T42: el endpoint cambia con el proveedor (input para `custom`, la del
+      // preset para los demás) y la clave también: cada endpoint tiene la suya.
+      const hbw = $('#ac-hbasewrap');
+      if (hbw) hbw.innerHTML = hBaseHTML(p, state.config);
+      $('#ac-hkey').value = '';
       $('#ac-hkey').placeholder = state.config['has_' + p.keyField] ? '•••• guardada (escribe para cambiarla)' : 'pega la API key…';
     });
     $('#ac-hmodel')?.addEventListener('change', () => {
@@ -2026,12 +2085,14 @@ window.orbHTML = orbHTML;
       const provider = $('#ac-hprov').value;
       const model = _acModelValue('ac-hmodel', 'ac-hcustom');
       const key = $('#ac-hkey').value.trim();
+      const hb = $('#ac-hbase');
+      const base_url = hb ? hb.value.trim() : '';
       const msg = $('#ac-hmsg');
       if (msg) { msg.className = 'ac-msg'; msg.textContent = '⏳ configurando el cerebro de Hermes…'; }
       let res = null;
       try {
         res = await api('/api/hermes/configure', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider, model, api_key: key }) });
+          body: JSON.stringify({ provider, model, api_key: key, base_url }) });
       } catch (e) { /* */ }
       await fetchAll();
       if (res && res.ok) {

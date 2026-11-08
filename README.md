@@ -289,6 +289,39 @@ la delegación (encargos, por proveedor) en su propia sección de
 `data/presupuesto_llm.json` y no inventa llamadas, caracteres ni tokens. Se ve en
 `GET /api/status` → `presupuesto.delegaciones`.
 
+### Qué cerebro le puedes poner: cualquiera compatible OpenAI, NaN incluido
+
+En ⚙ → Núcleo IA → Hermes eliges proveedor, modelo y pegas la clave. Hay presets
+(OpenAI, Anthropic, Gemini, OpenRouter), **NaN Builders** y un camino abierto:
+«Otro endpoint compatible OpenAI», donde escribes la **dirección base**.
+
+- **NaN es compatible OpenAI** (base `https://api.nan.builders/v1`, `Bearer`,
+  `/chat/completions`), así que basta elegirlo por su nombre. **Su catálogo es
+  suyo**: `deepseek-v4-flash` y `glm5.3` son los que ofrece, y **`glm5.3` es de
+  su plan de pago**. **nexus no conoce sus cuotas ni sus precios** y no los
+  adivina: si NaN te corta por cuota, verás su error.
+- **El camino abierto sirve para cualquiera**: Groq, DeepSeek, un llama.cpp o un
+  LM Studio de casa. La dirección se valida **antes de escribir nada** con la
+  misma guarda de destinos que usa nexus para pedir webs: solo `http`/`https`,
+  sin `usuario:clave@` dentro del enlace, con host, y el **loopback sí** (un
+  gateway en este equipo es el caso legítimo). Metadatos de la nube, rangos
+  privados, nombres internos y dominios que no resuelven se rechazan con el
+  motivo en español, y **no se escribe ni el `.env` ni el `config.yaml` ni el
+  ajuste**.
+- **La localidad sigue mandando en el consentimiento.** Un endpoint de loopback
+  es local (no pide permiso); uno público es nube (`permitir_delegacion_nube`,
+  aviso y contador); y una base desconocida o ausente **falla cerrada a nube**.
+  La dirección efectiva queda en `config/settings.json` como `hermes_base_url`,
+  que **solo se cambia desde este equipo** (`POST /api/config` remoto la rechaza
+  con 403): es la que decide a dónde viaja lo que nexus delega.
+- **La clave va con nombre propio.** La de NaN se guarda en `config/secrets.json`
+  como `nan_api_key` y la de un endpoint abierto como `hermes_custom_api_key`
+  (cifradas con DPAPI como el resto). **No se reutiliza `openai_api_key`**: esa es
+  la que nexus manda a `api.openai.com`, y meter ahí la clave de otro proveedor
+  es cómo una credencial acaba en el host equivocado. En el `.env` de Hermes la
+  clave sí va a `OPENAI_API_KEY`, porque es la variable que lee **su** proveedor
+  `custom`; cada guardado la reescribe con la del endpoint elegido.
+
 ## Manos MCP (conectores externos)
 
 MCP (*Model Context Protocol*) son "manos": servidores locales que exponen

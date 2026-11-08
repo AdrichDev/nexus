@@ -161,6 +161,13 @@ SAFE_UNIT_SUITES = (
     # en carpetas de usar y tirar. No arranca servidor (`/api/status` va con
     # httpx.ASGITransport, sin lifespan) ni toca un dato o una clave del operador.
     "unit/core/runtime/test_presupuesto_llm.py",
+    # Cerebro ABIERTO de Hermes (T42): presets intactos, NaN por su nombre,
+    # cualquier endpoint compatible OpenAI CON base validada por la guarda de
+    # destinos de SEC-11, y `llm_provider=cloud` contra una base con forma de NaN.
+    # El DNS (`net._direcciones`) y el cliente HTTP (`net.client`) van doblados
+    # ANTES de la primera llamada, y config/datos/HERMES_HOME viven en carpetas de
+    # usar y tirar: no se lee ni se escribe nada del operador, ni su `~/.hermes`.
+    "unit/core/runtime/test_proovedor_abierto.py",
     # POST /api/n8n en proceso (httpx.ASGITransport, sin lifespan ni puertos):
     # dobles en vez de proveedor/correo y carpetas de usar y tirar.
     "integration/http/test_n8n_canal.py",

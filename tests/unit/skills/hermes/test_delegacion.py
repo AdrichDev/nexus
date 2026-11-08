@@ -31,6 +31,12 @@ roadmap P3-6, y el hueco que dejó abierto L38 del ODD):
   5. REGRESIONES que no se pueden tocar: el rechazo de canal (n8n) sigue
      ocurriendo antes que cualquier delegación, y la confirmación se responde
      solo desde текст/voz.
+  6. CEREBRO ABIERTO (T42). El cerebro del ejecutor puede ser NaN o cualquier
+     endpoint compatible OpenAI escrito por el operador. La clase se decide por
+     la DIRECCIÓN (loopback = local, público = nube) y un nombre sin endpoint
+     falla CERRADO a nube, así que `permitir_delegacion_nube` y el contador del
+     día siguen cubriendo al delegado sin excepciones nuevas. El contador lo
+     apunta con SU nombre («nan», «custom»), no con el «custom» de Hermes.
 
 TODO EN PROCESO: `httpx.AsyncClient` doblado ANTES de la primera llamada (nada
 sale a la red), `NEXUS_CONFIG_DIR`/`NEXUS_DATA_DIR`/`HERMES_HOME` en carpetas de
@@ -433,6 +439,90 @@ def test_cerebro_local_no_necesita_permiso():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  3b. EL CEREBRO ABIERTO (T42): NaN y cualquier endpoint, con sus dos clases
+# ══════════════════════════════════════════════════════════════════════════════
+_YAML_NAN = ('model:\n  default: "deepseek-v4-flash"\n  provider: "custom"\n'
+             '  base_url: "https://api.nan.builders/v1"\n')
+_YAML_GROQ = ('model:\n  default: "llama-3.3-70b"\n  provider: "custom"\n'
+              '  base_url: "https://api.groq.com/openai/v1"\n')
+_YAML_CASA = ('model:\n  default: "qwen3:8b"\n  provider: "custom"\n'
+              '  base_url: "http://127.0.0.1:8080/v1"\n')
+
+
+def test_la_localidad_del_endpoint_abierto_falla_cerrada():
+    """Un endpoint escrito a mano (NaN, Groq, uno de casa) se clasifica por la
+    DIRECCIÓN: loopback = local, público = nube, y un nombre sin endpoint = nube."""
+    print("· el nombre del cerebro sale del endpoint y de la etiqueta elegida")
+    _reset("nan", yaml=_YAML_NAN)
+    cerebro = mod.cerebro_de_hermes(CTX)
+    check(cerebro["proveedor"] == "nan",
+          f"el cerebro de NaN no se llama «nan» ({cerebro['proveedor']!r})")
+    check(cerebro["clase"] == "nube",
+          f"la base pública de NaN tiene que ser nube ({cerebro['clase']!r})")
+
+    _reset("", yaml=_YAML_GROQ)
+    cerebro = mod.cerebro_de_hermes(CTX)
+    check(cerebro["proveedor"] == "custom",
+          f"un endpoint abierto sin preset se llama «custom» ({cerebro['proveedor']!r})")
+    check(cerebro["clase"] == "nube",
+          f"Groq es nube ({cerebro['clase']!r})")
+
+    _reset("", yaml=_YAML_CASA)
+    cerebro = mod.cerebro_de_hermes(CTX)
+    check(cerebro["clase"] == "local",
+          f"un gateway de loopback es LOCAL ({cerebro['clase']!r})")
+
+    print("· un nombre que nadie conoce y sin endpoint: nube (falla CERRADA)")
+    _reset("", yaml='model:\n  default: "x"\n  provider: "proveedor-raro"\n')
+    cerebro = mod.cerebro_de_hermes(CTX)
+    check(cerebro["clase"] == "nube",
+          f"ante la duda se trata como nube ({cerebro['clase']!r})")
+    print("· y una base vieja en los ajustes NO lo vuelve local")
+    CTX["settings"].set("hermes_base_url", "http://127.0.0.1:8080/v1")
+    cerebro = mod.cerebro_de_hermes(CTX)
+    check(cerebro["clase"] == "nube",
+          f"un endpoint recordado no puede convertir en local un cerebro cuyo "
+          f"proveedor no sabemos qué es ({cerebro['clase']!r})")
+    _reset("", yaml=None)
+    ajustes = CTX["settings"]
+    ajustes.data.pop("hermes_provider", None)
+    cerebro = mod.cerebro_de_hermes(CTX)
+    check(cerebro["clase"] == "nube",
+          f"sin nada configurado tampoco puede ser local ({cerebro['clase']!r})")
+
+    print("· NaN con la delegación apagada: rechazo en español y CERO peticiones")
+    _reset("nan", delegacion_nube=False, yaml=_YAML_NAN)
+    respuesta = run(mod.delegate(_ORDEN, CTX, "pc"))
+    texto = respuesta.get("reply", "")
+    check("desactivada" in texto and "permitir_delegacion_nube" in texto,
+          f"el rechazo no explica la clave ({texto!r})")
+    check("nan" in texto,
+          f"el rechazo no dice cuál es el cerebro que no se usa ({texto!r})")
+    check(not _ClienteFalso.llamadas,
+          f"con la delegación apagada no sale ni una petición ({_ClienteFalso.llamadas})")
+    check(not _ENTREGADOS and confirm.pending("pc") is None,
+          "un rechazo no puede encargar nada ni armar confirmación")
+
+    print("· un nombre raro sin endpoint, con el permiso apagado: tampoco sale")
+    _reset("", delegacion_nube=False,
+           yaml='model:\n  default: "x"\n  provider: "proveedor-raro"\n')
+    run(mod.delegate(_ORDEN, CTX, "pc"))
+    check(not _ClienteFalso.llamadas,
+          "lo que no se sabe clasificar se trata como nube y no sale")
+    check(not _ENTREGADOS, "ni se encarga")
+
+    print("· un gateway de casa se delega aunque la nube esté prohibida")
+    _reset("", delegacion_nube=False, yaml=_YAML_CASA)
+    run(mod.delegate(_ORDEN, CTX, "pc"))
+    check(confirm.pending("pc") is not None,
+          "un cerebro de loopback no necesita permiso de nube")
+    avisos = [d.get("msg", "") for t, d in _CAPTURADO
+              if t == "log" and isinstance(d, dict)]
+    check(not [m for m in avisos if "nube" in m.lower()],
+          f"con un cerebro local no se avisa de nube ({avisos})")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  4. CONFIRMACIÓN: UNA VEZ, Y SOLO CON «SÍ»
 # ══════════════════════════════════════════════════════════════════════════════
 def test_la_primera_delegacion_pregunta_y_solo_ejecuta_con_si():
@@ -759,6 +849,30 @@ def test_el_endpoint_rechaza_la_clave_desde_fuera():
         httpx.AsyncClient = _ClienteFalso
 
 
+def test_el_contador_apunta_el_proveedor_abierto():
+    """NaN y un endpoint abierto se cuentan con SU nombre, no con «custom» a secas."""
+    print("· una delegación a un cerebro de NaN se cuenta como «nan»")
+    _reset("nan", yaml=_YAML_NAN)
+    run(mod.delegate(_ORDEN, CTX, "pc"))
+    run(confirm.answer("sí", "pc"))
+    delegaciones = presupuesto.resumen().get("delegaciones", {})
+    check(delegaciones.get("nan") == 1,
+          f"la delegación no se cuenta por el nombre del cerebro ({delegaciones})")
+    check("custom" not in delegaciones,
+          f"el contador se queda con el nombre de Hermes («custom»), que no "
+          f"informa de nada ({delegaciones})")
+    check(presupuesto.resumen().get("llamadas") == 0,
+          "la delegación sigue sin ser una llamada de nexus")
+
+    print("· un endpoint abierto de verdad se cuenta como «custom» (es su nombre)")
+    _reset("", yaml=_YAML_GROQ)
+    run(mod.delegate(_ORDEN, CTX, "pc"))
+    run(confirm.answer("sí", "pc"))
+    delegaciones = presupuesto.resumen().get("delegaciones", {})
+    check(delegaciones.get("custom") == 1,
+          f"un endpoint abierto sin preset se cuenta como «custom» ({delegaciones})")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  7. LA HONESTIDAD DEL MENSAJE FINAL SIGUE EN PIE (`304fd64`)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -783,6 +897,7 @@ def main() -> int:
                    test_nube_con_delegacion_apagada_rechaza_sin_una_sola_peticion,
                    test_nube_permitida_sigue_y_avisa_por_el_bus,
                    test_cerebro_local_no_necesita_permiso,
+                   test_la_localidad_del_endpoint_abierto_falla_cerrada,
                    test_la_primera_delegacion_pregunta_y_solo_ejecuta_con_si,
                    test_la_confirmacion_solo_se_responde_desde_texto_o_voz,
                    test_fallo_antes_de_entregar_reintenta_una_vez,
@@ -790,6 +905,7 @@ def main() -> int:
                    test_un_encargo_ya_aprobado_no_vuelve_a_preguntar,
                    test_el_contador_apunta_la_delegacion_sin_tokens,
                    test_api_status_publica_las_delegaciones_sin_claves,
+                   test_el_contador_apunta_el_proveedor_abierto,
                    test_el_endpoint_rechaza_la_clave_desde_fuera,
                    test_la_clasificacion_vacia_sigue_siendo_un_error):
         try:

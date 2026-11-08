@@ -100,6 +100,89 @@ La posición del fallo decide si se puede reintentar:
 Un 401 «Missing Authentication header» sigue siendo otra cosa (el modelo interno
 de Hermes sin credenciales): no se reintenta y se explica cómo arreglarlo.
 
+## Cualquier cerebro compatible OpenAI (T42)
+
+La lista de cerebros ya no es cerrada. `configure_brain()` deja el `.env` y el
+bloque `model:` de Hermes con:
+
+| Proveedor | provider de Hermes | Endpoint | Variable en `~/.hermes/.env` | Secreto en nexus |
+| --- | --- | --- | --- | --- |
+| `openai` | `custom` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | `openai_api_key` |
+| `anthropic` | `anthropic` | — | `ANTHROPIC_API_KEY` | `anthropic_api_key` |
+| `gemini` | `gemini` | — | `GEMINI_API_KEY` | `gemini_api_key` |
+| `openrouter` | `openrouter` | — | `OPENROUTER_API_KEY` | `openrouter_api_key` |
+| `nan` | `custom` | `https://api.nan.builders/v1` | `OPENAI_API_KEY` | `nan_api_key` |
+| cualquier etiqueta | `custom` | la que escribas | `OPENAI_API_KEY` | `hermes_custom_api_key` |
+
+Los cuatro primeros siguen escribiendo EXACTAMENTE lo mismo que antes (misma
+variable, mismo `provider`, misma base): hay `config.yaml` de usuarios y pruebas
+que dependen de esos bytes.
+
+### NaN (NaN Builders)
+
+NaN es un endpoint **compatible OpenAI**: base `https://api.nan.builders/v1`,
+`Authorization: Bearer sk-…` y `/chat/completions`. Eso es todo lo que Hermes
+necesita, así que se elige por su nombre en ⚙ → Núcleo IA → Hermes → «NaN
+Builders (compatible OpenAI)» y se pega la clave. También sirve para el cerebro de
+nexus (⚙ → Proveedor Cloud → OpenRouter con la base de NaN y el modelo puesto).
+
+- **El catálogo de modelos es de NaN, no de nexus.** `deepseek-v4-flash` y
+  `glm5.3` son los que se ofrecen en la lista, y **`glm5.3` es de su plan de
+  pago**: si tu cuenta no lo incluye, la API lo rechazará. Puedes escribir
+  cualquier otro modelo con «✎ otro (escribir)…».
+- **nexus NO conoce las cuotas, los precios ni los límites de NaN**, y no los va
+  a adivinar. Si NaN te corta por cuota, verás su error, no una cifra inventada.
+- `reasoning_effort` y demás campos propios de cada endpoint **no se mandan**:
+  `CloudProvider` solo envía `model`, `messages` y el tope de salida de
+  `umbrales.json` (AI-07). Añadir un campo que el endpoint no documente rompe la
+  llamada en los que sí lo validan, así que no se inventa.
+
+### El camino abierto (y qué NO se acepta)
+
+Con la etiqueta «Otro endpoint compatible OpenAI (escribir)» das `base_url`,
+modelo y clave: vale Groq, DeepSeek, un llama.cpp o un LM Studio de casa. La
+dirección se **valida antes de escribir nada** con la guarda de destinos de
+SEC-11 (la misma de `safe_get`), no con una tabla nueva:
+
+- **solo `http` y `https`**; un `file://`, `ftp://` o parecido se rechaza y se
+  dice por qué;
+- **sin `usuario:clave@`** dentro del enlace (una credencial en una URL acaba en
+  un registro);
+- **con host** y, si es un nombre, que **resuelva**;
+- **loopback SÍ** (`127.0.0.1`, `localhost`, `::1`): un gateway en este mismo
+  equipo es el caso legítimo, y es el único que no necesita permiso de nube;
+- **lo demás, no**: direcciones de metadatos (`169.254.169.254`), rangos privados
+  o domésticos, nombres internos y dominios que no resuelven se rechazan con el
+  mensaje de la guarda, porque nexus no sabría a dónde manda los encargos.
+
+Un rechazo **no escribe nada**: ni el `.env`, ni el `config.yaml`, ni los ajustes
+(una base mala no deja el cerebro a medio cambiar). La dirección efectiva queda
+en ⚙ `hermes_base_url`, que es una clave **solo local** (`POST /api/config`
+remoto la rechaza con 403): decide a dónde viaja lo que nexus delega.
+
+**La clave de un endpoint abierto nunca se guarda como `openai_api_key`**, porque
+`openai_api_key` es la que nexus manda a `api.openai.com`: guardar ahí la clave
+de NaN (o de Groq) es cómo una credencial acaba en el host equivocado. Se guarda
+bajo `nan_api_key` / `hermes_custom_api_key`, con DPAPI como el resto (T13). En
+el `.env` de Hermes sí va a `OPENAI_API_KEY`, porque **esa variable no la elige
+nexus**: es la que lee su proveedor `custom`, la misma que ya usaba el preset
+`openai`. Cada `configure_brain` la reescribe con la clave del endpoint que se
+acaba de elegir, así que siempre corresponde al `base_url` del `config.yaml`.
+
+### Localidad: el consentimiento sigue cubriendo al delegado
+
+La clase del cerebro (y por tanto si hace falta `permitir_delegacion_nube`) sale
+del **endpoint**, con `llm.localidad_delegado`:
+
+| Base del cerebro | Clase | Qué pasa al delegar |
+| --- | --- | --- |
+| loopback (`127.0.0.1`, `localhost`, `::1`) | local | se delega sin pedir permiso |
+| pública (NaN, Groq, OpenAI…) | nube | consentimiento + aviso + contador |
+| desconocida o **sin endpoint** | nube | **falla cerrada**: consentimiento + contador |
+
+El contador del día apunta la delegación con el **nombre del cerebro** (`nan`,
+`custom`, `groq`), no con el «custom» de Hermes, que no informa de nada.
+
 ## El operador NO se entera de que existe esto
 
 Regla de arquitectura: **el usuario solo habla con nexus.** Que un encargo lo
@@ -150,9 +233,11 @@ real: sin eso no se puede diagnosticar nada.
   que llama a `/api/hermes/configure` y escribe `~/.hermes/.env` y el bloque
   `model:` de `~/.hermes/config.yaml`) o en terminal con `hermes model` +
   `hermes auth add <proveedor>`. Proveedores mapeados: openai, anthropic,
-  gemini, openrouter. Ese proveedor decide además si delegar es local o de nube,
-  y por tanto si aplica `permitir_delegacion_nube` (true por defecto): ver «Tres
-  fronteras» arriba.
+  gemini, openrouter y nan, más un camino **ABIERTO** para cualquier endpoint
+  compatible OpenAI que escribas tú (ver «Cualquier cerebro compatible OpenAI»).
+  Ese proveedor decide además si delegar es local o de nube, y por tanto si
+  aplica `permitir_delegacion_nube` (true por defecto): ver «Tres fronteras»
+  arriba.
 - **Dependencia**: `httpx` (ya en `requirements.txt`).
 
 ## Autoarranque y resiliencia

@@ -1351,9 +1351,14 @@ async def api_hermes_configure(payload: dict):
     provider = str(payload.get("provider", "")).strip().lower()
     model = str(payload.get("model", "")).strip()
     api_key = str(payload.get("api_key", "")).strip()
+    # T42: la dirección base del endpoint compatible OpenAI que escribe el
+    # operador (vacía para los presets). `configure_brain` la valida con la guarda
+    # de destinos ANTES de escribir nada, así que aquí solo se transporta.
+    base_url = str(payload.get("base_url", "")).strip()
     try:
         res = await asyncio.to_thread(sk.module.configure_brain,
-                                      {"settings": settings, "bus": bus}, provider, model, api_key)
+                                      {"settings": settings, "bus": bus}, provider, model,
+                                      api_key, base_url)
         if res.get("ok"):
             await bus.emit("log", {"level": "ok",
                                    "msg": f"🪽 Cerebro de Hermes: {provider} · {model} configurado"})
@@ -1567,6 +1572,13 @@ _CLAVES_SOLO_LOCALES = {
     # puede salir del equipo, así que se toca con las manos en el teclado.
     "permitir_delegacion_nube": ("decide si un encargo delegado puede salir a un "
                                  "cerebro de nube (T25)"),
+    # T42: es la dirección base del cerebro de Hermes cuando no es un preset.
+    # Decide a dónde viaja el encargo y, con ella, si la delegación cuenta como
+    # local (loopback) o de nube (consentimiento + contador). Misma clase que
+    # `n8n_webhook_url`: apuntarla a otro sitio cambia a dónde sale lo que nexus
+    # delega, así que se toca con las manos en el teclado.
+    "hermes_base_url": ("es el endpoint del cerebro del ejecutor: decide si lo que "
+                        "nexus delega sale del equipo"),
     # ---- ejecución de software en el equipo ----
     "engram_autoinstall": "instala un binario en el equipo sin preguntar",
 }

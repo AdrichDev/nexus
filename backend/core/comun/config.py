@@ -83,8 +83,14 @@ DEFAULTS = {
     "hermes_auto": True,                     # nexus delega SOLO en Hermes lo agéntico
     "hermes_autostart": True,                # nexus ARRANCA el gateway de Hermes bajo demanda
     "hermes_exe": "",                        # ruta a hermes.exe (vacío = autodetectar)
-    "hermes_provider": "",                   # cerebro de Hermes: openai|anthropic|gemini|openrouter
+    "hermes_provider": "",                   # cerebro de Hermes: openai|anthropic|gemini|openrouter|nan|custom
     "hermes_model": "",                      # modelo concreto del cerebro de Hermes
+    # Endpoint del cerebro de Hermes cuando NO es uno de los presets (T42): Sirve
+    # para cualquier API compatible OpenAI (Groq, DeepSeek, un llama.cpp de casa).
+    # Lo escribe `configure_brain` DESPUÉS de validarlo con la guarda de destinos,
+    # y está en `_CLAVES_SOLO_LOCALES`: apuntarlo a otro sitio decide a dónde van
+    # los encargos y si hace falta `permitir_delegacion_nube`.
+    "hermes_base_url": "",
     # DELEGAR EN UN EJECUTOR CON CEREBRO DE NUBE (T25/P3-6). NO es lo mismo que
     # `permitir_fallback_nube`: aquel gobierna un CAMBIO de cerebro que nadie
     # pidió (el elegido cae y nexus se planta en otro proveedor), y este gobierna
@@ -515,6 +521,14 @@ class Settings:
                    "spotify_client_id", "spotify_client_secret", "link_token",
                    "homeassistant_token", "samsung_tv_token", "hermes_api_key",
                    "openrouter_api_key",
+                   # Cerebro de Hermes en un endpoint compatible OpenAI (T42). Van
+                   # con nombre PROPIO y no reutilizan `openai_api_key`: esa es la
+                   # que `llm.OpenAIProvider` manda a api.openai.com, así que
+                   # meter ahí la clave de NaN (o de Groq) es justo cómo una clave
+                   # acaba en el host equivocado. Con nombre propio, además,
+                   # as_dict() publica `has_nan_api_key`/`has_hermes_custom_api_key`
+                   # y ⚙ puede decir si la clave está puesta.
+                   "nan_api_key", "hermes_custom_api_key",
                    # Secreto compartido de POST /api/n8n (auditoría, SEC-01). Va
                    # aquí para que set_secret lo guarde en secrets.json y para
                    # que as_dict() lo quite SIEMPRE de GET /api/config.
