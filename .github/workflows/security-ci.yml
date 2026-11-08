@@ -5,6 +5,13 @@
 #  (a diferencia del sandbox de Cowork). pip-audit audita las
 #  dependencias de Python contra la base OSV/PyPI.
 #
+#  HUECO CERRADO (T38): las 7 dependencias que SOLO existen en Windows
+#  (pycaw, comtypes, pythonnet, clr_loader, pywin32, pypiwin32, WMI) llevan
+#  el marcador `; sys_platform == "win32"` en requirements.lock, así que
+#  pip las SALTA en los jobs de Linux y su versión fijada no se auditaba en
+#  ningún sitio. El job `dependencias-windows` las audita en un runner
+#  `windows-latest` con pip-audit, sin instalar el resto del proyecto.
+#
 #  QUÉ CUBRE Y QUÉ NO (leer antes de fiarse de un tick verde):
 #  tests/runner_profiles.py clasifica cada suite por perfil y nivel de
 #  evidencia. Este workflow SOLO ejecuta el perfil `safe-unit`
@@ -62,10 +69,93 @@ jobs:
           # requirements.lock: audita las versiones REALMENTE fijadas (no el
           # rango declarado). Los marcadores `; sys_platform == "win32"` se
           # evalúan aquí como falsos, así que pycaw/comtypes/pythonnet/
-          # clr_loader/pywin32/pypiwin32/WMI NO se auditan en ningún job:
-          # eso necesita un runner de Windows (ver «PENDIENTE» en el job
-          # `pruebas`). Es un hueco declarado, no una omisión silenciosa.
+          # clr_loader/pywin32/pypiwin32/WMI NO se auditan en ESTE job: los
+          # audita el job `dependencias-windows` en un runner de Windows.
           pip-audit -r requirements.lock --progress-spinner off
+
+  # ── Solo-Windows ────────────────────────────────────────────────────────
+  # T38. Las 7 líneas de requirements.lock con `; sys_platform == "win32"`
+  # son las únicas que no existen en Linux: pip las salta por marcador, así
+  # que su versión fijada no se auditaba en ningún job. Aquí se auditan en
+  # Windows, y SOLO ellas.
+  #
+  # Por qué no se instala nada del proyecto: `windows-latest` no trae este
+  # venv, y estas 7 arrastran volumen/ventana/sensores (pycaw, WMI, pywin32)
+  # más compilación nativa. Lo que se audita es la VERSIÓN FIJADA, no que el
+  # paquete se pueda instalar: eso es otra prueba y otro job. Así el job
+  # tarda segundos y no depende de ruedas ni de compiladores.
+  #
+  # `--no-deps`: audita exactamente las 7 líneas, sin resolver ni descargar
+  # su árbol (el fichero ya está enteramente fijado con `==`). Sin él,
+  # pip-audit resolvería dependencias y entraría en el árbol del proyecto,
+  # que es justo lo que este job no necesita.
+  #
+  # Si pip-audit encuentra avisos aquí, el job se pone en ROJO a propósito
+  # (misma política que el job de Linux): significa que un pin solo-Windows
+  # necesita una decisión de subida de versión del dueño, no que se pueda
+  # ignorar. Pon `|| true` al final del comando si algún día se prefiere
+  # solo informar.
+  dependencias-windows:
+    name: pip-audit (Windows, 7 pins solo-win32)
+    runs-on: windows-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read      # este job no necesita nada más
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONUTF8: '1'
+      # Fichero temporal FUERA del repo (`runner.temp` es el scratch propio
+      # del runner): requirements.lock no se toca y no queda nada en el árbol.
+      PINS_WIN32: ${{ runner.temp }}/requirements-win32.txt
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Instalar pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      # Se extraen las líneas con el marcador TAL CUAL están en el lock (con
+      # su `==` y su marcador): lo auditado es el pin real, no una copia a
+      # mano que se desincronice. El paso falla si el lock deja de tener esas
+      # 7 líneas exactas, y si alguien lo lanza fuera de Windows (en Linux
+      # pip-audit saltaría las 7 por marcador y daría un verde vacío).
+      - name: Extraer los 7 pins solo-Windows de requirements.lock
+        shell: python
+        run: |
+          import os
+          import sys
+
+          ESPERADAS = ["clr_loader", "comtypes", "pycaw", "pypiwin32",
+                       "pythonnet", "pywin32", "WMI"]
+          MARCADOR = 'sys_platform == "win32"'
+
+          if sys.platform != "win32":
+              sys.exit("ERROR: este job audita los marcadores win32; "
+                       "ejecutalo en un runner windows-latest.")
+
+          with open("requirements.lock", encoding="utf-8") as fh:
+              pins = [linea.strip() for linea in fh
+                      if MARCADOR in linea and "==" in linea
+                      and not linea.lstrip().startswith("#")]
+
+          nombres = sorted(pin.split("==")[0].strip() for pin in pins)
+          if nombres != sorted(ESPERADAS):
+              sys.exit("ERROR: requirements.lock ya no tiene los 7 pins "
+                       "solo-Windows esperados; encontrados " + repr(nombres)
+                       + ", esperados " + repr(sorted(ESPERADAS)))
+
+          destino = os.environ["PINS_WIN32"]
+          with open(destino, "w", encoding="utf-8", newline="\n") as fh:
+              fh.write("\n".join(pins) + "\n")
+
+          print("== " + str(len(pins)) + " pins solo-Windows de requirements.lock ==")
+          for pin in pins:
+              print("  " + pin)
+          print("== escrito en " + destino + " ==")
+
+      - name: Auditar solo los 7 pins de Windows
+        run: |
+          pip-audit -r "$env:PINS_WIN32" --no-deps --progress-spinner off
 
   pruebas:
     name: Suites hermeticas (Linux / Python 3.12)
@@ -176,8 +266,10 @@ jobs:
           print("    BD se saltan comprobaciones; siguen sin probarse en este job.")
           print("  - E2E de navegador (tests/e2e/run_e2e.py, Playwright) y sondas")
           print("    hermeticas (tests/hermetic/*): otro runner/imagen, no este job.")
-          print("  - Auditoria de las 7 dependencias solo-Windows: necesitan pip-audit")
-          print("    en un runner de Windows.")
+          print("  - Las 7 dependencias solo-Windows ya NO estan en esta lista:")
+          print("    las audita pip-audit en el job `dependencias-windows`")
+          print("    (windows-latest). Siguen sin PROBARSE ahi: se audita su version")
+          print("    fijada, no que se puedan instalar.")
           PY
 
   trivy:

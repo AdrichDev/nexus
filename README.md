@@ -775,11 +775,12 @@ nexus/
 
 `.github/workflows/security-ci.yml` es el único workflow y corre en cada
 `push`, en cada `pull_request`, los lunes y a mano. Tres jobs en
-`ubuntu-24.04`:
+`ubuntu-24.04` y uno en `windows-latest`:
 
 | Job | Qué hace |
 |-----|----------|
 | `dependencias` | `pip-audit` contra OSV/PyPI sobre `requirements.txt`, `requirements-voice.txt` **y** `requirements.lock` (las versiones realmente fijadas). |
+| `dependencias-windows` | `pip-audit` (Windows, `--no-deps`) contra las **7 dependencias sólo-Windows** de `requirements.lock`, que en Linux se saltan por marcador y quedarían sin auditar. Falla si el lock deja de tener esas 7 o si el runner no es Windows. No instala el proyecto y no sube versiones: sólo cierra el hueco de auditoría. |
 | `pruebas` | Instala `requirements.lock` y ejecuta **22 suites** de perfil `safe-unit` de `tests/runner_profiles.py` en Python 3.12. |
 | `trivy` | Trivy filesystem (vulnerabilidades + secretos + misconfig) y **falla** ante HIGH/CRITICAL. |
 
@@ -808,9 +809,10 @@ ejecuta, y por qué:
   configuración de producción antes de poner sus dobles.
 * **E2E de navegador** (`tests/e2e/run_e2e.py`, Playwright) y las **sondas
   herméticas** (`tests/hermetic/*`): otra imagen, otro runner.
-* La **auditoría de las 7 dependencias sólo-Windows** (`pycaw`, `comtypes`,
-  `pythonnet`, `clr_loader`, `pywin32`, `pypiwin32`, `WMI`): en Linux se saltan
-  por marcador, así que su versión fijada no se audita en ningún job todavía.
+* **La auditoría de las 7 dependencias sólo-Windows**: su *versión* se audita
+  ahora en el job `dependencias-windows` de Windows, pero su *instalación*
+  (que `pycaw`/`pywin32`/`WMI` construyen bien con cada versión de Python) no:
+  eso sólo se ve en una instalación Windows real.
 * **Lint, typecheck, SAST (Bandit/Semgrep), SBOM, CD y firma de código**: no
   existen. El `.exe` y la APK se construyen en local.
 * **Protección de ramas**: no verificable desde el repositorio local.
