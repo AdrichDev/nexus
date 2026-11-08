@@ -50,7 +50,12 @@ confirmación pendiente del canal:
      veredicto de la matriz (los tres de `_TEXTOS_CONF`)— y no se arma nada en
      ningún canal;
   m) lo que ya funcionaba: una orden directa con un intent de `confirma` se
-     ejecuta y pregunta su skill, y una lectura desde un trabajo sigue igual.
+     ejecuta y pregunta su skill, y una lectura desde un trabajo sigue igual;
+  n) T8f: una orden que se ejecuta al decir «sí» recorre la MISMA cola que una
+     orden directa —aprendizaje con la orden ORIGINAL, historial/grafo/
+     `pg.remember`, `note_reply` y el `data` estructurado del handler— y un «no»,
+     una acción que revienta o un handler roto no dejan el rastro de haberse
+     hecho. `confirm.answer()` sigue devolviendo solo su cadena (L51/T40).
 
 TODO en proceso y sin efectos reales: la skill es un doble (módulo con `SKILL` y
 un `handle` espía), `__db_online` está fuera de línea, no hay red ni LLM, y
@@ -134,7 +139,8 @@ class _Mod:
     """Lo único que `brain` y el cargador necesitan de una skill."""
 
     def __init__(self, folder: str, effects: dict, confirma, calls: list,
-                 arma: bool = False):
+                 arma: bool = False, datos: dict | None = None,
+                 revienta: bool = False):
         self.SKILL = {"name": folder,
                       "description": "doble de prueba (T8c)",
                       "effects": dict(effects),
@@ -143,6 +149,9 @@ class _Mod:
         async def handle(intent, text, match, ctx):
             calls.append({"folder": folder, "intent": intent, "text": text,
                           "channel": (ctx or {}).get("channel")})
+            if revienta:
+                # T8f (d): un handler que revienta antes de devolver nada.
+                raise RuntimeError("handler de prueba que revienta")
             if arma:
                 # Como las skills REALES de `SKILL["confirma"]` (T8b): el propio
                 # handler arma su pregunta y deja su acción para el «sí».
@@ -151,14 +160,20 @@ class _Mod:
                                 summary="¿Lo hago? (sí/no)",
                                 action=lambda: "hecho tras el sí",
                                 request_text=text)
-            return {"reply": f"hecho:{folder}/{intent}"}
+            res = {"reply": f"hecho:{folder}/{intent}"}
+            if datos is not None:
+                # T8f: el dato ESTRUCTURADO del handler, que antes se perdía.
+                res["data"] = datos
+            return res
 
         self.handle = handle
 
 
 def _skill(folder: str, effects: dict, confirma, patrones: dict, calls: list,
-           arma: bool = False):
-    mod = _Mod(folder, effects, confirma, calls, arma=arma)
+           arma: bool = False, datos: dict | None = None,
+           revienta: bool = False):
+    mod = _Mod(folder, effects, confirma, calls, arma=arma, datos=datos,
+               revienta=revienta)
     return skills_loader.Skill(
         name=folder, folder=folder, description="doble de prueba (T8c)",
         patterns={i: re.compile(rx, re.IGNORECASE) for i, rx in patrones.items()},
@@ -211,8 +226,9 @@ _TEXTOS_CONF = {"lee_conf": "lee el tablon confirmando",
                 "borra_conf": "borra confirmando el recibo de prueba"}
 
 
-def _img(calls: list):
-    return _skill("img", _EFECTOS, _CONFIESA, _PATRONES, calls)
+def _img(calls: list, datos: dict | None = None, revienta: bool = False):
+    return _skill("img", _EFECTOS, _CONFIESA, _PATRONES, calls, datos=datos,
+                  revienta=revienta)
 
 
 def _preguntona(calls: list):
@@ -220,6 +236,78 @@ def _preguntona(calls: list):
     # multi-orden: el registro va por carpeta y compartirla sustituiría una.
     return _skill("img2", _EFECTOS_CONF, tuple(_PATRONES_CONF), _PATRONES_CONF,
                   calls, arma=True)
+
+
+# ── T8f: la COLA de una orden ejecutada ─────────────────────────────────────
+# `confirm.answer()` devuelve SOLO la cadena de la respuesta (contrato que no se
+# toca: L51/T40). Antes, una orden ejecutada al decir «sí» corría por `note_reply`
+# y nada más: ni aprendizaje, ni grafo/`pg.remember`, ni historial, ni el `data`
+# estructurado del handler. Aquí se espía la cola ENTERA y se exige que la orden
+# confirmada deje exactamente el mismo rastro que la directa.
+_COLA = {"learn": [], "graph": [], "pg": [], "self": [], "note": [], "chat": []}
+
+
+def _limpia_cola() -> None:
+    for _v in _COLA.values():
+        _v.clear()
+
+
+def _cuenta_cola() -> dict:
+    return {k: len(v) for k, v in _COLA.items()}
+
+
+def _espia_cola() -> dict:
+    """Pone los espías de la cola y devuelve lo que hay que restaurar."""
+    from backend.core.comun import context as _ctxmod
+    from backend.core.dominio import selflearn as _selfmod
+
+    real = {"learn": brain._learn_record,
+            "graph": brain.graph.append_daily,
+            "pg": brain.pg.remember,
+            "self": _selfmod.record_interaction,
+            "note": _ctxmod.note_reply,
+            "emit": brain.bus.emit}
+
+    def _learn(*a, **_k):
+        _COLA["learn"].append(a)
+
+    def _graph(*a, **_k):
+        # Sincrona a proposito: `brain` la llama con `asyncio.to_thread`.
+        _COLA["graph"].append(a)
+
+    def _pg(*a, **_k):
+        _COLA["pg"].append(a)
+
+    def _self(*a, **_k):
+        _COLA["self"].append(a)
+        return False            # nunca dispara el reentrenamiento de verdad
+
+    def _note(*a, **_k):
+        _COLA["note"].append(a)
+
+    async def _emit(tipo, data=None):
+        if tipo == "chat":
+            _COLA["chat"].append(dict(data or {}))
+        await real["emit"](tipo, data)
+
+    brain._learn_record = _learn                  # type: ignore[assignment]
+    brain.graph.append_daily = _graph             # type: ignore[assignment]
+    brain.pg.remember = _pg                       # type: ignore[assignment]
+    _selfmod.record_interaction = _self           # type: ignore[assignment]
+    _ctxmod.note_reply = _note                    # type: ignore[assignment]
+    brain.bus.emit = _emit                        # type: ignore[assignment]
+    return real
+
+
+def _restaura_cola(real: dict) -> None:
+    from backend.core.comun import context as _ctxmod
+    from backend.core.dominio import selflearn as _selfmod
+    brain._learn_record = real["learn"]           # type: ignore[assignment]
+    brain.graph.append_daily = real["graph"]      # type: ignore[assignment]
+    brain.pg.remember = real["pg"]                # type: ignore[assignment]
+    _selfmod.record_interaction = real["self"]    # type: ignore[assignment]
+    _ctxmod.note_reply = real["note"]             # type: ignore[assignment]
+    brain.bus.emit = real["emit"]                 # type: ignore[assignment]
 
 
 def _cargar_skill(nombre: str):
@@ -625,6 +713,152 @@ async def main() -> None:
     check(bool(pend) and pend.get("kind") == "telefono/del_contact",
           f"j) del_contact: queda armado como telefono/del_contact ({pend!r})")
     confirm.clear()
+
+    print("· n) T8f: el «sí» recorre la MISMA cola que una orden directa")
+    real = _espia_cola()
+    try:
+        # (a) lo que ya pasaba, como pin: una orden directa deja TODO el rastro.
+        calls.clear()
+        _limpia_cola()
+        _montar(_img(calls, datos={"x": 1}))
+        r = await brain.process(_TEXTOS["env"], source="text", channel="pc")
+        check(len(calls) == 1, f"n) a) directa: el handler corre una vez ({calls!r})")
+        check(r.get("data") == {"x": 1},
+              f"n) a) directa: la respuesta lleva el `data` del handler ({r.get('data')!r})")
+        check(r.get("skill") == "img" and r.get("provider") == "minion:img",
+              f"n) a) directa: se etiqueta con la skill ({r.get('skill')!r}/{r.get('provider')!r})")
+        check(_COLA["learn"] == [(_TEXTOS["env"], _TEXTOS["env"], "img")],
+              f"n) a) directa: se aprende la orden del operador ({_COLA['learn']!r})")
+        check(len(_COLA["graph"]) == 1,
+              f"n) a) directa: el turno queda en el grafo ({_COLA['graph']!r})")
+        check(len(_COLA["note"]) == 1,
+              f"n) a) directa: `note_reply` apunta la respuesta ({_COLA['note']!r})")
+        check(len(_COLA["pg"]) == 0 and len(_COLA["self"]) == 0,
+              f"n) a) directa: DB fuera de línea y auto-aprendizaje apagado ({_cuenta_cola()})")
+
+        # (b) móvil + external_send: la pregunta no deja rastro; el «sí» sí.
+        calls.clear()
+        _limpia_cola()
+        _montar(_img(calls, datos={"x": 1}))
+        await brain.process(_TEXTOS["env"], source="text", channel="mobile")
+        check(_COLA["learn"] == [] and _COLA["graph"] == [] and _COLA["note"] == []
+              and _COLA["self"] == [],
+              f"n) b) el turno de la pregunta NO deja rastro de haberse hecho ({_cuenta_cola()})")
+        r = await brain.process("sí", source="text", channel="mobile")
+        check(len(calls) == 1 and calls[0]["intent"] == "env",
+              f"n) b) el «sí» ejecuta el handler UNA vez ({calls!r})")
+        check(_COLA["learn"] == [(_TEXTOS["env"], _TEXTOS["env"], "img")],
+              "n) b) tras el «sí» se aprende con la ORDEN original (no con «sí»): "
+              f"{_COLA['learn']!r}")
+        check(len(_COLA["graph"]) == 1,
+              f"n) b) el «sí» deja el turno en el grafo ({_COLA['graph']!r})")
+        check(len(_COLA["note"]) == 1,
+              f"n) b) `note_reply` sigue apuntando la respuesta ({_COLA['note']!r})")
+        check(r.get("data") == {"x": 1},
+              f"n) b) la respuesta del «sí» lleva el `data` estructurado ({r.get('data')!r})")
+        check(r.get("skill") == "img" and r.get("provider") == "minion:img",
+              "n) b) la respuesta del «sí» se etiqueta como la skill ejecutada "
+              f"({r.get('skill')!r}/{r.get('provider')!r})")
+        check(r.get("reply") == "hecho:img/env",
+              f"n) b) la respuesta es la del handler ({r.get('reply')!r})")
+        _chat = _COLA["chat"][-1] if _COLA["chat"] else {}
+        check(_chat.get("user") == _TEXTOS["env"],
+              f"n) b) el evento de chat del «sí» habla de la ORDEN ({_chat!r})")
+        check(_chat.get("skill") == "img" and _chat.get("provider") == "minion:img",
+              f"n) b) y lo etiqueta como la skill de verdad, no «confirmacion» ({_chat!r})")
+        check(confirm.pending("mobile") is None,
+              "n) b) y no queda nada armado")
+
+        # (c) un «no» no ejecuta ni deja rastro.
+        calls.clear()
+        _limpia_cola()
+        _montar(_img(calls, datos={"x": 1}))
+        await brain.process(_TEXTOS["env"], source="text", channel="mobile")
+        _limpia_cola()               # se mide SOLO el turno del «no»
+        r = await brain.process("no", source="text", channel="mobile")
+        check(calls == [], f"n) c) el «no» no ejecuta el handler ({calls!r})")
+        check(_cuenta_cola()["learn"] == 0 and _cuenta_cola()["graph"] == 0
+              and _cuenta_cola()["self"] == 0 and _cuenta_cola()["note"] == 0,
+              f"n) c) el «no» deja la cola en CERO ({_cuenta_cola()})")
+        check(r.get("reply") and r.get("data") is None,
+              f"n) c) se contesta la cancelación sin datos inventados ({r!r})")
+
+        # (d) una acción armada que revienta: nada de cola, y se dice la verdad.
+        calls.clear()
+        _limpia_cola()
+        _montar(_img(calls, datos={"x": 1}))
+        await brain.process(_TEXTOS["env"], source="text", channel="mobile")
+        _pend = confirm.pending("mobile")
+        check(bool(_pend), "n) d) hay una confirmación armada que se va a romper")
+
+        async def _revienta():
+            raise RuntimeError("acción armada de prueba que revienta")
+
+        if _pend:
+            _pend["action"] = _revienta
+        r = await brain.process("sí", source="text", channel="mobile")
+        check(calls == [], f"n) d) si la acción revienta, no se ejecuta nada ({calls!r})")
+        check("ha fallado" in (r.get("reply") or ""),
+              f"n) d) y se contesta el fallo con la verdad ({r.get('reply')!r})")
+        check(_cuenta_cola()["learn"] == 0 and _cuenta_cola()["graph"] == 0
+              and _cuenta_cola()["self"] == 0,
+              f"n) d) una acción que falla NO deja rastro de haberse hecho ({_cuenta_cola()})")
+        check(r.get("data") is None,
+              f"n) d) ni datos de algo que no llegó a ejecutarse ({r.get('data')!r})")
+
+        # (d bis) un handler ROTO (no la acción): la cola obedece la misma guarda
+        # que una orden directa — no se aprende, pero el turno SÍ queda apuntado.
+        conteos: dict = {}
+        for canal in ("pc", "mobile"):
+            calls.clear()
+            _limpia_cola()
+            _montar(_img(calls, datos={"x": 1}, revienta=True))
+            if canal == "mobile":
+                await brain.process(_TEXTOS["env"], source="text", channel=canal)
+                _limpia_cola()
+            r = await brain.process("sí" if canal == "mobile" else _TEXTOS["env"],
+                                    source="text", channel=canal)
+            conteos[canal] = _cuenta_cola()
+            check("ha fallado" in (r.get("reply") or ""),
+                  f"n) d bis) {canal}: un handler roto se confiesa ({r.get('reply')!r})")
+        check(conteos["pc"] == conteos["mobile"],
+              f"n) d bis) un handler roto deja la MISMA cola directa y confirmada ({conteos})")
+        check(conteos["pc"]["learn"] == 0 and conteos["pc"]["graph"] == 1,
+              "n) d bis) y esa cola es «no se aprende, pero el turno se guarda»: "
+              f"{conteos['pc']}")
+
+        # (e) las GUARDAS de la cola son las mismas. Se encienden las dos que la
+        # dejan en cero (DB en línea y auto-aprendizaje) y se mide el MISMO texto
+        # por el PC (directo) y por el móvil (confirmado): contador a contador.
+        async def _con_db() -> bool:
+            return True
+
+        _db_previo = brain._db_online
+        brain._db_online = _con_db          # type: ignore[assignment]
+        settings.set("self_learning", True)
+        try:
+            calls.clear()
+            _limpia_cola()
+            _montar(_img(calls, datos={"x": 1}))
+            await brain.process(_TEXTOS["env"], source="text", channel="pc")
+            directo = _cuenta_cola()
+            calls.clear()
+            _limpia_cola()
+            await brain.process(_TEXTOS["env"], source="text", channel="mobile")
+            _limpia_cola()
+            await brain.process("sí", source="text", channel="mobile")
+            confirmado = _cuenta_cola()
+        finally:
+            brain._db_online = _db_previo   # type: ignore[assignment]
+            settings.set("self_learning", False)
+        check(directo == confirmado,
+              f"n) e) la cola confirmada obedece las MISMAS guardas ({directo} vs {confirmado})")
+        check(directo["pg"] == 1 and directo["self"] == 1,
+              f"n) e) con DB y auto-aprendizaje en línea los dos caminos registran ({directo})")
+    finally:
+        _restaura_cola(real)
+        settings.set("self_learning", False)
+        confirm.clear()
 
 
 def _limpiar() -> None:

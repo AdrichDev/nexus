@@ -873,10 +873,45 @@ def _otra_pregunta_armada(efecto: str, orden: str) -> str:
             f"No lo he hecho: dímelo en una orden aparte y te lo pregunto.")
 
 
+# ── EL «SÍ» DEVUELVE MÁS QUE UN TEXTO (T8f) ──────────────────────────────────
+# `confirm.answer()` devuelve la CADENA de la respuesta y ahí se queda: su
+# contrato no se toca (L51/T40). Pero una orden que se ejecuta al decir «sí»
+# tiene que recibir la MISMA cola que una orden directa —aprendizaje, historial,
+# grafo, `pg.remember`, PM, evento con el `data` estructurado— y esa cola
+# necesita el resultado entero, no su primera frase. Así que la acción armada
+# por `brain` deja aquí el dict del handler (con la orden y la ruta ORIGINALES) y
+# el camino del «sí» lo recoge por el id de la confirmación.
+#
+# Vive en RAM y se vacía al recogerlo: es la mano que pasa el resultado a la
+# misma vuelta que lo contestó, no un registro. Un «no», una confirmación
+# descartada o vencida no escriben nada aquí (la acción ni se llama), y una
+# acción que revienta tampoco: entonces no hay resultado que entregar y se
+# contesta el fallo de `confirm`.
+_confirmadas: dict[str, dict] = {}
+_MAX_CONFIRMADAS = 8        # tope: cabe una por canal y se recoge enseguida
+
+
+def _guardar_confirmada(rid: str, datos: dict) -> None:
+    """Deja el resultado de la orden que ha ejecutado un «sí» para su turno."""
+    if not rid:
+        return
+    _confirmadas[rid] = dict(datos)
+    while len(_confirmadas) > _MAX_CONFIRMADAS:      # poda: lo viejo no crece
+        _confirmadas.pop(next(iter(_confirmadas)), None)
+
+
+def _recoger_confirmada(rid: str) -> dict | None:
+    """Saca (y olvida) lo que ejecutó el «sí» de esa confirmación, si lo hubo."""
+    if not rid:
+        return None
+    return _confirmadas.pop(rid, None)
+
+
 async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
                             channel: str, ejecutar, *,
                             padre_interactivo: bool = False,
-                            confirmacion_armada: bool = False):
+                            confirmacion_armada: bool = False,
+                            texto_orden: str = ""):
     """Decide si esta orden se ejecuta, se pregunta o se deniega. Devuelve
     `(resultado, ejecutado)`.
 
@@ -892,6 +927,9 @@ async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
     directa. `confirmacion_armada` dice que ESTA misma multi-orden ya dejó una
     pregunta armada en el canal: entonces no se ejecuta ni se arma otra (solo
     cabe una, `confirm.request` sustituye la anterior) y se dice.
+    `texto_orden` es la frase ORIGINAL del operador tal como llegó (T8f): es lo
+    que hay que aprender y guardar cuando el «sí» ejecute la orden, nunca el
+    «sí» que la despertó.
     """
     efecto = _efecto_de(skill, intent)
     veredicto = canales.politica(source, channel, efecto, skill.folder, intent)
@@ -953,16 +991,28 @@ async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
     if interactivo:
         from ..comun import confirm as _cf
         pregunta = _pregunta_de_confirmacion(efecto, cmd_text, channel)
+        _rid = ""                         # lo rellena `confirm.request` abajo
 
         async def _hacerlo() -> str:
             """Lo que se ejecuta cuando el operador dice «sí» (`confirm.answer`)."""
             res = await ejecutar()
+            # T8f: el «sí» tiene que dejar el MISMO rastro que una orden directa,
+            # y `confirm.answer()` solo puede devolver la cadena. El resultado
+            # entero (con `data`, `error`, `admin`, `origen_datos`), la orden y la
+            # ruta ORIGINALES se dejan en la ranura de esa confirmación; `process`
+            # los recoge al resolverla y corre la cola compartida.
+            _guardar_confirmada(_rid, {"result": res, "skill": skill.folder,
+                                       "intent": intent, "cmd_text": cmd_text,
+                                       "text": texto_orden or cmd_text})
             return res.get("reply") or "Hecho."
 
         _cf.request(channel=channel, kind=f"{skill.folder}/{intent}",
                     summary=pregunta, action=_hacerlo, request_text=cmd_text,
                     cancel_reply="Vale: no lo hago. No he ejecutado nada.",
                     destructive=(efecto == canales.EFECTO_POR_DEFECTO))
+        # El id lo asigna `confirm.request`; se lee aquí (sin tocar su contrato)
+        # para que la acción armada sepa en qué ranura dejar su resultado.
+        _rid = (_cf.pending(channel) or {}).get("id") or ""
         return ({"reply": pregunta, "skill": skill.folder, "provider": "politica",
                  "data": {"confirm": True, "efecto": efecto}}, False)
 
@@ -973,6 +1023,108 @@ async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
     # siguiente «sí» que el operador dijera para otra cosa.
     return ({"reply": _pregunta_imposible(efecto, source),
              "skill": skill.folder, "provider": "politica", "data": None}, False)
+
+
+async def _cola_de_orden(resultado: dict | None, *, skill: str | None, text: str,
+                         cmd_text: str, source: str, channel: str,
+                         restringido: bool, reply: str | None = None,
+                         provider: str | None = None, spoken: bool = False,
+                         spoken_secs: float = 0.0) -> dict:
+    """La COLA de un turno: del resultado del handler a lo que se devuelve.
+
+    Es el MISMO código para la orden directa, para la que se ejecuta al decir
+    «sí» (T8f) y para la conversación, para que no puedan separarse: aprendizaje,
+    historial, grafo diario, `pg.remember`, auto-captura PM, evento de chat y el
+    dict final con el `data` estructurado del handler.
+
+    `resultado` es lo que devolvió el handler (None en una conversación): de ahí
+    salen `data`, `error`, `admin` y `origen_datos`. Las dos guardas del
+    aprendizaje se quedan donde estaban: ni un handler que falló ni el texto de
+    un canal restringido alimentan lo aprendido (SEC-06).
+    """
+    resultado = resultado or {}
+    if reply is None:
+        reply = resultado.get("reply", "Hecho.")
+    provider = provider or f"minion:{skill}"
+    data = resultado.get("data")
+    _admin = bool(resultado.get("admin"))     # v24 T18: diagnóstico sin sanear
+    # LO QUE DEVUELVE UNA HERRAMIENTA NO LO HA ESCRITO NEXUS (AI-03). Si el minion
+    # declara de dónde viene (hoy: las manos MCP), el turno se guarda marcado y
+    # `_build_messages` lo cerca al construir el prompt. El texto que ve el
+    # operador en el chat NO cambia: la cerca es para el modelo.
+    _origen_respuesta = resultado.get("origen_datos") or ""
+    if _origen_respuesta not in datos_inyectados.ORIGENES:
+        _origen_respuesta = ""
+    # (`note_reply` se apunta DENTRO de `_ejecutar`, para que también quede
+    # apuntado cuando el handler corre tras un «sí».)
+    # aprendizaje: recuerda la orden que ha funcionado (frase → orden canónica).
+    # Los canales restringidos no alimentan ese aprendizaje: su texto no es una
+    # orden del operador y quedaría guardado para ejecutarlo luego por semejanza.
+    if resultado and skill and not resultado.get("error") and not restringido:
+        _learn_record(text, cmd_text, skill)
+        # TAREA NUEVA: si la petición se interpretó (no casaba tal cual) y funcionó,
+        # la aprende con embedding → la próxima vez la reconoce por semejanza sola.
+        if cmd_text.strip().lower() != text.strip().lower():
+            try:
+                await rag.learn_task(text, cmd_text, skill)
+            except Exception:
+                pass
+
+    # Los sub-procesos de una multi-orden NO persisten ni emiten por su cuenta:
+    # el proceso padre junta las respuestas y registra/emite UNA sola vez.
+    if source == "sub":
+        return {"reply": reply, "skill": skill, "provider": provider, "data": data}
+
+    # AUTO-CAPTURA PM (modo pm_strong): si en lo que dijiste hay un COMPROMISO
+    # («tengo que…», «hay que…»), lo anoto como tarea SOLO y te aviso. No se activa
+    # si ya estabas gestionando el tablero (para no duplicar).
+    if source in ("text", "voice") and skill != "tasks_board":
+        try:
+            from ..dominio import pm
+            note = await pm.capture_commitment(text)
+        except Exception:
+            note = None
+        if note:
+            reply = (reply.rstrip() + "\n\n" + note) if reply else note
+
+    # Persistencia de la conversación (blindada + en hilo: nunca bloquea ni rompe el ciclo)
+    try:
+        _history.append({"role": "user", "content": text})
+        _turno = {"role": "assistant", "content": reply}
+        if _origen_respuesta:
+            _turno["datos"] = _origen_respuesta      # AI-03: se cercará en el prompt
+        _history.append(_turno)
+        del _history[:-2 * MAX_TURNS]
+        # Lo que entra por un canal externo NO se guarda en la memoria del operador
+        # (grafo diario + `conversation` en la DB): si no, el texto de un flujo se
+        # convertiría en contexto recuperable por el asistente (SEC-06).
+        if not restringido:
+            await asyncio.to_thread(
+                graph.append_daily,
+                f"**{settings.get('operator_name')}:** {text} → **{_aname()}:** {reply[:200]}",
+                "Conversación")
+            if await _db_online():
+                await asyncio.to_thread(pg.remember, f"[{source}] {text} => {reply[:300]}",
+                                        "conversation")
+    except Exception as exc:                       # noqa: BLE001
+        await bus.emit("log", {"level": "warn", "msg": f"Memoria: no pude persistir ({exc})"})
+
+    # AUTO-REENTRENAMIENTO: registra la interacción y, cada N, destila el perfil en
+    # segundo plano (con Fable) SIN retrasar la respuesta.
+    try:
+        if settings.get("self_learning", True) and not restringido:
+            from ..dominio import selflearn
+            if selflearn.record_interaction(text, reply, skill,
+                                            ok=not (isinstance(data, dict) and data.get("error"))):
+                asyncio.create_task(selflearn.retrain())
+    except Exception:
+        pass
+
+    await bus.emit("chat", {"user": text, "reply": reply, "provider": provider,
+                            "skill": skill, "channel": channel, "admin": _admin})
+    await bus.emit("state", "idle")
+    return {"reply": reply, "skill": skill, "provider": provider, "data": data,
+            "spoken": spoken, "spoken_secs": spoken_secs}
 
 
 async def process(text: str, source: str = "text", channel: str = "pc",
@@ -1020,8 +1172,6 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     via = source.upper() + ("·" + channel.upper() if channel != "pc" else "")
     await bus.emit("log", {"level": "cmd", "msg": f"[{via}·{req_id}] {text}"})
     _stream_spoken, _stream_left = False, 0.0    # voz en streaming (canal PC)
-    _admin = False                               # v24 T18: ¿es una respuesta de diagnóstico?
-    _origen_respuesta = ""                       # AI-03: de dónde viene la respuesta (si no la escribe nexus)
     if source == "voice" and _is_echo(text):
         # ANTI-ECO: era la propia voz de nexus rebotando en el micro — se ignora.
         await bus.emit("log", {"level": "info",
@@ -1073,19 +1223,44 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # queda esperando para dispararse tres mensajes después) y el texto sigue su
     # camino normal.
     if source in ("text", "voice"):
+        _conf_id = ""
         try:
             from ..comun import confirm as _cf
+            # El id se lee ANTES: `answer()` desarma el canal para ejecutar la
+            # acción, y con ese id se recoge lo que esa acción ha ejecutado (T8f).
+            _conf_id = (_cf.pending(channel) or {}).get("id") or ""
             _conf_reply = await _cf.answer(text, channel)
         except Exception as _exc:                       # noqa: BLE001
             _conf_reply = None
             await bus.emit("log", {"level": "warn",
                                    "msg": f"Confirmación: no pude resolverla ({_exc})"})
         if _conf_reply:
+            await bus.emit("log", {"level": "info",
+                                   "msg": f"✅ Confirmación resuelta: «{text[:40]}»"})
+            _hecho = _recoger_confirmada(_conf_id)
+            if _hecho:
+                # T8f: la orden que se ha ejecutado al decir «sí» recorre la MISMA
+                # cola que una orden directa —aprendizaje con la ORDEN original
+                # (nunca con el «sí»), historial, grafo/`pg.remember`, PM y el
+                # evento de chat con el `data` del handler—, y así vuelve también
+                # el `data`/skill/provider a quien llamó. El `source`/`channel` son
+                # los de ESTE turno: es el operador el que ha contestado.
+                _final = await _cola_de_orden(
+                    _hecho.get("result") or {}, skill=_hecho.get("skill"),
+                    text=_hecho.get("text") or "",
+                    cmd_text=_hecho.get("cmd_text") or "",
+                    source=source, channel=channel, restringido=_restringido)
+                if not _final.get("reply"):
+                    # `confirm.answer` ya le contestó «Hecho.» y lo dejó en la
+                    # auditoría: no se le puede devolver otra cosa.
+                    _final["reply"] = _conf_reply
+                return _final
+            # Sin resultado que entregar: la pregunta la armó la PROPIA skill (su
+            # acción devolvió solo el texto) o la acción reviente. Se contesta lo
+            # que dice `confirm`, que es la verdad, y sin inventar cola alguna.
             _history.append({"role": "user", "content": text})
             _history.append({"role": "assistant", "content": _conf_reply})
             del _history[:-2 * MAX_TURNS]
-            await bus.emit("log", {"level": "info",
-                                   "msg": f"✅ Confirmación resuelta: «{text[:40]}»"})
             await bus.emit("chat", {"user": text, "reply": _conf_reply,
                                     "provider": "confirmacion", "skill": "tasks_board",
                                     "channel": channel})
@@ -1732,7 +1907,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         result, _ejecutado = await _autorizar_efecto(
             skill, intent, cmd_text, source, channel, _ejecutar,
             padre_interactivo=padre_interactivo,
-            confirmacion_armada=confirmacion_armada)
+            confirmacion_armada=confirmacion_armada, texto_orden=text)
         if not _ejecutado:
             # No se ha ejecutado: o está armada la confirmación (canal local) o se
             # ha denegado el canal. Lo que se contesta es el veredicto y NO tiene
@@ -1749,31 +1924,12 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             await bus.emit("state", "idle")
             return {"reply": reply, "skill": skill.folder,
                     "provider": _provider, "data": result.get("data")}
-        reply = result.get("reply", "Hecho.")
-        provider = f"minion:{skill.folder}"
-        data = result.get("data")
-        _admin = bool(result.get("admin"))     # v24 T18: diagnóstico sin sanear
-        # LO QUE DEVUELVE UNA HERRAMIENTA NO LO HA ESCRITO NEXUS (AI-03). Si el
-        # minion declara de dónde viene (hoy: las manos MCP), el turno se guarda
-        # marcado y `_build_messages` lo cerca al construir el prompt. El texto
-        # que ve el operador en el chat NO cambia: la cerca es para el modelo.
-        _origen_respuesta = result.get("origen_datos") or ""
-        if _origen_respuesta not in datos_inyectados.ORIGENES:
-            _origen_respuesta = ""
-        # (`note_reply` se apunta DENTRO de `_ejecutar`, para que también quede
-        # apuntado cuando el handler corre tras un «sí».)
-        # aprendizaje: recuerda la orden que ha funcionado (frase → orden canónica).
-        # Los canales restringidos no alimentan ese aprendizaje: su texto no es una
-        # orden del operador y quedaría guardado para ejecutarlo luego por semejanza.
-        if not result.get("error") and not _restringido:
-            _learn_record(text, cmd_text, skill.folder)
-            # TAREA NUEVA: si la petición se interpretó (no casaba tal cual) y funcionó,
-            # la aprende con embedding → la próxima vez la reconoce por semejanza sola.
-            if cmd_text.strip().lower() != text.strip().lower():
-                try:
-                    await rag.learn_task(text, cmd_text, skill.folder)
-                except Exception:
-                    pass
+        # COLA COMPARTIDA (T8f): de aquí a la respuesta final —aprendizaje,
+        # historial, grafo/`pg.remember`, PM, evento de chat y el `data`— es el
+        # MISMO código que recorre la orden que se ejecuta tras un «sí».
+        return await _cola_de_orden(
+            result, skill=skill.folder, text=text, cmd_text=cmd_text,
+            source=source, channel=channel, restringido=_restringido)
     else:
         # Conversación general: memoria reciente + contexto del grafo/DB
         online = await _db_online()          # cacheado + en hilo → no bloquea el loop
@@ -1900,66 +2056,13 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             _stream_spoken = True
         else:
             reply, provider = await llm.ask_llm(text, context)
-        data = None
 
-    # Los sub-procesos de una multi-orden NO persisten ni emiten por su cuenta:
-    # el proceso padre junta las respuestas y registra/emite UNA sola vez.
-    if source == "sub":
-        return {"reply": reply, "skill": routed[0].folder if routed else None,
-                "provider": provider, "data": data}
-
-    # AUTO-CAPTURA PM (modo pm_strong): si en lo que dijiste hay un COMPROMISO
-    # («tengo que…», «hay que…»), lo anoto como tarea SOLO y te aviso. No se activa
-    # si ya estabas gestionando el tablero (para no duplicar).
-    if source in ("text", "voice") and not (routed and routed[0].folder == "tasks_board"):
-        try:
-            from ..dominio import pm
-            note = await pm.capture_commitment(text)
-        except Exception:
-            note = None
-        if note:
-            reply = (reply.rstrip() + "\n\n" + note) if reply else note
-
-    # Persistencia de la conversación (blindada + en hilo: nunca bloquea ni rompe el ciclo)
-    try:
-        _history.append({"role": "user", "content": text})
-        _turno = {"role": "assistant", "content": reply}
-        if _origen_respuesta:
-            _turno["datos"] = _origen_respuesta      # AI-03: se cercará en el prompt
-        _history.append(_turno)
-        del _history[:-2 * MAX_TURNS]
-        # Lo que entra por un canal externo NO se guarda en la memoria del operador
-        # (grafo diario + `conversation` en la DB): si no, el texto de un flujo se
-        # convertiría en contexto recuperable por el asistente (SEC-06).
-        if not _restringido:
-            await asyncio.to_thread(
-                graph.append_daily,
-                f"**{settings.get('operator_name')}:** {text} → **{_aname()}:** {reply[:200]}",
-                "Conversación")
-            if await _db_online():
-                await asyncio.to_thread(pg.remember, f"[{source}] {text} => {reply[:300]}",
-                                        "conversation")
-    except Exception as exc:                       # noqa: BLE001
-        await bus.emit("log", {"level": "warn", "msg": f"Memoria: no pude persistir ({exc})"})
-
-    # AUTO-REENTRENAMIENTO: registra la interacción y, cada N, destila el perfil en
-    # segundo plano (con Fable) SIN retrasar la respuesta.
-    try:
-        if settings.get("self_learning", True) and not _restringido:
-            from ..dominio import selflearn
-            if selflearn.record_interaction(text, reply, routed[0].folder if routed else None,
-                                            ok=not (isinstance(data, dict) and data.get("error"))):
-                asyncio.create_task(selflearn.retrain())
-    except Exception:
-        pass
-
-    await bus.emit("chat", {"user": text, "reply": reply, "provider": provider,
-                            "skill": routed[0].folder if routed else None,
-                            "channel": channel, "admin": _admin})
-    await bus.emit("state", "idle")
-    return {"reply": reply, "skill": routed[0].folder if routed else None,
-            "provider": provider, "data": data,
-            "spoken": _stream_spoken, "spoken_secs": _stream_left}
+        # Y la misma cola que una orden ejecutada (T8f), con `resultado=None`: una
+        # conversación no aprende ni trae `data`, pero SÍ deja el turno apuntado.
+        return await _cola_de_orden(
+            None, skill=None, text=text, cmd_text=text, source=source,
+            channel=channel, restringido=_restringido, reply=reply,
+            provider=provider, spoken=_stream_spoken, spoken_secs=_stream_left)
 
 
 def boot_report() -> list[str]:
