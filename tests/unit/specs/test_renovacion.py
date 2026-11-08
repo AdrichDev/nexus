@@ -323,7 +323,10 @@ def test_telefono_routing():
 
 
 def test_mobile_html_phone_events():
-    src = open(os.path.join(ROOT, "frontend", "mobile.html"), encoding="utf-8").read()
+    # T18b: el código del móvil vive en frontend/js/mobile.js (ya no hay un
+    # `<script>` en línea); se lee el documento Y su script.
+    src = (open(os.path.join(ROOT, "frontend", "mobile.html"), encoding="utf-8").read()
+           + open(os.path.join(ROOT, "frontend", "js", "mobile.js"), encoding="utf-8").read())
     check("type === 'call'" in src, "mobile.html: maneja el evento 'call'")
     check("type === 'whatsapp'" in src, "mobile.html: maneja el evento 'whatsapp'")
     check("wa.me" in src, "mobile.html: construye enlaces wa.me")

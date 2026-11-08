@@ -7,6 +7,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/command.css">
+<!-- T18b: los cuatro manejadores en línea de los dos logos (onload/onerror) son ahora
+     un listener de captura en /static/js/logos.js. Va AQUÍ, en el <head> y como script
+     CLÁSICO: tiene que escuchar antes de que la primera imagen cargue (un módulo va
+     diferido y llegaría tarde; el load no se repite). -->
+<script src="/static/js/logos.js"></script>
 </head>
 <body>
 
@@ -21,7 +26,7 @@
       <div class="boot-ring r3"></div>
       <div class="boot-sweep"></div>
       <div class="boot-badge">
-        <img src="/static/logo.png" alt="nexus" class="boot-logo-img" onload="this.nextElementSibling.style.display='none'" onerror="this.remove()">
+        <img src="/static/logo.png" alt="nexus" class="boot-logo-img">
         <svg viewBox="0 0 100 100" class="wlogo"><g fill="#eafcff"><rect x="15" y="13" width="19" height="74" rx="9"/><rect x="66" y="13" width="19" height="74" rx="9"/><polygon points="15,13 34,13 85,87 66,87"/></g></svg>
       </div>
     </div>
@@ -36,7 +41,7 @@
   <!-- ============ BARRA LATERAL ============ -->
   <aside id="sidebar">
     <div class="brand pywebview-drag-region">
-      <img src="/static/logo.png" alt="nexus" class="brand-logo-img" onload="this.nextElementSibling.style.display='none'" onerror="this.remove()">
+      <img src="/static/logo.png" alt="nexus" class="brand-logo-img">
       <svg viewBox="0 0 100 100" width="44" height="34" class="wlogo"><g fill="var(--cy)"><rect x="15" y="13" width="19" height="74" rx="9"/><rect x="66" y="13" width="19" height="74" rx="9"/><polygon points="15,13 34,13 85,87 66,87"/></g></svg>
       <div><h1>nexus</h1><span>CENTRO DE MANDO</span></div>
     </div>

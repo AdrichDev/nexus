@@ -65,12 +65,18 @@ MANIFIESTO_PATH = MOVIL / "AndroidManifest.xml"
 NSC_PATH = MOVIL / "res" / "xml" / "network_security_config.xml"
 SCAN_HTML_PATH = MOVIL / "assets" / "scan.html"
 MOBILE_HTML_PATH = ROOT / "frontend" / "mobile.html"
+# T18b: el código del móvil se MOVIÓ de un bloque `<script>` en línea al fichero
+# `frontend/js/mobile.js` (la CSP ya no lleva 'unsafe-inline'), y mobile.html solo
+# lo carga con `src`. Se lee el documento Y su script: lo que se comprueba es
+# qué pide la página al puente, no en qué fichero lo pide.
+MOBILE_JS_PATH = ROOT / "frontend" / "js" / "mobile.js"
 
 JAVA = JAVA_PATH.read_text(encoding="utf-8")
 MANIFIESTO = MANIFIESTO_PATH.read_text(encoding="utf-8")
 NSC_TXT = NSC_PATH.read_text(encoding="utf-8") if NSC_PATH.is_file() else ""
 SCAN_HTML = SCAN_HTML_PATH.read_text(encoding="utf-8")
-MOBILE_HTML = MOBILE_HTML_PATH.read_text(encoding="utf-8")
+MOBILE_HTML = (MOBILE_HTML_PATH.read_text(encoding="utf-8")
+               + MOBILE_JS_PATH.read_text(encoding="utf-8"))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")

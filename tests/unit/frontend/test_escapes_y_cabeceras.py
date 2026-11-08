@@ -28,14 +28,17 @@ que es la deriva que quedó alrededor de `esc()`:
      `command.js` tenía `esc2`, copia a mano del `esc()` VIEJO (sin comillas).
      Se borró: el módulo ya importa `esc` de `core/dom.js`. Aquí se pinea que
      no vuelva a aparecer ninguna (`esc2` ni ninguna otra copia), con registro
-     explícito de las dos copias que SÍ tienen que existir porque no pueden
-     importar módulos (`mobile.html` y el wizard `setup.html`), cada una
-     comparada carácter a carácter con `esc()` ejecutando las dos.
-  5. `frontend/setup.html` pintaba `href="${r.download}"` y `${r.out}` /
+     explícito de las dos copias que SÍ tienen que existir (`frontend/js/
+     mobile.js`, que es un script clásico y no puede importar, y el wizard
+     `frontend/js/setup.js`), cada una comparada carácter a carácter con `esc()`
+     ejecutando las dos.
+  5. El wizard (antes `frontend/setup.html`, hoy `frontend/js/setup.js`) pintaba
+     `href="${r.download}"` y `${r.out}` /
      `${r.error}` en crudo. Ahora escapa, y además solo convierte en enlace
      `http:`/`https:`: un `javascript:` del backend no puede quedar clicable en
-     el asistente de primer arranque, donde la CSP mantiene
-     `script-src 'unsafe-inline'`.
+     el asistente de primer arranque. Hasta T18b esa página se servía con
+     `script-src 'unsafe-inline'`; desde T18b su script vive en un módulo y la
+     cabecera ya no lleva `'unsafe-inline'` para scripts.
   6. `frontend/js/ui/widgets.js` interpola `name`/`val`/`delta`/`lbl` sin
      escapar. Ahora escapa todo sin cambiar NI UN BYTE lo que pinta en las
      cuatro llamadas reales del HUD (la prueba compara la implementación
@@ -55,7 +58,7 @@ CÓMO SE PRUEBA, Y QUÉ NO PRUEBA
   la permalink y en los contadores. Si ese trozo se mueve o se renombra, esta
   suite se pone roja: es a propósito.
 - `ui/widgets.js` se IMPORTA tal cual y se compara contra las cuatro llamadas
-  reales del HUD; el bloque de escape del wizard se extrae de `setup.html`
+  reales del HUD; el bloque de escape del wizard se extrae de `js/setup.js`
   entre dos marcadores (`INICIO/FIN bloque de escape del wizard`) y se ejecuta
   con `new Function`, con el mismo tratamiento: si los marcadores desaparecen,
   rojo.
@@ -119,12 +122,17 @@ def check(cond, msg: str) -> bool:
 DOM_JS = ROOT / "frontend" / "js" / "core" / "dom.js"
 REELS_JS = ROOT / "frontend" / "js" / "views" / "reels.js"
 MOBILE_HTML = ROOT / "frontend" / "mobile.html"
+# T18b: el código de las dos páginas que no son el HUD vive en su propio .js.
+# Lo que se extrae y se ejecuta es el JAVASCRIPT, así que la ruta que se pasa
+# abajo es la del fichero .js (el .html solo lo carga con `src`).
+MOBILE_JS = ROOT / "frontend" / "js" / "mobile.js"
 WIDGETS_JS = ROOT / "frontend" / "js" / "ui" / "widgets.js"
 COMMAND_JS = ROOT / "frontend" / "js" / "command.js"
 SETUP_HTML = ROOT / "frontend" / "setup.html"
+SETUP_JS = ROOT / "frontend" / "js" / "setup.js"
 
 # Los marcadores del bloque del wizard que se extrae y se ejecuta (los pone
-# `frontend/setup.html`; si se renombran, esta suite se pone roja a propósito).
+# `frontend/js/setup.js`; si se renombran, esta suite se pone roja a propósito).
 WIZARD_INI = "INICIO bloque de escape del wizard"
 WIZARD_FIN = "FIN bloque de escape del wizard"
 
@@ -137,7 +145,7 @@ PAYLOAD = 'x" onmouseover="alert(1)'
 
 # La cabecera, carácter a carácter. Copiada del código a propósito: si alguien
 # la cambia, el cambio se ve aquí y se discute, no se cuela.
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+CSP = ("default-src 'self'; script-src 'self'; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; "
        "connect-src 'self' ws: wss:; frame-ancestors 'none'; "
@@ -287,13 +295,13 @@ try {
   salida.widgetsError = String((e && e.message) || e);
 }
 
-// ---- setup.html: el wizard escapa y valida el esquema del enlace ------------
+// ---- js/setup.js: el wizard escapa y valida el esquema del enlace -----------
 try {
   const src = fs.readFileSync(setupPath, 'utf8');
   const i = src.indexOf('INICIO bloque de escape del wizard');
   const f = src.indexOf('FIN bloque de escape del wizard');
   if (i < 0 || f < 0 || f < i) {
-    salida.wizardError = 'no encuentro el bloque de escape del wizard en setup.html';
+    salida.wizardError = 'no encuentro el bloque de escape del wizard en js/setup.js';
   } else {
     const bloque = src.slice(src.indexOf('\n', i) + 1, src.lastIndexOf('\n', f));
     const fab = new Function(bloque
@@ -326,7 +334,7 @@ try {
   salida.wizardError = String((e && e.message) || e);
 }
 
-// ---- mobile.html: su escH (la otra copia que no puede importar) -------------
+// ---- js/mobile.js: su escH (la otra copia que no puede importar) ------------
 try {
   const mob = fs.readFileSync(mobilePath, 'utf8');
   const ini = 'const escH = ';
@@ -334,7 +342,7 @@ try {
   const a = mob.indexOf(ini);
   const b = mob.indexOf(fin, a);
   if (a < 0 || b < 0) {
-    salida.mobileError = 'no encuentro `const escH = ...` en mobile.html';
+    salida.mobileError = 'no encuentro `const escH = ...` en js/mobile.js';
   } else {
     const expr = mob.slice(a + ini.length, b + fin.length);
     const escH = new Function('return (' + expr + ');')();
@@ -356,8 +364,8 @@ def _corre_node(scratch: Path) -> dict | None:
     fichero = scratch / "arranque.mjs"
     fichero.write_text(_SCRIPT_JS, encoding="utf-8")
     proc = subprocess.run(
-        [_node(), str(fichero), str(DOM_JS), str(REELS_JS), str(WIDGETS_JS), str(SETUP_HTML),
-         str(MOBILE_HTML)],
+        [_node(), str(fichero), str(DOM_JS), str(REELS_JS), str(WIDGETS_JS), str(SETUP_JS),
+         str(MOBILE_JS)],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=60,
     )
@@ -505,27 +513,27 @@ def _pruebas_widgets(out: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  setup.html: el wizard escapa el resultado de Docker y valida el esquema
+#  js/setup.js: el wizard escapa el resultado de Docker y valida el esquema
 # ══════════════════════════════════════════════════════════════════════════════
 def _pruebas_mobile(out: dict) -> None:
-    """La copia de mobile.html, EJECUTADA, contra esc(): misma salida o rojo.
+    """La copia de mobile.js, EJECUTADA, contra esc(): misma salida o rojo.
 
     Es el otro fichero del registro de copias a mano (no puede importar
     módulos). Sin esto, la copia podría desviarse de `esc()` sin que nadie lo
     notara hasta que un dato con comilla aterrizara en su `href` «Reabrir».
     """
-    print("== mobile.html: su escH da exactamente lo mismo que esc() ==")
+    print("== js/mobile.js: su escH da exactamente lo mismo que esc() ==")
     if not check("mobileEsc" in out,
-                 "no se ha podido ejecutar escH de mobile.html: "
+                 "no se ha podido ejecutar escH de mobile.js: "
                  + out.get("mobileError", "")):
         return
     for texto, suyo, oficial in out["mobileEsc"]:
         check(suyo == oficial,
-              f"escH de mobile.html se desvía de esc() en {texto!r}: {suyo!r} != {oficial!r}")
+              f"escH de mobile.js se desvía de esc() en {texto!r}: {suyo!r} != {oficial!r}")
 
 
 def _pruebas_wizard(out: dict) -> None:
-    print("== setup.html: el wizard escapa y no enlaza un `javascript:` ==")
+    print("== js/setup.js: el wizard escapa y no enlaza un `javascript:` ==")
     if not check("wizardEsc" in out,
                  "no se ha podido ejecutar el escape del wizard: "
                  + out.get("wizardError", "")):
@@ -636,15 +644,15 @@ async def _cabeceras() -> None:
 #  Estructura: los duplicados a mano de esc() no se quedan atrás
 # ══════════════════════════════════════════════════════════════════════════════
 def pruebas_duplicados() -> None:
-    print("== los escapes copiados a mano en mobile.html ==")
-    mobile = MOBILE_HTML.read_text(encoding="utf-8")
+    print("== los escapes copiados a mano en js/mobile.js ==")
+    mobile = MOBILE_JS.read_text(encoding="utf-8")
     check(re.search(r"\[&<>\"'\]/g", mobile) is not None
           and "'&#34;'" in mobile and "'&#39;'" in mobile,
-          "escH de mobile.html escapa las dos comillas igual que esc()")
+          "escH de mobile.js escapa las dos comillas igual que esc()")
     check('/(https?:\\/\\/(?:&amp;|[^\\s<>"\'«»)&])+)/g' in mobile,
-          "el linkify de mobile.html corta la URL en la entidad, como el de dom.js")
+          "el linkify de mobile.js corta la URL en la entidad, como el de dom.js")
     check('<a href="\' + escH(u) +' in mobile,
-          "el enlace «Reabrir» de mobile.html escapa la URL del servidor")
+          "el enlace «Reabrir» de mobile.js escapa la URL del servidor")
     check('href="\' + u + \'"' not in mobile,
           "y ya no queda ningún href construido con el dato en crudo")
 
@@ -665,8 +673,8 @@ _MAPA_A_MANO = re.compile(r"\.replace\(\s*/\[[^\]]*&[^\]]*<[^\]]*\]/g")
 # registro no es una excusa, es una promesa que se verifica.
 _ESCAPES_A_MANO = {
     "frontend/js/core/dom.js": "la fuente de verdad: exporta esc()",
-    "frontend/mobile.html": "página sin módulos: su escH, comparado con esc()",
-    "frontend/setup.html": "wizard con <script> en línea: su _escapeHtml, comparado con esc()",
+    "frontend/js/mobile.js": "script clásico: su escH, comparado con esc()",
+    "frontend/js/setup.js": "wizard: su _escapeHtml, comparado con esc()",
 }
 
 
@@ -721,12 +729,12 @@ _HREF_CONCAT = re.compile(r"""href="'\s*\+\s*(.+?)\s*\+\s*'""")
 _ESCAPA = re.compile(r"^(?:esc|escH|_escapeHtml)\s*\(")
 
 # Los dos `linkify` interpolan la URL SIN volver a escapar, y es correcto: `u`
-# es el trozo de texto que ya pasó por el escape (dom.js) / `escH` (mobile.html)
+# es el trozo de texto que ya pasó por el escape (dom.js) / `escH` (mobile.js)
 # y su regex corta en la entidad `&#34;`, así que dentro del href no puede haber
 # ni una comilla cruda. Comprobado en la sección de `linkify` de arriba.
 _HREF_CRUDO_JUSTIFICADO = {
     ("frontend/js/core/dom.js", "u"): "linkify: `u` sale del texto YA escapado",
-    ("frontend/mobile.html", "u"): "la copia de linkify de mobile.html, misma razón",
+    ("frontend/js/mobile.js", "u"): "la copia de linkify de mobile.js, misma razón",
 }
 
 
@@ -769,27 +777,36 @@ def pruebas_command_sin_esc2() -> None:
 
 
 def pruebas_wizard_estructura() -> None:
-    print("== setup.html: ni un dato del backend en crudo ==")
-    html = _sin_comentarios(SETUP_HTML.read_text(encoding="utf-8"))
+    # T18b movió este script del <script> en línea de setup.html a js/setup.js:
+    # lo que se mira es el MISMO código, en su fichero (la página ya solo lo
+    # carga con `src`).
+    print("== js/setup.js: ni un dato del backend en crudo ==")
+    js = _sin_comentarios(SETUP_JS.read_text(encoding="utf-8"))
     for crudo in ('href="${r.download}"', "${r.out || ''}</span>", "${r.error || ''}</span>"):
-        check(crudo not in html, f"setup.html sigue con un dato del backend en crudo: {crudo}")
-    check("<a href=\"${_escapeHtml(u)}\"" in html,
+        check(crudo not in js, f"js/setup.js sigue con un dato del backend en crudo: {crudo}")
+    check("<a href=\"${_escapeHtml(u)}\"" in js,
           "el enlace de descarga del wizard no escapa la URL")
-    check("_urlSegura" in html and re.search(r"\^https\?:", html) is not None,
+    check("_urlSegura" in js and re.search(r"\^https\?:", js) is not None,
           "el wizard no valida el esquema: solo http(s) puede llegar a un href")
-    check("core/dom.js" in SETUP_HTML.read_text(encoding="utf-8"),
+    check("core/dom.js" in SETUP_JS.read_text(encoding="utf-8"),
           "el wizard no dice que su copia viene de esc() de core/dom.js")
+    check('type="module" src="/static/js/setup.js"' in SETUP_HTML.read_text(encoding="utf-8"),
+          "setup.html ya no carga js/setup.js como módulo: el wizard no arrancaría")
 
 
 def pruebas_inventario_inline() -> None:
-    """El comentario de `_CSP_HUD` justifica `'unsafe-inline'` con números.
+    """El inventario de lo que YA no existe: 0 manejadores y 0 bloques.
 
-    Si esos números cambian (por ejemplo al hacer T18b, que los quita), esta
-    comprobación se pone roja para que el comentario y la cabecera se actualicen
-    a la vez. Un comentario que miente sobre por qué la CSP es débil es peor que
-    no tener comentario.
+    Antes de T18b esta comprobación contaba 21 manejadores en línea y 2 bloques
+    `<script>` —el precio de `script-src 'unsafe-inline'`— y se ponía roja si
+    cambiaban, para que el comentario de `_CSP_HUD` no mintiera. T18b los quitó:
+    ahora lo que se pina es el CERO, para que un `onclick=` que alguien vuelva a
+    escribir en un documento de `frontend/` aparque la suite aquí, antes de que
+    la CSP tenga que volver a abrirse. El caso a caso (los 21 cableados, los
+    ficheros .js que se cargan y el resto de la cabecera) está en
+    `tests/unit/frontend/test_csp_sin_inline.py`.
     """
-    print("== inventario de lo que obliga a 'unsafe-inline' ==")
+    print("== inventario de lo que obligaba a 'unsafe-inline' (hoy 0 y 0) ==")
     manejadores = 0
     bloques = 0
     for nombre in ("index.html", "mobile.html", "setup.html"):
@@ -797,11 +814,13 @@ def pruebas_inventario_inline() -> None:
         manejadores += len(re.findall(
             r"\son(?:click|load|error|input|change|submit)=", texto))
         bloques += len(re.findall(r"<script\s*>", texto))
-    check(manejadores == 21,
-          f"hay 21 manejadores en línea en el HUD (encontrados {manejadores}); "
-          "si ya no son esos, T18b está hecho y toca quitar 'unsafe-inline'")
-    check(bloques == 2,
-          f"hay 2 bloques <script> en línea (encontrados {bloques})")
+    check(manejadores == 0,
+          f"quedan {manejadores} manejadores en línea en el HUD (T18b los quitó: "
+          "lo que volviera a usar uno obliga a reabrir la CSP; pásalo a "
+          "addEventListener en su módulo de frontend/js)")
+    check(bloques == 0,
+          f"quedan {bloques} bloques <script> en línea (deben ser 0: su código va "
+          "a un .js de frontend/js y el documento lo carga con src)")
 
 
 def main() -> None:

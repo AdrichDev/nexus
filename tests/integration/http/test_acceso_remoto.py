@@ -345,7 +345,11 @@ def main() -> int:
               "el QR lleva las direcciones de respaldo")
         check("token=" in st["link"], "y el token, que ese sí es para siempre")
 
-        mob = (ROOT / "frontend" / "mobile.html").read_text(encoding="utf-8")
+        # T18b: el código del móvil vive en frontend/js/mobile.js (ya no hay un
+        # `<script>` en línea, la CSP no lleva 'unsafe-inline'). Se lee el
+        # documento Y su script.
+        mob = ((ROOT / "frontend" / "mobile.html").read_text(encoding="utf-8")
+               + (ROOT / "frontend" / "js" / "mobile.js").read_text(encoding="utf-8"))
         check("nexus_hosts" in mob, "el móvil guarda la LISTA de direcciones")
         check("function buscaPC" in mob,
               "y busca cuál responde en vez de rendirse con la primera")

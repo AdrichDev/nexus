@@ -140,7 +140,15 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               # escribe app.py y el cloudflared de remote.py, y las carpetas de
               # datos de seis skills, respetan NEXUS_CONFIG_DIR/NEXUS_DATA_DIR.
               # Docker y el cliente HTTP dobados: sin red y sin ejecutar nada.
-              "unit/core/runtime/test_rutas_aisladas.py"):
+              "unit/core/runtime/test_rutas_aisladas.py",
+              # Los 21 manejadores en línea y los 2 bloques `<script>` en línea
+              # de los tres documentos ya no existen, y por eso la CSP se queda
+              # con `script-src 'self'` (T18b). Lee los documentos y los tres
+              # ficheros .js a los que se movió el código, EJECUTA js/setup.js
+              # con `node` sobre un DOM de mentira (sin node esa parte se salta
+              # con un aviso explícito) y pide `/`, `/setup` y `/m` EN PROCESO
+              # con httpx.ASGITransport: sin lifespan, sin uvicorn, sin puertos.
+              "unit/frontend/test_csp_sin_inline.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.

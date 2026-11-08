@@ -392,14 +392,20 @@ def test_white_label_nombre():
           "white-label: el subtítulo usa la wake word configurada (sin «despierta nexus» fijo)")
     check(">nexus</h1>" not in js and "di algo a nexus" not in js,
           "white-label: sin literales «nexus» cableados en el núcleo ni el chat")
-    setup = open(os.path.join(ROOT, "frontend", "setup.html"), encoding="utf-8").read()
+    # T18b: el JavaScript del asistente vive en frontend/js/setup.js (la CSP ya
+    # no lleva 'unsafe-inline'). Se lee el documento Y su script: lo que se
+    # comprueba es que el setup hace tal cosa, no en qué fichero la hace.
+    setup = (open(os.path.join(ROOT, "frontend", "setup.html"), encoding="utf-8").read()
+             + open(os.path.join(ROOT, "frontend", "js", "setup.js"), encoding="utf-8").read())
     check("f-sysname" in setup and "assistant_name:" in setup and "wake_word:" in setup,
           "white-label: el setup pide el nombre del sistema y deriva la wake word")
 
 
 # ====== TEST 3q-bis: el instalador ofrece «seguir con nexus» o «crear perfil» (nombre+logo) ======
 def test_setup_perfil_identidad():
-    setup = open(os.path.join(ROOT, "frontend", "setup.html"), encoding="utf-8").read()
+    # T18b: documento + su script (misma razón que arriba).
+    setup = (open(os.path.join(ROOT, "frontend", "setup.html"), encoding="utf-8").read()
+             + open(os.path.join(ROOT, "frontend", "js", "setup.js"), encoding="utf-8").read())
     # elección de perfil: seguir con nexus (por defecto) o crear uno propio
     check("prof-cards" in setup and 'data-v="nexus"' in setup and 'data-v="custom"' in setup,
           "setup: elige entre «seguir con nexus» o «crear mi perfil»")

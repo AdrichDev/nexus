@@ -239,6 +239,17 @@ SAFE_UNIT_SUITES = (
     # docker, no se baja ni se ejecuta cloudflared), no hay red y el camino SIN
     # las variables se mide en un subproceso que solo imprime cadenas.
     "unit/core/runtime/test_rutas_aisladas.py",
+    # Ni un manejador en atributo, ni un `<script>` en línea, y la CSP servida
+    # con `script-src 'self'` (SEC-10, roadmap P2-11, T18b). `safe-unit` es
+    # honesto: las cabeceras se piden EN PROCESO con httpx.ASGITransport (sin
+    # lifespan, sin uvicorn, sin puertos, sin micrófono ni Telegram) y config y
+    # datos apuntan a carpetas de usar y tirar ANTES de importar el backend; el
+    # cableado del asistente se EJECUTA con `node` sobre un DOM de mentira (sin
+    # navegador, sin red: la única llamada al backend se queda colgada a
+    # propósito), así que el `requires` real es tener `node` en el PATH — y sin
+    # él la suite lo dice en voz alta y se salta esa parte, bajando la
+    # evidencia a lectura del fuente.
+    "unit/frontend/test_csp_sin_inline.py",
 )
 
 STATIC_SAFE_SUITES = (

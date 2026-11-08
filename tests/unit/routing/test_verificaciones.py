@@ -98,7 +98,10 @@ def load_core(name):
 
 # ============ 1) MÓVIL: voz muteada ============
 def test_movil_voz_muteada():
-    html = open(os.path.join(ROOT, "frontend", "mobile.html"), encoding="utf-8").read()
+    # T18b: el código del móvil vive en frontend/js/mobile.js (ya no hay un
+    # `<script>` en línea); se lee el documento Y su script.
+    html = (open(os.path.join(ROOT, "frontend", "mobile.html"), encoding="utf-8").read()
+            + open(os.path.join(ROOT, "frontend", "js", "mobile.js"), encoding="utf-8").read())
     m = re.search(r"async function speak\(text\)\s*\{(.*?)\n  \}", html, re.S)
     check(m is not None, "móvil: existe speak()")
     body = m.group(1) if m else ""

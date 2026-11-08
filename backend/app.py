@@ -135,27 +135,33 @@ async def no_cache_estaticos(request, call_next):
 #
 # QUÉ BLOQUEA ESTA CABECERA (de verdad):
 #   * `frame-ancestors 'none'` + `X-Frame-Options: DENY` → nadie enmarca el HUD.
-#   * `script-src 'self' 'unsafe-inline'` → ningún script de un origen REMOTO
-#     (cdn, "https://...") se ejecuta, aunque alguien lo inyectara en el HTML.
+#   * `script-src 'self'` SIN `'unsafe-inline'` (T18b, antes `d29417a` la llevaba)
+#     → ni un script de un origen REMOTO ni un manejador en atributo (`onerror=`,
+#     `onclick=`) ni un `<script>` en línea se ejecutan. Un HTML inyectado por un
+#     `innerHTML` sin escapar ya NO es código ejecutable: era el último agujero
+#     que dejaba abierto esta cabecera. Los 21 manejadores que la obligaban
+#     (`index.html` 4: onload/onerror de los dos logos; `setup.html` 17: 14
+#     onclick, 2 oninput, 1 onchange) y los 2 bloques `<script>` en línea
+#     (`mobile.html` y el asistente) viven ahora en `frontend/js/logos.js`,
+#     `frontend/js/setup.js` y `frontend/js/mobile.js`, cableados con
+#     `addEventListener` desde un fichero que el documento carga con `src`.
 #   * `base-uri 'none'` → no se puede secuestrar <base> para que las rutas
 #     relativas del HUD apunten a otro sitio.
 #   * `form-action 'self'` → un formulario inyectado no puede mandar lo escrito
 #     a un dominio de fuera.
 #   * `object-src 'none'` → ni <object>/<embed>/<applet> (plugins).
 #
-# QUÉ **NO** BLOQUEA, y hay que decirlo claro: `script-src` y `style-src`
-# llevan `'unsafe-inline'` porque el HUD de hoy depende de ello. En los tres
-# documentos hay HOY 21 manejadores en línea (`index.html` 4: onload/onerror de
-# los dos logos; `setup.html` 17: 14 onclick, 2 oninput, 1 onchange) más un
-# bloque `<script>` en línea en `mobile.html` y otro en `setup.html`. Eso
-# significa que un `<script>` o un `onerror=` inyectado por un `innerHTML` sin
-# escapar SÍ se ejecuta. Es una cabecera honesta a medias: cierra el enmarcado y
-# los orígenes remotos, NO cierra XSS por HTML inyectado. Quitar
-# `'unsafe-inline'` es T18b (pasar esos 21 manejadores y los 2 bloques en línea a
-# listeners en los módulos), y hasta que eso esté hecho, ponerla más fuerte
-# aquí rompería el HUD sin proteger nada más de lo que ya protege `esc()`.
-# El test `tests/unit/frontend/test_escapes_y_cabeceras.py` cuenta esos 21/2 y se
-# pone rojo si cambian, para que este comentario no se quede mintiendo.
+# QUÉ **NO** BLOQUEA TODAVÍA, y hay que decirlo claro: `style-src` sigue
+# llevando `'unsafe-inline'` porque el HUD de hoy está lleno de `style="…"` en
+# ATRIBUTO (T18b los deja fuera de alcance a propósito: moverlos a clases CSS es
+# otro trabajo). La diferencia con antes es de clase, no de grado: un `<style>` o
+# un `style=` inyectado puede DESFIGURAR la página, pero ya no puede ejecutar una
+# línea de código. `tests/unit/frontend/test_csp_sin_inline.py` pina las dos
+# mitades —`script-src` exactamente `'self'`, y `style-src` conservando su
+# `'unsafe-inline'` hasta que esos atributos se vayan—, así que quitar el de
+# estilos sin hacer antes ese trabajo pone la suite en rojo en vez de colarse.
+# El inventario del otro test (`test_escapes_y_cabeceras.py`) cuenta los
+# manejadores y los bloques en línea de los tres documentos: hoy 0 y 0.
 #
 # EFECTO CONOCIDO Y A PROPÓSITO: `index.html` y `setup.html` piden la fuente
 # Share Tech Mono a fonts.googleapis.com. Con `style-src 'self'` (y sin
@@ -183,7 +189,7 @@ async def no_cache_estaticos(request, call_next):
 # contacta con Google (IP + User-Agent + referer del HUD). Lo limpio es servirla
 # en local desde /static, con la licencia OFL del tipo dentro del repo; eso es
 # T18d y necesita el fichero de la fuente, no un cambio de cabecera.
-_CSP_HUD = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
+_CSP_HUD = ("default-src 'self'; script-src 'self'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data: blob:; "

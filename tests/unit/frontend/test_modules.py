@@ -31,7 +31,12 @@ JS = ROOT / "frontend" / "js"
 CONFIG_PY = ROOT / "backend" / "core" / "comun" / "config.py"
 
 # Scripts clasicos: dejan su API en window y NO son modulos. Se quedan fuera.
-CLASICOS = {"qrcode.min.js", "reactor.js", "charts.js"}
+# `logos.js` (T18b) es clasico A PROPOSITO y va en el <head>: escucha el
+# load/error de los dos logos en fase de captura y tiene que llegar ANTES de que
+# la primera imagen cargue, cosa que un modulo (diferido) no puede hacer.
+# `mobile.js` (T18b) es el antiguo `<script>` en linea de mobile.html, movido tal
+# cual: sigue siendo clasico y sigue cargandose despues de `reactor.js`.
+CLASICOS = {"qrcode.min.js", "reactor.js", "charts.js", "logos.js", "mobile.js"}
 
 _fail: list[str] = []
 _saltos: list[str] = []          # avisos de lo que NO se ha podido probar
@@ -140,7 +145,10 @@ check("command.js?v=" not in html,
       "y la query no se propaga a los import de un modulo")
 
 print("== 4) no hay modulos huerfanos ==")
-ENTRADA = {"command.js"}
+# `setup.js` (T18b) es el antiguo bloque en linea de setup.html, hoy un modulo
+# que carga la propia pagina: es una ENTRADA, como command.js. No lo importa
+# nadie porque no exporta nada, y eso es correcto.
+ENTRADA = {"command.js", "setup.js"}
 importados_por_alguien: set[Path] = set()
 for f in TODOS:
     for _s, ruta in lineas_import(f.read_text(encoding="utf-8")):
