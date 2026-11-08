@@ -20,6 +20,20 @@ INSP_DIR = DATA / "inspiration"
 SCRIPTS_DIR = DATA / "scripts"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "connect": "read",
+        "analytics": "read",
+        "best": "read",
+        "inspire": "read",
+        "patterns": "write_local",
+        "script": "write_local",
+        "ideas": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Content OS",
     "description": "Instagram vía Graph API: métricas reales de tu cuenta, ranking de reels, "
                    "patrones ganadores sobre material propio y guiones "

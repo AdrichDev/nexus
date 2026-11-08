@@ -84,6 +84,16 @@ from pathlib import Path
 CONFIG = Path(__file__).resolve().parents[2] / "config" / "mcp_servers.json"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "reload": "read",
+        "list": "read",
+        "call": "external_send",  # las de escritura ya preguntan (confirma)
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("call",),
     "name": "Manos MCP",
     "description": "Conectores MCP externos por stdio (filesystem, github, slack, postgres…): descubre sus herramientas y las invoca, como Cowork",
     "patterns": {

@@ -5,6 +5,18 @@ No inventa contenido: si no hay canal conectado, lo dice y explica qué falta.
 from __future__ import annotations
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "send": "write_local",
+        "capture": "read",
+        "bot": "read",
+        "notifications": "read",
+        "inbox": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Comunicación",
     "description": "Puente con Telegram: estado del bot, envío de mensajes y captura de tareas",
     "patterns": {

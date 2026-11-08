@@ -25,6 +25,17 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "launcher": "external_send",
+        "install": "external_send",
+        "update": "external_send",
+        "play": "external_send",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Juegos / Steam",
     "description": "Juega, instala, descarga y valida juegos por nombre en Steam (sin API key) y abre launchers (Epic, GOG, Battle.net…)",
     "patterns": {

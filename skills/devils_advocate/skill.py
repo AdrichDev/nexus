@@ -2,6 +2,16 @@
 from __future__ import annotations
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "off": "read",
+        "on": "read",
+        "critique": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Devil's Advocate",
     "description": "Contrapunto crítico bajo demanda: steelman, puntos débiles, riesgos ocultos y veredicto sobre tus ideas y planes",
     "patterns": {

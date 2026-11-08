@@ -63,6 +63,19 @@ import re
 import time
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "hermes_estado": "read",
+        "hermes_resultado": "read",
+        "hermes_arranca": "external_send",
+        "hermes_tarea": "external_send",
+        "hermes_info": "read",
+        "hermes": "external_send",  # delegar entrega el trabajo a un ejecutor externo
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("hermes_tarea", "hermes"),
     "name": "Hermes (subagente)",
     "description": ("Encargos agénticos en 2º plano con Hermes Agent (Nous) por su API local: "
                     "«hermes: investiga X y hazme un informe». Además arranca y auto-repara su "

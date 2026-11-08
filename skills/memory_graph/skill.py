@@ -25,6 +25,23 @@ _NO_ES_SUSTANTIVO = (r"ahora|ya|hoy|todav[ií]a|a[uú]n|exactamente|realmente|"
 _YO = r"(?:mí\b|mi\b(?!\s+\w)|mi\b(?=\s+(?:" + _NO_ES_SUSTANTIVO + r")))"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "olvidar": "destructive",
+        "profile": "read",
+        "remember": "write_local",
+        "learn_folder": "write_local",
+        "learn_doc": "write_local",
+        "learn": "write_local",
+        "list_knowledge": "read",
+        "graph": "read",
+        "status": "read",
+        "recall": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("olvidar",),
     "name": "Memoria",
     "description": ("Memoria a largo plazo de doble capa: graba hechos, aprende documentos "
                     "y carpetas (PDF/Word incluidos) y los recupera con búsqueda semántica "

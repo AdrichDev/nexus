@@ -7,6 +7,16 @@ from pathlib import Path
 KNOWLEDGE = Path(__file__).resolve().parents[2] / "knowledge"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "list": "read",
+        "apply": "read",
+        "auto": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Biblioteca dev (openClaw)",
     "description": ("Guías de desarrollo openClaw/Gru (SDD, PRs, revisión judgment-day...): "
                     "las carga bajo demanda y las aplica a tu encargo con el LLM"),

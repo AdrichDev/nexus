@@ -32,6 +32,25 @@ from backend.core.dominio import board
 from backend.core.comun import confirm
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "create": "write_local",
+        "snooze": "write_local",
+        "marcar": "write_local",
+        "move": "write_local",
+        "start": "write_local",
+        "late": "read",
+        "organize": "read",
+        "restore": "write_local",
+        "trash": "destructive",
+        "clear": "destructive",
+        "delete": "destructive",
+        "show": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("trash", "clear", "delete"),
     "name": "Tablero",
     "description": "Kanban de tareas y eventos: crea con fecha límite y hora (evento 📅 vs acción 🛠, con volcado a Google Calendar), mueve de estado, avisa de retrasos y prioriza con Eisenhower",
     "patterns": {

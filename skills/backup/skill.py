@@ -63,6 +63,17 @@ import zipfile
 from pathlib import Path
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "restore": "write_local",
+        "list": "read",
+        "baks": "destructive",
+        "make": "write_local",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("restore", "baks"),
     "name": "Backup",
     "description": "Copia diaria automática de data/ (memoria, tablero, contactos) con rotación de 7, backup bajo orden, restauración verificada en una carpeta nueva y archivado de los .bak sueltos",
     # 'restore' va antes que 'make': «restaura la copia de seguridad» contiene

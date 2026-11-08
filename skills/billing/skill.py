@@ -11,6 +11,15 @@ _NO_CLIENTE = (r"completad[ao]s?\b|pendientes?\b|progreso\b|revisi[oó]n\b|"
                r"hechas?\b|terminadas?\b|realizadas?\b|done\b")
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "invoice": "write_local",
+        "list": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Facturación",
     "description": "Facturas HTML por voz con numeración automática, registro en Postgres y archivo en data/invoices",
     "patterns": {

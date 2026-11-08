@@ -19,6 +19,17 @@ import sys
 import httpx
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "call": "external_send",
+        "dm": "external_send",
+        "notify": "external_send",
+        "open": "external_send",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Discord",
     "description": "Publica avisos en tu canal de Discord por webhook y abre la app al instante",
     "patterns": {

@@ -4,6 +4,15 @@ from __future__ import annotations
 import httpx
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "whatsapp": "external_send",
+        "flow": "external_send",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("whatsapp",),
     "name": "n8n / WhatsApp",
     "description": "Dispara tus flujos de n8n por webhook y envía WhatsApp a través de ellos (Evolution API, Twilio, Cloud API)",
     "patterns": {

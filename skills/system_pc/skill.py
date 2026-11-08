@@ -119,6 +119,36 @@ _QUITAR_SILENCIO = (
 )
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "volume": "external_send",  # mueve el volumen del equipo
+        "volume_app": "external_send",  # mueve el volumen del equipo
+        "volume_ask": "read",
+        "brightness": "external_send",  # mueve el brillo del equipo
+        "temps": "read",
+        "hardware": "read",
+        "processes": "read",
+        "port_who": "read",
+        "ports": "read",
+        "kill": "external_send",
+        "youtube": "external_send",
+        "open_web": "external_send",
+        "reindex": "write_local",
+        "list_apps": "read",
+        "open_app": "external_send",
+        "screenshot": "write_local",
+        "webcam": "write_local",
+        "shutdown_confirm": "read",
+        "shutdown": "destructive",
+        "restart_confirm": "read",
+        "restart": "destructive",
+        "wake": "external_send",
+        "set_mac": "write_local",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("shutdown", "restart"),
     "name": "Sistema / PC",
     "description": ("Control real del PC: CPU/RAM/GPU con temperaturas, procesos, abrir apps "
                     "y webs, capturas, webcam, Wake-on-LAN y apagado con doble confirmación"),

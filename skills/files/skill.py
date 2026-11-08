@@ -15,6 +15,29 @@ from pathlib import Path
 from backend.core.infraestructura import files_io as FIO
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "trash_confirm": "read",
+        "trash": "destructive",
+        "make_doc": "write_local",
+        "move": "write_local",
+        "copy": "write_local",
+        "rename": "write_local",
+        "mkdir": "write_local",
+        "update": "write_local",
+        "versions": "read",
+        "restore_file": "write_local",
+        "mkfile": "write_local",
+        "search": "read",
+        "explore": "read",
+        "analyze": "read",
+        "summarize": "read",
+        "read": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("trash", "restore_file"),
     "name": "Archivos",
     "description": "Archivos reales del equipo: crear (con contenido IA), mover, copiar, renombrar, buscar, leer, resumir y papelera recuperable, bajo permisos sandbox/carpetas/todo",
     "patterns": {

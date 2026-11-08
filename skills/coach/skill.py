@@ -11,6 +11,24 @@ import datetime as dt
 import re
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "weekly": "read",
+        "briefing": "read",
+        "new_goal": "write_local",
+        "goals": "read",
+        "checklists": "read",
+        "new_checklist": "write_local",
+        "add_item": "write_local",
+        "remind": "write_local",
+        "reorganize": "write_local",
+        "coaching": "read",
+        "spec": "write_local",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Coach / Secretario",
     "description": "Briefing diario con empujón de coach, objetivos desglosados en pasos, "
                    "checklists vivos, recordatorios escalonados (semana antes, 2 días antes "

@@ -28,6 +28,22 @@ import sys
 from pathlib import Path
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "ig_perfil_set": "write_local",
+        "ig_perfil_ver": "read",
+        "ig_estado": "read",
+        "ig_descubrir": "write_local",
+        "ig_manual": "write_local",
+        "ig_competencia": "read",  # lee cuentas ajenas y deja el informe en local
+        "ig_analizar": "read",  # lee SUS métricas y deja el informe: no publica nada
+        "ig_listar": "read",
+        "ig_conversion": "write_local",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Instagram Reels",
     "description": ("Analiza los comentarios e insights de tus reels de Instagram: "
                     "temas y sentimiento, dudas repetidas, leads interesados e ideas "

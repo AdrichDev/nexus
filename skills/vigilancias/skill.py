@@ -17,6 +17,18 @@ import re
 import time
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "list": "read",
+        "remove": "write_local",
+        "price": "write_local",
+        "news": "write_local",
+        "web": "write_local",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Vigilancias",
     "description": "Vigila webs (cambios), precios (bajadas) y noticias de un tema; avisa por HUD y Telegram cuando algo salta",
     "patterns": {

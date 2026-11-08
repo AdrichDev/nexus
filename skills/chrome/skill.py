@@ -43,6 +43,19 @@ PROFILE = DATA_DIR / "chrome_nexus"
 MAX_PAGE_CHARS = 12000          # texto de página que pasamos al LLM
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "connect": "external_send",
+        "close": "external_send",
+        "switch": "external_send",  # controla el navegador del operador
+        "open": "external_send",
+        "read": "read",
+        "tabs": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Chrome",
     "description": "Navegador en vivo: leer y resumir tus pestañas abiertas, cambiar, abrir y cerrar (CDP, como chrome-devtools-mcp)",
     # Qué hace cada intent, EN PALABRAS. Es lo que lee el planificador para

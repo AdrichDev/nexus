@@ -22,6 +22,18 @@ import re
 import unicodedata
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "info": "read",
+        "save_contact": "write_local",
+        "del_contact": "destructive",
+        "list_contacts": "read",
+        "llamar": "external_send",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Teléfono",
     "description": ("Llamadas reales desde tu móvil vinculado y agenda propia: "
                     "«llama a mamá» resuelve el número, «marca el 612 345 678» marca directo"),

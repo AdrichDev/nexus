@@ -15,6 +15,14 @@ from urllib.parse import quote
 import httpx
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "weather": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Clima / Tiempo",
     "description": ("Meteorología real de cualquier ciudad vía wttr.in (sin API key): "
                     "temperatura, sensación, lluvia, viento y máx/mín de hoy"),

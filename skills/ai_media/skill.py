@@ -21,6 +21,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "video_youtube": "write_local",
+        "transcribe": "write_local",
+        "web_search": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Audio y búsqueda web",
     "description": "Transcribe audios y vídeos con Whisper local (marcas de tiempo y análisis) y responde con búsqueda web leyendo las páginas y citando las fuentes",
     # ORDEN: específico arriba, amplio abajo (web_search es el más ancho y va último).

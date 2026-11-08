@@ -13,6 +13,19 @@ operativa pasa por el candado de `opmem` (procedencia + confirmación)."""
 from __future__ import annotations
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "status": "read",
+        "rules": "read",
+        "forget_rule": "destructive",
+        "save": "write_local",  # solo la rama que fija una orden permanente pregunta
+        "context": "read",
+        "search": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("save", "forget_rule"),
     "name": "Engram (memoria de proyecto)",
     "description": ("MEMORIA OPERATIVA de nexus (Engram): cómo quiere trabajar el operador — órdenes "
                     "permanentes, preferencias, procedimientos, restricciones, correcciones, "

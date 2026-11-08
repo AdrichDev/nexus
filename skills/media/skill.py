@@ -59,6 +59,20 @@ def _detect_service(text: str):
     return None
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "pause": "external_send",
+        "next": "external_send",
+        "prev": "external_send",
+        "stop_music": "external_send",
+        "svc_answer": "external_send",
+        "random": "external_send",
+        "play": "external_send",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Media / Música",
     "description": ("Pon canciones por nombre o al azar con autoplay real "
                     "(YouTube sin API key, Spotify Web API, Apple Music) y controla "

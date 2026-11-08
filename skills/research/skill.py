@@ -10,6 +10,18 @@ from pathlib import Path
 REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "research": "write_local",  # escribe el informe y lo abre en el navegador
+        "trends": "write_local",  # escribe el informe y lo abre en el navegador
+        "economy": "read",
+        "open_report": "external_send",
+        "history": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Investigación",
     "description": "Investiga en la web (sin API key), redacta informes con fuentes citadas, guarda el histórico y analiza tus gastos/facturas",
     "patterns": {

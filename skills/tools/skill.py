@@ -7,6 +7,22 @@ import re
 import subprocess
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "time": "read",
+        "timer": "write_local",
+        "alarm": "write_local",
+        "note": "write_local",
+        "ping": "read",
+        "derive": "read",
+        "integrate": "read",
+        "solve": "read",
+        "calc": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Herramientas",
     "description": ("Hora y fecha, temporizadores y alarmas por voz, notas a la diaria, "
                     "ping de red y matemáticas SymPy (deriva, integra, resuelve)"),

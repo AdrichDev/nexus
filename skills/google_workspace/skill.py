@@ -118,6 +118,41 @@ _MANDA_EL_TABLERO = _reglas.valor("google_workspace.manda_el_tablero")
 _HUECO_SIN_TABLERO = r"(?:(?!\b(?:" + _MANDA_EL_TABLERO + r")\b)[^.\n]){0,25}"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "open_email": "read",
+        "send_email": "external_send",
+        "create_event": "external_send",
+        "create_task": "external_send",
+        "email_urgent": "read",
+        "email_actions": "read",
+        "email_actions_pron": "read",
+        "summarize_emails": "read",
+        "mark_unread": "write_local",
+        "mark_read": "write_local",
+        "delete_email": "destructive",
+        "delete_event": "destructive",
+        "edit_event": "external_send",
+        "unread_from": "read",
+        "unread_count": "read",
+        "emails": "read",
+        "gcal": "read",
+        "gtasks": "read",
+        "drive_folder_create": "write_local",
+        "drive_move": "write_local",
+        "drive_rename": "write_local",
+        "drive_delete": "destructive",
+        "drive_replace": "external_send",
+        "drive_download": "write_local",
+        "drive_search": "read",
+        "drive_upload": "external_send",
+        "drive_link": "read",
+        "drive_list": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("send_email", "delete_event", "drive_delete"),
     "name": "Google (Gmail/Calendar/Drive)",
     "description": "Gmail, Calendar, Tasks y Drive reales por OAuth2: lee, cuenta, resume, envía y borra correos; triaje con IA que crea tareas; eventos que se crean, mueven y cancelan; sube informes a Drive y devuelve el enlace",
     # ORDEN IMPORTA (el router prueba los patterns en orden de este dict):

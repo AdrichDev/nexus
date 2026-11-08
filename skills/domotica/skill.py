@@ -41,6 +41,22 @@ _TV = r"(?:televisi[oó]n|televisor(?:es)?|smart\s*tv|tele|tv)"
 _CL = r"(?:(?:me|te|le|nos|se)?(?:lo|la|los|las)?)"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "descubrir": "external_send",  # sondea la red local: manda paquetes a otros
+        "tv_mute": "external_send",
+        "tv_off": "external_send",
+        "tv_on": "external_send",
+        "tv_app": "external_send",
+        "tv_volume": "external_send",
+        "tv_channel": "external_send",
+        "wol": "external_send",
+        "casa": "external_send",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Casa / Domótica",
     "description": "Escanea tu red (nombre, marca, IP y MAC de cada aparato) y controla la casa: TVs por su nombre —encender, apagar, volumen, canal, apps—, PCs por Wake-on-LAN y luces/enchufes/persianas vía Home Assistant",
     # ORDEN: lo específico (TV, WoL, descubrir) ANTES del genérico de casa (HA).

@@ -10,6 +10,21 @@ from pathlib import Path
 REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "connect": "write_local",  # abre la conexión: estado local, no toca el mundo
+        "disconnect": "write_local",
+        "which": "read",
+        "tables": "read",
+        "query": "read",
+        "profile": "write_local",  # deja el informe en data/reports/ y lo abre
+        "dashboard": "write_local",  # deja el informe en data/reports/ y lo abre
+        "chart": "write_local",  # deja el gráfico en data/reports/ y lo abre
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Datos / Analítica",
     "description": "Conecta BDs externas (Postgres/MySQL/SQLite/Mongo), consulta en solo lectura y genera dashboards oscuros estilo Power BI (Chart.js)",
     "patterns": {

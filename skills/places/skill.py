@@ -18,6 +18,20 @@ import webbrowser
 from urllib.parse import quote_plus
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "flights": "external_send",
+        "hotels": "external_send",
+        "videos": "external_send",
+        "route_ab": "external_send",
+        "route_to": "external_send",
+        "place_search": "external_send",
+        "maps_open": "external_send",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Mapas / Viajes",
     "description": ("Rutas y sitios en Google Maps, vuelos en Google Flights, hoteles "
                     "con tope de precio y vídeos de YouTube, todo desde el navegador"),

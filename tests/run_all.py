@@ -125,7 +125,10 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/core/runtime/test_dotenv_aislado.py",
               # Matriz canal × efecto (ARQ-01/ARQ-03, T8a): constantes y funciones
               # puras, sin config, sin datos, sin red.
-              "unit/core/runtime/test_canal_efecto.py"):
+              "unit/core/runtime/test_canal_efecto.py",
+              # Efectos declarados por skill (ARQ-01/ARQ-03, T8b): lee el fuente de
+              # las 32 skills con ast, sin importarlas ni abrir config/datos.
+              "unit/core/runtime/test_efectos_declarados.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.

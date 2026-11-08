@@ -18,6 +18,14 @@ _NUCLEO = (r"n[uú]cleo(?!s)(?:\s+de\s+(?:ia|inteligencia\s+artificial))?"
 _MODELO = r"modelo(?!\s+de\s+(?:coche|moto|negocio|datos|neg|3d|ropa|avi[oó]n))"
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "cual": "read",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": (),
     "name": "Núcleo IA",
     "description": ("Qué cerebro (proveedor y modelo) tiene nexus puesto ahora mismo, "
                     "leído de la configuración real — nunca supuesto"),

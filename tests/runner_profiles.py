@@ -160,6 +160,14 @@ SAFE_UNIT_SUITES = (
     # n8n (listado Y de lectura) y la API de antes intacta. `comun/canales.py` no
     # lee config, ni datos, ni red y no escribe nada: son constantes y funciones puras.
     "unit/core/runtime/test_canal_efecto.py",
+    # Efectos declarados por skill (SEC-01/SEC-06, ARQ-01/ARQ-03, roadmap P2-1,
+    # T8b): cada una de las 32 carpetas con patrones declara `SKILL["effects"]`
+    # para TODOS sus intents (nivel del vocabulario de `canales`) y
+    # `SKILL["confirma"]` para los que ya preguntan. Se lee el FUENTE con `ast`
+    # —no se importan las 32 skills— y config/datos apuntan a carpetas de usar y
+    # tirar antes de importar el backend: no se abre el settings.json ni el data/
+    # del operador, y no hay red.
+    "unit/core/runtime/test_efectos_declarados.py",
     # Reserva del cerebro entre clases de localidad (AI-01/PRIV-02) y tope de
     # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y
     # carpetas de usar y tirar.

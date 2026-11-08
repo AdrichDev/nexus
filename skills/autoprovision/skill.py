@@ -29,6 +29,19 @@ ROOT = Path(__file__).resolve().parents[2]          # …/nexus
 GRU = ROOT.parent / "nexus_stack"                # stack docker (carpeta hermana)
 
 SKILL = {
+    # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
+    # `canales.EFECTOS` para permitir, preguntar o denegar; sin declarar, destructive.
+    "effects": {
+        "docker_up": "external_send",
+        "diagnose": "read",
+        "n8n_setup": "external_send",
+        "telegram_setup": "write_local",
+        "model_ensure": "external_send",
+        "ollama_fix": "write_local",
+    },
+    # Los que YA preguntan con confirm.request antes de su efecto: `brain`
+    # no los vuelve a preguntar (T8c).
+    "confirma": ("n8n_setup",),
     "name": "Auto-provisión",
     "description": "nexus levanta y conecta su infraestructura: Docker, n8n, Telegram y modelos Ollama",
     # Los verbos llevan el enclítico («levántame», «arréglame») y la tilde que
