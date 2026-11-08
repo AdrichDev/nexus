@@ -60,7 +60,30 @@ CONFIG_FILE = CONFIG_DIR / "settings.json"
 # La ruta a settings.example.json NO vive aquí: quien copia la plantilla cuando
 # falta el settings.json es run.bat, no el backend (02/08/2026).
 
-load_dotenv(ROOT / ".env")
+_DOTENV_APAGADO = {"0", "false", "no", "off"}
+
+
+def cargar_dotenv(ruta: Path, entorno=None) -> bool:
+    """Carga el `.env` del operador salvo que el proceso vaya aislado (T44).
+
+    El `.env` de la raíz es de la instalación del operador, igual que su
+    `config/`: lleva `NEXUS_DB_URL` y claves (ElevenLabs, nube, Telegram). Antes
+    se cargaba SIEMPRE al importar este módulo, así que un proceso con
+    `NEXUS_CONFIG_DIR` de usar y tirar seguía recibiendo esas variables (una
+    suite llegó a escribir en el Postgres real del dueño). Ahora NO se carga si:
+      - `NEXUS_CONFIG_DIR` está puesto (config aislada: el `.env` va con ella), o
+      - `NEXUS_DOTENV` vale 0/false/no/off (opt-out explícito; la batería lo usa).
+    Devuelve True solo si se cargó algo.
+    """
+    entorno = os.environ if entorno is None else entorno
+    if str(entorno.get("NEXUS_DOTENV", "")).strip().lower() in _DOTENV_APAGADO:
+        return False
+    if str(entorno.get("NEXUS_CONFIG_DIR", "")).strip():
+        return False
+    return bool(load_dotenv(ruta))
+
+
+DOTENV_CARGADO = cargar_dotenv(ROOT / ".env")
 
 SECRETS_FILE = CONFIG_DIR / "secrets.json"
 

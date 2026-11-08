@@ -9,8 +9,8 @@ Los pendientes del informe son cobertura ausente, no funcionalidad inexistente.
 
 ATENCIÓN: no es seguro ejecutar este runner en un checkout con datos/configuración
 reales. Los directorios NEXUS_DATA_DIR y NEXUS_CONFIG_DIR no aíslan todos los
-recursos: la configuración puede importar el .env raíz y el arranque puede acceder
-a otros servicios. Consulte los READMEs y obtenga aprobación para un entorno aislado.
+recursos: el .env raíz ya no se carga con NEXUS_CONFIG_DIR puesto (T44), pero el
+arranque puede acceder a otros servicios. Consulte los READMEs y obtenga aprobación para un entorno aislado.
 """
 from __future__ import annotations
 

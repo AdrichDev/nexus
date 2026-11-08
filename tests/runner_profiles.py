@@ -150,6 +150,10 @@ SAFE_UNIT_SUITES = (
     # habla con ningún proveedor.
     "unit/skills/backup/test_restaurar.py",
     "unit/core/runtime/test_log_aislado.py",
+    # T44: el `.env` del operador no entra con NEXUS_CONFIG_DIR aislado ni con
+    # NEXUS_DOTENV=0. El `.env` de prueba vive en una carpeta temporal y el
+    # subproceso arranca con config/datos de usar y tirar y sin NEXUS_DB_URL.
+    "unit/core/runtime/test_dotenv_aislado.py",
     # Reserva del cerebro entre clases de localidad (AI-01/PRIV-02) y tope de
     # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y
     # carpetas de usar y tirar.

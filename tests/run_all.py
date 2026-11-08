@@ -21,6 +21,10 @@ fails = 0
 # Without it, suites wrote fake jobs and documents into data/nexus.log.
 _DATA_SANDBOX = tempfile.mkdtemp(prefix="nexus_suite_data_")
 os.environ["NEXUS_DATA_DIR"] = _DATA_SANDBOX
+# Ni el `.env` del operador (T44): lleva NEXUS_DB_URL y claves reales, y
+# `config.py` lo cargaba en cualquier proceso. La CI no tiene `.env`, así que
+# así la batería local se comporta como la de la CI.
+os.environ["NEXUS_DOTENV"] = "0"
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -116,12 +120,15 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               # Lista blanca de herramientas MCP (SEC-18 / AI-10, P3-7): el
               # lanzamiento de servidores va doblado antes de la primera llamada,
               # así que no arranca ni un `npx`.
-              "unit/skills/mcp/test_mcp_permisos.py"):
+              "unit/skills/mcp/test_mcp_permisos.py",
+              # El `.env` del operador no entra con la config aislada (T44).
+              "unit/core/runtime/test_dotenv_aislado.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.
     _env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
-            "NEXUS_DATA_DIR": tempfile.mkdtemp(prefix="nexus_suite_data_")}
+            "NEXUS_DATA_DIR": tempfile.mkdtemp(prefix="nexus_suite_data_"),
+            "NEXUS_DOTENV": "0"}
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tests", suite)],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", env=_env)

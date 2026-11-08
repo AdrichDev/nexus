@@ -4,7 +4,7 @@
 
 ## Antes de cualquier ejecución
 
-El runner inicia uvicorn y Chromium, crea y borra `data/e2e/sandbox/` y `data/e2e/evidencias/`, y escribe informes en `data/e2e/`. Define `NEXUS_DATA_DIR`, `NEXUS_CONFIG_DIR` y `NEXUS_E2E=1`, pero **no garantiza aislamiento**: la configuración del backend puede importar el `.env` de la raíz y el arranque puede acceder a otros recursos o servicios. No se puede afirmar que nunca toque configuración o datos reales. Solo considerar instalación de dependencias y ejecución tras aprobación específica, en una copia aislada y un entorno controlado, sin credenciales, datos ni servicios reales expuestos. No hay una receta universal segura para ejecutar este runner tal como está.
+El runner inicia uvicorn y Chromium, crea y borra `data/e2e/sandbox/` y `data/e2e/evidencias/`, y escribe informes en `data/e2e/`. Define `NEXUS_DATA_DIR`, `NEXUS_CONFIG_DIR` y `NEXUS_E2E=1`, pero **no garantiza aislamiento**: el `.env` de la raíz ya no se carga cuando hay `NEXUS_CONFIG_DIR` (T44), pero el arranque puede acceder a otros recursos o servicios. No se puede afirmar que nunca toque configuración o datos reales. Solo considerar instalación de dependencias y ejecución tras aprobación específica, en una copia aislada y un entorno controlado, sin credenciales, datos ni servicios reales expuestos. No hay una receta universal segura para ejecutar este runner tal como está.
 
 ## Alcance del código (no resultado de esta sesión)
 

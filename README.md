@@ -70,6 +70,12 @@ pip install faster-whisper sounddevice numpy
 :: TTS premium: pon ELEVENLABS_API_KEY en .env
 ```
 
+El `.env` de la raíz solo se carga en una instalación normal: si el proceso
+arranca con `NEXUS_CONFIG_DIR` (config aislada) o con `NEXUS_DOTENV=0`
+(también `false`/`no`/`off`), no se lee, así que su `NEXUS_DB_URL` y sus claves
+no llegan a un proceso de pruebas. `tests/run_all.py` pone `NEXUS_DOTENV=0` a
+cada suite, igual que la CI, que no tiene `.env`.
+
 ## Ejecución
 
 ```bat
