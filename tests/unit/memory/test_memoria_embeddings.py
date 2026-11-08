@@ -20,6 +20,7 @@ Ejecutar:  .venv\\Scripts\\python.exe tests\\test_memoria_embeddings.py
 import importlib
 import json
 import os
+import re
 import sys
 import tempfile
 import uuid
@@ -378,6 +379,359 @@ def test_estado_dice_indice_no_activo():
         check("no está activa" in estado["mensaje_huella"] or "NO está activa" in estado["mensaje_huella"],
               "estado_memoria(): sin índice único, lo dice con todas las letras (no es un bug)")
     check("descartes_por_dimension" in estado, "estado_memoria(): expone el contador de descartes")
+
+
+# ================== P3-9 / ARQ-08: esquema VERSIONADO ==================
+# El runner de migraciones (backend/core/dominio/migraciones.py) se prueba
+# SIN base de datos: un doble DB-API lleva un catalogo en memoria (tablas,
+# columnas, indices y versiones aplicadas) y se comporta como el Postgres al
+# que apunta `PgMemory` (autocommit=True, cada sentencia su propia transaccion).
+# Ni contenedor, ni puerto, ni datos reales del dueno.
+#
+# Por que NO sqlite: el baseline usa vector(768), BIGSERIAL, TIMESTAMPTZ y
+# ALTER ... IF NOT EXISTS, que sqlite no entiende. El patron del repo para
+# codigo Postgres es doble o contenedor (ver test_memoria_embeddings arriba);
+# aqui se usa doble porque el encargo prohibe tocar una base de datos real.
+
+_RE_TABLA = re.compile(r"CREATE TABLE IF NOT EXISTS (\w+)")
+_RE_ALTER = re.compile(r"ADD COLUMN IF NOT EXISTS (\w+)")
+_RE_INDICE = re.compile(r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS (\w+)")
+_RE_DDL = re.compile(r"^(CREATE TABLE|ALTER TABLE|CREATE (?:UNIQUE )?INDEX)")
+
+
+def _migraciones():
+    """Import perezoso: si el modulo no existe, el fallo se ve en el check que
+    toca (y no se lleva por delante el resto de la suite en el import)."""
+    from backend.core.dominio import migraciones
+    return migraciones
+
+
+def _catalogo_vacio():
+    return {"tablas": set(), "columnas": {}, "indices": set(), "versiones": set()}
+
+
+def _columnas_de(sql):
+    """Columnas de un `CREATE TABLE ... ( ... )`, con parentesis anidados
+    (`vector(768)`) contados: un split(",") a pelo partiria el tipo."""
+    cuerpo, nivel, actual = [], 0, ""
+    for ch in sql[sql.index("(") + 1:]:
+        if ch == "(":
+            nivel += 1
+        elif ch == ")":
+            if nivel == 0:
+                break
+            nivel -= 1
+        elif ch == "," and nivel == 0:
+            cuerpo.append(actual)
+            actual = ""
+            continue
+        actual += ch
+    cuerpo.append(actual)
+    fuera = {"PRIMARY", "UNIQUE", "FOREIGN", "CONSTRAINT", "CHECK"}
+    nombres = []
+    for trozo in cuerpo:
+        partes = trozo.strip().split()
+        if partes and partes[0].upper() not in fuera:
+            nombres.append(partes[0])
+    return nombres
+
+
+class _DobleCursor:
+    def __init__(self, conn):
+        self._conn = conn
+        self._filas = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=()):
+        compacto = " ".join(sql.split())
+        for fragmento in self._conn.revienta_si:
+            if fragmento in compacto:
+                raise RuntimeError(f"doble: fallo simulado en «{fragmento}»")
+        c = self._conn
+        c.sentencias.append(compacto)
+        cat = c.catalogo
+        self._filas = []
+        # Postgres de verdad: sin la extension, `vector(768)` no existe y el
+        # CREATE TABLE revienta. Modelarlo es lo que hace que el respaldo sin
+        # pgvector se pruebe de verdad, no de mentira.
+        if ("CREATE EXTENSION" not in compacto.upper()
+                and "VECTOR" in compacto.upper() and not c.extension_ok):
+            raise RuntimeError('doble: type "vector" does not exist')
+        if compacto.upper().startswith("CREATE EXTENSION"):
+            c.extension_ok = True
+            return
+        m = _RE_TABLA.search(compacto)
+        if m:
+            tabla = m.group(1)
+            cat["tablas"].add(tabla)
+            cat["columnas"].setdefault(tabla, set()).update(_columnas_de(compacto))
+            return
+        if compacto.startswith("ALTER TABLE"):
+            tabla = re.search(r"ALTER TABLE (\w+)", compacto).group(1)
+            cat["tablas"].add(tabla)
+            cat["columnas"].setdefault(tabla, set()).update(_RE_ALTER.findall(compacto))
+            return
+        m = _RE_INDICE.search(compacto)
+        if m:
+            cat["indices"].add(m.group(1))
+            return
+        if compacto.startswith("SELECT version FROM schema_version"):
+            self._filas = [(v,) for v in sorted(cat["versiones"])]
+            return
+        if compacto.startswith("INSERT INTO schema_version"):
+            cat["versiones"].add(int(params[0]))
+            return
+        if compacto.startswith("SELECT count(*) FROM"):
+            self._filas = [(0,)]          # _maybe_crear_indice_vector: pocas filas
+            return
+        if compacto.startswith("SELECT 1"):
+            self._filas = [(1,)]
+
+    def fetchall(self):
+        return list(self._filas)
+
+    def fetchone(self):
+        return self._filas[0] if self._filas else None
+
+    def close(self):
+        pass
+
+
+class _DobleConexion:
+    """Conexion DB-API minima con catalogo en memoria.
+
+    `revienta_si` = fragmentos de SQL que deben reventar (simulan un Postgres
+    sin pgvector, sin permiso para crear la tabla de versiones, etc.).
+    """
+
+    def __init__(self, catalogo=None, revienta_si=()):
+        self.catalogo = _catalogo_vacio() if catalogo is None else catalogo
+        self.revienta_si = tuple(revienta_si)
+        self.sentencias = []
+        self.extension_ok = False        # CREATE EXTENSION vector aplicado
+        self.autocommit = True
+
+    def cursor(self, *a, **k):
+        return _DobleCursor(self)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def _ddl_de(doble):
+    """Solo el DDL de ESQUEMA: el `CREATE TABLE IF NOT EXISTS schema_version`
+    del marcador se emite en cada arranque a proposito (es un no-op en Postgres)
+    y no cuenta como trabajo de migracion."""
+    return [s for s in doble.sentencias
+            if _RE_DDL.match(s) and "schema_version" not in s]
+
+
+def _catalogo_instalacion_vieja():
+    """Instalacion anterior a las migraciones: las tablas existen, pero a
+    `memories` le faltan las columnas anadidas despues (huella, retirada,
+    metadatos) y no tiene NINGUN indice de consulta."""
+    cat = _catalogo_vacio()
+    cat["tablas"].update({"memories", "reminders", "goals", "goal_steps",
+                          "clients", "invoices"})
+    cat["columnas"]["memories"] = {"id", "kind", "content", "tags",
+                                    "embedding", "created_at"}
+    cat["columnas"]["reminders"] = {"id", "task_title", "due_at", "notify_at", "fired"}
+    return cat
+
+
+def test_p3_9_instalacion_nueva_aplica_el_baseline_y_versiona():
+    mig = _migraciones()
+    doble = _DobleConexion()
+    r = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r["ok"] is True, f"instalacion nueva: el runner termina ok ({r['avisos']})")
+    check(r["aplicadas"] == [mig.BASELINE, mig.VERSION_ESQUEMA],
+          f"instalacion nueva: aplica baseline y la ultima version en orden ({r['aplicadas']})")
+    check(r["version"] == mig.VERSION_ESQUEMA,
+          f"instalacion nueva: queda en la version {mig.VERSION_ESQUEMA} ({r['version']})")
+    check(doble.catalogo["versiones"] == {mig.BASELINE, mig.VERSION_ESQUEMA},
+          f"instalacion nueva: la version queda REGISTRADA ({doble.catalogo['versiones']})")
+    check("schema_version" in doble.catalogo["tablas"],
+          "instalacion nueva: existe el marcador schema_version")
+    for tabla in ("memories", "reminders", "goals", "goal_steps", "clients", "invoices"):
+        check(tabla in doble.catalogo["tablas"], f"instalacion nueva: tabla {tabla} creada")
+    for col in ("embedding", "huella", "retirado_en", "retirado_lote", "origen",
+                "origen_tipo", "dominio", "etiqueta", "peso"):
+        check(col in doble.catalogo["columnas"]["memories"],
+              f"instalacion nueva: columna memories.{col} presente")
+    check("memories_vivas_idx" in doble.catalogo["indices"],
+          "instalacion nueva: el indice versionado memories_vivas_idx existe")
+    creaciones = [s for s in doble.sentencias
+                  if s.startswith("CREATE TABLE IF NOT EXISTS memories")]
+    check(len(creaciones) == 1,
+          f"instalacion nueva: se crea memories UNA vez (el respaldo sin pgvector se salta) ({len(creaciones)})")
+
+
+def test_p3_9_instalacion_vieja_se_actualiza():
+    mig = _migraciones()
+    cat = _catalogo_instalacion_vieja()
+    check("huella" not in cat["columnas"]["memories"],
+          "premisa: la instalacion vieja NO tiene memories.huella")
+    check(cat["indices"] == set(), "premisa: la instalacion vieja no tiene indices")
+    doble = _DobleConexion(catalogo=cat)
+    r = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r["ok"] is True, f"instalacion vieja: el runner termina ok ({r['avisos']})")
+    for col in ("huella", "retirado_en", "retirado_lote", "origen", "dominio", "peso"):
+        check(col in cat["columnas"]["memories"],
+              f"instalacion vieja: columna que faltaba memories.{col} anadida")
+    check("memories_vivas_idx" in cat["indices"],
+          "instalacion vieja: indice que faltaba memories_vivas_idx creado")
+    check(cat["versiones"] == {mig.BASELINE, mig.VERSION_ESQUEMA},
+          f"instalacion vieja: queda registrada en la version {mig.VERSION_ESQUEMA}")
+
+
+def test_p3_9_repetir_es_idempotente():
+    mig = _migraciones()
+    doble = _DobleConexion()
+    r1 = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r1["ok"] and r1["aplicadas"] == [mig.BASELINE, mig.VERSION_ESQUEMA],
+          "idempotencia: la primera pasada aplica todo")
+    doble.sentencias.clear()
+    r2 = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r2["ok"] is True, f"idempotencia: la segunda pasada no falla ({r2['avisos']})")
+    check(r2["aplicadas"] == [], f"idempotencia: no reaplica nada ({r2['aplicadas']})")
+    check(_ddl_de(doble) == [], f"idempotencia: CERO DDL repetido ({_ddl_de(doble)})")
+    check(doble.catalogo["versiones"] == {mig.BASELINE, mig.VERSION_ESQUEMA},
+          "idempotencia: la version no se duplica ni se pierde")
+    doble.sentencias.clear()
+    r3 = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r3["ok"] is True and r3["aplicadas"] == [] and _ddl_de(doble) == [],
+          "idempotencia: la tercera pasada tampoco hace nada")
+
+
+def test_p3_9_un_fallo_no_marca_la_version():
+    mig = _migraciones()
+    doble = _DobleConexion(revienta_si=["ADD COLUMN IF NOT EXISTS huella"])
+    r = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r["ok"] is False, "fallo a mitad del baseline: el runner dice que NO")
+    check(doble.catalogo["versiones"] == set(),
+          f"fallo a mitad: la version NO se registra ({doble.catalogo['versiones']})")
+    check(r["avisos"], f"fallo a mitad: el aviso dice que paso ({r['avisos']})")
+    check("memories_vivas_idx" not in doble.catalogo["indices"],
+          "fallo a mitad: tampoco se adelanta la migracion siguiente")
+    doble.revienta_si = ()
+    r2 = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r2["ok"] is True and doble.catalogo["versiones"] == {mig.BASELINE, mig.VERSION_ESQUEMA},
+          f"tras reparar: la version se registra ({doble.catalogo['versiones']})")
+    check("huella" in doble.catalogo["columnas"]["memories"],
+          "tras reparar: la columna que faltaba queda puesta")
+
+
+def test_p3_9_sin_pgvector_usa_el_respaldo_y_versiona():
+    mig = _migraciones()
+    doble = _DobleConexion(revienta_si=["CREATE EXTENSION"])
+    r = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r["ok"] is True, f"sin pgvector: el runner termina ok ({r['avisos']})")
+    check("memories" in doble.catalogo["tablas"], "sin pgvector: memories existe igual")
+    check("embedding" not in doble.catalogo["columnas"]["memories"],
+          "sin pgvector: memories SIN columna embedding (respaldo)")
+    check(doble.catalogo["versiones"] == {mig.BASELINE, mig.VERSION_ESQUEMA},
+          "sin pgvector: la version se registra (el respaldo es valido)")
+
+
+def test_p3_9_esquema_mas_nuevo_no_se_toca():
+    mig = _migraciones()
+    cat = _catalogo_vacio()
+    cat["versiones"].add(7)
+    doble = _DobleConexion(catalogo=cat)
+    r = mig.aplicar(doble, baseline=mem.PgMemory._DDL)
+    check(r["ok"] is True, f"esquema mas nuevo: no es un fallo ({r['avisos']})")
+    check("versi" in " ".join(r["avisos"]).lower(),
+          f"esquema mas nuevo: el aviso NOMBRA la version ({r['avisos']})")
+    check(_ddl_de(doble) == [],
+          f"esquema mas nuevo: no se aplica NADA (no se baja un esquema) ({_ddl_de(doble)})")
+    check(cat["versiones"] == {7}, "esquema mas nuevo: la version registrada no se toca")
+
+
+def test_p3_9_el_arranque_pasa_por_el_runner():
+    mig = _migraciones()
+    pg = mem.PgMemory()
+    doble = _DobleConexion()
+    pg._conn = doble
+    pg._schema_ready = False
+    from backend.core.comun.events import bus
+    original_emit = bus.emit_sync
+    try:
+        bus.emit_sync = lambda tipo, data=None: None
+        pg._ensure_schema()
+    finally:
+        bus.emit_sync = original_emit
+        pg._conn = None
+        pg._schema_ready = False
+    check(doble.catalogo["versiones"] == {mig.BASELINE, mig.VERSION_ESQUEMA},
+          f"_ensure_schema: el esquema queda VERSIONADO ({doble.catalogo['versiones']})")
+    check("memories_vivas_idx" in doble.catalogo["indices"],
+          "_ensure_schema: la migracion de indices llega al arranque real")
+    check("huella" in doble.catalogo["columnas"]["memories"],
+          "_ensure_schema: el baseline se aplica en el arranque")
+    # Arranque siguiente (proceso nuevo, MISMO Postgres): ni una sentencia de DDL.
+    otra = mem.PgMemory()
+    otra._conn = doble
+    otra._schema_ready = False
+    doble.sentencias.clear()
+    try:
+        bus.emit_sync = lambda tipo, data=None: None
+        otra._ensure_schema()
+    finally:
+        bus.emit_sync = original_emit
+        otra._conn = None
+        otra._schema_ready = False
+    check(_ddl_de(doble) == [],
+          f"_ensure_schema: el segundo arranque no reemite DDL ({_ddl_de(doble)})")
+
+
+def test_p3_9_sin_marcador_conserva_el_ddl_de_siempre():
+    mig = _migraciones()
+    check(mig.aplicar(_DobleConexion(revienta_si=["CREATE TABLE IF NOT EXISTS schema_version"]),
+                      baseline=mem.PgMemory._DDL)["ok"] is False,
+          "red de seguridad: sin tabla de versiones el runner se declara NO ok")
+    pg = mem.PgMemory()
+    doble = _DobleConexion(revienta_si=["CREATE TABLE IF NOT EXISTS schema_version"])
+    pg._conn = doble
+    pg._schema_ready = False
+    from backend.core.comun.events import bus
+    original_emit = bus.emit_sync
+    try:
+        bus.emit_sync = lambda tipo, data=None: None
+        pg._ensure_schema()
+    finally:
+        bus.emit_sync = original_emit
+        pg._conn = None
+        pg._schema_ready = False
+    check("memories" in doble.catalogo["tablas"],
+          "red de seguridad: el arranque crea el esquema por el camino de siempre")
+    check("huella" in doble.catalogo["columnas"]["memories"],
+          "red de seguridad: el DDL tolerante de antes sigue haciendo su trabajo")
+    check(doble.catalogo["versiones"] == set(),
+          "red de seguridad: sin marcador no se apunta ninguna version (no se miente)")
+
+
+def test_p3_9_versiones_correlativas_y_baseline_sin_duplicar():
+    mig = _migraciones()
+    versiones = [mig.BASELINE] + [m.version for m in mig.MIGRACIONES]
+    check(versiones == list(range(1, len(versiones) + 1)),
+          f"versiones correlativas desde 1 ({versiones})")
+    check(mig.VERSION_ESQUEMA == versiones[-1],
+          "VERSION_ESQUEMA es la ultima version declarada")
+    duplicado = [p.sql for m in mig.MIGRACIONES for p in m.pasos
+                 if "CREATE TABLE IF NOT EXISTS memories" in p.sql]
+    check(duplicado == [],
+          "el baseline NO se copia en migraciones.py (una sola copia de la verdad)")
 
 
 if __name__ == "__main__":

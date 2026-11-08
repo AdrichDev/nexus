@@ -57,7 +57,7 @@ CAPAS: list[tuple[str, set[str]]] = [
         "app_index", "youtube",
     }),
     ("dominio", {
-        "board", "purga", "contentos", "contentos_demo", "rag", "memory",
+        "board", "purga", "contentos", "contentos_demo", "rag", "memory", "migraciones",
         "selflearn", "opmem", "correcciones", "briefing", "profile", "review", "ingesta", "pm",
         "reglas",
     }),

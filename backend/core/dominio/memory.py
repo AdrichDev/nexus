@@ -433,8 +433,11 @@ class PgMemory:
     def _ensure_schema(self) -> None:
         if self._schema_ready or self._conn is None:
             return
+        # P3-9: el esquema va VERSIONADO; si el runner no puede, queda el DDL de abajo.
+        from .migraciones import aplicar
+        baseline = () if aplicar(self._conn, baseline=self._DDL)["ok"] else self._DDL
         has_vector = True
-        for i, ddl in enumerate(self._DDL):
+        for i, ddl in enumerate(baseline):
             # la 3ª sentencia es el respaldo sin-pgvector: solo si la extensión falló
             if i == 2 and has_vector:
                 continue
