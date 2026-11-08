@@ -55,6 +55,45 @@ def skip(msg):
     print("  SALTADO (sin BD/proveedor):", msg)
 
 
+# T43 — HERMETICIDAD (mismo motivo y mismo patrón que
+# `tests/unit/skills/files/test_skill_files.py` y que `test_drive.py` desde
+# SEC-19): esta suite importa el backend con `importlib` y, si no aísla antes,
+# `permissions.path_allowed()` decide con el `config/settings.json` REAL del
+# operador. Al migrar su máquina de `todo` a `carpetas` dos comprobaciones de
+# ingesta se pusieron rojas sin tocar este fichero: la carpeta temporal de
+# prueba no estaba entre las raíces y la skill hacía bien en negarse.
+# Configuración, datos y PERFIL se apuntan a carpetas de usar y tirar ANTES de
+# importar nada, y se fija el modo que estas pruebas dan por supuesto (`todo`):
+# aquí se comprueba la ingesta, no el alcance de archivos — eso lo cubre
+# `tests/unit/core/test_permisos_ficheros.py` con su propia caja.
+_CFG = tempfile.TemporaryDirectory(prefix="nexus_ing_cfg_")
+_DATA = tempfile.TemporaryDirectory(prefix="nexus_ing_data_")
+_HOME = tempfile.TemporaryDirectory(prefix="nexus_ing_home_")
+with open(os.path.join(_CFG.name, "settings.json"), "w", encoding="utf-8") as _f:
+    _f.write(__import__("json").dumps({"perm_files": "todo", "perm_folders": [],
+                                       "setup_done": True}))
+os.environ["NEXUS_CONFIG_DIR"] = _CFG.name
+os.environ["NEXUS_DATA_DIR"] = _DATA.name
+os.environ["USERPROFILE"] = _HOME.name
+os.environ["HOME"] = _HOME.name
+os.environ["APPDATA"] = os.path.join(_HOME.name, "AppData", "Roaming")
+os.environ["LOCALAPPDATA"] = os.path.join(_HOME.name, "AppData", "Local")
+for _var in ("OneDrive", "OneDriveConsumer"):
+    os.environ.pop(_var, None)
+# Y la BD, que NO se aísla con la config: `config.py` hace
+# `load_dotenv(ROOT/".env")` al importarse, así que la `NEXUS_DB_URL` del `.env`
+# del repositorio entra en cualquier proceso aunque la configuración esté en una
+# caja de usar y tirar. Sin este `pop`, al aislar la config la suite de ingesta
+# DEJÓ DE SALTAR y escribió (y borró, con su marcador) en el Postgres real del
+# dueño. Verificado tras el cambio: 0 filas `wabikstest%` en `memories`, y el
+# comportamiento vuelve a ser el de `main` (salta por falta de BD). El hueco de
+# fondo es la tarea T44.
+os.environ.pop("NEXUS_DB_URL", None)
+os.environ["NEXUS_DB_URL"] = ""
+
+print(f"   [T43] caja aislada: config={os.path.basename(_CFG.name)} "
+      'perm_files="todo" (el settings.json del operador no se mira ni se toca)')
+
 files_io = importlib.import_module("backend.core.infraestructura.files_io")
 rag = importlib.import_module("backend.core.dominio.rag")
 mem = importlib.import_module("backend.core.dominio.memory")

@@ -36,6 +36,53 @@ def check(cond, msg):
         print("  ✖ " + msg)
 
 
+# T43 — HERMETICIDAD, Y NO ES UN DETALLE DE ESTILO.
+# Esta suite importaba el backend SIN aislar la configuración, así que
+# `permissions.path_allowed()` decidía con el `config/settings.json` REAL de
+# quien la ejecuta. Al migrar la máquina del dueño de `todo` a `carpetas` (P1-6)
+# diez comprobaciones de papelera y confirmación se pusieron rojas sin tocar
+# este fichero: el directorio temporal de prueba no estaba entre las raíces, y
+# la skill hacía bien en negarse. Una prueba cuyo verde depende de cómo esté
+# configurada una máquina no es una prueba.
+#
+# Se apunta configuración, datos y PERFIL a carpetas de usar y tirar ANTES de
+# importar nada del backend (`config.py` las lee al importarse; un import
+# perezoso llegaría tarde — mismo motivo y mismo patrón que
+# `tests/unit/skills/google_workspace/test_drive.py` desde SEC-19). Y se fija el
+# modo que estas comprobaciones dan por supuesto: `todo`, es decir, que lo único
+# que se prueba aquí es la papelera y la confirmación, no el alcance de archivos
+# (eso lo cubre `tests/unit/core/test_permisos_ficheros.py`, con su propia caja).
+# Los directorios se borran solos al terminar el proceso.
+import json as _json
+import tempfile as _tf
+
+_CFG = _tf.TemporaryDirectory(prefix="nexus__files_cfg")
+_DATA = _tf.TemporaryDirectory(prefix="nexus__files_data")
+_HOME = _tf.TemporaryDirectory(prefix="nexus__files_home")
+with open(os.path.join(_CFG.name, "settings.json"), "w", encoding="utf-8") as _f:
+    _json.dump({"perm_files": "todo", "perm_folders": [], "setup_done": True}, _f)
+os.environ["NEXUS_CONFIG_DIR"] = _CFG.name
+os.environ["NEXUS_DATA_DIR"] = _DATA.name
+os.environ["USERPROFILE"] = _HOME.name
+os.environ["HOME"] = _HOME.name
+os.environ["APPDATA"] = os.path.join(_HOME.name, "AppData", "Roaming")
+os.environ["LOCALAPPDATA"] = os.path.join(_HOME.name, "AppData", "Local")
+for _var in ("OneDrive", "OneDriveConsumer"):
+    os.environ.pop(_var, None)
+# Y la BD, que NO se aísla con la config: `config.py` hace
+# `load_dotenv(ROOT/".env")` al importarse, así que la `NEXUS_DB_URL` del `.env`
+# del repositorio entra en cualquier proceso aunque la configuración esté en una
+# caja de usar y tirar. Sin este `pop`, al aislar la config la suite de ingesta
+# DEJÓ DE SALTAR y escribió (y borró, con su marcador) en el Postgres real del
+# dueño. Verificado tras el cambio: 0 filas `wabikstest%` en `memories`, y el
+# comportamiento vuelve a ser el de `main` (salta por falta de BD). El hueco de
+# fondo es la tarea T44.
+os.environ.pop("NEXUS_DB_URL", None)
+os.environ["NEXUS_DB_URL"] = ""
+
+print(f"   [T43] caja aislada: config={os.path.basename(_CFG.name)} "
+      "perm_files=\"todo\" (el settings.json del operador no se mira ni se toca)")
+
 from backend.core.aplicacion import skills_loader as sl
 from backend.core.comun import confirm  # noqa: E402
 
