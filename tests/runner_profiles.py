@@ -225,6 +225,12 @@ SAFE_UNIT_SUITES = (
     # va doblado ANTES de la primera llamada, así que no arranca ni un `npx`, y
     # config/datos viven en carpetas de usar y tirar.
     "unit/skills/mcp/test_mcp_permisos.py",
+    # Las rutas de `config/` de google_workspace, autoprovision y el respaldo de
+    # instagram respetan `NEXUS_CONFIG_DIR` (T39b). `safe-unit` es honesto aquí:
+    # no hay proveedor ni credencial de Google, solo rutas calculadas y umbrales
+    # de una carpeta temporal, y el camino SIN la variable se mide en un
+    # subproceso que solo imprime cadenas (no abre el `config/` del operador).
+    "unit/skills/google_workspace/test_config_dir.py",
 )
 
 STATIC_SAFE_SUITES = (

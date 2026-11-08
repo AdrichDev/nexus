@@ -1,6 +1,8 @@
 """Minion Google Workspace — Gmail, Calendar, Tasks y Drive REALES vía OAuth2.
 
-La cuenta se conecta con config/google_credentials.json (ver SKILL.md).
+La cuenta se conecta con `CONFIG_DIR/google_credentials.json` (por defecto
+`config/google_credentials.json`, salvo que `NEXUS_CONFIG_DIR` diga otra carpeta;
+ver SKILL.md).
 Si faltan librerías o credenciales, responde con las instrucciones exactas.
 Todas las llamadas a Google son síncronas → se ejecutan en un hilo aparte.
 """
@@ -20,7 +22,20 @@ from pathlib import Path
 # `comun/audit`, nunca skills ni `skills_loader`.
 from backend.core.dominio import reglas as _reglas
 
-CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+# DE DÓNDE SALE LA CONFIG (task T39b, hallada al cerrar T39). Antes estas rutas se
+# montaban a mano con `Path(__file__).resolve().parents[2] / "config"`, así que la
+# skill IGNORABA `NEXUS_CONFIG_DIR` y apuntaba SIEMPRE al `config/` real del
+# operador. Aquí no es un detalle de lectura: `google_token.json` se ESCRIBE
+# (`TOKEN_FILE.write_text(...)` al refrescar y al autorizar), así que un proceso
+# con la config aislada podía pisar el token del dueño — el mismo fallo de
+# hermeticidad que T36 cerró en `spotify.py` y T39 en `skills/mcp_hands/skill.py`.
+# `CONFIG_DIR` es la única fuente de verdad para «dónde vive la configuración»
+# (comun/config.py) y sin la variable sigue valiendo `ROOT/config` —también con el
+# bundle de PyInstaller, donde `ROOT` es la carpeta del .exe—, o sea que el
+# comportamiento de siempre no cambia. `umbrales.json` se lee por esta misma
+# carpeta (ver `_carga_correos` y `_umbrales_drive`).
+from backend.core.comun.config import CONFIG_DIR
+
 CREDS_FILE = CONFIG_DIR / "google_credentials.json"
 TOKEN_FILE = CONFIG_DIR / "google_token.json"
 

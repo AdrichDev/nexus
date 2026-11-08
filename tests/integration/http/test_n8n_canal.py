@@ -44,6 +44,14 @@ _CFG = tempfile.mkdtemp(prefix="nexus_n8n_cfg_")
 _DATA = tempfile.mkdtemp(prefix="nexus_n8n_data_")
 os.environ["NEXUS_CONFIG_DIR"] = _CFG
 os.environ["NEXUS_DATA_DIR"] = _DATA
+# T39b: google_workspace ya lee sus credenciales de NEXUS_CONFIG_DIR, así que
+# la caja necesita unas credenciales FALSAS propias. Antes esta suite solo
+# pasaba en una máquina con las credenciales reales del operador en config/.
+with open(os.path.join(_CFG, "google_credentials.json"), "w", encoding="utf-8") as _f:
+    _f.write('{"installed": {"client_id": "falso.apps.googleusercontent.com", '
+             '"client_secret": "falso", "redirect_uris": ["http://localhost"], '
+             '"auth_uri": "https://accounts.google.com/o/oauth2/auth", '
+             '"token_uri": "https://oauth2.googleapis.com/token"}}')
 for _env in ("NEXUS_N8N_SECRET", "N8N_SECRET"):
     os.environ.pop(_env, None)
 

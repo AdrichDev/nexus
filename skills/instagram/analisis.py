@@ -32,6 +32,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import os
 import re
 import statistics
 import unicodedata
@@ -69,12 +70,24 @@ _cache_archivo = None
 
 
 def ruta_umbrales() -> Path:
-    """config/umbrales.json, respetando NEXUS_CONFIG_DIR si está puesto."""
+    """`CONFIG_DIR/umbrales.json`, respetando NEXUS_CONFIG_DIR si está puesto.
+
+    Con backend a mano (el caso de nexus) esto ES `comun.config.CONFIG_DIR`.
+    El respaldo de abajo existe porque cuatro suites del repo cargan este
+    fichero suelto con `backend` bloqueado a propósito (`sys.modules["backend"]
+    = None` en test_analisis, test_spec, test_competencia y test_inteligencia),
+    así que quitarlo pondría en rojo pruebas que no son de este cambio. Pero un
+    respaldo MUDO tampoco vale (task T39b): si alguien mira `NEXUS_CONFIG_DIR`,
+    también aquí se mira, para que una caja aislada no acabe leyendo los
+    umbrales del operador por la puerta de atrás."""
     try:
         from backend.core.comun.config import CONFIG_DIR          # type: ignore
         return Path(CONFIG_DIR) / "umbrales.json"
     except Exception:
-        return Path(__file__).resolve().parents[2] / "config" / "umbrales.json"
+        aislada = os.environ.get("NEXUS_CONFIG_DIR", "").strip()
+        raiz = (Path(aislada) if aislada
+                else Path(__file__).resolve().parents[2] / "config")
+        return raiz / "umbrales.json"
 
 
 def _fusiona(base: dict, encima) -> dict:

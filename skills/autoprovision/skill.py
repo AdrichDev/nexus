@@ -25,8 +25,28 @@ from pathlib import Path
 
 import httpx
 
+# DE DÓNDE SALE LA CONFIG (task T39b, hallada al cerrar T39). Antes las rutas de
+# `config/` se montaban a mano con `Path(__file__).resolve().parents[2]`, que
+# IGNORA `NEXUS_CONFIG_DIR`: un arranque o una prueba con la config aislada
+# seguía leyendo la carpeta del operador. `CONFIG_DIR` es la única fuente de
+# verdad (comun/config.py) y sin la variable sigue valiendo `ROOT/config`, así que
+# el comportamiento de siempre no cambia.
+from backend.core.comun.config import CONFIG_DIR
+
 ROOT = Path(__file__).resolve().parents[2]          # …/nexus
 GRU = ROOT.parent / "nexus_stack"                # stack docker (carpeta hermana)
+
+# QUÉ ES DEL OPERADOR Y QUÉ ES PLANTILLA DEL REPO (T39b, fichero a fichero):
+#  * `docker-compose.yml` — NO versionado (`git ls-files config/` no lo lista; lo
+#    genera nexus en la config del operador): sigue a `CONFIG_DIR`.
+#  * `n8n_flujo_nexus.json` — NO versionado, lo deja el operador: sigue a
+#    `CONFIG_DIR`.
+#  * `n8n_flujo_ejemplo.json` — SÍ versionado: plantilla de solo lectura que viaja
+#    con el repo. Se queda en `ROOT/config` a propósito, porque una carpeta de
+#    config aislada no la trae y la skill se quedaría sin workflow que importar.
+_COMPOSE_OPERADOR = CONFIG_DIR / "docker-compose.yml"
+N8N_FLUJO_OPERADOR = CONFIG_DIR / "n8n_flujo_nexus.json"
+N8N_FLUJO_PLANTILLA = ROOT / "config" / "n8n_flujo_ejemplo.json"
 
 SKILL = {
     # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
@@ -96,14 +116,25 @@ async def _post(url: str, body=None, headers: dict | None = None, timeout: int =
         return await cli.post(url, json=body, headers=headers or {})
 
 
+def _n8n_workflow_file() -> Path | None:
+    """El JSON del workflow que se importa en n8n, por orden de preferencia.
+
+    Primero el que ha dejado el operador en su config (`CONFIG_DIR`, obedece a
+    `NEXUS_CONFIG_DIR`); si no existe, la plantilla versionada que viaja con el
+    repo. Ver la nota de las constantes de arriba."""
+    return next((p for p in (N8N_FLUJO_OPERADOR, N8N_FLUJO_PLANTILLA)
+                 if p.exists()), None)
+
+
 # ------------------------------------------------------------------- Docker
 def _compose_file() -> Path | None:
     """El compose que hay que levantar, por orden de preferencia.
 
-    El primero es config/docker-compose.yml, que escribe el propio nexus
-    (backend/app.py) apuntando a 127.0.0.1:5433. Las rutas de la carpeta
-    hermana nexus_stack son el respaldo para un stack propio del usuario."""
-    for c in (ROOT / "config" / "docker-compose.yml",
+    El primero es el `docker-compose.yml` que escribe el propio nexus
+    (backend/app.py) en la config del operador, apuntando a 127.0.0.1:5433. Las
+    rutas de la carpeta hermana nexus_stack son el respaldo para un stack propio
+    del usuario."""
+    for c in (_COMPOSE_OPERADOR,
               ROOT / "docker-compose.nexus.yml",
               GRU / "docker-compose.nexus.yml",
               GRU / "docker-compose.yml"):
@@ -282,8 +313,7 @@ async def _n8n_setup(ctx) -> str:
         return ("n8n está vivo, pero para crear el flujo yo solo necesito una API key. "
                 "En n8n: Settings → n8n API → Create API key. Cópiala y guárdala en ⚙ "
                 "(campo «n8n API key»). Luego repite «configura n8n».")
-    wf_file = next((p for p in (ROOT / "config" / "n8n_flujo_nexus.json",
-                                ROOT / "config" / "n8n_flujo_ejemplo.json") if p.exists()), None)
+    wf_file = _n8n_workflow_file()
     if not wf_file:
         return "No encuentro el JSON del workflow en config/ (n8n_flujo_nexus/ejemplo.json)."
     try:

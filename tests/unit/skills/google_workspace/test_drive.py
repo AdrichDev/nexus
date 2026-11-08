@@ -42,6 +42,12 @@ _TMP_CFG = tempfile.TemporaryDirectory(prefix="nexus_drive_cfg_")
 _TMP_DATA = tempfile.TemporaryDirectory(prefix="nexus_drive_data_")
 _TMP_HOME = tempfile.TemporaryDirectory(prefix="nexus_drive_home_")
 os.environ["NEXUS_CONFIG_DIR"] = _TMP_CFG.name
+# T39b: la skill lee umbrales.json de NEXUS_CONFIG_DIR; la caja lleva la
+# copia versionada para que la sección 2 compare con lo que la skill lee de
+# verdad y no con la carpeta de reserva.
+import shutil as _shutil  # noqa: E402
+_shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..",
+                          "config", "umbrales.json"), _TMP_CFG.name)
 os.environ["NEXUS_DATA_DIR"] = _TMP_DATA.name
 os.environ["USERPROFILE"] = _TMP_HOME.name
 os.environ["HOME"] = _TMP_HOME.name
