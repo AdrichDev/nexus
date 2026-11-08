@@ -782,6 +782,116 @@ def _recuerda_orden(fact: str, *, kind: str = "", scope: str = "global",
     return rec
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  POLÍTICA CANAL × EFECTO — la ÚNICA puerta de ejecución (T8c)
+# ══════════════════════════════════════════════════════════════════════════════
+# Auditoría SEC-01 / SEC-06 (ARQ-01 / ARQ-03, roadmap P2-1, task T8). La decisión
+# del dueño está en `odd/tasks/security-audit-remediation.md` L59: en el equipo
+# del operador todo actúa como antes SALVO lo destructivo, que siempre pregunta;
+# desde el móvil y Telegram preguntan los envíos al mundo y los borrados; desde
+# n8n solo pasan los pares declarados de lectura de su lista blanca.
+#
+# POR QUÉ UNA SOLA PUERTA: la guarda de la T2 vivía antes del enrutador y el
+# verificador independiente demostró que se saltaba por los caminos que no son
+# el enrutador (L9). Si mañana aparece otro camino hasta un handler, tiene que
+# pasar por `_autorizar_efecto` o no ejecuta: la suite cuenta las llamadas a
+# `.module.handle(` en este archivo y falla si hay más de una.
+
+def _efecto_de(skill, intent: str) -> str:
+    """Efecto que la SKILL declara para ese intent (sin declarar → `destructive`).
+
+    El defecto es lo prudente, no lo cómodo: si nadie dijo qué hace un intent, se
+    pregunta o se deniega, nunca se ejecuta a ciegas (T8b).
+    """
+    try:
+        declarados = dict(getattr(skill.module, "SKILL", {}).get("effects") or {})
+    except Exception:                                      # noqa: BLE001
+        declarados = {}
+    return canales.efecto_normalizado(declarados.get(intent))
+
+
+def _ya_pregunta_sola(skill, intent: str) -> bool:
+    """¿El handler de este intent llama YA a `confirm.request` antes de su efecto?
+
+    Entonces `brain` no pregunta: sería la misma orden preguntada dos veces.
+    """
+    try:
+        propias = tuple(getattr(skill.module, "SKILL", {}).get("confirma") or ())
+    except Exception:                                      # noqa: BLE001
+        propias = ()
+    return intent in propias
+
+
+def _pregunta_de_confirmacion(efecto: str, orden: str, canal: str) -> str:
+    """La pregunta que se le enseña al operador, con SU orden entre comillas."""
+    from ..comun import confirm as _cf
+    return (f"Esto es «{efecto}» y me lo pides desde {canal}, así que no lo hago sin "
+            f"tu permiso:\n   «{_cf.recortar(orden, 160)}»\n¿Lo hago? (sí/no)")
+
+
+async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
+                            channel: str, ejecutar):
+    """Decide si esta orden se ejecuta, se pregunta o se deniega. Devuelve
+    `(resultado, ejecutado)`.
+
+    Con `ejecutado=False`, `resultado` es lo que hay que contestarle al operador
+    (la pregunta de confirmación o la negativa) y el handler NO se ha llamado.
+
+    `ejecutar` es una corrutina sin argumentos que ejecuta el handler de verdad:
+    es lo único que se autoriza aquí, así que un camino nuevo no puede ejecutar
+    por su cuenta sin pasar por esta función.
+    """
+    efecto = _efecto_de(skill, intent)
+    veredicto = canales.politica(source, channel, efecto, skill.folder, intent)
+
+    if veredicto == canales.PERMITIR:
+        return await ejecutar(), True
+
+    # El nombre del canal con el que se habla al operador: si el que está
+    # restringido es el `source` (n8n), es ese y no el canal de entrega.
+    canal = source if canales.es_restringido(source) else channel
+    # La skill ya pregunta por su cuenta (T8b): preguntar aquí sería hacerle al
+    # operador la misma pregunta dos veces por la misma orden.
+    pregunta_la_skill = veredicto == canales.CONFIRMAR and _ya_pregunta_sola(skill, intent)
+    await bus.emit("log", {"level": "info", "msg":
+                   f"🛡 Canal {canal} · {skill.folder}/{intent} ({efecto}) → "
+                   + ("denegado" if veredicto == canales.DENEGAR else
+                      "pregunta la propia skill" if pregunta_la_skill else
+                      "pide confirmación")})
+
+    if pregunta_la_skill:
+        return await ejecutar(), True
+
+    if veredicto == canales.DENEGAR:
+        return canales.rechazo(canal), False
+
+    if source in ("text", "voice"):
+        from ..comun import confirm as _cf
+        pregunta = _pregunta_de_confirmacion(efecto, cmd_text, channel)
+
+        async def _hacerlo() -> str:
+            """Lo que se ejecuta cuando el operador dice «sí» (`confirm.answer`)."""
+            res = await ejecutar()
+            return res.get("reply") or "Hecho."
+
+        _cf.request(channel=channel, kind=f"{skill.folder}/{intent}",
+                    summary=pregunta, action=_hacerlo, request_text=cmd_text,
+                    cancel_reply="Vale: no lo hago. No he ejecutado nada.",
+                    destructive=(efecto == canales.EFECTO_POR_DEFECTO))
+        return ({"reply": pregunta, "skill": skill.folder, "provider": "politica",
+                 "data": {"confirm": True, "efecto": efecto}}, False)
+
+    # Un «sí» solo se puede tomar de texto o voz (`confirm.answer` se llama solo
+    # ahí). Desde un trabajo en segundo plano, una cadena o un flujo no hay a
+    # quién preguntar: se dice la verdad y NO se arma nada, porque una
+    # confirmación armada sin nadie que la conteste se dispararía con el
+    # siguiente «sí» que el operador dijera para otra cosa.
+    return ({"reply": (f"No lo he hecho: «{efecto}» necesita tu «sí» y desde {source} "
+                        f"no puedo preguntártelo. Pídemelo tú directamente (teclado o "
+                        f"voz) y lo hago después de confirmarlo."),
+             "skill": skill.folder, "provider": "politica", "data": None}, False)
+
+
 async def process(text: str, source: str = "text", channel: str = "pc",
                   stream_voice: bool = False, request_id: str = "") -> dict:
     """Punto de entrada único de nexus. source: text | voice | trigger.
@@ -1478,29 +1588,59 @@ async def process(text: str, source: str = "text", channel: str = "pc",
 
     if routed:
         skill, intent, match = routed
-        skill.status, skill.calls = "active", skill.calls + 1
-        await bus.emit("skill", {"folder": skill.folder, "name": skill.name,
-                                 "intent": intent, "calls": skill.calls})
         # v23 (T4): ANTES de ejecutar, nexus consulta las reglas que apliquen a
         # esta skill y se las pasa al minion (y las deja apuntadas para poder
-        # explicar después por qué actuó así).
+        # explicar después por qué actuó así). Se construye UNA vez para que el
+        # «sí» de una confirmación ejecute el handler con el MISMO contexto.
         _reglas = opmem.relevant(cmd_text, scope=f"skill:{skill.folder}", limit=4)
-        if _reglas:
-            opmem.note_use(_reglas, cmd_text, channel)
-            await bus.emit("log", {"level": "info",
-                                   "msg": "📏 Regla de memoria aplicada: "
-                                          f"«{_reglas[0]['text'][:70]}»"})
-        try:
-            ctx = {"settings": settings, "bus": bus, "pg": pg, "graph": graph,
-                   "history": _history, "channel": channel,
-                   "reglas": _reglas, "request_id": req_id}
-            result = await skill.module.handle(intent, cmd_text, match, ctx)
-        except Exception as exc:
-            result = {"reply": f"El minion '{skill.name}' ha fallado: {exc}", "error": True}
-            await bus.emit("log", {"level": "error",
-                                   "msg": f"Skill {skill.folder}/{intent}: {exc}"})
-        finally:
-            skill.status = "ready"
+        ctx = {"settings": settings, "bus": bus, "pg": pg, "graph": graph,
+               "history": _history, "channel": channel,
+               "reglas": _reglas, "request_id": req_id}
+
+        async def _ejecutar(_sk=skill, _intent=intent, _match=match, _ctx=ctx):
+            """Ejecuta el handler de verdad. Es lo ÚNICO que autoriza la política."""
+            _sk.status, _sk.calls = "active", _sk.calls + 1
+            await bus.emit("skill", {"folder": _sk.folder, "name": _sk.name,
+                                     "intent": _intent, "calls": _sk.calls})
+            if _reglas:
+                opmem.note_use(_reglas, cmd_text, channel)
+                await bus.emit("log", {"level": "info",
+                                       "msg": "📏 Regla de memoria aplicada: "
+                                              f"«{_reglas[0]['text'][:70]}»"})
+            try:
+                res = await _sk.module.handle(_intent, cmd_text, _match, _ctx)
+            except Exception as exc:                   # noqa: BLE001
+                res = {"reply": f"El minion '{_sk.name}' ha fallado: {exc}",
+                       "error": True}
+                await bus.emit("log", {"level": "error",
+                                       "msg": f"Skill {_sk.folder}/{_intent}: {exc}"})
+            finally:
+                _sk.status = "ready"
+            try:
+                from ..comun import context as _mturn
+                _mturn.note_reply(_sk.folder, _intent, res.get("reply", "Hecho."), channel)
+            except Exception:                          # noqa: BLE001
+                pass
+            return res
+
+        result, _ejecutado = await _autorizar_efecto(
+            skill, intent, cmd_text, source, channel, _ejecutar)
+        if not _ejecutado:
+            # No se ha ejecutado: o está armada la confirmación (canal local) o se
+            # ha denegado el canal. Lo que se contesta es el veredicto y NO tiene
+            # lugar nada de lo que sigue (aprendizaje, memoria, PM): una orden que
+            # no ha pasado no puede dejar rastro de haberse hecho.
+            reply = result.get("reply", "Hecho.")
+            _history.append({"role": "user", "content": text})
+            _history.append({"role": "assistant", "content": reply})
+            del _history[:-2 * MAX_TURNS]
+            _provider = result.get("provider") or "politica"
+            await bus.emit("chat", {"user": text, "reply": reply,
+                                    "provider": _provider, "skill": skill.folder,
+                                    "channel": channel})
+            await bus.emit("state", "idle")
+            return {"reply": reply, "skill": skill.folder,
+                    "provider": _provider, "data": result.get("data")}
         reply = result.get("reply", "Hecho.")
         provider = f"minion:{skill.folder}"
         data = result.get("data")
@@ -1512,11 +1652,8 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         _origen_respuesta = result.get("origen_datos") or ""
         if _origen_respuesta not in datos_inyectados.ORIGENES:
             _origen_respuesta = ""
-        try:
-            from ..comun import context as _mturn
-            _mturn.note_reply(skill.folder, intent, reply, channel)
-        except Exception:
-            pass
+        # (`note_reply` se apunta DENTRO de `_ejecutar`, para que también quede
+        # apuntado cuando el handler corre tras un «sí».)
         # aprendizaje: recuerda la orden que ha funcionado (frase → orden canónica).
         # Los canales restringidos no alimentan ese aprendizaje: su texto no es una
         # orden del operador y quedaría guardado para ejecutarlo luego por semejanza.

@@ -107,8 +107,14 @@ def es_restringido(canal: str) -> bool:
     return _pares(canal) is not None
 
 
-def _efecto_normalizado(efecto) -> str:
-    """Efecto en el vocabulario; lo que no está en la lista cae en el de fábrica."""
+def efecto_normalizado(efecto) -> str:
+    """Efecto en el vocabulario; lo que no está en la lista cae en el de fábrica.
+
+    Público porque `brain` (T8c) necesita el MISMO efecto que decide la matriz
+    para saber si la confirmación que arma es destructiva, y para decírselo al
+    operador en la pregunta. Una segunda normalización en `brain` sería una
+    segunda verdad.
+    """
     if isinstance(efecto, str):
         limpio = efecto.strip().lower()
         if limpio in EFECTOS:
@@ -164,7 +170,7 @@ def politica(source, channel, efecto, carpeta: str = "", intent: str = "") -> st
     Un `efecto` desconocido, vacío o None cuenta como `EFECTO_POR_DEFECTO`.
     """
     clase = clase_de_canal(source, channel)
-    ef = _efecto_normalizado(efecto)
+    ef = efecto_normalizado(efecto)
 
     if clase == RESTRINGIDO:
         pares = _pares(_canal_restringido(source, channel))

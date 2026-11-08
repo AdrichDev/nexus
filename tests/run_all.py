@@ -128,7 +128,11 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/core/runtime/test_canal_efecto.py",
               # Efectos declarados por skill (ARQ-01/ARQ-03, T8b): lee el fuente de
               # las 32 skills con ast, sin importarlas ni abrir config/datos.
-              "unit/core/runtime/test_efectos_declarados.py"):
+              "unit/core/runtime/test_efectos_declarados.py",
+              # La puerta ÚNICA de ejecución (ARQ-01/ARQ-03, T8c): el handler es un
+              # doble, la BD está fuera de línea y config/datos viven en carpetas de
+              # usar y tirar — sin red, sin LLM y sin servidores.
+              "unit/core/runtime/test_politica_brain.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.

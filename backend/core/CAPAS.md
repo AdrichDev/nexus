@@ -76,7 +76,11 @@ Cuatro colocaciones que no son obvias, y el test fue quien las señaló:
 - **`brain` y `voice_cycle` en aplicación**, no en dominio. No contienen reglas
   de negocio: deciden **qué se ejecuta**. `brain` elige skill e intent y lanza
   trabajos; `voice_cycle` escucha, transcribe y se lo pasa al cerebro. Eso es
-  orquestación. Lo mismo con `wake` y `hotkey`, que son puntos de entrada.
+  orquestación. Lo mismo con `wake` y `hotkey`, que son puntos de entrada. Y la
+  regla de qué efecto admite cada canal no vive aquí: se **consulta** en
+  `comun/canales.py` (`politica`), que es vocabulario puro y se puede leer sin
+  saber nada de `brain`. `brain` solo obedece el veredicto, en un único sitio,
+  antes de llamar a ningún handler (task T8c).
 - **`pm` en dominio**, no en infraestructura. Detecta compromisos en lo que
   hablas y los convierte en tareas: eso son reglas del negocio.
 - **`reglas` en dominio**, aunque lo que aprende sea enrutado. Guarda el almacén

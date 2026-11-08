@@ -228,7 +228,9 @@ def test_sobrevive_al_reinicio():
 def test_brain_consulta_memoria_antes_de_actuar():
     brain = Path(ROOT, "backend", "core", "aplicacion", "brain.py").read_text(encoding="utf-8")
     i_rel = brain.find("opmem.relevant(cmd_text")
-    i_handle = brain.find("await skill.module.handle(intent, cmd_text, match, ctx)")
+    # T8c: el handler solo se ejecuta dentro de `_ejecutar`, tras la matriz
+    # canal × efecto; sigue siendo la ÚNICA llamada a `.module.handle(`.
+    i_handle = brain.find("await _sk.module.handle(_intent, cmd_text, _match, _ctx)")
     check(0 < i_rel < i_handle, "consulta las reglas ANTES de ejecutar la skill")
     check('"reglas": _reglas' in brain, "y se las pasa al minion en el contexto")
     check("_WHY_RX" in brain and "opmem.explain(channel)" in brain,

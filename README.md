@@ -470,7 +470,31 @@ ejecuta la lista blanca de órdenes de sólo lectura —«estado de instagram»,
 «analiza mis reels» y «dame ideas de contenido»— y todo lo demás se contesta
 con «Esa orden no está permitida desde n8n.» y sin efectos: ni correo, ni
 WhatsApp, ni memoria, ni Drive, ni cadenas, ni planificador del modelo, ni
-Hermes. El chat del HUD, la voz y Telegram no cambian.
+Hermes. La lista blanca es una **intersección**: el par tiene que estar listado
+Y declararse de lectura, así que si algún día una de esas tres acciones empieza
+a escribir, deja de pasar por su cuenta.
+
+#### Qué puede hacer cada canal (matriz canal × efecto)
+
+Cada skill declara el **efecto** de cada una de sus órdenes (`read`,
+`write_local`, `external_send`, `destructive`) y `brain` lo cruza con el canal
+en un único sitio, **antes** de ejecutar nada. Una orden cuyo efecto no está
+declarado cuenta como `destructive`: se pregunta, nunca se ejecuta a ciegas.
+
+| efecto | PC (voz o teclado) y trabajos | móvil y Telegram | n8n |
+|---|---|---|---|
+| `read` | actúa | actúa | sólo si está en la lista blanca |
+| `write_local` | actúa | actúa | se rechaza |
+| `external_send` | actúa | **pregunta** | se rechaza |
+| `destructive` | **pregunta** | **pregunta** | se rechaza |
+
+Consecuencia práctica: en el PC todo funciona como siempre **salvo lo
+destructivo**, que ahora pregunta antes (borrar un correo, borrar un contacto);
+desde el móvil y Telegram, además, pregunta todo lo que manda algo fuera (un
+correo, un WhatsApp, un post). Lo que la propia skill ya pregunta sola no se
+pregunta dos veces. Y un «sí» sólo se toma del teclado o la voz: si lo
+destructivo llega desde un trabajo en segundo plano o una cadena, nexus no arma
+nada y te dice que se lo pidas directamente.
 
 Eso incluye lo que llega de WhatsApp hacia dentro: el flujo de ejemplo sólo
 **avisa** de que ha llegado un mensaje (queda en el registro de nexus y en el

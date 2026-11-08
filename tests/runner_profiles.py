@@ -168,6 +168,14 @@ SAFE_UNIT_SUITES = (
     # tirar antes de importar el backend: no se abre el settings.json ni el data/
     # del operador, y no hay red.
     "unit/core/runtime/test_efectos_declarados.py",
+    # La puerta ÚNICA de ejecución (SEC-01/SEC-06, ARQ-01/ARQ-03, roadmap P2-1,
+    # T8c): `brain` pregunta a `canales.politica` antes de llamar a un handler, así
+    # que `external_send` desde el móvil/Telegram y `destructive` desde cualquier
+    # canal preguntan, n8n se queda con la intersección (listado Y de lectura) y un
+    # intent sin efecto declarado cuenta como destructivo. La skill es un doble con
+    # contador de llamadas, `_db_online` está fuera de línea y config/datos viven en
+    # carpetas de usar y tirar: no hay red, ni LLM, ni servidores, ni efectos reales.
+    "unit/core/runtime/test_politica_brain.py",
     # Reserva del cerebro entre clases de localidad (AI-01/PRIV-02) y tope de
     # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y
     # carpetas de usar y tirar.
