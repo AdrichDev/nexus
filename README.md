@@ -492,9 +492,21 @@ Consecuencia práctica: en el PC todo funciona como siempre **salvo lo
 destructivo**, que ahora pregunta antes (borrar un correo, borrar un contacto);
 desde el móvil y Telegram, además, pregunta todo lo que manda algo fuera (un
 correo, un WhatsApp, un post). Lo que la propia skill ya pregunta sola no se
-pregunta dos veces. Y un «sí» sólo se toma del teclado o la voz: si lo
-destructivo llega desde un trabajo en segundo plano o una cadena, nexus no arma
-nada y te dice que se lo pidas directamente.
+pregunta dos veces.
+
+Y un «sí» sólo se toma del teclado o la voz. Si una orden que pregunta llega
+desde un trabajo en segundo plano o una cadena (la columna «trabajos»), nexus no
+la ejecuta y no arma nada: te dice que se lo pidas directamente. Eso vale
+también para las órdenes que ya saben preguntarse solas: desde un trabajo no se
+ejecutan, porque su pregunta quedaría armada en un canal donde no hay nadie
+contestando y el siguiente «sí» tuyo dispararía lo que preparó el trabajo.
+
+Una frase tuya con varias órdenes («apaga la tele y manda un mensaje a…») sí
+conserva tu voz: cada trozo se juzga como si lo pidieras tú, así que lo que
+pregunta se te pregunta. Como en cada canal sólo cabe **una** pregunta armada a
+la vez, la primera ocupa el sitio y las demás te contestan que también necesitan
+su «sí» y que se las pidas por separado; el resto de la frase sigue corriendo
+igual.
 
 Eso incluye lo que llega de WhatsApp hacia dentro: el flujo de ejemplo sólo
 **avisa** de que ha llegado un mensaje (queda en el registro de nexus y en el

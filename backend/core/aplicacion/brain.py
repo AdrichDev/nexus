@@ -829,8 +829,54 @@ def _pregunta_de_confirmacion(efecto: str, orden: str, canal: str) -> str:
             f"tu permiso:\n   «{_cf.recortar(orden, 160)}»\n¿Lo hago? (sí/no)")
 
 
+def _es_interactivo(source: str, padre_interactivo: bool) -> bool:
+    """¿Hay un operador al otro lado que pueda contestar «sí» AHORA mismo?
+
+    Texto y voz sí: es el operador tecleando o hablando. Un `sub` hereda la
+    interactividad de SU padre, que es lo que arregla el defecto R3 de T8g: una
+    frase del operador («apaga la tele Y manda un mensaje…») se trocea en
+    sub-órdenes, y antes cualquier «confirmar» dentro de ella se rechazaba con un
+    «pídemelo tú» a alguien que ya lo estaba pidiendo. Un `job` (trabajo en
+    segundo plano, cadena, multi-tarea) NUNCA es interactivo, aunque el padre lo
+    fuera: para cuando corre, el operador ya no está contestando esa frase.
+    """
+    if source in ("text", "voice"):
+        return True
+    return source == "sub" and bool(padre_interactivo)
+
+
+def _pregunta_imposible(efecto: str, source: str) -> str:
+    """La verdad cuando la orden necesita un «sí» y desde ahí no se puede pedir.
+
+    Un «sí» solo se toma de texto o voz (`confirm.answer` se llama solo ahí), así
+    que desde un trabajo, una cadena o un flujo no hay a quién preguntar: se dice
+    y NO se arma nada, porque una confirmación armada sin nadie que la conteste
+    se dispararía con el siguiente «sí» que el operador dijera para otra cosa.
+    """
+    return (f"No lo he hecho: «{efecto}» necesita tu «sí» y desde {source} "
+            f"no puedo preguntártelo. Pídemelo tú directamente (teclado o "
+            f"voz) y lo hago después de confirmarlo.")
+
+
+def _otra_pregunta_armada(efecto: str, orden: str) -> str:
+    """La verdad cuando en el canal YA hay una pregunta armada (T8g, R3-1).
+
+    En cada canal hay UNA sola confirmación pendiente (`confirm.request`
+    sustituye la anterior), así que la segunda orden de la misma frase no puede
+    armarla: se dice que también necesita su «sí» y que hay que pedirla aparte.
+    Ejecutarla sin preguntar sería peor, y armar la segunda borraría la primera.
+    """
+    from ..comun import confirm as _cf
+    return (f"Esto es «{efecto}» y también necesita tu «sí», pero en esta misma "
+            f"frase ya te estoy preguntando otra cosa:\n   "
+            f"«{_cf.recortar(orden, 120)}»\n"
+            f"No lo he hecho: dímelo en una orden aparte y te lo pregunto.")
+
+
 async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
-                            channel: str, ejecutar):
+                            channel: str, ejecutar, *,
+                            padre_interactivo: bool = False,
+                            confirmacion_armada: bool = False):
     """Decide si esta orden se ejecuta, se pregunta o se deniega. Devuelve
     `(resultado, ejecutado)`.
 
@@ -840,32 +886,57 @@ async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
     `ejecutar` es una corrutina sin argumentos que ejecuta el handler de verdad:
     es lo único que se autoriza aquí, así que un camino nuevo no puede ejecutar
     por su cuenta sin pasar por esta función.
+
+    `padre_interactivo` dice si el padre de un `sub` era texto o voz (T8g): con
+    un operador delante, un «confirmar» se pregunta igual que en una orden
+    directa. `confirmacion_armada` dice que ESTA misma multi-orden ya dejó una
+    pregunta armada en el canal: entonces no se ejecuta ni se arma otra (solo
+    cabe una, `confirm.request` sustituye la anterior) y se dice.
     """
     efecto = _efecto_de(skill, intent)
     veredicto = canales.politica(source, channel, efecto, skill.folder, intent)
+    # ¿Hay alguien al otro lado a quien preguntarle? (T8g)
+    interactivo = _es_interactivo(source, padre_interactivo)
+    # El nombre del canal con el que se habla al operador: si el que está
+    # restringido es el `source` (n8n), es ese y no el canal de entrega.
+    canal = source if canales.es_restringido(source) else channel
+
+    if veredicto == canales.DENEGAR:
+        await bus.emit("log", {"level": "info", "msg":
+                       f"🛡 Canal {canal} · {skill.folder}/{intent} ({efecto}) → denegado"})
+        return canales.rechazo(canal), False
+
+    # La skill ya pregunta por su cuenta (T8b). Desde un canal sin operador eso
+    # es un «sí» armado en un canal mudo: el siguiente «sí» del operador ahí
+    # dispararía lo que preparó un trabajo. No se ejecuta NADA, sea cual sea el
+    # veredicto de la matriz (T8g, R3-2).
+    if not interactivo and _ya_pregunta_sola(skill, intent):
+        await bus.emit("log", {"level": "info", "msg":
+                       f"🛡 Canal {canal} · {skill.folder}/{intent} ({efecto}) → su "
+                       f"pregunta no se arma: desde {source} no hay quien conteste"})
+        return ({"reply": _pregunta_imposible(efecto, source),
+                 "skill": skill.folder, "provider": "politica", "data": None}, False)
 
     if veredicto == canales.PERMITIR:
         return await ejecutar(), True
 
-    # El nombre del canal con el que se habla al operador: si el que está
-    # restringido es el `source` (n8n), es ese y no el canal de entrega.
-    canal = source if canales.es_restringido(source) else channel
-    # La skill ya pregunta por su cuenta (T8b): preguntar aquí sería hacerle al
-    # operador la misma pregunta dos veces por la misma orden.
-    pregunta_la_skill = veredicto == canales.CONFIRMAR and _ya_pregunta_sola(skill, intent)
+    # Aquí el veredicto es `confirmar`: o pregunta la skill o pregunta `brain`.
+    pregunta_la_skill = _ya_pregunta_sola(skill, intent)
     await bus.emit("log", {"level": "info", "msg":
                    f"🛡 Canal {canal} · {skill.folder}/{intent} ({efecto}) → "
-                   + ("denegado" if veredicto == canales.DENEGAR else
-                      "pregunta la propia skill" if pregunta_la_skill else
-                      "pide confirmación")})
+                   + ("pregunta la propia skill" if pregunta_la_skill
+                      else "pide confirmación")})
+
+    # T8g: en el canal solo cabe UNA pregunta armada a la vez y esta frase ya la
+    # tiene, así que ni se ejecuta ni se sustituye la que está esperando.
+    if confirmacion_armada:
+        return ({"reply": _otra_pregunta_armada(efecto, cmd_text),
+                 "skill": skill.folder, "provider": "politica", "data": None}, False)
 
     if pregunta_la_skill:
         return await ejecutar(), True
 
-    if veredicto == canales.DENEGAR:
-        return canales.rechazo(canal), False
-
-    if source in ("text", "voice"):
+    if interactivo:
         from ..comun import confirm as _cf
         pregunta = _pregunta_de_confirmacion(efecto, cmd_text, channel)
 
@@ -886,20 +957,25 @@ async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
     # quién preguntar: se dice la verdad y NO se arma nada, porque una
     # confirmación armada sin nadie que la conteste se dispararía con el
     # siguiente «sí» que el operador dijera para otra cosa.
-    return ({"reply": (f"No lo he hecho: «{efecto}» necesita tu «sí» y desde {source} "
-                        f"no puedo preguntártelo. Pídemelo tú directamente (teclado o "
-                        f"voz) y lo hago después de confirmarlo."),
+    return ({"reply": _pregunta_imposible(efecto, source),
              "skill": skill.folder, "provider": "politica", "data": None}, False)
 
 
 async def process(text: str, source: str = "text", channel: str = "pc",
-                  stream_voice: bool = False, request_id: str = "") -> dict:
+                  stream_voice: bool = False, request_id: str = "",
+                  padre_interactivo: bool = False,
+                  confirmacion_armada: bool = False) -> dict:
     """Punto de entrada único de nexus. source: text | voice | trigger.
     channel: pc | mobile — QUIÉN dio la orden; la respuesta se ETIQUETA con él para
     que SOLO hable el aparato que la pidió (si no, PC y móvil hablaban a la vez).
     request_id (v23 T9): identificador ÚNICO de esta petición. Todo lo que se
     lance por ella (trabajos, encargos a Hermes) lo lleva, para que ninguna
-    respuesta antigua pueda colarse como resultado de una petición nueva."""
+    respuesta antigua pueda colarse como resultado de una petición nueva.
+    padre_interactivo (T8g): el sub-orden de una frase tecleada o dictada por el
+    operador conserva su interactividad (ver `_es_interactivo`), porque el
+    operador sigue delante y sí puede contestar «sí». `confirmacion_armada`
+    (T8g): en el canal ya se armó una pregunta EN ESTA misma multi-orden, así que
+    este sub-orden no la puede sustituir (solo cabe una) ni ejecutarse a ciegas."""
     text = (text or "").strip()
     if not text:
         return {"reply": "", "skill": None}
@@ -1387,6 +1463,13 @@ async def process(text: str, source: str = "text", channel: str = "pc",
     # trocear hay ≥2 partes que casan de verdad con un minion (guarda anti-falsos:
     # «pon rock y jazz» no se parte). Los sub-procesos van con source="sub", que
     # silencia sus emisiones de chat/estado para que sea UNA sola respuesta.
+    #
+    # T8g: el troceo NO convierte al operador en un trabajo. Si la frase llegó por
+    # texto o voz, cada sub-orden hereda esa interactividad («padre_interactivo»),
+    # así que un «confirmar» dentro de la frase se pregunta como una orden
+    # directa en vez de rechazarse. Pero en el canal solo cabe UNA confirmación
+    # pendiente (`confirm.request` sustituye la anterior), así que la primera que
+    # se arme ocupa el sitio y las siguientes se dicen aparte, sin ejecutarse.
     if source not in ("job", "sub") and not _restringido:
         parts = _split_orders(text)
         if len(parts) >= 2 and sum(route(p) is not None for p in parts) >= 2:
@@ -1395,12 +1478,21 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             await bus.emit("log", {"level": "info",
                                    "msg": f"🧩 Varias órdenes en una: {len(parts)} tareas"})
             replies, subskills = [], []
+            from ..comun import confirm as _cf_orden
+            _padre_interactivo = source in ("text", "voice")
+            _armada = False                       # T8g: ya hay una pregunta en el canal
             for p in parts:
+                _antes = _cf_orden.pending(channel)
                 try:
                     sub = await process(p, source="sub", channel=channel,
-                                        request_id=req_id)
+                                        request_id=req_id,
+                                        padre_interactivo=_padre_interactivo,
+                                        confirmacion_armada=_armada)
                 except Exception as exc:                       # noqa: BLE001
                     sub = {"reply": f"(«{p}» falló: {exc})", "skill": None}
+                _ahora = _cf_orden.pending(channel)
+                if _ahora and (_antes is None or _ahora.get("id") != _antes.get("id")):
+                    _armada = True        # la ha armado (y por tanto ocupa) esta frase
                 if sub.get("reply"):
                     replies.append(sub["reply"].strip())
                 if sub.get("skill"):
@@ -1624,7 +1716,9 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             return res
 
         result, _ejecutado = await _autorizar_efecto(
-            skill, intent, cmd_text, source, channel, _ejecutar)
+            skill, intent, cmd_text, source, channel, _ejecutar,
+            padre_interactivo=padre_interactivo,
+            confirmacion_armada=confirmacion_armada)
         if not _ejecutado:
             # No se ha ejecutado: o está armada la confirmación (canal local) o se
             # ha denegado el canal. Lo que se contesta es el veredicto y NO tiene

@@ -39,7 +39,17 @@ confirmación pendiente del canal:
   i) y las dos guardas por skill que NO se quitan, porque son más estrictas o de
      otro eje: `datos` no abre sockets desde un canal remoto (la matriz sí lo
      permitiría) y `engram` no fija órdenes permanentes desde el móvil (eso es
-     procedencia, no efecto).
+     procedencia, no efecto);
+  k) T8g (1, R3-multiorden-direct-operator-refused): una frase del OPERADOR con
+     varias órdenes sí pregunta. La primera que necesita un «sí» lo arma, la
+     segunda no se ejecuta (en el canal solo cabe una pregunta armada) y lo dice,
+     y una lectura de la misma frase sigue corriendo; el «sí» ejecuta solo la
+     primera;
+  l) T8g (2, R3-job-sub-skill-confirma-still-arms): desde un trabajo o un sub sin
+     operador, un intent de `SKILL["confirma"]` NO se ejecuta —con cualquier
+     veredicto de la matriz— y no se arma nada en ningún canal;
+  m) lo que ya funcionaba: una orden directa con un intent de `confirma` se
+     ejecuta y pregunta su skill, y una lectura desde un trabajo sigue igual.
 
 TODO en proceso y sin efectos reales: la skill es un doble (módulo con `SKILL` y
 un `handle` espía), `__db_online` está fuera de línea, no hay red ni LLM, y
@@ -122,7 +132,8 @@ _REGISTRO_ORIGINAL = dict(skills_loader._registry)
 class _Mod:
     """Lo único que `brain` y el cargador necesitan de una skill."""
 
-    def __init__(self, folder: str, effects: dict, confirma, calls: list):
+    def __init__(self, folder: str, effects: dict, confirma, calls: list,
+                 arma: bool = False):
         self.SKILL = {"name": folder,
                       "description": "doble de prueba (T8c)",
                       "effects": dict(effects),
@@ -131,13 +142,22 @@ class _Mod:
         async def handle(intent, text, match, ctx):
             calls.append({"folder": folder, "intent": intent, "text": text,
                           "channel": (ctx or {}).get("channel")})
+            if arma:
+                # Como las skills REALES de `SKILL["confirma"]` (T8b): el propio
+                # handler arma su pregunta y deja su acción para el «sí».
+                confirm.request(channel=(ctx or {}).get("channel") or "pc",
+                                kind=f"{folder}/{intent}",
+                                summary="¿Lo hago? (sí/no)",
+                                action=lambda: "hecho tras el sí",
+                                request_text=text)
             return {"reply": f"hecho:{folder}/{intent}"}
 
         self.handle = handle
 
 
-def _skill(folder: str, effects: dict, confirma, patrones: dict, calls: list):
-    mod = _Mod(folder, effects, confirma, calls)
+def _skill(folder: str, effects: dict, confirma, patrones: dict, calls: list,
+           arma: bool = False):
+    mod = _Mod(folder, effects, confirma, calls, arma=arma)
     return skills_loader.Skill(
         name=folder, folder=folder, description="doble de prueba (T8c)",
         patterns={i: re.compile(rx, re.IGNORECASE) for i, rx in patrones.items()},
@@ -154,17 +174,20 @@ def _montar(*skills) -> None:
 # un intent sin efecto declarado cuenta como `destructive` (EFECTO_POR_DEFECTO).
 _PATRONES = {
     "env": r"^manda el informe de prueba",
+    "env2": r"^manda el parte de prueba",
     "borra": r"^borra el recibo de prueba",
     "borra_conf": r"^borra confirmando el recibo de prueba",
     "lee": r"^lee el tablon de prueba",
     "escribe": r"^escribe en el tablon de prueba",
     "raro": r"^ordena el asunto raro de prueba",
 }
-_EFECTOS = {"env": "external_send", "borra": "destructive",
-            "borra_conf": "destructive", "lee": "read", "escribe": "write_local"}
+_EFECTOS = {"env": "external_send", "env2": "external_send",
+            "borra": "destructive", "borra_conf": "destructive",
+            "lee": "read", "escribe": "write_local"}
 _CONFIESA = ("borra_conf",)
 
 _TEXTOS = {"env": "manda el informe de prueba tal cual",
+           "env2": "manda el parte de prueba",
            "borra": "borra el recibo de prueba",
            "borra_conf": "borra confirmando el recibo de prueba",
            "lee": "lee el tablon de prueba",
@@ -172,8 +195,26 @@ _TEXTOS = {"env": "manda el informe de prueba tal cual",
            "raro": "ordena el asunto raro de prueba"}
 
 
+# Una skill que PREGUNTA SOLA (T8b) de verdad: su `handle` arma `confirm.request`.
+# Tres intents con los tres veredictos posibles desde un trabajo: `read` y
+# `external_send` los PERMITE la matriz en local, `destructive` la hace CONFIRMAR.
+_PATRONES_CONF = {"lee_conf": r"^lee el tablon confirmando",
+                  "envia_conf": r"^manda el informe confirmando",
+                  "borra_conf": r"^borra confirmando el recibo de prueba"}
+_EFECTOS_CONF = {"lee_conf": "read", "envia_conf": "external_send",
+                 "borra_conf": "destructive"}
+_TEXTOS_CONF = {"lee_conf": "lee el tablon confirmando",
+                "envia_conf": "manda el informe confirmando",
+                "borra_conf": "borra confirmando el recibo de prueba"}
+
+
 def _img(calls: list):
     return _skill("img", _EFECTOS, _CONFIESA, _PATRONES, calls)
+
+
+def _preguntona(calls: list):
+    return _skill("img", _EFECTOS_CONF, tuple(_PATRONES_CONF), _PATRONES_CONF,
+                  calls, arma=True)
 
 
 def _cargar_skill(nombre: str):
@@ -399,6 +440,97 @@ async def main() -> None:
     check('source="sub", channel=channel' in fuente
           and 'source="job", channel=ch' in fuente,
           "h) la multi-orden y la cadena tienen que seguir entrando por job/sub")
+
+    print("· k) T8g (1): una multi-orden del OPERADOR sí pregunta (una sola vez)")
+    # R3-multiorden-direct-operator-refused: «manda A y manda B y lee C» tecleada
+    # por el operador se trocea en `source="sub"`, y antes un «confirmar» dentro
+    # de la frase se RECHAZABA aunque el operador estuviera delante. Ahora el
+    # sub-orden hereda que su padre era interactivo: la primera que pregunta arma
+    # la confirmación como una orden directa, la segunda NO se ejecuta (en el
+    # canal solo cabe una pregunta armada) y lo dice, y la de lectura sigue.
+    calls.clear()
+    _montar(_img(calls))
+    frase = (_TEXTOS["env"] + " y " + _TEXTOS["env2"] + " y " + _TEXTOS["lee"])
+    r = await brain.process(frase, source="text", channel="mobile")
+    texto = r.get("reply") or ""
+    pend = confirm.pending("mobile")
+    check([c["intent"] for c in calls] == ["lee"],
+          f"k) móvil multi-orden: solo corre la de lectura, sin «sí» ({calls!r})")
+    check(bool(pend) and pend.get("kind") == "img/env",
+          f"k) móvil multi-orden: la primera que pregunta arma img/env ({pend!r})")
+    check(texto.count("¿Lo hago? (sí/no)") == 1,
+          f"k) móvil multi-orden: UNA sola pregunta en la respuesta, dijo {texto!r}")
+    check("«sí»" in texto and "aparte" in texto,
+          f"k) móvil multi-orden: la segunda dice que necesita su propio «sí» ({texto!r})")
+    check("hecho:img/lee" in texto,
+          f"k) móvil multi-orden: la de lectura contesta igual ({texto!r})")
+    r = await brain.process("sí", source="text", channel="mobile")
+    check([c["intent"] for c in calls] == ["lee", "env"],
+          f"k) móvil multi-orden + «sí»: se ejecuta SOLO la que se armó ({calls!r})")
+    check("hecho:img/env" in (r.get("reply") or ""),
+          f"k) móvil multi-orden + «sí»: contesta el handler, fue {r.get('reply')!r}")
+    check(confirm.pending("mobile") is None,
+          "k) móvil multi-orden + «sí»: no queda nada armado")
+
+    calls.clear()
+    _montar(_img(calls))
+    r = await brain.process(_TEXTOS["borra"] + " y " + _TEXTOS["escribe"],
+                            source="text", channel="pc")
+    texto = r.get("reply") or ""
+    pend = confirm.pending("pc")
+    check([c["intent"] for c in calls] == ["escribe"],
+          f"k) pc multi-orden: lo destructivo no corre, lo local sí ({calls!r})")
+    check(bool(pend) and pend.get("kind") == "img/borra",
+          f"k) pc multi-orden: lo destructivo arma su pregunta ({pend!r})")
+    check("¿Lo hago? (sí/no)" in texto and "hecho:img/escribe" in texto,
+          f"k) pc multi-orden: pregunta y contesta lo demás, dijo {texto!r}")
+    confirm.clear()
+
+    print("· l) T8g (2): sin nadie a quien contestar, la skill que pregunta NO corre")
+    # R3-job-sub-skill-confirma-still-arms: un intent de `SKILL["confirma"]` que
+    # llegara por un trabajo armaba su «sí» en un canal mudo (pc) y el siguiente
+    # «sí» del operador disparaba lo que preparó el trabajo. Desde un canal sin
+    # operador no se ejecuta NADA, sea cual sea el veredicto de la matriz.
+    for fuente in ("job", "sub"):
+        for intent, orden in _TEXTOS_CONF.items():
+            calls.clear()
+            _montar(_preguntona(calls))
+            r = await brain.process(orden, source=fuente, channel="pc")
+            texto = r.get("reply") or ""
+            check(calls == [],
+                  f"l) {fuente}/{intent}: el handler NO puede ejecutarse ({calls!r})")
+            check(all(confirm.pending(c) is None
+                      for c in ("pc", "mobile", "telegram")),
+                  f"l) {fuente}/{intent}: no se arma nada en ningún canal")
+            check("¿Lo hago?" not in texto,
+                  f"l) {fuente}/{intent}: nada de preguntas imposibles: {texto!r}")
+            check("«sí»" in texto and fuente in texto,
+                  f"l) {fuente}/{intent}: hay que decir la verdad, dijo {texto!r}")
+
+    print("· m) lo que ya funcionaba sigue igual")
+    # (1) Una orden DIRECTA con un intent de `confirma` se ejecuta y pregunta su
+    #     skill: el operador está delante y la pregunta se arma una sola vez.
+    calls.clear()
+    _montar(_preguntona(calls))
+    r = await brain.process(_TEXTOS_CONF["borra_conf"], source="text", channel="pc")
+    pend = confirm.pending("pc")
+    check(len(calls) == 1 and calls[0]["intent"] == "borra_conf",
+          f"m) pc: la skill que pregunta sola se ejecuta ({calls!r})")
+    check(bool(pend) and pend.get("kind") == "img/borra_conf",
+          f"m) pc: la pregunta es la de la skill, sin segunda pregunta ({pend!r})")
+    check("¿Lo hago?" not in (r.get("reply") or "")
+          or (r.get("reply") or "").count("¿Lo hago?") == 1,
+          f"m) pc: brain no pregunta por encima de la skill, dijo {r.get('reply')!r}")
+    confirm.clear()
+    # (2) Un trabajo de LECTURA sigue corriendo como siempre.
+    calls.clear()
+    _montar(_img(calls))
+    r = await brain.process(_TEXTOS["lee"], source="job", channel="pc")
+    check([c["intent"] for c in calls] == ["lee"],
+          f"m) job: una lectura sigue ejecutándose ({calls!r})")
+    check(confirm.pending("pc") is None, "m) job: una lectura no arma nada")
+    check(r.get("reply") == "hecho:img/lee",
+          f"m) job: contesta el handler, fue {r.get('reply')!r}")
 
     print("· i) las dos guardas por skill que NO se quitan")
     # `datos`: `connect` es write_local, así que la matriz PERMITE desde el móvil;
