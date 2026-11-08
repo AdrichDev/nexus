@@ -151,7 +151,11 @@ def main():
     _sp = _u.spec_from_file_location("ap", ROOT / "skills" / "autoprovision" / "skill.py")
     _ap = _u.module_from_spec(_sp); _sp.loader.exec_module(_ap)
     src = (ROOT / "skills" / "autoprovision" / "skill.py").read_text(encoding="utf-8")
-    i_cfg = src.find('ROOT / "config" / "docker-compose.yml"')
+    # T39b: el compose que escribe nexus vive en CONFIG_DIR (respeta
+    # NEXUS_CONFIG_DIR); la búsqueda empieza por él.
+    check('_COMPOSE_OPERADOR = CONFIG_DIR / "docker-compose.yml"' in src,
+          "el compose del operador es CONFIG_DIR/docker-compose.yml")
+    i_cfg = src.find("for c in (_COMPOSE_OPERADOR,")
     i_gru = src.find('GRU / "docker-compose.nexus.yml"')
     check(i_cfg > 0, "se busca en config/docker-compose.yml")
     check(0 < i_cfg < i_gru, "y ANTES que en la carpeta hermana nexus_stack")
