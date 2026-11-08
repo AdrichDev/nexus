@@ -725,6 +725,152 @@ def test_plan_parse():
     check(parse('{"skill":"g","intent":"x","args":null}')["args"] == {}, "plan: args null -> {}")
 
 
+# ══════════ TEST 33: PRIORIDAD EXPLÍCITA DEL ROUTING (ARQ-04, tarea T23) ══════════
+# Hasta T23, quién ganaba una frase ambigua lo decidía el ORDEN ALFABÉTICO de la
+# carpeta: una coincidencia, no una decisión. `SKILL["priority"] = {intent: entero}`
+# lo declara. Gana el intent con más prioridad; si empatan se queda el orden
+# declarado (carpetas alfabéticas y cada intent en el orden en que está escrito),
+# que es exactamente lo de antes. Sin declarar nada, el router se comporta igual.
+_T23_FRASE_AMBIGUA = "pon el informe de prueba en progreso"
+_T23_FRASE_EMPATE = "saca el listado de prueba"
+_T23_FRASE_DEGRADADA = "repasa el acta de prueba"
+_T23_FRASE_INTRA = "prepara el parte de prueba"
+_T23_FRASE_MALA = "abre la caja de prueba"
+_T23_FRASE_ROTUNDA = "cierra el sobre de prueba"
+
+
+def _t23_skill(base, carpeta, nombre, patrones, priority=None):
+    """Escribe una skill de mentira (patrones literales) en una carpeta temporal.
+    `priority` se escribe TAL CUAL se le pase: sirve también para las mal escritas."""
+    destino = os.path.join(base, carpeta)
+    os.makedirs(destino, exist_ok=True)
+    extra = "" if priority is None else f', "priority": {priority!r}'
+    with open(os.path.join(destino, "skill.py"), "w", encoding="utf-8") as fh:
+        fh.write(
+            "SKILL = {\"name\": %r, \"description\": 'doble de prueba (T23)',\n"
+            "         \"patterns\": %r%s}\n\n"
+            "\n"
+            "async def handle(intent, text, match, ctx):\n"
+            "    return {\"reply\": %r}\n"
+            % (nombre, patrones, extra, f"doble:{nombre}"))
+
+
+def _t23_exacta(frase):
+    return "^" + re.escape(frase) + "$"
+
+
+def _t23_route_legado(skills, text):
+    """El `route()` de ANTES de T23, copiado tal cual: primer intent que case en
+    el orden del registro (carpetas alfabéticas, intents como están escritos)."""
+    for skill in skills.values():
+        if skill.status == "error":
+            continue
+        for intent, rx in skill.patterns.items():
+            if rx.search(text):
+                return skill.folder, intent
+    return None
+
+
+def test_prioridad_routing():
+    import tempfile
+    from pathlib import Path as _Path
+    from backend.core.aplicacion import skills_loader as sl
+
+    print("· la prioridad declarada gana al accidente alfabético (ARQ-04)")
+    dir_previo, registro_previo = sl.SKILLS_DIR, sl._registry
+    with tempfile.TemporaryDirectory(prefix="nexus_t23_") as base:
+        # «alfa» va PRIMERA por orden alfabético y casa; «zeta» declara prioridad.
+        _t23_skill(base, "alfa", "Alfa", dict(
+            {"amplio": _t23_exacta(_T23_FRASE_AMBIGUA),
+             "general": _t23_exacta(_T23_FRASE_EMPATE),
+             "acta": _t23_exacta(_T23_FRASE_DEGRADADA)}),
+                   priority={"acta": -5})       # prioridad NEGATIVA: se rebaja a propósito
+        _t23_skill(base, "zeta", "Zeta", {"concreto": _t23_exacta(_T23_FRASE_AMBIGUA)},
+                   priority={"concreto": 10})
+        # empate a 0 entre dos carpetas: se queda la alfabéticamente anterior, y
+        # «beta» casa la misma frase del acta con prioridad 0 contra el -5 de alfa
+        _t23_skill(base, "beta", "Beta", dict(
+            {"listado": _t23_exacta(_T23_FRASE_EMPATE),
+             "acta": _t23_exacta(_T23_FRASE_DEGRADADA)}))
+        # dentro de UNA skill: el orden escrito decide los empates, y una prioridad
+        # alta de un intent posterior lo sube por delante
+        _t23_skill(base, "intra", "Intra", {"primero": _t23_exacta(_T23_FRASE_INTRA),
+                                              "segundo": _t23_exacta(_T23_FRASE_INTRA),
+                                              "tercero": _t23_exacta(_T23_FRASE_INTRA)},
+                   priority={"tercero": 5})
+        # prioridades mal escritas: NO pueden tumbar la skill (se ignoran)
+        _t23_skill(base, "mala", "Mala", {"raro": _t23_exacta(_T23_FRASE_MALA)},
+                   priority={"raro": "alta"})
+        _t23_skill(base, "rotunda", "Rotunda", {"raro": _t23_exacta(_T23_FRASE_ROTUNDA)},
+                   priority="mucho")
+        try:
+            sl.SKILLS_DIR = _Path(base)
+            registro = sl.load_skills()
+            r = sl.route(_T23_FRASE_AMBIGUA)
+            check(bool(r) and (r[0].folder, r[1]) == ("zeta", "concreto"),
+                  "una prioridad declarada (10) gana a la carpeta que va antes "
+                  f"por orden alfabético (dio {None if not r else (r[0].folder, r[1])})")
+
+            print("· sin prioridad, el orden declarado sigue decidiendo (lo de siempre)")
+            r = sl.route(_T23_FRASE_EMPATE)
+            check(bool(r) and (r[0].folder, r[1]) == ("alfa", "general"),
+                  "empatando a 0 gana la carpeta alfabéticamente anterior")
+            r = sl.route(_T23_FRASE_INTRA)
+            check(bool(r) and r[1] == "tercero",
+                  f"dentro de una skill, la prioridad sube un intent posterior (dio {None if not r else r[1]})")
+            r = sl.route(_T23_FRASE_DEGRADADA)
+            check(bool(r) and (r[0].folder, r[1]) == ("beta", "acta"),
+                  f"una prioridad negativa cede el paso a la otra skill (dio {None if not r else (r[0].folder, r[1])})")
+
+            print("· una prioridad mal escrita no rompe la skill ni el routing")
+            for carpeta, frase in (("mala", _T23_FRASE_MALA), ("rotunda", _T23_FRASE_ROTUNDA)):
+                check(registro[carpeta].status == "ready",
+                      f"«{carpeta}» sigue cargando con la prioridad mal escrita")
+                r = sl.route(frase)
+                check(bool(r) and r[0].folder == carpeta,
+                      f"«{frase}» sigue yendo a {carpeta}")
+        finally:
+            sl.SKILLS_DIR = dir_previo
+            sl._registry = registro_previo
+
+    print("· con las skills REALES, el routing es el mismo que antes de T23")
+    sl.load_skills()
+    reales = sl.get_skills()
+    frases = [
+        "pon música", "pausa la música", "siguiente canción",
+        "cuántos correos tengo sin leer", "lee mis correos", "analiza los correos",
+        "marca la velada como realizada", "marca la compra como hecha",
+        "ver tablero", "qué tengo hoy", "dame todo lo que sabes de mí",
+        "mi perfil de instagram", "analiza mis reels",
+        "qué hora es", "pon el volumen al 40", "abre chrome",
+        "investiga la competencia", "qué modelo de IA estás usando",
+        "apunta que tengo que comprar pan", "enciende la tele",
+        "pon netflix en la tele", "qué tiempo hace en Madrid",
+        "apúntame una tarea", "apunta la cuenta @personal: 8000 seguidores",
+        "hola", "gracias", "xyzzy sin coincidencia de ninguna clase",
+    ]
+    iguales = 0
+    for frase in frases:
+        r = sl.route(frase)
+        ahora = None if not r else (r[0].folder, r[1])
+        antes = _t23_route_legado(reales, frase)
+        check(ahora == antes, f"«{frase}»: antes {antes}, ahora {ahora}")
+        iguales += ahora is not None
+    check(iguales >= 22, f"la lista de frases toca de verdad las skills ({iguales} encaminadas)")
+    # Colisión REAL encontrada al escribir T23 y NO tocada aquí: «pon la reunión en
+    # progreso» la gana google_workspace sólo porque su carpeta va antes que
+    # tasks_board, y `tasks_board/marcar` también casa. `test_frases_reales` pincha
+    # «marcar» a nivel de skill; el router no. Se queda pinchado así (es lo que hay
+    # hoy) y arreglarlo es declarar prioridad en una de las dos skills.
+    r = sl.route("pon la reunión en progreso")
+    check(bool(r) and (r[0].folder, r[1]) == ("google_workspace", "create_event"),
+          "colisión real pinchada: «pon la reunión en progreso» la gana google_workspace"
+          f" (dio {None if not r else (r[0].folder, r[1])})")
+    marca = [i for i, rx in reales["tasks_board"].patterns.items()
+             if rx.search("pon la reunión en progreso")]
+    check("marcar" in marca, f"...y tasks_board/marcar también casa ({marca})")
+
+
 def _smalltalk_rx_real():
     """El `_SMALLTALK_RX` de brain.py, compilado ejecutando SU PROPIO código.
 
@@ -782,7 +928,7 @@ if __name__ == "__main__":
              test_board_kind_time_fields, test_tts_rutas_separadores,
              test_correos_formato_respuestas,
              test_memory_listing, test_llmmatch, test_plan_parse,
-             test_no_regression_smalltalk]
+             test_prioridad_routing, test_no_regression_smalltalk]
     for t in tests:
         print(f"· {t.__name__}")
         try:

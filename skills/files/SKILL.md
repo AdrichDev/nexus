@@ -47,7 +47,8 @@ a la papelera del sistema. Todo pasa por `backend.core.permissions`
 ## Lo que NO hace
 
 - **No toca Google Drive.** Drive es de `skills/google_workspace`. Como el router
-  recorre las carpetas por orden alfabético, `files` se evaluaría antes; por eso
+  recorre las carpetas por orden alfabético mientras las prioridades empaten,
+  `files` se evaluaría antes; por eso
   14 de los 16 intents llevan el candado `_SIN_DRIVE`, un lookahead que los
   desactiva en cuanto la frase menciona «drive». «borra la carpeta Informes **de
   drive**» va a Drive, no al disco. La única excepción a propósito es `analyze`

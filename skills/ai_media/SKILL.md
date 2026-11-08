@@ -2,8 +2,10 @@
 
 Hace dos cosas, las dos reales: **transcribe audios y vídeos** con Whisper local y
 **responde preguntas con búsqueda web** leyendo las páginas y citando las fuentes.
-Es la PRIMERA skill del router (orden alfabético), por eso todos sus patrones llevan
-ancla de dominio.
+Es la PRIMERA skill del router cuando todas las prioridades empatan (orden
+alfabético de carpeta), por eso todos sus patrones llevan ancla de dominio: si
+alguna vez esa precedencia importa de verdad, se declara con
+`SKILL["priority"]` (ver `CLAUDE.md`, «Cómo se enrutan las órdenes»).
 
 ## Órdenes de ejemplo
 

@@ -93,15 +93,27 @@ del usuario (`run.bat`, `INSTALAR_nexus.bat`, `SUBIR_A_GITHUB.bat`). El resto:
 
 ## Cómo se enrutan las órdenes
 
-`backend/core/skills_loader.py`: recorre las skills **por orden alfabético de
-carpeta** y, dentro de cada una, los intents **en el orden en que están escritos
-en el dict**. Gana la PRIMERA regex que case. Consecuencias:
+`backend/core/aplicacion/skills_loader.py`: cuando dos intents casan la misma
+frase, gana el que tenga **más prioridad declarada** en
+`SKILL["priority"] = {intent: entero}` (opcional; un intent sin declarar vale 0
+y un valor mal escrito se ignora para no dejar la skill sin atender). Si empatan
+—el caso normal, porque casi nadie declara— se queda el **orden declarado**: las
+carpetas **por orden alfabético** y, dentro de cada una, los intents **en el orden
+en que están escritos en el dict**. Gana la PRIMERA regex que case. Antes de T23
+(ARQ-04) el alfabeto decidía TODO, que era una coincidencia, no una decisión.
+Consecuencias:
 
-- Un patrón amplio puesto arriba se traga a los de abajo. Los amplios van al final.
-- Añadir una skill cuya carpeta empiece por «a» la pone por delante de casi todo.
+- La precedencia que importa se declara con `priority`; el alfabeto solo decide
+  los empates.
+- Un patrón amplio puesto arriba se traga a los de abajo. Los amplios van al final
+  o el de abajo declara `priority`.
+- Añadir una skill cuya carpeta empiece por «a» la pone por delante de todas las
+  que no declaren prioridad. Si eso no es lo que quieres, declara `priority` en
+  los intents que deben ganar.
 - Si no casa ninguna regex, la frase cae al planificador del cerebro
-  (`backend/core/brain.py`), que elige skill+intent con el LLM. **Ahí es donde se
-  inventa cosas.** Cada vez que una frase normal acaba en el planificador, es un bug.
+  (`backend/core/aplicacion/brain.py`), que elige skill+intent con el LLM. **Ahí
+  es donde se inventa cosas.** Cada vez que una frase normal acaba en el
+  planificador, es un bug.
 
 ## Reglas que han costado dinero
 

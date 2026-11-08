@@ -53,7 +53,10 @@ ningún camino de esta skill.
 
 ## Fronteras con la skill `instagram`
 
-`content_os` va antes por orden alfabético, así que se queda solo lo que lleva
-«mi/mis»: «cómo va **mi** instagram» es esta skill (tu cuenta); «cómo va **el**
-instagram» es `instagram.ig_estado` (la integración). El análisis de cuentas
-ajenas y de competencia es siempre de `instagram`.
+`content_os` va antes mientras las prioridades empaten (orden alfabético de
+carpeta), así que se queda solo lo que lleva «mi/mis»: «cómo va **mi**
+instagram» es esta skill (tu cuenta); «cómo va **el** instagram» es
+`instagram.ig_estado` (la integración). Si esa frontera se quiere fijar sin
+depender del alfabeto, se declara con `SKILL["priority"]` (ver `CLAUDE.md`,
+«Cómo se enrutan las órdenes»). El análisis de cuentas ajenas y de competencia
+es siempre de `instagram`.

@@ -27,8 +27,12 @@ Nada. wttr.in es gratis y sin API key; solo hace falta conexión a internet.
 
 ## Orden en el router
 La carpeta se llama `clima` a propósito: alfabéticamente va **antes** que
-`system_pc`, así el clima se atiende primero. Aun así, `system_pc` ya no captura
-«temperatura» a secas (exige un componente detrás), de modo que ambos conviven.
+`system_pc`, así el clima se atiende primero mientras todas las prioridades
+empaten en 0. La precedencia real se puede declarar con
+`SKILL["priority"] = {intent: entero}` (ver `CLAUDE.md`, «Cómo se enrutan las
+órdenes»), que es lo que hay que usar si algún día una skill nueva se cruza.
+Aun así, `system_pc` ya no captura «temperatura» a secas (exige un componente
+detrás), de modo que ambos conviven.
 
 ## Fuente
 `https://wttr.in/<ciudad>?format=j1&lang=es` — devuelve JSON con condición

@@ -59,6 +59,11 @@ apaga o reinicia el PC SIEMPRE con confirmación previa.
 
 ## Fronteras (para no pisar a otras skills)
 
+Las skills que van antes por orden alfabético (`clima`, `discord`, `domotica`,
+`games`) le ganan el intent mientras todas las prioridades empaten en 0. Si algún
+día hay que invertir esa precedencia, se declara con `SKILL["priority"]` en vez
+de renombrar carpetas (ver `CLAUDE.md`, «Cómo se enrutan las órdenes»).
+
 - «¿qué temperatura hace en Madrid?» → clima. Aquí solo temperaturas de hardware.
 - «sube el volumen de la tele» → domotica, que exige nombrar la tele igual que para
   silenciarla. El volumen a secas SÍ llega aquí, pero no toca nada: pregunta el
