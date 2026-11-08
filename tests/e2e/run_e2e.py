@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-nexus — nueve flujos E2E de HUD, API y datos de prueba (Playwright).
+nexus — diez flujos E2E de HUD, API y datos de prueba (Playwright).
 
 Arranca uvicorn y Chromium; combina comprobaciones de interfaz con peticiones API
 para tareas y trabajos, y usa fixtures para Content OS, reels y competencia.
 Que un flujo pase no acredita integración con proveedores ni dispositivos reales.
 Los pendientes del informe son cobertura ausente, no funcionalidad inexistente.
+
+El flujo `config-guardado` (T31c) se puede correr SOLO, y sin servidor ni puertos:
+
+    python tests/e2e/run_e2e.py --sin-servidor
+
+En ese modo el backend va EN PROCESO (`httpx.ASGITransport`, que no ejecuta
+`lifespan`) y el navegador carga el HUD desde un origen que no existe
+(`http://127.0.0.1:1/`) sirviendo cada petición del mismo proceso; cualquier URL
+ajena a ese origen se aborta. Nada sale de la máquina y no se abre un socket.
 
 ATENCIÓN: no es seguro ejecutar este runner en un checkout con datos/configuración
 reales. Los directorios NEXUS_DATA_DIR y NEXUS_CONFIG_DIR no aíslan todos los
@@ -15,6 +24,7 @@ arranque puede acceder a otros servicios. Consulte los READMEs y obtenga aprobac
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -22,14 +32,22 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "data" / "e2e"
 EVID = OUT / "evidencias"
+
+# Dónde vive el `settings.json` que el flujo de ⚙ tiene que MODIFICAR. Lo pone el
+# arranque que sirva el HUD (el de siempre, con uvicorn, o el hermético), porque
+# comprobar que el guardado queda ESCRITO en disco necesita saber cuál es.
+CFG_DIR_ACTUAL: Path | None = None
 
 # La consola de Windows abre en cp1252 y este runner imprime «▸», «✔» y tildes.
 # Sin esto reventaba con UnicodeEncodeError ANTES del primer flujo: la e2e no
@@ -584,6 +602,256 @@ def flujo_apis(page, base: str) -> Flow:
     return f
 
 
+# ── ⚙: el guardado, de punta a punta (T31c) ─────────────────────────────────
+#
+# Hueco que cierra. T31 sacó el payload de las guardas a `payloadGuardas()` (una
+# función pura, probada en `tests/unit/frontend/test_modules.py`) y dejó `guardar()`
+# atada a ella con un trinquete estructural. Pero el FLUJO no se había ejecutado
+# nunca: nadie había pulsado «Guardar» y mirado si el cambio quedaba escrito. Esto
+# es ese flujo, con el panel TAL COMO ESTÁ: las seis secciones de siempre
+# («Consumo y estado» vive en la vista principal; moverlo es una decisión de
+# producto del dueño y esta prueba NO la toma).
+
+# Las guardas del panel, en el orden de `GUARDAS_PANEL` (command.js). Si una clave
+# entra o sale de ese bloque, esta prueba tiene que enterarse.
+GUARDAS_CONTROLES = (
+    ("m-permfiles", "perm_files", "texto"),
+    ("m-permfolders", "perm_folders", "lista"),
+    ("m-hw", "perm_hardware", "chk"),
+    ("m-backupextra", "backup_destino_extra", "texto"),
+    ("m-nubefb", "permitir_fallback_nube", "chk"),
+    ("m-nubedel", "permitir_delegacion_nube", "chk"),
+)
+
+# Una clave por sección de ⚙: si el guardado dejara de leer una sección entera,
+# cae la comprobación y se ve CUÁL. (En «apis» lo que viaja en la primera
+# petición es la tabla de identificadores, no las claves, que van a /api/secrets.)
+CLAVE_POR_SECCION = (
+    ("operador", "operator_name"),
+    ("apis", "vision_model"),
+    ("voz", "tts_engine"),
+    ("proactividad", "proactive"),
+    ("permisos", "perm_files"),
+    ("red", "n8n_webhook_url"),
+)
+
+
+def _settings_en_disco() -> dict:
+    """El `settings.json` de verdad, tal como ha quedado en el disco."""
+    if CFG_DIR_ACTUAL is None:
+        return {}
+    try:
+        return json.loads((CFG_DIR_ACTUAL / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _valor_en_dom(page, id_control: str):
+    """Valor del control tal como lo ve `guardar()`: marcado si es casilla, si no texto."""
+    return page.evaluate(
+        "(id) => { const e = document.getElementById(id);\n"
+        "  if (!e) return null;\n"
+        "  return e.type === 'checkbox' ? !!e.checked : e.value; }", id_control)
+
+
+def _guardas_esperadas(page) -> dict:
+    """Lo que `payloadGuardas` TIENE que producir para los controles pintados.
+
+    Se calcula aquí, en Python, con la misma regla que el bloque de guardas del
+    HUD (`valorGuarda`: chk → marcado, lista → líneas limpias, resto → texto), y
+    se compara con el cuerpo de la petición. Si alguien vuelve a leer las guardas
+    a mano —el bug de T31 ponía `perm_files: 'todo'` cuando faltaba el control—
+    la comparación ya no cuadra.
+    """
+    fuera = {}
+    for id_control, clave, tipo in GUARDAS_CONTROLES:
+        valor = _valor_en_dom(page, id_control)
+        if valor is None:
+            continue                                   # control ausente: la clave NO viaja
+        if tipo == "chk":
+            fuera[clave] = bool(valor)
+        elif tipo == "lista":
+            fuera[clave] = [x.strip() for x in str(valor).split("\n") if x.strip()]
+        else:
+            fuera[clave] = str(valor)
+    return fuera
+
+
+def flujo_config_guardado(page, base: str) -> Flow:
+    """⚙: cambiar valores, pulsar Guardar y comprobar que queda ESCRITO."""
+    f = Flow("config-guardado", page, base)
+
+    def abrir_menu() -> None:
+        page.click("#btn-config")
+        page.wait_for_selector("#config-body .cfg-menu", timeout=10000)
+        page.wait_for_timeout(400)
+
+    def abrir_seccion(sec: str) -> None:
+        page.click(f'#config-body .cfg-op[data-sec="{sec}"]')
+        page.wait_for_selector("#cfg-pop:not(.hidden)", timeout=5000)
+        page.wait_for_timeout(300)
+
+    def volver_al_menu() -> None:
+        page.click("#cfg-popback")
+        page.wait_for_selector("#cfg-pop", state="hidden", timeout=5000)
+
+    def pulsar_guardar() -> list[dict]:
+        """Pulsa el «Guardar» REAL del pop up y devuelve los POST que salieron."""
+        pedidos: list[dict] = []
+
+        def apunta(req):
+            if req.method == "POST":
+                pedidos.append({"url": req.url,
+                                "ruta": urllib.parse.urlsplit(req.url).path,
+                                "cuerpo": req.post_data or ""})
+
+        page.on("request", apunta)
+        try:
+            page.click("#cfg-popsave")
+            # el manejador es asíncrono: se espera a que CIERRE el panel, no a un reloj
+            for _ in range(80):
+                cerrado = page.evaluate(
+                    "() => document.querySelector('#config-modal').classList.contains('hidden')")
+                if cerrado and pedidos:
+                    break
+                page.wait_for_timeout(100)
+            page.wait_for_timeout(500)          # deja salir el segundo POST (identificadores)
+        finally:
+            page.remove_listener("request", apunta)
+        return pedidos
+
+    antes_api = page.evaluate("() => fetch('/api/config').then((r) => r.json())")
+    antes_disco = _settings_en_disco()
+    f.estado_antes = {k: antes_disco.get(k) for k in
+                      ("operator_name", "perm_files", "permitir_fallback_nube",
+                       "backup_destino_extra")}
+    f.check(bool(antes_api) and bool(antes_disco),
+            f"punto de partida: la configuración se lee por API y del disco "
+            f"({CFG_DIR_ACTUAL})")
+
+    # ── 1) cambiar valores en DOS secciones distintas y guardar ─────────────
+    abrir_menu()
+    secs = page.evaluate("() => [...document.querySelectorAll('#config-body .cfg-op')]"
+                         ".map((e) => e.dataset.sec)")
+    f.check(secs == [s for s, _k in CLAVE_POR_SECCION],
+            f"⚙ despliega sus secciones de siempre y son las que cubre esta prueba ({secs})")
+
+    nuevo_nombre = "Operador e2e"
+    modo_actual = antes_api.get("perm_files") or "carpetas"
+    nuevo_modo = "sandbox" if modo_actual != "sandbox" else "carpetas"
+    nueva_copia = str(CFG_DIR_ACTUAL.parent / "copias-e2e") if CFG_DIR_ACTUAL else "D:\\copias\\e2e"
+
+    abrir_seccion("operador")
+    page.fill("#m-op", nuevo_nombre)
+    volver_al_menu()
+    abrir_seccion("permisos")
+    page.check("#m-nubefb")
+    page.select_option("#m-permfiles", nuevo_modo)
+    page.fill("#m-backupextra", nueva_copia)
+    esperadas = _guardas_esperadas(page)
+    f.check(esperadas.get("permitir_fallback_nube") is True
+            and esperadas.get("perm_files") == nuevo_modo,
+            f"los cambios están puestos en el panel antes de guardar ({esperadas})")
+
+    pedidos = pulsar_guardar()
+    f.shot("01-tras-guardar")
+    config_posts = [p for p in pedidos if p["ruta"] == "/api/config"]
+    f.check(bool(config_posts),
+            f"al pulsar Guardar sale una petición de configuración ({[p['ruta'] for p in pedidos]})")
+    f.check(all(p["url"].startswith(base) for p in config_posts),
+            "y va al mismo origen que sirve el HUD, no a otro sitio")
+    cuerpo: dict = {}
+    if config_posts:
+        try:
+            cuerpo = json.loads(config_posts[0]["cuerpo"])
+        except ValueError:
+            cuerpo = {}
+    f.check(isinstance(cuerpo, dict) and bool(cuerpo),
+            "la petición lleva el cuerpo JSON con toda la configuración")
+
+    # el payload de guardas es EXACTAMENTE lo que produce el constructor puro
+    claves_guarda = {c for _i, c, _t in GUARDAS_CONTROLES}
+    guardas_enviadas = {k: v for k, v in cuerpo.items() if k in claves_guarda}
+    f.check(guardas_enviadas == esperadas,
+            f"las guardas del payload son las que construye payloadGuardas "
+            f"(enviadas={guardas_enviadas}, esperadas={esperadas})")
+    f.check(cuerpo.get("operator_name") == nuevo_nombre,
+            f"el valor cambiado en «Operador» viaja ({cuerpo.get('operator_name')!r})")
+    # «apis» manda sus identificadores en una SEGUNDA petición (las claves van a
+    # /api/secrets), así que la cobertura por sección se mira en la unión de lo
+    # que salió: si una sección dejara de leerse, su clave no estaría en ninguna.
+    union: dict = {}
+    for p in config_posts:
+        try:
+            union.update(json.loads(p["cuerpo"]))
+        except ValueError:
+            pass
+    for sec, clave in CLAVE_POR_SECCION:
+        f.check(clave in union,
+                f"al guardar se lee también la sección «{sec}» (falta «{clave}»)")
+    f.check(not [k for k in cuerpo if k.startswith("has_") or k.endswith("_api_key")],
+            "ninguna clave de API viaja por aquí (las claves van a /api/secrets)")
+    f.check(not [p for p in pedidos if p["ruta"] == "/api/secrets"],
+            "y sin escribir ninguna clave, no se llama a /api/secrets")
+
+    # ── 2) el cambio queda ESCRITO: por la API y en el fichero del disco ─────
+    despues_api = page.evaluate("() => fetch('/api/config').then((r) => r.json())")
+    despues_disco = _settings_en_disco()
+    f.check(page.evaluate(
+        "() => document.querySelector('#config-modal').classList.contains('hidden')"),
+        "el panel se cierra: el guardado llegó al final, no se quedó a medias")
+    for donde, cfg in (("la API", despues_api), ("el disco", despues_disco)):
+        f.check(cfg.get("operator_name") == nuevo_nombre,
+                f"{donde} tiene el nombre nuevo ({cfg.get('operator_name')!r})")
+        f.check(cfg.get("permitir_fallback_nube") is True,
+                f"{donde} tiene la casilla de la reserva de nube encendida")
+        f.check(cfg.get("perm_files") == nuevo_modo,
+                f"{donde} tiene el modo de archivos nuevo ({cfg.get('perm_files')!r})")
+        f.check(cfg.get("backup_destino_extra") == nueva_copia,
+                f"{donde} tiene el destino de la copia nueva ({cfg.get('backup_destino_extra')!r})")
+    for clave in ("tts_engine", "wol_mac", "n8n_webhook_url", "personality"):
+        f.check(despues_api.get(clave) == antes_api.get(clave),
+                f"«{clave}», que no se ha tocado, sigue como estaba "
+                f"({antes_api.get(clave)!r} → {despues_api.get(clave)!r})")
+
+    # ── 3) el panel A MEDIAS: un control que no está NO inventa su valor ─────
+    # Este es el escenario del defecto de T31: si el guardado leyera las guardas
+    # a mano, un control ausente pondría el valor más permisivo (o reventaría con
+    # un `null.value`). Con `payloadGuardas` la clave simplemente NO viaja y el
+    # backend se queda con lo que ya tenía.
+    abrir_menu()
+    abrir_seccion("permisos")
+    page.evaluate("() => document.getElementById('m-backupextra')?.remove()")
+    page.uncheck("#m-nubefb")
+    f.check(_valor_en_dom(page, "m-backupextra") is None,
+            "la prueba ha quitado del DOM la caja del destino de la copia")
+    esperadas_parcial = _guardas_esperadas(page)
+    pedidos2 = pulsar_guardar()
+    posts2 = [p for p in pedidos2 if p["ruta"] == "/api/config"]
+    cuerpo2: dict = {}
+    if posts2:
+        try:
+            cuerpo2 = json.loads(posts2[0]["cuerpo"])
+        except ValueError:
+            cuerpo2 = {}
+    f.check("backup_destino_extra" not in esperadas_parcial,
+            "sin el control, el constructor puro no inventa su valor")
+    f.check(cuerpo2.get("backup_destino_extra") is None,
+            f"y la clave NO viaja en la petición ({cuerpo2.get('backup_destino_extra')!r})")
+    disco2 = _settings_en_disco()
+    f.check(disco2.get("backup_destino_extra") == nueva_copia,
+            f"el destino que ya estaba guardado NO se borra ni se cambia "
+            f"({disco2.get('backup_destino_extra')!r})")
+    f.check(disco2.get("permitir_fallback_nube") is False,
+            "el resto del guardado sí entró: la casilla de nube quedó apagada")
+    f.shot("02-panel-a-medias")
+
+    f.estado_despues = {k: disco2.get(k) for k in
+                        ("operator_name", "perm_files", "permitir_fallback_nube",
+                         "backup_destino_extra")}
+    return f
+
+
 def flujo_contentos(page, base: str) -> Flow:
     """Content OS: colores por sección, sin negritas y todo desplegable."""
     f = Flow("content-os", page, base)
@@ -1076,11 +1344,189 @@ def flujo_competencia(page, base: str) -> Flow:
     f.check(True, "y se puede volver a tus reels")
     return f
 
+def _escribe_settings_minimos(cfg_dir: Path) -> None:
+    """Config mínima de la prueba: sin esto el servidor sirve el ASISTENTE.
+
+    Sin `setup_done` el HUD deja de ser el HUD (setup.html) y no hay ⚙ que pulsar.
+    Modelo 'mock' para que ninguna prueba dependa de un LLM externo. La usan los
+    DOS arranques: el de siempre (uvicorn) y el hermético (backend en proceso).
+    """
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "settings.json").write_text(json.dumps({
+        "setup_done": True, "operator_name": "Adri", "assistant_name": "nexus",
+        "llm_provider": "mock", "llm_local": True, "voice_enabled": False,
+        "tts_enabled": False, "open_mic": False, "wake_enabled": False,
+        "hermes_auto": False, "hermes_autostart": False, "smart_router": False,
+        "web_augment": False, "self_learning": False, "engram_enabled": False,
+    }, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+# ── arranque hermético: SIN uvicorn, SIN puertos, SIN `lifespan` ────────────
+
+class _BackendEnProceso:
+    """El backend REAL en este proceso, colgado de un origen que no existe.
+
+    `httpx.ASGITransport` NO ejecuta `lifespan`, así que no arranca ni el
+    micrófono, ni Telegram, ni el programador de ciclos, ni el adoptador de túnel:
+    es la misma regla H2 que usan las suites del repo. Vive en su propio bucle de
+    asyncio porque el manejador de rutas de Playwright es síncrono y no puede
+    `await`.
+    """
+
+    def __init__(self, app, base: str):
+        self._app = app
+        self._base = base
+        self._cliente = None
+        self._bucle = asyncio.new_event_loop()
+        self._hilo = threading.Thread(target=self._bucle.run_forever, daemon=True)
+        self._hilo.start()
+
+    async def _haz(self, metodo, ruta, cabeceras, cuerpo):
+        import httpx
+        if self._cliente is None:
+            self._cliente = httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=self._app, client=("127.0.0.1", 4321)),
+                base_url=self._base, timeout=30)
+        return await self._cliente.request(metodo, ruta, headers=cabeceras, content=cuerpo)
+
+    def pedir(self, metodo, ruta, cabeceras, cuerpo):
+        fut = asyncio.run_coroutine_threadsafe(
+            self._haz(metodo, ruta, cabeceras, cuerpo), self._bucle)
+        return fut.result(timeout=60)
+
+    def cerrar(self) -> None:
+        async def _cierra():
+            if self._cliente is not None:
+                await self._cliente.aclose()
+
+        try:
+            asyncio.run_coroutine_threadsafe(_cierra(), self._bucle).result(timeout=10)
+        except Exception:                                    # noqa: BLE001
+            pass
+        self._bucle.call_soon_threadsafe(self._bucle.stop)
+
+
+_CABECERAS_QUE_NO_SE_COPIAN = {"content-encoding", "content-length", "transfer-encoding"}
+
+
+def _main_sin_servidor() -> int:
+    """Corre SOLO el flujo del guardado de ⚙, sin servidor y sin abrir un puerto.
+
+    El origen del navegador (`http://127.0.0.1:1/`) no existe: cada petición se
+    sirve del backend en proceso y cualquier URL de otro origen se ABORTA, así
+    que ni las fuentes de Google ni nada de fuera salen de la máquina.
+    """
+    global CFG_DIR_ACTUAL
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("Falta Playwright. Instálalo con:\n"
+              "    pip install playwright\n"
+              "    python -m playwright install chromium")
+        return 2
+
+    base = "http://127.0.0.1:1"
+    tmp = Path(tempfile.mkdtemp(prefix="nexus_e2e_guardado_"))
+    cfg, datos = tmp / "config", tmp / "data"
+    datos.mkdir(parents=True, exist_ok=True)
+    _escribe_settings_minimos(cfg)
+    os.environ.update({"NEXUS_CONFIG_DIR": str(cfg), "NEXUS_DATA_DIR": str(datos),
+                       "NEXUS_DOTENV": "0", "NEXUS_E2E": "1", "PYTHONUTF8": "1"})
+    CFG_DIR_ACTUAL = cfg
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    print(f"· Backend en proceso (sin uvicorn, sin puertos), config de usar y tirar en {tmp}")
+    from backend.app import app as app_asgi
+
+    backend = _BackendEnProceso(app_asgi, base)
+    flujos: list = []
+    consola: list = []
+    red: list = []
+    fuera: list = []
+    try:
+        with sync_playwright() as pw:
+            navegador = pw.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage",
+                      "--proxy-server=direct://", "--proxy-bypass-list=*"])
+            ctx = navegador.new_context(viewport={"width": 1500, "height": 950})
+            page = ctx.new_page()
+            page.on("console", lambda m: consola.append({"type": m.type, "text": m.text[:300]}))
+            page.on("pageerror", lambda e: consola.append(
+                {"type": "pageerror", "text": str(e)[:300]}))
+
+            def servir(ruta_pw):
+                pedido = ruta_pw.request
+                url = pedido.url
+                if not url.startswith(base):
+                    fuera.append(url[:120])
+                    ruta_pw.abort()                # nada de fuera: ni fuentes, ni CDN, ni DNS
+                    return
+                red.append({"method": pedido.method, "url": url.replace(base, "")})
+                try:
+                    r = backend.pedir(pedido.method, url[len(base):] or "/",
+                                      dict(pedido.headers), pedido.post_data_buffer)
+                except Exception:                  # noqa: BLE001
+                    ruta_pw.abort()
+                    return
+                ruta_pw.fulfill(
+                    status=r.status_code,
+                    headers={k: v for k, v in r.headers.items()
+                             if k.lower() not in _CABECERAS_QUE_NO_SE_COPIAN},
+                    body=r.content)
+
+            page.route("**/*", servir)
+            page.goto(base + "/", wait_until="domcontentloaded")
+            # el HUD pinta su secuencia de arranque; hasta que no acaba no hay ⚙
+            page.wait_for_selector("#btn-config", state="visible", timeout=60_000)
+            page.wait_for_timeout(800)
+            print("\n▸ Flujo: " + flujo_config_guardado.__doc__.splitlines()[0])
+            try:
+                flujos.append(flujo_config_guardado(page, base))
+            except Exception as exc:               # noqa: BLE001
+                f = Flow("config-guardado", page, base)
+                f.error = f"{type(exc).__name__}: {exc}"
+                f.steps.append({"ok": False, "msg": f.error})
+                f.shot("EXCEPCION")
+                flujos.append(f)
+                print("    ✖ EXCEPCIÓN:", f.error)
+            if flujos:
+                # Las dos hojas de fuentes de Google las pide index.html y se
+                # ABORTAN: la comprobación es que no se sirve nada de fuera, no
+                # que el navegador no las intente.
+                ajenas = [u for u in fuera if "fonts.googleapis" not in u
+                          and "fonts.gstatic" not in u]
+                flujos[0].check(not ajenas,
+                                f"nada fuera del origen de la prueba se sirve "
+                                f"(ajenas={ajenas[:3]}, fuentes abortadas={len(fuera) - len(ajenas)})")
+            ctx.close()
+            navegador.close()
+    finally:
+        backend.cerrar()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "consola.json").write_text(json.dumps(consola, ensure_ascii=False, indent=1),
+                                      encoding="utf-8")
+    (OUT / "red.json").write_text(json.dumps(red, ensure_ascii=False, indent=1),
+                                  encoding="utf-8")
+    code = _report(flujos, consola, red, PENDIENTES)
+    ok = sum(1 for f in flujos if f.passed)
+    print(f"\n{'='*54}\nRESULTADO E2E (sin servidor): {ok}/{len(flujos)} flujos passed"
+          f" — {'TODO VERDE ✔' if code == 0 else 'HAY FALLOS ✖'}")
+    return code
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--headed", action="store_true", help="ver el navegador")
     ap.add_argument("--keep", action="store_true", help="no borrar los datos de la prueba")
+    ap.add_argument("--sin-servidor", action="store_true",
+                    help="solo el flujo del guardado de ⚙, con el backend en proceso "
+                         "(sin uvicorn, sin puertos, sin salir del proceso)")
     args = ap.parse_args()
+    if args.sin_servidor:
+        return _main_sin_servidor()
 
     try:
         from playwright.sync_api import sync_playwright
@@ -1098,16 +1544,9 @@ def main() -> int:
     shutil.rmtree(EVID, ignore_errors=True)      # evidencias SOLO de esta ejecución
     (sandbox / "data").mkdir(parents=True, exist_ok=True)
     (sandbox / "config").mkdir(parents=True, exist_ok=True)
-    # Config mínima: sin esto el servidor sirve el ASISTENTE DE INSTALACIÓN
-    # (setup.html) en vez del HUD y no hay nada que probar. Modelo 'mock' para
-    # que ninguna prueba dependa de un LLM externo.
-    (sandbox / "config" / "settings.json").write_text(json.dumps({
-        "setup_done": True, "operator_name": "Adri", "assistant_name": "nexus",
-        "llm_provider": "mock", "llm_local": True, "voice_enabled": False,
-        "tts_enabled": False, "open_mic": False, "wake_enabled": False,
-        "hermes_auto": False, "hermes_autostart": False, "smart_router": False,
-        "web_augment": False, "self_learning": False, "engram_enabled": False,
-    }, ensure_ascii=False, indent=1), encoding="utf-8")
+    _escribe_settings_minimos(sandbox / "config")
+    global CFG_DIR_ACTUAL
+    CFG_DIR_ACTUAL = sandbox / "config"
 
     _siembra_analisis(sandbox)
     _siembra_plan_contenido(sandbox)
@@ -1164,7 +1603,8 @@ def main() -> int:
         page.goto(base, wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
         for fn in (flujo_tareas, flujo_multitarea, flujo_orquestacion, flujo_sidebar,
-                   flujo_cerebro, flujo_apis, flujo_contentos, flujo_reels, flujo_competencia):
+                   flujo_cerebro, flujo_apis, flujo_config_guardado, flujo_contentos,
+                   flujo_reels, flujo_competencia):
             print(f"\n▸ Flujo: {fn.__doc__.splitlines()[0]}")
             try:
                 flows.append(fn(page, base, ws_job_ids) if fn is flujo_multitarea
