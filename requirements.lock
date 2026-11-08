@@ -1,5 +1,7 @@
 # ============================================================================
 #  nexus — requirements.lock  ·  FOTO FIJADA DEL VENV DE DESARROLLO
+#  (con UNA excepción fechada: los 12 pins de seguridad de abajo — lee
+#   «EXCEPCIÓN DE SEGURIDAD, FECHADA (T47)» antes de fiarte del título)
 # ============================================================================
 #  QUÉ ES: las versiones EXACTAS que hoy usa el venv de este proyecto
 #  (`.venv`, Python 3.12.4, Windows). No sustituye a `requirements.txt`: ese
@@ -23,6 +25,58 @@
 #    pywin32-ctypes·(herramientas de empaquetado del .exe)
 #    greenlet·(resto de un paquete desinstalado; nada lo importa)
 #  `setuptools` SÍ está porque `ctranslate2` lo declara como dependencia.
+#
+#  EXCEPCIÓN DE SEGURIDAD, FECHADA (T47, 2026-11-08) — 12 líneas de abajo NO
+#  son ya la foto del `.venv`: son la MENOR versión que cierra TODOS los avisos
+#  de `pip-audit` sobre esa foto (run de CI 42525331409, job «pip-audit
+#  (Python)», ubuntu-24.04, `pip-audit -r requirements.lock` → «Found 115 known
+#  vulnerabilities in 11 packages»). Se subió cada paquete lo MÍNIMO que cierra
+#  sus avisos; el salto de major se hizo solo cuando era la única salida:
+#    aiohttp      3.14.1    → 3.14.4     14 avisos (PYSEC-2026-3545/3546/3547,
+#                                         CVE-2026-111063…111066, 111064,
+#                                         111065, 111748…111750,
+#                                         GHSA-2g87-pp6c-29x5; 3.14.2 y 3.14.3
+#                                         dejaban avisos vivos)
+#    certifi      2026.6.17 → 2026.10.18 2 avisos (PYSEC-2026-4320)
+#    cryptography 49.0.0    → 50.0.0     2 avisos (PYSEC-2026-3552; major nuevo)
+#    filelock     3.31.0    → 4.2.1      12 avisos (CVE-2026-112907…112940;
+#                                         major nuevo: uno pedía 4.0.9 y el
+#                                         resto 4.2.1)
+#    multidict    6.7.1     → 6.9.1      1 aviso (PYSEC-2026-4244)
+#    oauthlib     3.3.1     → 4.0.1      3 avisos (PYSEC-2026-4114 x2 → 4.0.0,
+#                                         CVE-2026-49272 → 4.0.1; major nuevo y
+#                                         el mínimo real es 4.0.1, no 4.0.0)
+#    pillow       12.3.0    → 13.0.0     39 avisos (PYSEC-2026-4326…4343,
+#                                         CVE-2026-112390…112900,
+#                                         CVE-2026-96638/96640/96778,
+#                                         GHSA-78g4-xqwv-q3g8; major nuevo)
+#    pyasn1       0.6.4     → 0.6.5      4 avisos (CVE-2026-119194…119197)
+#    pypdf        6.14.2    → 6.21.4     34 avisos (PYSEC-2026-3655/3656,
+#                                         3910…3913, 4153…4160, CVE-2026-
+#                                         113786…113795, 115572/115580/115585,
+#                                         119203…119209; el mínimo real es
+#                                         6.21.4, no 6.15.0)
+#    setuptools   83.0.0    → 84.1.0     1 aviso (GHSA-xmj3-9gf7-h52w)
+#    urllib3      2.7.0     → 2.8.0      3 avisos (PYSEC-2026-4175/4176/4177)
+#  Arrastrado por lo anterior (no tenía avisos propios):
+#    yarl         1.24.2    → 1.25.1     aiohttp 3.14.4 exige `yarl>=1.25.1`
+#  Verificado, no supuesto: en un venv desechable (Python 3.12.4, fuera del
+#  repo) con el cierre COMPLETO y los marcadores `win32` incluidos,
+#  `pip install -r` + `pip check` quedan limpios, y `pip-audit -r` sobre este
+#  mismo fichero dice «No known vulnerabilities found» (0 de 115). Ningún
+#  dependiente del cierre pone tope a estos saltos: `requests-oauthlib`
+#  `>=3.0.0` acepta oauthlib 4; `huggingface_hub>=3.10.0` y `setuptools>=3.4.0`
+#  aceptan filelock 4; `pdfplumber>=12.2.0`, `pypdf>=8.0.0`, `qrcode>=9.1.0` y
+#  `pdfminer.six` aceptan pillow 13; `google-auth>=38.0.3`, `oauthlib>=3.0.0`,
+#  `pdfminer.six>=36.0.0`, `pypdf>3.0` y `pywebview` aceptan cryptography 50;
+#  `requests<3`, `google-auth<3.0.0`, `fsspec` y `yt-dlp<3,>=2.0.2` aceptan
+#  urllib3 2.8.0; `pyasn1_modules<0.7.0,>=0.6.1` acepta pyasn1 0.6.5. Los `==`
+#  exactos que SÍ existen (mss→pillow 12.1.1, yt-dlp→certifi/urllib3/
+#  cryptography) viven en EXTRAS (`tests`, `pin`, `pin-secretstorage`) que este
+#  cierre no instala: no son dependencias de ejecución.
+#  ⚠ LO QUE ESTO SIGNIFICA: el `.venv` del dueño sigue en las versiones viejas
+#  hasta que lo alinee él mismo (nadie instala en el entorno del dueño):
+#      .venv\Scripts\python.exe -m pip install --no-deps -r requirements.lock
 #
 #  SIN HASHES, A PROPÓSITO:
 #    Fijar por hash exige una RESOLUCIÓN contra el índice (`pip-compile
@@ -52,7 +106,7 @@
 #  en el job de Linux (ver README, «CI: qué cubre y qué no»).
 # ============================================================================
 aiohappyeyeballs==2.7.1
-aiohttp==3.14.1
+aiohttp==3.14.4
 aiosignal==1.4.0
 annotated-doc==0.0.4
 annotated-types==0.7.0
@@ -60,20 +114,20 @@ anyio==4.14.2
 attrs==26.1.0
 av==18.0.0
 bottle==0.13.4
-certifi==2026.6.17
+certifi==2026.10.18
 cffi==2.1.0
 charset-normalizer==3.4.9
 click==8.4.2
 clr_loader==0.3.1 ; sys_platform == "win32"
 colorama==0.4.6
 comtypes==1.4.16 ; sys_platform == "win32"
-cryptography==49.0.0
+cryptography==50.0.0
 ctranslate2==4.8.1
 edge-tts==7.2.8
 et_xmlfile==2.0.0
 fastapi==0.139.2
 faster-whisper==1.2.1
-filelock==3.31.0
+filelock==4.2.1
 flatbuffers==25.12.19
 frozenlist==1.8.0
 fsspec==2026.6.0
@@ -95,15 +149,15 @@ keyboard==0.13.5
 lxml==6.1.1
 mpmath==1.3.0
 mss==10.2.0
-multidict==6.7.1
+multidict==6.9.1
 numpy==2.5.1
-oauthlib==3.3.1
+oauthlib==4.0.1
 onnxruntime==1.27.0
 openpyxl==3.1.5
 packaging==26.2
 pdfminer.six==20260107
 pdfplumber==0.11.10
-pillow==12.3.0
+pillow==13.0.0
 playsound==1.2.2
 propcache==0.5.2
 proto-plus==1.28.1
@@ -111,14 +165,14 @@ protobuf==7.35.1
 proxy_tools==0.1.0
 psutil==7.2.2
 psycopg2-binary==2.9.12
-pyasn1==0.6.4
+pyasn1==0.6.5
 pyasn1_modules==0.4.2
 pycaw==20251023 ; sys_platform == "win32"
 pycparser==3.0
 pydantic==2.13.4
 pydantic_core==2.46.4
 pyparsing==3.3.2
-pypdf==6.14.2
+pypdf==6.21.4
 pypdfium2==5.12.1
 pypiwin32==223 ; sys_platform == "win32"
 python-docx==1.2.0
@@ -132,7 +186,7 @@ qrcode==8.2
 requests==2.34.2
 requests-oauthlib==2.0.0
 Send2Trash==2.1.0
-setuptools==83.0.0
+setuptools==84.1.0
 sounddevice==0.5.5
 starlette==1.3.1
 sympy==1.14.0
@@ -142,10 +196,10 @@ tqdm==4.69.0
 typing-inspection==0.4.2
 typing_extensions==4.16.0
 uritemplate==4.2.0
-urllib3==2.7.0
+urllib3==2.8.0
 uvicorn==0.51.0
 watchfiles==1.2.0
 websockets==16.1.1
 WMI==1.5.1 ; sys_platform == "win32"
-yarl==1.24.2
+yarl==1.25.1
 yt-dlp==2026.7.4
