@@ -47,7 +47,8 @@ confirmación pendiente del canal:
      primera;
   l) T8g (2, R3-job-sub-skill-confirma-still-arms): desde un trabajo o un sub sin
      operador, un intent de `SKILL["confirma"]` NO se ejecuta —con cualquier
-     veredicto de la matriz— y no se arma nada en ningún canal;
+     veredicto de la matriz (los tres de `_TEXTOS_CONF`)— y no se arma nada en
+     ningún canal;
   m) lo que ya funcionaba: una orden directa con un intent de `confirma` se
      ejecuta y pregunta su skill, y una lectura desde un trabajo sigue igual.
 
@@ -200,11 +201,13 @@ _TEXTOS = {"env": "manda el informe de prueba tal cual",
 # `external_send` los PERMITE la matriz en local, `destructive` la hace CONFIRMAR.
 _PATRONES_CONF = {"lee_conf": r"^lee el tablon confirmando",
                   "envia_conf": r"^manda el informe confirmando",
+                  "escribe_conf": r"^escribe confirmando en el tablon",
                   "borra_conf": r"^borra confirmando el recibo de prueba"}
 _EFECTOS_CONF = {"lee_conf": "read", "envia_conf": "external_send",
-                 "borra_conf": "destructive"}
+                 "escribe_conf": "write_local", "borra_conf": "destructive"}
 _TEXTOS_CONF = {"lee_conf": "lee el tablon confirmando",
                 "envia_conf": "manda el informe confirmando",
+                "escribe_conf": "escribe confirmando en el tablon",
                 "borra_conf": "borra confirmando el recibo de prueba"}
 
 
@@ -213,7 +216,9 @@ def _img(calls: list):
 
 
 def _preguntona(calls: list):
-    return _skill("img", _EFECTOS_CONF, tuple(_PATRONES_CONF), _PATRONES_CONF,
+    # Carpeta propia (`img2`) para poder montarla JUNTO a `_img` en la misma
+    # multi-orden: el registro va por carpeta y compartirla sustituiría una.
+    return _skill("img2", _EFECTOS_CONF, tuple(_PATRONES_CONF), _PATRONES_CONF,
                   calls, arma=True)
 
 
@@ -486,6 +491,39 @@ async def main() -> None:
           f"k) pc multi-orden: pregunta y contesta lo demás, dijo {texto!r}")
     confirm.clear()
 
+    # La orden que PREGUNTA SOLA (T8b) también respeta el «no sobrescribas»
+    # aunque la matriz la PERMITA (`write_local` en el PC): su `confirm.request`
+    # sustituiría la pregunta anterior y el «sí» del operador dispararía ESTA
+    # segunda, perdiendo la primera en silencio. Se mide el id de lo armado.
+    calls.clear()
+    _montar(_img(calls), _preguntona(calls))
+    _armados: list = []
+    _pedir_original = confirm.request
+
+    def _pedir_espia(*a, **k):
+        r = _pedir_original(*a, **k)
+        _armados.append({"kind": k.get("kind"),
+                         "id": (confirm.pending(k.get("channel") or "pc") or {}).get("id")})
+        return r
+
+    confirm.request = _pedir_espia       # type: ignore[assignment]
+    try:
+        r = await brain.process(_TEXTOS["borra"] + " y " + _TEXTOS_CONF["escribe_conf"],
+                                source="text", channel="pc")
+    finally:
+        confirm.request = _pedir_original   # type: ignore[assignment]
+    texto = r.get("reply") or ""
+    pend = confirm.pending("pc")
+    check([c["intent"] for c in calls] == [],
+          f"k) pc multi-orden: la que pregunta sola tampoco corre ({calls!r})")
+    check(len(_armados) == 1 and bool(pend) and _armados[0]["kind"] == "img/borra",
+          f"k) pc multi-orden: se arma UNA sola pregunta, la primera ({_armados!r})")
+    check(bool(pend) and pend.get("id") == _armados[0]["id"],
+          f"k) pc multi-orden: la pregunta armada NO se sustituye ({pend!r} vs {_armados!r})")
+    check("«sí»" in texto and "aparte" in texto and "¿Lo hago?" in texto,
+          f"k) pc multi-orden: la segunda dice que necesita su propia orden ({texto!r})")
+    confirm.clear()
+
     print("· l) T8g (2): sin nadie a quien contestar, la skill que pregunta NO corre")
     # R3-job-sub-skill-confirma-still-arms: un intent de `SKILL["confirma"]` que
     # llegara por un trabajo armaba su «sí» en un canal mudo (pc) y el siguiente
@@ -516,7 +554,7 @@ async def main() -> None:
     pend = confirm.pending("pc")
     check(len(calls) == 1 and calls[0]["intent"] == "borra_conf",
           f"m) pc: la skill que pregunta sola se ejecuta ({calls!r})")
-    check(bool(pend) and pend.get("kind") == "img/borra_conf",
+    check(bool(pend) and pend.get("kind") == "img2/borra_conf",
           f"m) pc: la pregunta es la de la skill, sin segunda pregunta ({pend!r})")
     check("¿Lo hago?" not in (r.get("reply") or "")
           or (r.get("reply") or "").count("¿Lo hago?") == 1,

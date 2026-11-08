@@ -918,6 +918,20 @@ async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
                  "skill": skill.folder, "provider": "politica", "data": None}, False)
 
     if veredicto == canales.PERMITIR:
+        # T8g: "una sola pregunta por canal" vale también cuando la matriz lo
+        # PERMITE. Si esta orden PREGUNTA SOLA (T8b) y en el canal ya hay una
+        # pregunta armada por ESTA misma frase, ejecutarla sustituiría la
+        # anterior (`confirm.request` reemplaza) y el «sí» del operador
+        # dispararía esta segunda, perdiendo la primera en silencio: el mismo
+        # fallo que se cierra abajo, pero por el camino del `permitir`
+        # (`write_local` en cualquier canal, `external_send` desde el PC).
+        if confirmacion_armada and _ya_pregunta_sola(skill, intent):
+            await bus.emit("log", {"level": "info", "msg":
+                           f"🛡 Canal {canal} · {skill.folder}/{intent} ({efecto}) → su "
+                           f"pregunta no sustituye a la que ya está armada"})
+            return ({"reply": _otra_pregunta_armada(efecto, cmd_text),
+                     "skill": skill.folder, "provider": "politica",
+                     "data": None}, False)
         return await ejecutar(), True
 
     # Aquí el veredicto es `confirmar`: o pregunta la skill o pregunta `brain`.
