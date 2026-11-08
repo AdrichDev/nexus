@@ -129,6 +129,6 @@ del `data/` que le toca.
 
 ---
 ### Pendiente de probar EN VIVO en tu PC/móvil (no reproducible en sandbox)
-1. El túnel cloudflared real (primera vez descarga ~60 MB a config/).
+1. El túnel cloudflared real (primera vez descarga ~60 MB a data/; una copia previa en config/ se sigue usando).
 2. La cámara del APK en tu móvil (el decoder está validado; la cámara física no).
 3. `installer\build_exe.bat` + `installer\build_installer.bat` en tu Windows.

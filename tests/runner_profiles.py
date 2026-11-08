@@ -231,6 +231,14 @@ SAFE_UNIT_SUITES = (
     # de una carpeta temporal, y el camino SIN la variable se mide en un
     # subproceso que solo imprime cadenas (no abre el `config/` del operador).
     "unit/skills/google_workspace/test_config_dir.py",
+    # Los restos de la misma clase (T39c): el compose de la BD que escribe el
+    # endpoint de app.py y el cloudflared de remote.py, más las carpetas de datos
+    # de billing, content_os, datos, google_workspace, research y system_pc,
+    # siguen `NEXUS_CONFIG_DIR`/`NEXUS_DATA_DIR`. `safe-unit` es honesto: docker
+    # y el cliente HTTP van doblados ANTES de la primera llamada (no se ejecuta
+    # docker, no se baja ni se ejecuta cloudflared), no hay red y el camino SIN
+    # las variables se mide en un subproceso que solo imprime cadenas.
+    "unit/core/runtime/test_rutas_aisladas.py",
 )
 
 STATIC_SAFE_SUITES = (

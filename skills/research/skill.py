@@ -2,12 +2,35 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import re
 import webbrowser
 from pathlib import Path
 
 
-REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
+# DE DÓNDE SALEN LOS INFORMES (tarea T39c, cola de T39/T39b). Aquí se montaba a
+# mano con `Path(__file__).resolve().parents[2] / "data"`, que IGNORA
+# `NEXUS_DATA_DIR`: una prueba (o un arranque aislado) seguía leyendo y
+# escribiendo informes en el `data/` REAL del operador. `DATA_DIR` es la única
+# fuente de verdad (comun/config.py) y sin la variable sigue valiendo
+# `ROOT/data` —también con el bundle de PyInstaller—, así que el comportamiento
+# de siempre no cambia.
+#
+# EL RESPALDO NO ES UN CAPRICHO: `tests/unit/skills/research/test_source_evidence.py`
+# carga este fichero con los paquetes `backend.*` DOBLADOS a propósito (para
+# probar `websearch` sin red), así que ahí `backend.core.comun` no trae `config`
+# y el import directo reventaría una prueba que no es de este cambio. Se usa el
+# MISMO remedio que T39b dejó en `instagram/analisis.py::ruta_umbrales`: el
+# respaldo también mira `NEXUS_DATA_DIR`, para que una caja aislada no acabe en
+# el `data/` del operador por la puerta de atrás.
+try:
+    from backend.core.comun.config import DATA_DIR          # type: ignore
+except Exception:                                          # noqa: BLE001
+    _aislada = os.environ.get("NEXUS_DATA_DIR", "").strip()
+    DATA_DIR = (Path(_aislada) if _aislada
+                else Path(__file__).resolve().parents[2] / "data")
+
+REPORTS_DIR = DATA_DIR / "reports"
 
 SKILL = {
     # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide

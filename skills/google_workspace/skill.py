@@ -2262,7 +2262,17 @@ class DriveRutaDenegada(PermissionError):
         self.ruta = Path(ruta)
 
 
-REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
+# DE DÓNDE SALEN LOS INFORMES (tarea T39c, cola de T39b). Aquí quedaba el otro
+# `parents[2] / "data"` de esta skill: IGNORABA `NEXUS_DATA_DIR`, así que una
+# prueba (o un arranque aislado) seguía leyendo y subiendo a Drive los informes
+# del `data/` REAL del operador. `DATA_DIR` es la única fuente de verdad
+# (comun/config.py) y sin la variable sigue valiendo `ROOT/data` —también con el
+# bundle de PyInstaller—, así que el comportamiento de siempre no cambia. La
+# carpeta se sigue calculando aquí (y no en cada función) porque varias de ellas
+# la usan como valor por defecto.
+from backend.core.comun.config import DATA_DIR
+
+REPORTS_DIR = DATA_DIR / "reports"
 
 _ultimo_subido: dict = {}                # id/enlace de lo último que subió nexus
 

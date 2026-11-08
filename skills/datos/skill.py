@@ -7,7 +7,16 @@ import re
 import webbrowser
 from pathlib import Path
 
-REPORTS_DIR = Path(__file__).resolve().parents[2] / "data" / "reports"
+# DE DÓNDE SALEN LOS INFORMES (tarea T39c, cola de T39/T39b). Aquí se montaba a
+# mano con `Path(__file__).resolve().parents[2] / "data"`, que IGNORA
+# `NEXUS_DATA_DIR`: una prueba (o un arranque aislado) seguía escribiendo
+# dashboards en el `data/` REAL del operador. `DATA_DIR` es la única fuente de
+# verdad (comun/config.py) y sin la variable sigue valiendo `ROOT/data`
+# —también con el bundle de PyInstaller—, así que el comportamiento de siempre
+# no cambia.
+from backend.core.comun.config import DATA_DIR
+
+REPORTS_DIR = DATA_DIR / "reports"
 
 SKILL = {
     # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide

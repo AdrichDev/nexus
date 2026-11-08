@@ -135,7 +135,12 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               "unit/core/runtime/test_politica_brain.py",
               # Las rutas de `config/` de google_workspace, autoprovision e
               # instagram respetan `NEXUS_CONFIG_DIR` (T39b): sin red ni docker.
-              "unit/skills/google_workspace/test_config_dir.py"):
+              "unit/skills/google_workspace/test_config_dir.py",
+              # Los restos de la misma clase (T39c): el compose de la BD que
+              # escribe app.py y el cloudflared de remote.py, y las carpetas de
+              # datos de seis skills, respetan NEXUS_CONFIG_DIR/NEXUS_DATA_DIR.
+              # Docker y el cliente HTTP dobados: sin red y sin ejecutar nada.
+              "unit/core/runtime/test_rutas_aisladas.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.

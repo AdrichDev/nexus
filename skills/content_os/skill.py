@@ -11,11 +11,19 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
-from pathlib import Path
 
 import httpx
 
-DATA = Path(__file__).resolve().parents[2] / "data"
+# DE DÓNDE SALEN LOS DATOS (tarea T39c, cola de T39/T39b). Aquí se montaba a
+# mano con `Path(__file__).resolve().parents[2] / "data"`, que IGNORA
+# `NEXUS_DATA_DIR`: una prueba (o un arranque aislado) seguía leyendo y
+# escribiendo guiones en el `data/` REAL del operador. `DATA_DIR` es la única
+# fuente de verdad (comun/config.py) y sin la variable sigue valiendo
+# `ROOT/data` —también con el bundle de PyInstaller—, así que el
+# comportamiento de siempre no cambia.
+from backend.core.comun.config import DATA_DIR
+
+DATA = DATA_DIR
 INSP_DIR = DATA / "inspiration"
 SCRIPTS_DIR = DATA / "scripts"
 

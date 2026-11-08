@@ -23,7 +23,9 @@ rota las dos credenciales). Lo que ya NO se reparte es el token compartido: el
 QR entrega el código de un solo uso.
 
 Si cloudflared no está: se intenta DESCARGAR solo (GitHub oficial) a la
-carpeta config/; si tampoco se puede, se da el enlace para bajarlo a mano.
+carpeta `data/` (`DATA_DIR`, o sea que una prueba con `NEXUS_DATA_DIR` aislado
+NUNCA ensucia el repositorio); si tampoco se puede, se da el enlace para bajarlo
+a mano a `data/` o a `config/` (esa copia heredada se sigue leyendo).
 Plan B sin túnel: QR con la IP local (solo misma WiFi).
 """
 from __future__ import annotations
@@ -42,7 +44,7 @@ import time
 from pathlib import Path
 
 from ..comun.atomicos import escribir_json_atomico
-from ..comun.config import CONFIG_DIR, DATA_DIR, ROOT, settings
+from ..comun.config import CONFIG_DIR, DATA_DIR, settings
 from ..comun import secretos as _secretos   # mismo_secreto: comparar material secreto en bytes
 
 CLOUDFLARED_URL_WIN = ("https://github.com/cloudflare/cloudflared/releases/"
@@ -682,21 +684,42 @@ def tailscale_url() -> str:
 
 
 # ------------------------------------------------------------------ cloudflared
+# DE DÓNDE ES EL BINARIO Y DÓNDE SE BAJA (tarea T39c, hallada al cerrar T39b).
+# Antes las dos rutas se montaban a mano con `ROOT / "config"`, que IGNORA
+# `NEXUS_CONFIG_DIR`/`NEXUS_DATA_DIR`: una prueba (o un arranque aislado) bajaba
+# un `.exe` DENTRO del repositorio y podía acabar lanzando el binario del
+# operador. Se decide fichero a fichero, como en T39b:
+#   * `_CLOUDFLARED_LOCAL` — un cloudflared DESCARGADO es un ARTEFACTO DE
+#     INSTALACIÓN, no un dato del operador: se puede volver a bajar cuando haga
+#     falta y no tiene nada que ver con su configuración. Vive en `DATA_DIR`, que
+#     es la misma carpeta donde ya se apunta la URL del túnel (`_TUNEL_FILE`). Sin
+#     la variable sigue siendo `ROOT/data`, que ya está en `.gitignore`.
+#   * `_CLOUDFLARED_HEREDADO` — donde nexus se lo pedía al operador hasta ahora
+#     (`config/`, que sí sigue `CONFIG_DIR`). Se sigue BUSCANDO, pero solo se LEE:
+#     nadie lo reescribe y a quien ya lo tenía no se le fuerza una descarga de
+#     60 MB (ni se le dice «no está instalado» en Linux, donde la descarga
+#     automática no existe y la copia del operador era la única forma de tenerlo).
+_CLOUDFLARED_LOCAL = DATA_DIR / ("cloudflared.exe" if sys.platform == "win32" else "cloudflared")
+_CLOUDFLARED_HEREDADO = CONFIG_DIR / ("cloudflared.exe" if sys.platform == "win32" else "cloudflared")
+
+
 def _cloudflared_path() -> Path | None:
-    """Busca cloudflared: PATH del sistema o config/cloudflared.exe."""
+    """Busca cloudflared: PATH del sistema, `DATA_DIR` o la copia heredada de `CONFIG_DIR`."""
     import shutil
     exe = shutil.which("cloudflared")
     if exe:
         return Path(exe)
-    local = ROOT / "config" / ("cloudflared.exe" if sys.platform == "win32" else "cloudflared")
-    return local if local.exists() else None
+    for local in (_CLOUDFLARED_LOCAL, _CLOUDFLARED_HEREDADO):
+        if local.exists():
+            return local
+    return None
 
 
 async def _download_cloudflared() -> Path | None:
-    """Descarga cloudflared oficial a config/ (Windows). None si no se pudo."""
+    """Descarga cloudflared oficial a `DATA_DIR` (Windows). None si no se pudo."""
     if sys.platform != "win32":
         return None
-    dest = ROOT / "config" / "cloudflared.exe"
+    dest = _CLOUDFLARED_LOCAL
     try:
         import httpx
         async with httpx.AsyncClient(timeout=180, follow_redirects=True) as cli:
@@ -857,7 +880,7 @@ async def start_tunnel() -> dict:
             exe = await _download_cloudflared()
         if exe is None:
             _state["error"] = ("cloudflared no está instalado y no he podido descargarlo. "
-                               f"Bájalo aquí y déjalo en config/: {CLOUDFLARED_PAGE}")
+                               f"Bájalo aquí y déjalo en data/: {CLOUDFLARED_PAGE}")
             return status()
         proc = subprocess.Popen(
             [str(exe), "tunnel", "--url", "http://127.0.0.1:8177", "--no-autoupdate"],

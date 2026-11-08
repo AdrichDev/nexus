@@ -3,9 +3,17 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from pathlib import Path
 
-INVOICE_DIR = Path(__file__).resolve().parents[2] / "data" / "invoices"
+# DE DÓNDE SALEN LOS DATOS (tarea T39c, cola de T39/T39b). Aquí se montaba a
+# mano con `Path(__file__).resolve().parents[2] / "data"`, que IGNORA
+# `NEXUS_DATA_DIR`: una prueba (o un arranque aislado) seguía escribiendo
+# facturas en el `data/` REAL del operador. `DATA_DIR` es la única fuente de
+# verdad (comun/config.py) y sin la variable sigue valiendo `ROOT/data`
+# —también con el bundle de PyInstaller—, así que el comportamiento de siempre
+# no cambia.
+from backend.core.comun.config import DATA_DIR
+
+INVOICE_DIR = DATA_DIR / "invoices"
 
 _NO_CLIENTE = (r"completad[ao]s?\b|pendientes?\b|progreso\b|revisi[oó]n\b|"
                r"hechas?\b|terminadas?\b|realizadas?\b|done\b")

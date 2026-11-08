@@ -28,7 +28,7 @@ from backend.core.dominio import contentos
 from backend.core.infraestructura import stt, tts
 from backend.core.infraestructura.app_index import start_background_index
 from backend.core.comun import presupuesto, publicvoice
-from backend.core.comun.config import FRONTEND_DIR, settings
+from backend.core.comun.config import CONFIG_DIR, FRONTEND_DIR, settings
 from backend.core.comun.events import bus
 from backend.core.aplicacion.hotkey import start_hotkey
 from backend.core.dominio.memory import graph, memory_status
@@ -1988,6 +1988,18 @@ async def api_setup_save(payload: dict):
     return {"ok": True}
 
 
+# DÓNDE SE ESCRIBE EL COMPOSE DE LA BD (tarea T39c, hallada al cerrar T39b):
+# aquí se montaba a mano con `ROOT / "config"`, que IGNORA `NEXUS_CONFIG_DIR`.
+# Y no era un detalle: `skills/autoprovision/skill.py` ya LEE ese mismo archivo de
+# `CONFIG_DIR` (`_COMPOSE_OPERADOR`, T39b), así que en cuanto se aislaba la config
+# el que escribe y el que lee miraban carpetas distintas y `/api/setup/docker`
+# levantaba el stack con un compose que autoprovision no veía. `CONFIG_DIR` es la
+# única fuente de verdad (comun/config.py) y sin la variable sigue valiendo
+# `ROOT/config` —también con el bundle de PyInstaller—, o sea que el
+# comportamiento de siempre no cambia.
+_COMPOSE_BD = CONFIG_DIR / "docker-compose.yml"
+
+
 @app.post("/api/setup/docker")
 async def api_setup_docker():
     """Crea los contenedores de la BD (Postgres+pgvector) y n8n con Docker."""
@@ -1996,7 +2008,7 @@ async def api_setup_docker():
     if not shutil.which("docker"):
         return {"ok": False, "error": "Docker no está instalado",
                 "download": "https://www.docker.com/products/docker-desktop/"}
-    from backend.core.comun.config import ROOT, assistant_slug
+    from backend.core.comun.config import assistant_slug
     # WHITE-LABEL: los nombres de proyecto/contenedor/volumen/BD salen del NOMBRE del
     # sistema (slug). Por defecto «nexus» → nexus_*, nexus_core, etc.; para cualquier
     # otro nombre, nombres limpios «<slug>_…».
@@ -2012,7 +2024,7 @@ async def api_setup_docker():
     import re as _re
     import secrets as _secrets
     user, db = f"{slug}_admin", f"{slug}_core"
-    compose = ROOT / "config" / "docker-compose.yml"
+    compose = _COMPOSE_BD
     pwd = ""
     if compose.exists():
         m = _re.search(r"POSTGRES_PASSWORD:\s*(\S+)", compose.read_text(encoding="utf-8"))
