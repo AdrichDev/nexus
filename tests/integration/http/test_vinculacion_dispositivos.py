@@ -325,7 +325,11 @@ def _websocket(token: str) -> None:
     from backend.core.comun.events import bus as bus_real
 
     nombres = ("websocket_endpoint", "_trusted_local_ws_origin",
-               "_parsea_host_local", "_origen_coincide")
+               "_parsea_host_local", "_origen_coincide",
+               # T8e: el handler deriva el canal con estos tres, así que el
+               # handler extraído por AST sigue entero (si no, un mensaje
+               # «command» daría NameError aquí y no en producción).
+               "_es_este_equipo", "_valores_cabecera", "_canal_efectivo")
 
     def _constante(nodo) -> bool:
         if not isinstance(nodo, ast.Assign) or len(nodo.targets) != 1:

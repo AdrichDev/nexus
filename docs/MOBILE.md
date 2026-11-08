@@ -55,6 +55,38 @@ chat de texto, botones 🔊/🔇 IA y 🎙 YO para silenciar a nexus o mutearte,
 respuestas por voz (síntesis del móvil) y texto con enlaces que se abren en el
 navegador. **Mantén pulsado ◉** ~1 s para re-vincular con otro PC.
 
+### El móvil no puede decir que es el PC (T8e)
+
+El canal que nexus usa para decidir si una orden se ejecuta directa o pregunta
+antes (la matriz canal × efecto del README) **sale de la conexión, no del cuerpo
+de la petición**. Antes `POST /api/command` leía `"channel"` de lo que mandara
+el cliente, así que un teléfono vinculado que dijera `"channel": "pc"` obtenía
+la columna del PC: mandaba un correo o apagaba la tele sin el «sí». Ahora, si la
+conexión no es el propio equipo (token de un dispositivo, la WiFi, el túnel),
+el canal es `mobile`, diga lo que diga el cuerpo. La app no cambia —no manda ese
+campo— y todo lo local sigue igual; lo que ya no cuela es saltarse la pregunta.
+
+Ojo con el túnel: cloudflared conecta **desde** `127.0.0.1`, así que «el peer es
+loopback» no basta para ser local; lo que lo delata es su cabecera
+`cf-connecting-ip`. Un móvil por el túnel entra siempre como `mobile`.
+
+### Los botones de casa desde el móvil (T8d)
+
+El buscador de dispositivos (tele, luces y enchufes de Home Assistant) sigue
+funcionando **a un toque y sin preguntar**, también desde el teléfono: un botón
+no es texto libre que caiga en el enrutador de órdenes, es una acción explícita
+tuya sobre un aparato concreto, así que el toque **cuenta como el «sí»**
+(decisión del dueño, task T8d del `odd/tasks/security-audit-remediation.md`).
+
+Lo que sí cambia desde esta unidad:
+
+- sin token válido (ni confianza local) esas rutas contestan `401`: ni la WiFi
+  abierta ni el túnel llegan, y el secreto de n8n **no** vale como credencial;
+- **cada toque queda escrito** en `data/logs/audit.jsonl`
+  (`domotica_control` / `domotica_escanear`) con el aparato, el canal por el que
+  se pidió (`pc` o `mobile`) y el resultado. Si un móvil apaga la tele, el
+  registro lo dice igual que si la apagas en el PC.
+
 ### Qué NO hace la app desde la 2.8 (SEC-08 · roadmap P2-5)
 
 Esto vale para el **APK 2.8** (`versionCode` 10). Si en el móvil pone 2.7 o

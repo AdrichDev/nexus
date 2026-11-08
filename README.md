@@ -509,6 +509,45 @@ desde el HUD o la voz, pasa por las tres fronteras de la sección «Delegación 
 un ejecutor externo»: localidad y `permitir_delegacion_nube` (true por defecto),
 confirmación con el encargo exacto y nada de reenvíos a ciegas.
 
+#### De dónde sale el canal (el móvil no puede decir que es el PC)
+
+El canal **no lo elige el cliente: lo decide la conexión**. Antes `POST
+/api/command` leía `"channel"` del cuerpo de la petición, así que un teléfono
+vinculado —o cualquier cliente del túnel— que mandara `"channel": "pc"` caía en
+la columna del PC de la matriz de arriba y se saltaba el «sí» de los envíos
+externos. La credencial dice «este teléfono puede mandar órdenes», no «este
+teléfono es el PC».
+
+Ahora vale lo mismo que la confianza local: si la conexión **es este equipo**
+(peer de loopback, sin cabeceras de proxy, `Host` de loopback y `Origin`
+coherente) el canal es el que pide el cliente; si no lo es —token de un
+dispositivo, la WiFi, el túnel— el canal es `mobile`, diga lo que diga el cuerpo.
+El túnel cuenta como fuera aunque cloudflared conecte **desde** loopback: lo que
+lo delata es su cabecera `cf-connecting-ip`. Vale para `/api/command`, para
+`/api/jobs` y para el WebSocket del HUD, y el intento de reclamar el canal local
+desde fuera queda apuntado en el registro (nivel info, sin tokens).
+
+Consecuencia práctica: **el HUD del PC no cambia** (sigue en `pc`, actuando
+directo salvo lo destructivo) y **el teléfono sigue funcionando igual que antes**
+para todo lo local; lo que ya no puede es hacerse pasar por el PC para saltarse
+una pregunta.
+
+#### Los botones de casa (la tele, las luces) desde el móvil
+
+La matriz de arriba decide sobre **texto**: órdenes que caen en el enrutador de
+regexes. Un botón del buscador de dispositivos (`/api/home/control`, la tele o
+una luz de Home Assistant) no es eso: pincharlo es una acción explícita tuya
+sobre un aparato concreto, así que el toque **cuenta como el «sí»** y la llamada
+sigue siendo directa, también desde el móvil (decisión del dueño, task T8d). No
+hay pregunta doble ni columna que consultar.
+
+Lo que sí se exige: esas dos rutas (`/api/home/control` y `/api/home/scan`, el
+escaneo de la red) **no se abren sin credencial** —ni desde la WiFi ni por el
+túnel— y el secreto de n8n **no** vale como credencial para ellas. Y **cada
+toque deja su línea en `data/logs/audit.jsonl`** (`domotica_control`,
+`domotica_escanear`) con el aparato, el canal por el que se pidió y el
+resultado: si un móvil apaga la tele, el registro lo dice.
+
 ## Micro abierto (conversación fluida)
 
 Botón **∞ AUTO** del HUD: nexus escucha continuamente, corta cuando dejas de

@@ -209,6 +209,17 @@ SAFE_UNIT_SUITES = (
     # no lee ni escribe el `settings.json`, el `secrets.json` ni el `data/` del
     # operador, y el token compartido del período de gracia es de mentira.
     "integration/http/test_vinculacion_dispositivos.py",
+    # El canal lo decide la CONEXIÓN, no el cuerpo (T8e) y los botones de casa
+    # (T8d): `/api/command`, `/api/jobs` y el WebSocket dejan de creerse el
+    # `channel` que manda un cliente remoto (token de dispositivo, WiFi o túnel),
+    # y `/api/home/control` y `/api/home/scan` —que siguen siendo llamadas
+    # directas, por decisión del dueño— dejan su línea en la auditoría con el
+    # canal derivado. En proceso (httpx.ASGITransport, sin lifespan ni puertos),
+    # el WebSocket se ejecuta con el handler REAL sobre un doble (no abre socket),
+    # `brain.process` y `domotica.control_api`/`scan_api` van doblados y
+    # config/data viven en carpetas de usar y tirar: no se toca ninguna TV, ni la
+    # red local, ni el `settings.json`/`secrets.json`/`data/` del operador.
+    "integration/http/test_canal_conexion.py",
     # Lista blanca de herramientas MCP, «sí» para las de escritura y la salida
     # como dato (SEC-18 / AI-10, roadmap P3-7): `asyncio.create_subprocess_exec`
     # va doblado ANTES de la primera llamada, así que no arranca ni un `npx`, y

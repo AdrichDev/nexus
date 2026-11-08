@@ -326,6 +326,54 @@ def _es_este_equipo(request) -> bool:
     return _origen_coincide(origin, host, parsed_host)
 
 
+def _canal_efectivo(conexion, pedido: str | None = None) -> str:
+    """Qué canal recibe el cerebro: lo decide la CONEXIÓN, no el cuerpo (T8e).
+
+    POR QUÉ EXISTE (auditoría, roadmap P2-1, verificador de T8c): desde T8c la
+    columna de la matriz canal × efecto (`canales.politica`) la decide el canal,
+    así que el canal pasó de ser una etiqueta a ser la DECISIÓN. Y `POST
+    /api/command` lo leía del cuerpo (`payload["channel"]`): un móvil vinculado —o
+    cualquier cliente del túnel— que dijera `"channel": "pc"` obtenía la columna
+    LOCAL y se saltaba el «sí» de los envíos externos. La credencial decía «este
+    teléfono puede mandar órdenes», no «este teléfono es el PC».
+
+    La regla, y no hay más: si la conexión es este equipo (`_es_este_equipo`, la
+    MISMA confianza local de SEC-03: peer de loopback, sin cabeceras de proxy,
+    `Host` de loopback limpio y `Origin` coherente), el canal es el que dice el
+    cliente (`pedido`, o `pc` si no reclama ninguno). Si NO lo es —token de un
+    dispositivo, WiFi, túnel, cualquier cosa de fuera— el canal es `mobile`, diga
+    lo que diga el cuerpo.
+
+    El túnel cuenta como fuera aunque cloudflared conecte DESDE loopback: trae
+    `cf-connecting-ip`, y esa cabecera es justo lo primero que `_es_este_equipo`
+    rechaza. Por eso aquí no se mira «¿el peer es 127.0.0.1?», que daría por
+    bueno todo lo que entra por el túnel.
+
+    Vale para peticiones HTTP y para el WebSocket (los dos tienen `headers` y
+    `client`). El WS ya autenticó antes de llegar aquí y un WS de loopback sin
+    `Origin` solo lo puede abrir un cliente nativo de este equipo; aun así, un WS
+    con token de dispositivo o por el túnel entra como `mobile`, que es lo que
+    antes NO pasaba (se quedaba en `pc` si no mandaba el «hello» del móvil).
+
+    `pedido=None` es «esta ruta no recibe canal del cliente» (los botones de
+    casa): entonces no hay nada que pisar y no se apunta nada. Cuando SI se pisa
+    un canal reclamado se escribe UNA línea en el registro, a nivel info, para
+    que quede rastro del intento de reclamar el canal local desde fuera. Nunca
+    se escribe el token ni ninguna credencial: solo el canal reclamado.
+    """
+    if _es_este_equipo(conexion):
+        return pedido or "pc"
+    if pedido and str(pedido).strip().lower() != "mobile":
+        try:
+            bus.emit_sync("log", {"level": "info", "msg": (
+                "Canal: la conexión NO es este equipo, así que el canal pedido "
+                f"«{pedido}» cuenta como «mobile» (la matriz canal × efecto se "
+                "decide por la conexión, no por el cuerpo de la petición)")})
+        except Exception:                                  # noqa: BLE001
+            pass
+    return "mobile"
+
+
 # ---------- SECRETO COMPARTIDO DE n8n (auditoría 30/07/2026, SEC-01 / P1-1) ----------
 # `/api/n8n` NO se fía del loopback. n8n corre en Docker, y en este equipo
 # cualquier proceso puede hablar con 127.0.0.1:8177: la exención «viene de casa»
@@ -541,7 +589,10 @@ async def websocket_endpoint(ws: WebSocket):
                 result = await brain.process(
                     msg.get("text", ""),
                     source=("voice" if msg.get("voice") else "text"),
-                    channel=("mobile" if my_device else "pc"))
+                    # T8e: el canal sale de la CONEXIÓN (ver `_canal_efectivo`),
+                    # no de lo que diga el mensaje del cliente. El «hello» del
+                    # móvil es lo único que puede pedir `mobile`.
+                    channel=_canal_efectivo(ws, "mobile" if my_device else None))
                 if msg.get("speak"):
                     asyncio.create_task(tts.speak(result["reply"]))
             elif mtype == "voice":
@@ -574,9 +625,13 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 @app.post("/api/command")
-async def api_command(cmd: Command):
+async def api_command(cmd: Command, request: Request):
+    # T8e: el `channel` del cuerpo solo vale si la conexión es este equipo.
+    # Antes un móvil vinculado (o el túnel) que mandara `"channel": "pc"` se
+    # quedaba con la columna LOCAL de la matriz canal × efecto.
+    canal = _canal_efectivo(request, "mobile" if cmd.channel == "mobile" else "pc")
     result = await brain.process(cmd.text, source=("voice" if cmd.voice else "text"),
-                                 channel=("mobile" if cmd.channel == "mobile" else "pc"))
+                                 channel=canal)
     if cmd.speak:
         asyncio.create_task(tts.speak(result["reply"]))
     return result
@@ -606,7 +661,7 @@ async def api_jobs():
 
 
 @app.post("/api/jobs")
-async def api_jobs_submit(payload: dict):
+async def api_jobs_submit(payload: dict, request: Request):
     """Lanza una orden como TRABAJO en segundo plano (multitarea).
     v23 (T9): cada ejecución lleva su requestId y los duplicados vivos se bloquean."""
     import uuid as _uuid
@@ -614,7 +669,9 @@ async def api_jobs_submit(payload: dict):
     text = str(payload.get("text", "")).strip()
     if not text:
         return {"error": "sin texto"}
-    channel = str(payload.get("channel", "pc"))
+    # T8e: el `channel` del cuerpo solo vale desde este equipo. Del móvil o del
+    # túnel, un trabajo es SIEMPRE del canal remoto (y sus efectos se preguntan).
+    channel = _canal_efectivo(request, str(payload.get("channel", "pc")))
     dup = jobs.active_duplicate(text, channel)
     if dup:
         return {"ok": False, "duplicate": True, "id": dup["id"], "num": dup["num"],
@@ -1168,37 +1225,85 @@ async def api_board_edit(payload: dict):
     return t or {"error": "not found"}
 
 
+def _audita_casa(canal: str, accion: str, *, request: str = "", result: str = "",
+                 ok: bool | None = None, confirmed: bool | None = None,
+                 targets: list | None = None) -> None:
+    """Deja en `data/logs/audit.jsonl` el botón de casa que se ha pulsado (T8d).
+
+    POR QUÉ EXISTE: `/api/home/control` y `/api/home/scan` llaman a la skill de
+    domótica directamente, sin pasar por `brain._autorizar_efecto` ni por la
+    matriz canal × efecto. Y se quedan así A PROPÓSITO (decisión del dueño,
+    `odd/tasks/security-audit-remediation.md` T8d): un botón de casa no es texto
+    libre que cae en el enrutador de regexes que ARQ-03 vigila — pincharlo ES la
+    acción explícita del operador, así que no hay nada que preguntar dos veces.
+    Lo que sí hace falta es que quede RASTRO: quién, qué dispositivo, por qué
+    canal y con qué resultado. Sin esta línea, un móvil vinculado podía encender
+    o apagar la tele sin que el registro de auditoría supiera nada.
+
+    El canal es el de la CONEXIÓN (`_canal_efectivo`), igual que en el cerebro:
+    `pc` desde este equipo, `mobile` desde el teléfono o el túnel.
+    """
+    from backend.core.comun import audit
+    try:
+        audit.log(action=accion, actor="operador", destructive=False,
+                  confirmed=confirmed, channel=canal, request=request,
+                  result=result, targets=targets or [],
+                  extra={"ok": ok})
+    except Exception:                                      # noqa: BLE001
+        pass        # la auditoría no puede tumbar la orden que ya se ha dado
+
+
 @app.post("/api/home/scan")
-async def api_home_scan():
+async def api_home_scan(request: Request):
     """Rastrea la red — buscador visual de dispositivos (HUD/movil)."""
     from backend.core.aplicacion.skills_loader import get_skills
+    canal = _canal_efectivo(request)
     sk = get_skills().get("domotica")
     if not sk or not getattr(sk, "module", None):
         return {"devices": [], "error": "domotica no disponible"}
     try:
-        return await sk.module.scan_api({"settings": settings, "bus": bus, "graph": graph})
+        salida = await sk.module.scan_api({"settings": settings, "bus": bus, "graph": graph})
     except Exception as exc:  # noqa: BLE001
         # SEC-16: el cliente recibe un mensaje y el TIPO se queda en el log.
         publico, tecnico = publicvoice.fallo(exc)
         await bus.emit("log", {"level": "error",
                                "msg": f"Escaneo de red: {tecnico}: {exc}"})
+        _audita_casa(canal, "domotica_escanear", request="escanear la red",
+                     result=publico, ok=False)
         return {"devices": [], "error": publico}
+    cuantos = len(salida.get("devices") or []) if isinstance(salida, dict) else 0
+    _audita_casa(canal, "domotica_escanear", request="escanear la red", ok=True,
+                 result=f"{cuantos} dispositivo(s)")
+    return salida
 
 
 @app.post("/api/home/control")
-async def api_home_control(payload: dict):
+async def api_home_control(payload: dict, request: Request):
     """Accion al pinchar/conectar un dispositivo del buscador (TV / Home Assistant)."""
     from backend.core.aplicacion.skills_loader import get_skills
+    canal = _canal_efectivo(request)
     sk = get_skills().get("domotica")
     if not sk or not getattr(sk, "module", None):
         return {"ok": False, "reply": "La domotica no esta disponible ahora mismo."}
+    # Lo que identifica la acción en el registro: sin el token ni nada más.
+    nombre = payload.get("name") or payload.get("entity_id") or payload.get("ip") or ""
+    etiqueta = f"{payload.get('kind', '')}:{payload.get('action', '')} {nombre}".strip()
+    objetivo = str(payload.get("entity_id") or payload.get("ip") or "")[:200]
     try:
-        return await sk.module.control_api({"settings": settings, "bus": bus, "graph": graph}, payload)
+        salida = await sk.module.control_api(
+            {"settings": settings, "bus": bus, "graph": graph}, payload)
     except Exception as exc:  # noqa: BLE001
         publico, tecnico = publicvoice.fallo(
             exc, mensaje="No he podido enviar la orden. No se ha realizado ningún cambio.")
         await bus.emit("log", {"level": "error", "msg": f"Domótica, orden: {tecnico}: {exc}"})
+        _audita_casa(canal, "domotica_control", request=etiqueta, result=publico,
+                     ok=False, confirmed=True, targets=[objetivo] if objetivo else [])
         return {"ok": False, "reply": publico}
+    bien = bool(salida.get("ok")) if isinstance(salida, dict) else False
+    respuesta = str(salida.get("reply", "")) if isinstance(salida, dict) else ""
+    _audita_casa(canal, "domotica_control", request=etiqueta, result=respuesta,
+                 ok=bien, confirmed=True, targets=[objetivo] if objetivo else [])
+    return salida
 
 
 @app.get("/api/home/ha_status")

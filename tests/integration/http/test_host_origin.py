@@ -449,7 +449,11 @@ def _websocket() -> None:
     # Se carga el handler de verdad sin arrancar nada: mismo truco que
     # test_acceso_remoto.py (no hay servidor ni puerto).
     nombres = ("websocket_endpoint", "_trusted_local_ws_origin",
-               "_parsea_host_local", "_origen_coincide")
+               "_parsea_host_local", "_origen_coincide",
+               # T8e: el handler deriva el canal con estos tres, así que el
+               # handler extraído por AST sigue entero (si no, un mensaje
+               # «command» daría NameError aquí y no en producción).
+               "_es_este_equipo", "_valores_cabecera", "_canal_efectivo")
 
     def _constante(nodo) -> bool:
         """Constantes de módulo (`_LOOPBACK` y compañía), sin ejecutar el módulo."""
