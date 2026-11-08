@@ -44,6 +44,14 @@ lanzamiento de procesos doblado ANTES de la primera llamada):
      servidor enseña sus herramientas, `reload` recarga, el formato de la
      respuesta `[servidor/herramienta] …` con su corte a 1500 caracteres y el
      respaldo en JSON cuando no hay texto.
+ 10. LA CONFIG ES LA DE `CONFIG_DIR` (T39). El fichero de servidores MCP sale de
+     `backend.core.comun.config.CONFIG_DIR` y por tanto obedece a
+     `NEXUS_CONFIG_DIR` como el resto de nexus: un módulo recién cargado con la
+     carpeta de usar y tirar ve ESE `mcp_servers.json` y nunca el `config/` del
+     repositorio. Antes la ruta se montaba a mano con `Path(__file__).parents[2]`,
+     que ignora la variable (el mismo fallo de hermeticidad que T36 cerró en
+     `spotify.py`). Sin la variable el camino sigue siendo `ROOT/config`: eso NO
+     cambia, y también se comprueba.
 
 Esta suite NO arranca ningún servidor MCP: `asyncio.create_subprocess_exec` está
 doblado antes de la primera llamada (H2 del ODD: `mcp_hands` lanza procesos por
@@ -180,6 +188,9 @@ def _cargar_skill():
 
 
 mod = _cargar_skill()
+# Lo que el módulo resolvió AL CARGARSE, antes de que la suite lo parchee: es lo
+# que mide la sección 11 (T39). Con el bug, aquí seguía el config/ del repo.
+_CFG_AL_IMPORTAR = Path(mod.CONFIG)
 mod.CONFIG = CONFIG_PATH                     # nunca el config/mcp_servers.json real
 
 
@@ -686,6 +697,65 @@ def test_la_plantilla_es_la_que_se_documenta():
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# 11) LA CONFIG SALE DE `CONFIG_DIR` (NEXUS_CONFIG_DIR), NO DE UNA RAÍZ A MANO
+# ═════════════════════════════════════════════════════════════════════════════
+DISTINTIVO = "mcp_de_usar_y_tirar"
+
+
+def _config_distintiva() -> None:
+    """Un servidor con un nombre que solo existe en la carpeta de usar y tirar."""
+    _config({DISTINTIVO: {"command": "npx", "args": ["-y", "servidor-de-mentira"],
+                          "enabled": True,
+                          "tools": {"read_file": {"escritura": False}}}})
+
+
+def test_la_config_obedece_a_nexus_config_dir():
+    print("== 11) la config sale de CONFIG_DIR (NEXUS_CONFIG_DIR), no de parents[2] ==")
+    from backend.core.comun import config as comun
+
+    # La carpeta de usar y tirar se puso en NEXUS_CONFIG_DIR ANTES de importar
+    # backend, así que la skill tiene que haber resuelto ESA ruta al cargarse.
+    check(Path(comun.CONFIG_DIR) == _CFG_DIR,
+          f"la suite no está aislada: CONFIG_DIR={comun.CONFIG_DIR}")
+    check(_CFG_AL_IMPORTAR == CONFIG_PATH,
+          f"al importarse, la skill no miró NEXUS_CONFIG_DIR: {_CFG_AL_IMPORTAR}")
+    check(Path(_CFG_AL_IMPORTAR).parent != ROOT / "config",
+          "la config sigue apuntando al config/ del repositorio, no al aislado")
+
+    # Y por la interfaz pública, con un módulo RECIÉN CARGADO (sin el parche de
+    # arriba): `reload` cuenta los conectores de esa carpeta y `list` los nombra.
+    _config_distintiva()
+    nuevo = _cargar_skill()
+    check(Path(nuevo.CONFIG) == CONFIG_PATH,
+          f"un módulo recién cargado apunta a {nuevo.CONFIG}")
+    _limpia()
+    r = asyncio.run(nuevo.handle("reload", "recarga los conectores mcp", None, CTX))
+    check("1 servidor" in r["reply"],
+          f"no ve el conector de la carpeta temporal: {r['reply']!r}")
+    r = asyncio.run(nuevo.handle("list", "qué manos tienes", None, CTX))
+    check(DISTINTIVO in r["reply"],
+          f"`list` no enseña el conector temporal: {r['reply'][:200]!r}")
+    check("No tengo manos MCP configuradas" not in r["reply"],
+          "la skill sigue leyendo el config/ del repositorio (sin mcp_servers.json) "
+          "en vez del que dice NEXUS_CONFIG_DIR")
+
+    # LO DE ANTES NO CAMBIA: sin NEXUS_CONFIG_DIR el camino es `ROOT/config`, el
+    # mismo que se calculaba a mano con `Path(__file__).parents[2]`.
+    real = comun.CONFIG_DIR
+    try:
+        comun.CONFIG_DIR = ROOT / "config"
+        sin_override = _cargar_skill()
+    finally:
+        comun.CONFIG_DIR = real
+    esperado = Path(SKILL_PY).resolve().parents[2] / "config" / "mcp_servers.json"
+    check(Path(sin_override.CONFIG) == esperado,
+          f"sin NEXUS_CONFIG_DIR la ruta cambió: {sin_override.CONFIG} != {esperado}")
+    check(Path(comun.CONFIG_DIR) == _CFG_DIR,
+          "la sección 11 dejaría CONFIG_DIR parcheado: las demás pruebas perderían "
+          "el aislamiento")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 def main() -> int:
     print("═══ mcp_hands: lista blanca, confirmación de escritura y datos cercados ═══")
     for prueba in (test_sin_lista_no_se_arranca_nada,
@@ -698,7 +768,8 @@ def main() -> int:
                    test_la_salida_no_rompe_la_cerca,
                    test_n8n_sigue_cerrado,
                    test_lo_de_antes_sigue_en_pie,
-                   test_la_plantilla_es_la_que_se_documenta):
+                   test_la_plantilla_es_la_que_se_documenta,
+                   test_la_config_obedece_a_nexus_config_dir):
         try:
             prueba()
         except Exception as exc:                            # noqa: BLE001

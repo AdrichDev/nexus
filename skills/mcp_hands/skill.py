@@ -1,6 +1,7 @@
 """Minion Manos MCP — cliente de servidores Model Context Protocol.
 
-Conecta por stdio a servidores MCP definidos en config/mcp_servers.json,
+Conecta por stdio a servidores MCP definidos en `CONFIG_DIR/mcp_servers.json`
+(`config/mcp_servers.json` salvo que `NEXUS_CONFIG_DIR` diga otra carpeta, T39),
 descubre sus herramientas (tools/list) y las invoca (tools/call). Es un
 cliente MCP mínimo (JSON-RPC sobre stdio) sin dependencias extra — así
 nexus gana "manos" como las de Cowork: filesystem, github, slack, etc.
@@ -79,9 +80,19 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from pathlib import Path
 
-CONFIG = Path(__file__).resolve().parents[2] / "config" / "mcp_servers.json"
+# DE DÓNDE SALE LA CONFIG (task T39, al cerrar T26). Antes esta ruta se montaba a
+# mano con `Path(__file__).resolve().parents[2] / "config"`, así que la skill
+# IGNORABA `NEXUS_CONFIG_DIR` y leía SIEMPRE el `config/` real del operador: una
+# prueba con carpeta de usar y tirar creía estar aislada y estaba leyendo el
+# fichero de verdad (el mismo fallo de hermeticidad que T36 cerró en
+# `spotify.py`). `CONFIG_DIR` es la única fuente de verdad para «dónde vive la
+# configuración» (comun/config.py), y sin la variable sigue valiendo `ROOT/config`
+# —también con el bundle de PyInstaller, donde `ROOT` es la carpeta del .exe—, o
+# sea que el comportamiento de siempre no cambia.
+from backend.core.comun.config import CONFIG_DIR
+
+CONFIG = CONFIG_DIR / "mcp_servers.json"
 
 SKILL = {
     # QUÉ EFECTO tiene cada intent del enrutador (ARQ-03, task T8b): lo decide
