@@ -154,6 +154,12 @@ SAFE_UNIT_SUITES = (
     # NEXUS_DOTENV=0. El `.env` de prueba vive en una carpeta temporal y el
     # subproceso arranca con config/datos de usar y tirar y sin NEXUS_DB_URL.
     "unit/core/runtime/test_dotenv_aislado.py",
+    # Matriz canal × efecto (SEC-01/SEC-06, ARQ-01/ARQ-03, roadmap P2-1, T8a): el
+    # vocabulario de efectos, la clase de canal y el veredicto permitir/confirmar/
+    # denegar con las decisiones del L59, celda por celda, más la intersección de
+    # n8n (listado Y de lectura) y la API de antes intacta. `comun/canales.py` no
+    # lee config, ni datos, ni red y no escribe nada: son constantes y funciones puras.
+    "unit/core/runtime/test_canal_efecto.py",
     # Reserva del cerebro entre clases de localidad (AI-01/PRIV-02) y tope de
     # tokens de salida (AI-07): cliente HTTP doblado (nada sale a la red) y
     # carpetas de usar y tirar.

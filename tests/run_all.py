@@ -122,7 +122,10 @@ for suite in ("unit/routing/test_all.py", "unit/routing/test_routing.py", "unit/
               # así que no arranca ni un `npx`.
               "unit/skills/mcp/test_mcp_permisos.py",
               # El `.env` del operador no entra con la config aislada (T44).
-              "unit/core/runtime/test_dotenv_aislado.py"):
+              "unit/core/runtime/test_dotenv_aislado.py",
+              # Matriz canal × efecto (ARQ-01/ARQ-03, T8a): constantes y funciones
+              # puras, sin config, sin datos, sin red.
+              "unit/core/runtime/test_canal_efecto.py"):
     print(f"== 3) suite {suite} ==")
     # UTF-8 forzado: en la consola de Windows (cp1252) un «✔» en un mensaje
     # reventaba la suite entera con UnicodeEncodeError.
