@@ -24,6 +24,12 @@ robar mis credenciales»: `config/secrets.json` tiene las API keys, los
 servidor y el navegador las sesiones ya abiertas. Un documento del operador
 nunca entra en esta lista: solo entran credenciales y material de claves.
 
+Las comparaciones de ESTA lista ignoran las mayúsculas en todas las plataformas
+(`_canonica(..., sin_mayusculas=True)`). No es portabilidad: es que un candado no
+puede depender del sistema de archivos. En Windows `normcase` ya las ignora; en
+Linux es la identidad, y `~/.SSH/ID_RSA` se colaba —lo destapó CI, run
+42525331409—. Conceder sigue comparando como el disco (ver `_dentro`).
+
 Lo que esta denylist NO hace: proteger Credential Manager ni el proceso LSASS a
 nivel de sistema operativo. Eso pide DPAPI y permisos de proceso, no un filtro
 de rutas; aquí solo se cierra el camino de nexus (una ruta pedida por la skill,
@@ -111,14 +117,41 @@ def _carpetas_credenciales() -> tuple[Path, ...]:
     return tuple(out)
 
 
-def _dentro(rp: Path, root) -> bool:
-    """¿`rp` está dentro de `root`? Compara sin distinguir mayúsculas: en Windows
-    el sistema de archivos tampoco las distingue, así que «.SSH\\id_rsa» tiene
-    que caer igual que «.ssh/id_rsa» (si no, la denylist se esquiva cambiando
-    una letra)."""
+def _canonica(ruta, *, sin_mayusculas: bool = False) -> str:
+    """Forma canónica de una ruta para COMPARARLA con otra.
+
+    `sin_mayusculas=True` es el modo de la DENYLIST: no distingue mayúsculas en
+    NINGUNA plataforma. Es a propósito y no un descuido de portabilidad.
+
+    `os.path.normcase` ignora las mayúsculas en Windows (y en HFS/APFS), pero en
+    POSIX es la IDENTIDAD (`posixpath.normcase = lambda s: s`). Un candado
+    montado solo sobre él deja de ser un candado: `~/.SSH/ID_RSA` se colaba en
+    Linux y el fallo solo se veía al correr la suite en el runner de Ubuntu (job
+    «Suites por perfil seguro», run 42525331409), porque en el PC del operador
+    —Windows— pasaba.
+
+    Aquí negar de más no cuesta nada: la denylist es SOLO material de
+    credenciales, así que negar una ruta que en un sistema sensible a mayúsculas
+    sería otro archivo no le quita un documento a nadie. Negar de menos, en
+    cambio, convierte la guarda en una propiedad de la plataforma."""
+    txt = os.path.normpath(os.path.abspath(str(ruta)))
+    txt = os.path.normcase(txt)
+    return txt.casefold() if sin_mayusculas else txt
+
+
+def _dentro(rp: Path, root, *, sin_mayusculas: bool = False) -> bool:
+    """¿`rp` está dentro de `root`?
+
+    Por defecto compara como el sistema de archivos: en Windows sin distinguir
+    mayúsculas (`normcase`), en POSIX distinguiéndolas. Se usa tal cual para
+    CONCEDER (el alcance de «carpetas»/«sandbox»), porque ahí sí importa la
+    semántica real del disco.
+
+    `sin_mayusculas=True` lo usa la denylist, y entonces «.SSH\\id_rsa» cae
+    igual que «.ssh/id_rsa» en cualquier plataforma (ver `_canonica`)."""
     try:
-        a = os.path.normcase(os.path.abspath(str(rp)))
-        b = os.path.normcase(os.path.abspath(str(root)))
+        a = _canonica(rp, sin_mayusculas=sin_mayusculas)
+        b = _canonica(root, sin_mayusculas=sin_mayusculas)
     except Exception:                        # noqa: BLE001
         return False
     if a == b:
@@ -127,10 +160,12 @@ def _dentro(rp: Path, root) -> bool:
 
 
 def _misma_ruta(a, b) -> bool:
-    """¿Las dos rutas SON la misma? (sin distinguir mayúsculas en Windows)."""
+    """¿Las dos rutas SON la misma? Sin distinguir mayúsculas EN NINGUNA
+    plataforma: solo se pregunta por el `.env` de la raíz, que es material de
+    credenciales, así que se contesta igual en Linux que en Windows."""
     try:
-        return (os.path.normcase(os.path.abspath(str(a)))
-                == os.path.normcase(os.path.abspath(str(b))))
+        return (_canonica(a, sin_mayusculas=True)
+                == _canonica(b, sin_mayusculas=True))
     except Exception:                        # noqa: BLE001
         return False
 
@@ -155,14 +190,15 @@ def denied(p) -> bool:
             return True
     except Exception:                                # noqa: BLE001
         pass
-    if _dentro(rp, CONFIG_DIR) and (nombre in _DENY_CONFIG_NOMBRES
-                                    or any(fnmatch(nombre, pat) for pat in _DENY_CONFIG_PATRONES)):
+    if _dentro(rp, CONFIG_DIR, sin_mayusculas=True) and (
+            nombre in _DENY_CONFIG_NOMBRES
+            or any(fnmatch(nombre, pat) for pat in _DENY_CONFIG_PATRONES)):
         return True
     for fijo in ("telegram_owner.txt", "telegram_link_code.txt"):
-        if _dentro(rp, DATA_DIR) and nombre == fijo:
+        if _dentro(rp, DATA_DIR, sin_mayusculas=True) and nombre == fijo:
             return True
     for carpeta in _carpetas_credenciales():
-        if _dentro(rp, carpeta):
+        if _dentro(rp, carpeta, sin_mayusculas=True):
             return True
     return False
 

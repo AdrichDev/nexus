@@ -30,7 +30,12 @@ Qué se prueba, y por qué:
      o `-`, que no es base64 estándar (advisories del verificador sobre 562c777).
   J. Un almacén que NO se puede escribir (solo lectura, o el destino bloqueado
      por otra copia de nexus) se queda byte a byte igual, avisa en castellano,
-     conserva las claves en memoria y no deja ni un `.tmp`.
+     conserva las claves en memoria y no deja ni un `.tmp`. Cómo se impide
+     escribir depende de la plataforma —en Windows vale el bit del ARCHIVO, en
+     POSIX manda el de la CARPETA porque el guardado publica un `.tmp` con
+     `os.replace`— y sin DPAPI la carga no escribe, así que ahí el intento real
+     que se prueba es `set_secret`. Suponer lo contrario ponía la suite roja
+     SOLO en el runner de Ubuntu (CI run 42525331409).
   K. Un valor que NO es texto (número, booleano, nulo, objeto) sobrevive intacto
      a la migración y a cualquier escritura, se nombra en los avisos y no rompe
      `secret()`, que cae a la variable de entorno.
@@ -622,33 +627,90 @@ else:
         shutil.rmtree(cfg, ignore_errors=True)
 
 # ══════════════════════════════════════════════════════════════════════════
-print("== 11) almacén de SOLO LECTURA: no se toca, se avisa y no queda .tmp ==")
+print("== 11) almacén que NO se puede escribir: intacto, con aviso y sin .tmp ==")
 # ══════════════════════════════════════════════════════════════════════════
-# El caso real que ve el operador: el archivo está bloqueado (otra copia de nexus
-# abierta, el antivirus, una copia de seguridad en curso). La migración tiene que
-# fallar HACIA LO SEGURO: el archivo queda byte a byte como estaba, se avisa en
-# castellano, las claves de esta sesión siguen sirviendo y no queda basura .tmp.
+# El caso real que ve el operador: el almacén está bloqueado (otra copia de nexus
+# abierta, el antivirus, una copia de seguridad en curso) o su carpeta es de solo
+# lectura. La escritura tiene que fallar HACIA LO SEGURO: el archivo queda byte a
+# byte como estaba, se avisa en castellano, las claves de esta sesión siguen
+# sirviendo y no queda basura `.tmp`.
+#
+# CÓMO se impide escribir depende de la plataforma, y suponerlo fue el fallo que
+# destapó CI (run 42525331409, job «Suites por perfil seguro»). La prueba ponía
+# el ARCHIVO en `chmod 444` y esperaba el aviso; en Windows eso es exactamente el
+# atributo de solo lectura y la migración choca con él al publicar, pero:
+#   * en POSIX `chmod 444` en el archivo NO impide nada: el guardado escribe un
+#     `.tmp` en la CARPETA y lo publica con `os.replace` (comun/atomicos.py), y
+#     reemplazar un archivo sin bit de escritura dentro de una carpeta escribible
+#     funciona. Lo que manda es el bit de la CARPETA (`0o555`), y ahí el que
+#     falla es la creación del `.tmp` con PermissionError;
+#   * y sin DPAPI (Linux) la CARGA no escribe nada —no hay valor que cifrar, es
+#     el repliegue de la sección 6, no un fallo—, así que no había ningún intento
+#     de guardado que pudiera avisar de nada. El intento REAL y portable que
+#     prueba esta sección es `set_secret`, que es el mismo camino de escritura
+#     que usa el operador desde ⚙ → Claves API.
+# Lo que NO se supone es que el sistema de archivos obedezca: se prueba con
+# `_no_se_puede_guardar` (como root, o en un FS que ignore los modos, no protege
+# nada) y si no protege se dice en la salida en vez de fingir que se probó.
+
+
+def _no_se_puede_guardar(ruta: Path) -> bool:
+    """¿Está el almacén protegido DE VERDAD contra un guardado aquí?
+
+    Se prueba lo mismo que hace el producto al guardar: crear un `.tmp` en la
+    carpeta y publicarlo con `os.replace` sobre el archivo. Basta con que UNA de
+    las dos cosas falle, y cuál falla cambia con la plataforma (ver arriba)."""
+    sonda = ruta.with_name(f"{ruta.name}.{os.getpid():x}.sonda.tmp")
+    try:
+        sonda.write_text("", encoding="utf-8")
+    except OSError:
+        return True                   # sin `.tmp` en la carpeta no hay guardado posible
+    try:
+        sonda.unlink()
+    except OSError:
+        pass
+    try:
+        with open(ruta, "a", encoding="utf-8"):
+            pass
+    except OSError:
+        return True                   # destino de solo lectura: os.replace fallará
+    return False
+
+
+def _guardar_y_avisar(ajustes, ruta: Path, clave: str, valor: str) -> str:
+    """Guarda de verdad por el camino público (set_secret) y devuelve lo avisado."""
+    getattr(config, "AVISOS_SECRETOS", []).clear()
+    buf = io.StringIO()
+    with _Doble(config, "SECRETS_FILE", ruta), redirect_stdout(buf):
+        ajustes.set_secret(clave, valor)
+    return buf.getvalue()
+
+
 alm = Almacen({"openai_api_key": V1, "telegram_bot_token": V2})
 antes = alm.bytes()
-modo_previo = alm.ruta.stat().st_mode
-_solo_lectura = False
+modo_archivo = alm.ruta.stat().st_mode
+modo_carpeta = alm.carpeta.stat().st_mode
 try:
+    # Las dos cosas a la vez: el archivo (lo que manda en Windows) y la carpeta
+    # (lo que manda en POSIX). Ninguna molesta a la otra plataforma.
     os.chmod(alm.ruta, 0o444)
-    # ¿De verdad está protegido aquí? En Windows el bit de escritura ES el
-    # atributo de solo lectura, pero como root (o en un sistema de archivos que
-    # lo ignore) no lo estaría y la prueba no probaría nada. Se comprueba.
-    try:
-        with open(alm.ruta, "a", encoding="utf-8"):
-            pass
-        _solo_lectura = False
-    except OSError:
-        _solo_lectura = True
-    if _solo_lectura:
-        ajustes, avisos = alm.cargar()
-        etiqueta = "con el archivo en solo lectura de verdad"
+    os.chmod(alm.carpeta, 0o555)
+    if _no_se_puede_guardar(alm.ruta):
+        if HAY_DPAPI:
+            # Con DPAPI la migración se intenta al CARGAR y el sistema de
+            # archivos la para: es el caso de Windows, tal cual lo ve el operador.
+            ajustes, avisos = alm.cargar()
+            etiqueta = "con el almacén en solo lectura de verdad"
+        else:
+            # Sin DPAPI la carga no escribe (no hay nada que cifrar): el intento
+            # real es set_secret, con la carpeta cerrada.
+            ajustes, _ = alm.cargar()
+            avisos = _guardar_y_avisar(ajustes, alm.ruta, "openai_api_key", V1)
+            etiqueta = "con la carpeta en solo lectura de verdad"
     else:
-        # Etiquetado: aquí no se puede imponer solo lectura, así que se dobla el
-        # MISMO fallo que da Windows (WinError 5) al reemplazar un destino en uso.
+        # Etiquetado: como root (o en un FS que ignora los modos) no se puede
+        # imponer solo lectura, así que se dobla el MISMO fallo que da el sistema
+        # al publicar (WinError 5 / PermissionError) y se prueba el manejo del error.
         _saltados.append("11) solo lectura impuesto por el sistema de archivos")
         _real_replace = os.replace
 
@@ -657,7 +719,8 @@ try:
 
         os.replace = _bloqueado
         try:
-            ajustes, avisos = alm.cargar()
+            ajustes, _ = alm.cargar()
+            avisos = _guardar_y_avisar(ajustes, alm.ruta, "openai_api_key", V1)
         finally:
             os.replace = _real_replace
         etiqueta = "con el reemplazo bloqueado (equivalente etiquetado)"
@@ -679,7 +742,10 @@ try:
     check(set(alm.crudo()) == {"openai_api_key", "telegram_bot_token"},
           f"{etiqueta} el almacén cambió de claves al no poder escribirse")
 finally:
-    os.chmod(alm.ruta, modo_previo | 0o600)
+    # Se devuelve el permiso ANTES de borrar: `rmtree` necesita escribir en la
+    # carpeta para deshacerla.
+    os.chmod(alm.carpeta, modo_carpeta)
+    os.chmod(alm.ruta, modo_archivo | 0o600)
 alm.borrar()
 
 # ══════════════════════════════════════════════════════════════════════════

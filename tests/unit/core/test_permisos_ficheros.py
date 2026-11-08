@@ -142,6 +142,26 @@ class _Doble:
         return False
 
 
+class _NormcasePosix:
+    """Doble de `os.path.normcase` con la IDENTIDAD, que es lo que es en Linux.
+
+    `posixpath.normcase = lambda s: s`. Montar el candado de credenciales sobre
+    él lo deja funcionando solo en Windows (donde además pasa a minúsculas): en
+    el runner de Ubuntu `~/.SSH/ID_RSA` no caía en la denylist y la suite se
+    ponía roja SOLO allí (job «Suites por perfil seguro», run 42525331409). Con
+    este doble, ese camino se ejecuta también aquí.
+    """
+
+    def __enter__(self):
+        self.previo = os.path.normcase
+        os.path.normcase = lambda s: s
+        return self
+
+    def __exit__(self, *_exc):
+        os.path.normcase = self.previo
+        return False
+
+
 class _Espia:
     """Apunta las llamadas y contesta algo inocuo (no lee ni escribe nada)."""
 
@@ -266,6 +286,28 @@ with _Config(perm_files="todo"):
     for etiqueta, ruta in CASOS_DENEGADOS:
         check(permissions.path_allowed(ruta) is False,
               f"en «todo» debe DENEGARSE {etiqueta} ({ruta})")
+
+# ------------------- 4b) la denylist no depende de la plataforma
+print("== 4b) la denylist niega igual con la semántica de rutas de Linux ==")
+# La denylist es un candado, no una comodidad: negar de más (una ruta que en
+# este disco sería otro archivo) no rompe nada y negar de menos convierte la
+# guarda en una propiedad de la plataforma. Se ejecuta el camino de Linux —un
+# sistema de archivos sensible a mayúsculas y `normcase` identidad— aquí.
+with _Config(perm_files="todo"), _NormcasePosix():
+    for etiqueta, ruta in (
+        ("~/.ssh en MAYÚSCULAS", _HOME / ".SSH" / "ID_RSA"),
+        ("~/.aws en MAYÚSCULAS", _HOME / ".AWS" / "credentials"),
+        ("~/.gnupg en MAYÚSCULAS", _HOME / ".GNUPG" / "pubring.kbx"),
+        ("config/SECRETS.JSON", _CFG / "SECRETS.JSON"),
+        ("el .env de la raíz en MAYÚSCULAS", REPO / ".ENV"),
+        ("data/TELEGRAM_OWNER.TXT", DATA_DIR / "TELEGRAM_OWNER.TXT"),
+    ):
+        check(permissions.path_allowed(ruta) is False,
+              f"con la semántica de Linux («normcase» identidad) debe DENEGARSE "
+              f"{etiqueta} ({ruta})")
+    check(permissions.path_allowed(documento_suelto) is True,
+          "la semántica de Linux no puede convertir «todo» en un veto de todo: "
+          "un documento corriente sigue permitido")
 
 # la negativa de una credencial: honesta, accionable y sin delatar si existe
 SECRETO.write_text("{}", encoding="utf-8")          # en la config de usar y tirar
