@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 import uuid
 
 from ..dominio import opmem, rag
@@ -66,6 +67,30 @@ _NUM_WORDS = {"0": "cero", "1": "uno", "2": "dos", "3": "tres", "4": "cuatro",
 def _hoy_iso() -> str:
     import datetime as _dt
     return _dt.date.today().isoformat()
+
+
+# ── MEDIR, QUE ES LO QUE FALTABA ────────────────────────────────────────────
+# El operador se quejó de que el chat «tardaba mucho» y no había ni un número para
+# saber dónde se iban los segundos. Las tres esperas del camino de una instrucción
+# son SECUENCIALES y cada una es una llamada entera al modelo: el planificador, el
+# enrutador de respaldo y la respuesta. Una línea por espera (y el total del turno)
+# deja el diagnóstico en el log del HUD, que es donde se mira.
+# `time.monotonic` y no `time.time`: mide INTERVALOS y no salta si el reloj cambia.
+def _ms_desde(t0: float) -> float:
+    return (time.monotonic() - t0) * 1000.0
+
+
+# Tareas de la COLA que se hacen en segundo plano (hoy: escribir la memoria del
+# turno). Se guardan aquí por dos motivos: para que el recolector no se las lleve
+# por delante a mitad, y para que una prueba pueda esperarlas sin dormir a ciegas.
+_TAREAS_FONDO: set = set()
+
+
+def _en_segundo_plano(coro) -> None:
+    """Lanza una corrutina sin esperarla (mismo patrón que `selflearn.retrain`)."""
+    tarea = asyncio.create_task(coro)
+    _TAREAS_FONDO.add(tarea)
+    tarea.add_done_callback(_TAREAS_FONDO.discard)
 
 
 def _echo_tokens(s: str) -> list:
@@ -1025,11 +1050,35 @@ async def _autorizar_efecto(skill, intent: str, cmd_text: str, source: str,
              "skill": skill.folder, "provider": "politica", "data": None}, False)
 
 
+async def _persistir_turno(text: str, reply: str, source: str) -> None:
+    """La memoria DURADERA del turno: grafo diario + `conversation` en la DB.
+
+    Antes esto vivía dentro de `_cola_de_orden` y DELANTE del evento `chat`, con
+    `await asyncio.to_thread(...)` por medio: el operador se quedaba mirando el
+    «pensando» mientras Postgres escribía, para ver una respuesta que ya estaba
+    lista. Ahora se persiste en segundo plano, después de publicarla, y el
+    resultado se guarda IGUAL (no se descarta nada: es el mismo registro).
+
+    No decide nada: quien llama ya resolvió `restringido` (SEC-06: lo que entra
+    por un canal externo no se guarda en la memoria del operador).
+    """
+    try:
+        await asyncio.to_thread(
+            graph.append_daily,
+            f"**{settings.get('operator_name')}:** {text} → **{_aname()}:** {reply[:200]}",
+            "Conversación")
+        if await _db_online():
+            await asyncio.to_thread(pg.remember, f"[{source}] {text} => {reply[:300]}",
+                                    "conversation")
+    except Exception as exc:                       # noqa: BLE001
+        await bus.emit("log", {"level": "warn", "msg": f"Memoria: no pude persistir ({exc})"})
+
+
 async def _cola_de_orden(resultado: dict | None, *, skill: str | None, text: str,
                          cmd_text: str, source: str, channel: str,
                          restringido: bool, reply: str | None = None,
                          provider: str | None = None, spoken: bool = False,
-                         spoken_secs: float = 0.0) -> dict:
+                         spoken_secs: float = 0.0, t0: float | None = None) -> dict:
     """La COLA de un turno: del resultado del handler a lo que se devuelve.
 
     Es el MISMO código para la orden directa, para la que se ejecuta al decir
@@ -1087,7 +1136,7 @@ async def _cola_de_orden(resultado: dict | None, *, skill: str | None, text: str
         if note:
             reply = (reply.rstrip() + "\n\n" + note) if reply else note
 
-    # Persistencia de la conversación (blindada + en hilo: nunca bloquea ni rompe el ciclo)
+    # Persistencia de la conversación (blindada: nunca rompe el ciclo)
     try:
         _history.append({"role": "user", "content": text})
         _turno = {"role": "assistant", "content": reply}
@@ -1095,17 +1144,6 @@ async def _cola_de_orden(resultado: dict | None, *, skill: str | None, text: str
             _turno["datos"] = _origen_respuesta      # AI-03: se cercará en el prompt
         _history.append(_turno)
         del _history[:-2 * MAX_TURNS]
-        # Lo que entra por un canal externo NO se guarda en la memoria del operador
-        # (grafo diario + `conversation` en la DB): si no, el texto de un flujo se
-        # convertiría en contexto recuperable por el asistente (SEC-06).
-        if not restringido:
-            await asyncio.to_thread(
-                graph.append_daily,
-                f"**{settings.get('operator_name')}:** {text} → **{_aname()}:** {reply[:200]}",
-                "Conversación")
-            if await _db_online():
-                await asyncio.to_thread(pg.remember, f"[{source}] {text} => {reply[:300]}",
-                                        "conversation")
     except Exception as exc:                       # noqa: BLE001
         await bus.emit("log", {"level": "warn", "msg": f"Memoria: no pude persistir ({exc})"})
 
@@ -1120,11 +1158,81 @@ async def _cola_de_orden(resultado: dict | None, *, skill: str | None, text: str
     except Exception:
         pass
 
+    if t0 is not None:
+        await bus.emit("log", {"level": "info",
+                               "msg": f"⏱ turno total (respuesta lista): {_ms_desde(t0):.0f} ms"})
+
+    # SE CONTESTA PRIMERO Y SE ESCRIBE DESPUÉS (S2/T3). El grafo diario y —sobre
+    # todo— `pg.remember` son escrituras DURAS (hilo + Postgres): hechas aquí
+    # delante retrasaban este evento, que es JUSTO lo que el operador está
+    # esperando ver en el chat. Ahora sale el evento y la memoria se persiste
+    # detrás, en segundo plano, igual que el reentrenamiento de arriba. El
+    # registro no se pierde: `_persistir_turno` escribe exactamente lo mismo.
     await bus.emit("chat", {"user": text, "reply": reply, "provider": provider,
                             "skill": skill, "channel": channel, "admin": _admin})
     await bus.emit("state", "idle")
+    if not restringido:
+        _en_segundo_plano(_persistir_turno(text, reply, source))
     return {"reply": reply, "skill": skill, "provider": provider, "data": data,
             "spoken": spoken, "spoken_secs": spoken_secs}
+
+
+# ── LA RESPUESTA DE TEXTO TAMBIÉN SE ESCRIBE POCO A POCO (S3/T4) ─────────────
+# El camino de VOZ ya streameaba (`llm.ask_llm_stream` + `tts.speak_stream`); el de
+# TEXTO esperaba la respuesta ENTERA para publicar un único evento `chat`. Aquí se
+# reusa el MISMO generador: cada trozo que llega se publica como borrador
+# `chat_delta` y el evento `chat` final sigue saliendo igual, con el texto
+# completo. El HUD y el móvil no cambian de contrato: el mensaje bueno es el de
+# siempre; el borrador es solo para que empiece a escribir antes.
+_DELTA_CADA_MS = 200     # como mucho un borrador cada 1/5 s (se ve continuo y no
+                         # inunda el bus, que guarda los últimos 200 eventos)
+_DELTA_TOPE = 12         # y como mucho 12 por respuesta: un turno no puede
+                         # llenar por sí solo la ventana que se reenvía al
+                         # reconectar (el resto de eventos lleva logs de verdad)
+
+
+async def _ask_llm_hud(text: str, context: list[dict], channel: str) -> tuple[str, str]:
+    """Devuelve EXACTAMENTE lo que devolvía `ask_llm` —(texto completo, proveedor)—
+    pero publicando borradores mientras el modelo escribe.
+
+    Si el proveedor no streamea (`BaseProvider.chat_stream` cede la respuesta de
+    golpe), esto es un borrador único con el texto entero y el evento `chat` de
+    después: el mismo comportamiento de antes, sin nada que mantener aparte.
+    """
+    agen, provider = await llm.ask_llm_stream(text, context)
+    partes: list[str] = []
+    trozos = 0
+    emitidos = 0
+    _t0 = time.monotonic()
+    _ms_primero: float | None = None
+    _ultimo = 0.0
+    async for trozo in agen:
+        partes.append(trozo)
+        trozos += 1
+        ahora = time.monotonic()
+        if _ms_primero is None:
+            _ms_primero = _ms_desde(_t0)
+        if emitidos and (emitidos >= _DELTA_TOPE
+                         or _ms_desde(_ultimo) < _DELTA_CADA_MS):
+            continue
+        emitidos += 1
+        _ultimo = ahora
+        # El borrador pasa por el MISMO filtro que el evento `chat` (v24 T1/T2:
+        # ni fontanería interna ni direcciones a la vista). `bus` solo limpia el
+        # tipo `chat`, y un borrador es chat: se limpia aquí, con la misma
+        # función, no con otra. (El filtro de promesas, `sin_progreso_inventado`,
+        # depende del estado de los trabajos y se queda en el mensaje final, que es
+        # el que vale.)
+        from ..comun.publicvoice import sanitize as _sanear
+        await bus.emit("chat_delta", {"user": text,
+                                      "reply": _sanear("".join(partes)),
+                                      "channel": channel})
+    reply = "".join(partes)
+    await bus.emit("log", {"level": "info",
+                           "msg": f"⏱ ask_llm_stream: primer trozo "
+                                  f"{(_ms_primero or 0.0):.0f} ms · total "
+                                  f"{_ms_desde(_t0):.0f} ms · {trozos} trozos"})
+    return reply, provider
 
 
 async def process(text: str, source: str = "text", channel: str = "pc",
@@ -1160,6 +1268,10 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         return canales.rechazo(source)
 
     req_id = request_id or uuid.uuid4().hex[:8]
+    # T1 (S2): el cronómetro del turno. `_cola_de_orden` publica el total justo
+    # antes del evento de chat, así que el número que queda en el log es «lo que
+    # tardó el operador en ver su respuesta», que es lo que se quejó de esperar.
+    _t0_turno = time.monotonic()
     # v23 (T7): lo que escribe o dicta el operador queda apuntado para que el TTS
     # NUNCA se lo lea en voz alta (solo se reproducen respuestas de nexus).
     if source in ("text", "voice"):
@@ -1249,7 +1361,8 @@ async def process(text: str, source: str = "text", channel: str = "pc",
                     _hecho.get("result") or {}, skill=_hecho.get("skill"),
                     text=_hecho.get("text") or "",
                     cmd_text=_hecho.get("cmd_text") or "",
-                    source=source, channel=channel, restringido=_restringido)
+                    source=source, channel=channel, restringido=_restringido,
+                    t0=_t0_turno)
                 if not _final.get("reply"):
                     # `confirm.answer` ya le contestó «Hecho.» y lo dejó en la
                     # auditoría: no se le puede devolver otra cosa.
@@ -1766,6 +1879,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             and len(text.split()) >= 2
             and not _SMALLTALK_RX.match(text)
             and not _META_RX.search(text)):
+        _t_plan = time.monotonic()
         try:
             plan = await llm.plan_action(text, _skills_plan_catalog(), _learn_examples(),
                                         recent_context=_recent_context())
@@ -1773,6 +1887,8 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             plan = None
             await bus.emit("log", {"level": "warn",
                                    "msg": f"🧠✗ plan_action error: {exc}"})
+        await bus.emit("log", {"level": "info",
+                               "msg": f"⏱ plan_action: {_ms_desde(_t_plan):.0f} ms"})
         if plan and plan.get("skill"):
             sk = get_skills().get(plan["skill"])
             it = plan.get("intent", "")
@@ -1798,12 +1914,16 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             and not _META_RX.search(text)):
         feedback = ""
         for intento in (1, 2):
+            _t_interp = time.monotonic()
             try:
                 guess = await llm.interpret_command(text, _skills_catalog(),
                                                     _learn_examples(), feedback=feedback,
                                                     recent_context=_recent_context())
             except Exception:
                 guess = ""
+            await bus.emit("log", {"level": "info",
+                                   "msg": f"⏱ interpret_command (intento {intento}): "
+                                          f"{_ms_desde(_t_interp):.0f} ms"})
             if not guess:
                 break
             if guess.upper().startswith("HERMES:"):
@@ -1929,7 +2049,7 @@ async def process(text: str, source: str = "text", channel: str = "pc",
         # MISMO código que recorre la orden que se ejecuta tras un «sí».
         return await _cola_de_orden(
             result, skill=skill.folder, text=text, cmd_text=cmd_text,
-            source=source, channel=channel, restringido=_restringido)
+            source=source, channel=channel, restringido=_restringido, t0=_t0_turno)
     else:
         # Conversación general: memoria reciente + contexto del grafo/DB
         online = await _db_online()          # cacheado + en hilo → no bloquea el loop
@@ -2054,15 +2174,23 @@ async def process(text: str, source: str = "text", channel: str = "pc",
             agen, provider = await llm.ask_llm_stream(text, context)
             reply, _stream_left = await _tts.speak_stream(agen)
             _stream_spoken = True
+        elif source == "text" and channel == "pc":
+            # TEXTO en el HUD del operador (S3/T4): mismo texto final de siempre,
+            # pero el HUD empieza a escribirlo antes de que el modelo termine.
+            reply, provider = await _ask_llm_hud(text, context, channel)
         else:
+            _t_charla = time.monotonic()
             reply, provider = await llm.ask_llm(text, context)
+            await bus.emit("log", {"level": "info",
+                                   "msg": f"⏱ ask_llm: {_ms_desde(_t_charla):.0f} ms"})
 
         # Y la misma cola que una orden ejecutada (T8f), con `resultado=None`: una
         # conversación no aprende ni trae `data`, pero SÍ deja el turno apuntado.
         return await _cola_de_orden(
             None, skill=None, text=text, cmd_text=text, source=source,
             channel=channel, restringido=_restringido, reply=reply,
-            provider=provider, spoken=_stream_spoken, spoken_secs=_stream_left)
+            provider=provider, spoken=_stream_spoken, spoken_secs=_stream_left,
+            t0=_t0_turno)
 
 
 def boot_report() -> list[str]:

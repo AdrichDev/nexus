@@ -69,6 +69,11 @@ window.orbHTML = orbHTML;
     if (current === 'monitor' || current === 'command') renderLogsInto();
   });
   let _wsConnecting = false, _wsEverOpen = false;
+  // specs chat-responsividad (S3/T4): la respuesta de TEXTO llega por trozos
+  // (`chat_delta`) mientras el modelo escribe. Este es el borrador que se pinta
+  // como si fuera un mensaje más; el evento `chat` de después lo SUSTITUYE por el
+  // mensaje de siempre, así que el chat guardado no cambia ni se duplica.
+  let _chatDraft = null;
   function wsReady() { return !!ws && ws.readyState === 1; }
   function ensureWS() {   // reconecta si el enlace murió (p.ej. al volver de otra app)
     if (!ws || ws.readyState === 2 || ws.readyState === 3) connectWS();
@@ -91,7 +96,15 @@ window.orbHTML = orbHTML;
       else if (type === 'vu') setVU(typeof data === 'object' ? (data.level || 0) : data);
       else if (type === 'metrics') { state.metrics = data; updateMetrics(); }
       else if (type === 'skill') { markSkill(data.folder); }
+      else if (type === 'chat_delta') {
+        // Respuesta en curso: se pinta lo que ya hay. No cuenta como interacción
+        // ni dispara voz (la respuesta buena llega en el evento `chat`).
+        _chatDraft = String((data && data.reply) != null ? data.reply : '');
+        if (current === 'chat') renderChatLog();
+        else if (current === 'command') renderCCChat();
+      }
       else if (type === 'chat') {
+        _chatDraft = null;                    // el mensaje bueno ya está aquí
         interactions++; const ki = $('#kpi-inter'); if (ki) ki.textContent = interactions;
         pulseCore();                          // el núcleo «nexus» late con CADA respuesta
         state.chat.push({ who: 'user', text: data.user }); state.chat.push({ who: 'ai', text: data.reply });
@@ -1908,9 +1921,15 @@ window.orbHTML = orbHTML;
   }
 
   /* ---------------- chat ---------------- */
+  // El borrador de la respuesta que se está escribiendo (S3/T4). Se pinta como un
+  // mensaje más —misma clase `ai`, mismo `who`— para que la ventana no cambie de
+  // aspecto: solo aparece antes.
+  function chatDraftHTML() {
+    return _chatDraft ? `<div class="msg ai"><div class="who">nexus</div>${linkify(_chatDraft)}</div>` : '';
+  }
   function renderChatLog() {
     const el = $('#chat-log'); if (!el) return;
-    el.innerHTML = state.chat.slice(-40).map((m) => `<div class="msg ${m.who}"><div class="who">${m.who === 'user' ? (state.config.operator_name || 'TÚ') : 'nexus'}</div>${linkify(m.text)}</div>`).join('');
+    el.innerHTML = state.chat.slice(-40).map((m) => `<div class="msg ${m.who}"><div class="who">${m.who === 'user' ? (state.config.operator_name || 'TÚ') : 'nexus'}</div>${linkify(m.text)}</div>`).join('') + chatDraftHTML();
     el.scrollTop = el.scrollHeight;
   }
   function chatSend() { const i = $('#chat-in'); const t = i.value.trim(); if (!t) return; i.value = ''; window.__lastUserText = t; send(t); }
@@ -1919,6 +1938,7 @@ window.orbHTML = orbHTML;
     const msgs = state.chat.slice(-6);
     el.innerHTML = msgs.length
       ? msgs.map((m) => `<div class="ccm ${m.who}"><b>${m.who === 'user' ? (state.config.operator_name || 'TÚ') : 'nexus'}</b> ${linkify(String(m.text))}</div>`).join('')
+        + (_chatDraft ? `<div class="ccm ai"><b>nexus</b> ${linkify(_chatDraft)}</div>` : '')
       : '<div class="ccm ai"><b>nexus</b> A sus órdenes. Di algo o pulsa TALK.</div>';
     el.scrollTop = el.scrollHeight;
   }

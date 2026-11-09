@@ -41,7 +41,9 @@ _TRANSIENT_TYPES = frozenset({"audio", "state", "chat"})
 # lo cantaba a un WebSocket que ya no estaba.
 #
 # `audio` tampoco se guarda: son trozos de voz ya reproducidos.
-_SIN_HISTORIAL = frozenset({"audio", "metrics"})
+# chat_delta son borradores parciales del streaming del HUD: lando cada 200 ms y con
+# tope por respuesta, nunca deben entrar en la ventana de replay (serian ruido al reconectar).
+_SIN_HISTORIAL = frozenset({"audio", "metrics", "chat_delta"})
 
 
 # ¿Hay algún trabajo en marcha? Lo sabe el gestor de trabajos, que está POR

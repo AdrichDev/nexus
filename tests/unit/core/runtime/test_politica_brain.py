@@ -246,10 +246,33 @@ def _preguntona(calls: list):
 # confirmada deje exactamente el mismo rastro que la directa.
 _COLA = {"learn": [], "graph": [], "pg": [], "self": [], "note": [], "chat": []}
 
+# T3/T4 (chat-responsividad S2/S3). `_ORDEN` apunta EN QUÉ ORDEN pasa lo que el
+# operador puede notar en un turno: el evento `chat` (lo que ve), el grafo diario
+# y `pg.remember` (la memoria que se escribe). `_DELTAS` son los borradores
+# `chat_delta` que el HUD pinta mientras la respuesta se escribe.
+_ORDEN: list[str] = []
+_DELTAS: list[dict] = []
+# T1 (S2): las líneas de tiempo del turno (`⏱ …`), tal cual salen al log.
+_LOGS: list[str] = []
 
-def _limpia_cola() -> None:
+
+async def _fondo() -> None:
+    """Espera a las tareas de segundo plano de la cola (T3: la memoria se escribe
+    DESPUÉS de publicar la respuesta, así que hay que darle su turno)."""
+    pend = [t for t in list(getattr(brain, "_TAREAS_FONDO", ())) if not t.done()]
+    if pend:
+        await asyncio.gather(*pend, return_exceptions=True)
+
+
+async def _limpia_cola() -> None:
+    """Deja los contadores a cero y, antes, deja TERMINAR la persistencia que el
+    caso anterior dejó en segundo plano: si no, su rastro se colaría aquí."""
+    await _fondo()
     for _v in _COLA.values():
         _v.clear()
+    _ORDEN.clear()
+    _DELTAS.clear()
+    _LOGS.clear()
 
 
 def _cuenta_cola() -> dict:
@@ -274,9 +297,11 @@ def _espia_cola() -> dict:
     def _graph(*a, **_k):
         # Sincrona a proposito: `brain` la llama con `asyncio.to_thread`.
         _COLA["graph"].append(a)
+        _ORDEN.append("graph")
 
     def _pg(*a, **_k):
         _COLA["pg"].append(a)
+        _ORDEN.append("pg")
 
     def _self(*a, **_k):
         _COLA["self"].append(a)
@@ -288,6 +313,11 @@ def _espia_cola() -> dict:
     async def _emit(tipo, data=None):
         if tipo == "chat":
             _COLA["chat"].append(dict(data or {}))
+            _ORDEN.append("chat")
+        elif tipo == "chat_delta":
+            _DELTAS.append(dict(data or {}))
+        elif tipo == "log" and isinstance(data, dict):
+            _LOGS.append(str(data.get("msg") or ""))
         await real["emit"](tipo, data)
 
     brain._learn_record = _learn                  # type: ignore[assignment]
@@ -719,9 +749,12 @@ async def main() -> None:
     try:
         # (a) lo que ya pasaba, como pin: una orden directa deja TODO el rastro.
         calls.clear()
-        _limpia_cola()
+        await _limpia_cola()
         _montar(_img(calls, datos={"x": 1}))
         r = await brain.process(_TEXTOS["env"], source="text", channel="pc")
+        # T3: el grafo y `pg.remember` se escriben en segundo plano DESPUÉS del
+        # evento de chat; aquí se les da su turno antes de contarlos.
+        await _fondo()
         check(len(calls) == 1, f"n) a) directa: el handler corre una vez ({calls!r})")
         check(r.get("data") == {"x": 1},
               f"n) a) directa: la respuesta lleva el `data` del handler ({r.get('data')!r})")
@@ -738,13 +771,14 @@ async def main() -> None:
 
         # (b) móvil + external_send: la pregunta no deja rastro; el «sí» sí.
         calls.clear()
-        _limpia_cola()
+        await _limpia_cola()
         _montar(_img(calls, datos={"x": 1}))
         await brain.process(_TEXTOS["env"], source="text", channel="mobile")
         check(_COLA["learn"] == [] and _COLA["graph"] == [] and _COLA["note"] == []
               and _COLA["self"] == [],
               f"n) b) el turno de la pregunta NO deja rastro de haberse hecho ({_cuenta_cola()})")
         r = await brain.process("sí", source="text", channel="mobile")
+        await _fondo()                 # T3: la memoria del turno, en segundo plano
         check(len(calls) == 1 and calls[0]["intent"] == "env",
               f"n) b) el «sí» ejecuta el handler UNA vez ({calls!r})")
         check(_COLA["learn"] == [(_TEXTOS["env"], _TEXTOS["env"], "img")],
@@ -771,10 +805,10 @@ async def main() -> None:
 
         # (c) un «no» no ejecuta ni deja rastro.
         calls.clear()
-        _limpia_cola()
+        await _limpia_cola()
         _montar(_img(calls, datos={"x": 1}))
         await brain.process(_TEXTOS["env"], source="text", channel="mobile")
-        _limpia_cola()               # se mide SOLO el turno del «no»
+        await _limpia_cola()               # se mide SOLO el turno del «no»
         r = await brain.process("no", source="text", channel="mobile")
         check(calls == [], f"n) c) el «no» no ejecuta el handler ({calls!r})")
         check(_cuenta_cola()["learn"] == 0 and _cuenta_cola()["graph"] == 0
@@ -785,7 +819,7 @@ async def main() -> None:
 
         # (d) una acción armada que revienta: nada de cola, y se dice la verdad.
         calls.clear()
-        _limpia_cola()
+        await _limpia_cola()
         _montar(_img(calls, datos={"x": 1}))
         await brain.process(_TEXTOS["env"], source="text", channel="mobile")
         _pend = confirm.pending("mobile")
@@ -811,13 +845,14 @@ async def main() -> None:
         conteos: dict = {}
         for canal in ("pc", "mobile"):
             calls.clear()
-            _limpia_cola()
+            await _limpia_cola()
             _montar(_img(calls, datos={"x": 1}, revienta=True))
             if canal == "mobile":
                 await brain.process(_TEXTOS["env"], source="text", channel=canal)
-                _limpia_cola()
+                await _limpia_cola()
             r = await brain.process("sí" if canal == "mobile" else _TEXTOS["env"],
                                     source="text", channel=canal)
+            await _fondo()             # T3: el turno persiste en segundo plano
             conteos[canal] = _cuenta_cola()
             check("ha fallado" in (r.get("reply") or ""),
                   f"n) d bis) {canal}: un handler roto se confiesa ({r.get('reply')!r})")
@@ -838,15 +873,17 @@ async def main() -> None:
         settings.set("self_learning", True)
         try:
             calls.clear()
-            _limpia_cola()
+            await _limpia_cola()
             _montar(_img(calls, datos={"x": 1}))
             await brain.process(_TEXTOS["env"], source="text", channel="pc")
+            await _fondo()             # T3: contadores tras la persistencia
             directo = _cuenta_cola()
             calls.clear()
-            _limpia_cola()
+            await _limpia_cola()
             await brain.process(_TEXTOS["env"], source="text", channel="mobile")
-            _limpia_cola()
+            await _limpia_cola()
             await brain.process("sí", source="text", channel="mobile")
+            await _fondo()             # T3: contadores tras la persistencia
             confirmado = _cuenta_cola()
         finally:
             brain._db_online = _db_previo   # type: ignore[assignment]
@@ -855,6 +892,160 @@ async def main() -> None:
               f"n) e) la cola confirmada obedece las MISMAS guardas ({directo} vs {confirmado})")
         check(directo["pg"] == 1 and directo["self"] == 1,
               f"n) e) con DB y auto-aprendizaje en línea los dos caminos registran ({directo})")
+
+        # ══ T3 (chat-responsividad, S2): la memoria se escribe DESPUÉS del chat ══
+        # `pg.remember` y el grafo diario son escrituras DURAS (hilo + DB): si van
+        # antes del evento, el operador espera a la base de datos para ver su
+        # propia respuesta. Se exige el orden y que la memoria NO se pierda.
+        print("· o) T3: el evento de chat sale ANTES de escribir la memoria")
+        _db_previo2 = brain._db_online
+        brain._db_online = _con_db          # type: ignore[assignment]
+        try:
+            calls.clear()
+            await _limpia_cola()
+            _montar(_img(calls, datos={"x": 1}))
+            r = await brain.process(_TEXTOS["env"], source="text", channel="pc")
+            # Al volver de `process` el operador YA tiene la respuesta…
+            check(_ORDEN.count("chat") == 1,
+                  f"o) T3: el turno publica UN evento de chat, hay {_ORDEN!r}")
+            check("pg" not in _ORDEN and "graph" not in _ORDEN,
+                  "o) T3: la memoria se escribe ANTES de publicar la respuesta "
+                  f"({_ORDEN!r})")
+            # …y la memoria se escribe igual, un poco después (nunca se descarta).
+            await _fondo()
+        finally:
+            brain._db_online = _db_previo2  # type: ignore[assignment]
+        check(_ORDEN[:1] == ["chat"],
+              f"o) T3: el primer rastro del turno tiene que ser el chat ({_ORDEN!r})")
+        check(_ORDEN.count("pg") == 1 and _ORDEN.count("graph") == 1,
+              f"o) T3: la memoria del turno NO puede perderse ({_ORDEN!r})")
+        check("chat" in _ORDEN and "pg" in _ORDEN
+              and _ORDEN.index("chat") < _ORDEN.index("pg"),
+              f"o) T3: `pg.remember` tiene que ir DESPUÉS del evento ({_ORDEN!r})")
+        check(_COLA["chat"] and _COLA["chat"][-1].get("reply") == "hecho:img/env",
+              f"o) T3: el chat publicado es el de siempre ({_COLA['chat']!r})")
+        check(r.get("reply") == "hecho:img/env" and r.get("data") == {"x": 1},
+              f"o) T3: la respuesta al llamante no cambia ({r!r})")
+
+        # ══ T2 (S2): el enrutador de respaldo no se reintenta de balde ══
+        # `llm.interpret_command` devuelve '' cuando el modelo dice CHARLA (y cuando
+        # la salvaguarda anti-alucinación descarta más de 160 letras): ahí NO hay
+        # nada que reformular y no puede haber una segunda llamada al modelo. Se
+        # cierra con un pin, y se comprueba que el caso que SÍ se reformulaba (una
+        # reescritura que no casa) sigue teniendo sus dos intentos.
+        print("· p) T2: la respuesta vacía del enrutador no dispara un 2º intento")
+        llamadas: list[str] = []
+        _interp_previo = brain.llm.interpret_command
+        _plan_previo = brain.llm.plan_action
+        _stream_previo = getattr(brain.llm, "ask_llm_stream", None)
+        _ask_previo = brain.llm.ask_llm
+
+        async def _interp_charla(*_a, **_k):
+            llamadas.append("interpret_command")
+            return ""
+
+        async def _plan_nada(*_a, **_k):
+            return None
+
+        async def _reformula(_texto, _catalogo, _ejemplos="", feedback="", **_k):
+            llamadas.append("intento2" if feedback else "intento1")
+            # El 1º no casa con ningún patrón; el 2º (ya con la queja delante) sí.
+            return _TEXTOS["env"] if feedback else "ordena un asunto que no casa"
+
+        async def _stream_doblado(_texto, _context=None, **_k):
+            async def _gen():
+                # Tres trozos con pausa real entre ellos: es lo que hace un
+                # proveedor que streamea de verdad, y deja ver los borradores.
+                for trozo in ("Hola. ", "Esto es una ", "respuesta doblada."):
+                    yield trozo
+                    await asyncio.sleep(0.25)
+            return _gen(), "mock"
+
+        brain.llm.ask_llm_stream = _stream_doblado   # type: ignore[assignment]
+        settings.set("smart_router", True)
+        try:
+            calls.clear()
+            await _limpia_cola()
+            _montar(_img(calls))
+            brain.llm.interpret_command = _interp_charla   # type: ignore[assignment]
+            brain.llm.plan_action = _plan_nada           # type: ignore[assignment]
+            r = await brain.process("cuentame algo curioso sobre los pulpos",
+                                    source="text", channel="pc")
+            check(llamadas == ["interpret_command"],
+                  "p) T2: con la 1ª respuesta VACÍA se pide una 2ª reformulación al "
+                  f"modelo (llamadas={llamadas!r})")
+            # T1 (S2): el turno se MIDE. Sin estos números no hay diagnóstico posible
+            # de por qué «tardaba mucho»: eran tres esperas seguidas a ciegas.
+            for _etiqueta in ("⏱ plan_action", "⏱ interpret_command (intento 1)",
+                              "⏱ turno total"):
+                check(any(_etiqueta in m for m in _LOGS),
+                      f"p) T1: falta la medida «{_etiqueta}» en el log del turno "
+                      f"({[m for m in _LOGS if '⏱' in m]!r})")
+            check(not any("⏱ interpret_command (intento 2)" in m for m in _LOGS),
+                  "p) T1: se ha medido un 2º intento que no debería existir")
+            check(calls == [], f"p) T2: una charla no ejecuta ninguna skill ({calls!r})")
+            check(bool(r.get("reply")), "p) T2: la charla tiene que contestarse igual")
+            await _fondo()
+
+            # Y el caso que SÍ se reformulaba (requisito de «no romper»): dos
+            # intentos, y el segundo —que ya casa— ejecuta la orden.
+            llamadas.clear()
+            calls.clear()
+            await _limpia_cola()
+            _montar(_img(calls))
+            brain.llm.interpret_command = _reformula      # type: ignore[assignment]
+            r = await brain.process("hazme un favor bastante raro de prueba",
+                                    source="text", channel="pc")
+            check(llamadas == ["intento1", "intento2"],
+                  "p) T2: una reescritura que NO casa tiene que conservar su 2º "
+                  f"intento (llamadas={llamadas!r})")
+            check([c["intent"] for c in calls] == ["env"],
+                  f"p) T2: el 2º intento que casa tiene que ejecutarse ({calls!r})")
+            check(r.get("reply") == "hecho:img/env",
+                  f"p) T2: y contestar lo del handler ({r.get('reply')!r})")
+            await _fondo()
+
+            # ══ T4 (S3): la respuesta de TEXTO del HUD se escribe por trozos ══
+            print("· q) T4: el texto del HUD se publica mientras se escribe")
+            llamadas.clear()
+            calls.clear()
+            await _limpia_cola()
+            _montar(_img(calls))
+            brain.llm.interpret_command = _interp_charla   # type: ignore[assignment]
+            esperado = "Hola. Esto es una respuesta doblada."
+            r = await brain.process("cuentame algo curioso sobre los pulpos",
+                                    source="text", channel="pc")
+            check(r.get("reply") == esperado,
+                  "q) T4: el texto final tiene que ser la respuesta ENTERA de hoy, "
+                  f"salió {r.get('reply')!r}")
+            check(r.get("provider") == "mock",
+                  f"q) T4: el proveedor se informa igual ({r.get('provider')!r})")
+            check(len(_DELTAS) >= 2,
+                  f"q) T4: tiene que haber borradores ANTES de terminar ({_DELTAS!r})")
+            check(bool(_DELTAS) and len(str(_DELTAS[0].get("reply") or "")) < len(esperado),
+                  f"q) T4: el primer borrador ya era la respuesta entera ({_DELTAS!r})")
+            check(all(esperado.startswith(str(d.get("reply") or "")) for d in _DELTAS),
+                  f"q) T4: cada borrador es un prefijo de la respuesta ({_DELTAS!r})")
+            check(bool(_DELTAS) and _DELTAS[-1].get("reply") == esperado,
+                  f"q) T4: los borradores tienen que acabar en el texto entero ({_DELTAS!r})")
+            check(all(d.get("channel") == "pc" for d in _DELTAS),
+                  f"q) T4: el borrador va etiquetado con su canal ({_DELTAS!r})")
+            check(any("⏱ ask_llm_stream" in m and "primer trozo" in m for m in _LOGS),
+                  "q) T1: falta la medida del camino de texto "
+                  f"({[m for m in _LOGS if '⏱' in m]!r})")
+            check(_cuenta_cola()["chat"] == 1,
+                  "q) T4: el evento `chat` final sigue siendo UNO y con el texto "
+                  f"completo ({_COLA['chat']!r})")
+            check(_COLA["chat"] and _COLA["chat"][-1].get("reply") == esperado,
+                  f"q) T4: el HUD tiene que recibir el texto entero ({_COLA['chat']!r})")
+            await _fondo()
+        finally:
+            brain.llm.interpret_command = _interp_previo   # type: ignore[assignment]
+            brain.llm.plan_action = _plan_previo           # type: ignore[assignment]
+            brain.llm.ask_llm = _ask_previo                # type: ignore[assignment]
+            if _stream_previo is not None:
+                brain.llm.ask_llm_stream = _stream_previo  # type: ignore[assignment]
+            settings.set("smart_router", False)
     finally:
         _restaura_cola(real)
         settings.set("self_learning", False)
