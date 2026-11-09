@@ -2173,7 +2173,7 @@ window.orbHTML = orbHTML;
 
     { id: 'voz', titulo: 'Voz y audio', icono: '🎙', color: '#ff7ac0', html: (c) => `
       <fieldset><legend>VOZ</legend>
-        <label>Motor de voz<select id="m-tts">${['auto', 'edge', 'elevenlabs', 'local', 'off'].map((o) => `<option ${c.tts_engine === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+        <label>Motor de voz<select id="m-tts">${['auto', 'edge', 'elevenlabs', 'chatterbox', 'local', 'off'].map((o) => `<option value="${o}" ${c.tts_engine === o ? 'selected' : ''}>${o === 'chatterbox' ? 'chatterbox · es-ES local (natural)' : o}</option>`).join('')}</select></label>
         <label>Voz<select id="m-voice"></select></label>
         <button class="mini" id="m-voicetest">▶ Probar voz</button>
         <label>Precisión Whisper<select id="m-whisper">${['tiny', 'small', 'medium'].map((o) => `<option ${c.whisper_model === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label></fieldset>
@@ -2301,7 +2301,7 @@ window.orbHTML = orbHTML;
       if (!voiceCat) return;
       // en modo auto, solo motores realmente disponibles
       const groups = eng === 'auto'
-        ? ['edge', 'elevenlabs', 'local'].filter((g) => voiceCat[g] && voiceCat[g].available)
+        ? ['chatterbox', 'edge', 'elevenlabs', 'local'].filter((g) => voiceCat[g] && voiceCat[g].available)
         : [eng];
       const seen = new Set(); sel.innerHTML = '';
       groups.forEach((g) => (voiceCat[g]?.voices || []).forEach((v) => {

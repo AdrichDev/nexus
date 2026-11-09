@@ -898,7 +898,8 @@ async def api_audio_devices():
 async def api_tts_test():
     st = tts.tts_status()
     can = (st.get("engine") != "off") and bool(
-        st.get("edge") or st.get("elevenlabs") or st.get("local"))
+        st.get("edge") or st.get("elevenlabs") or st.get("local")
+        or st.get("chatterbox"))
     if can:
         asyncio.create_task(tts.speak(
             f"Hola, soy nexus. Esta es mi voz, {settings.get('tts_voice')}."))
@@ -982,7 +983,8 @@ async def api_greet():
         text = random.choice(base)
     st = tts.tts_status()
     can = (st.get("engine") != "off") and bool(
-        st.get("edge") or st.get("elevenlabs") or st.get("local"))
+        st.get("edge") or st.get("elevenlabs") or st.get("local")
+        or st.get("chatterbox"))
     if can:
         asyncio.create_task(tts.speak(text))
     else:

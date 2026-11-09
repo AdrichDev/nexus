@@ -139,7 +139,7 @@ DEFAULTS = {
     "web_augment": True,               # busca en la web para preguntas de actualidad
     "devil_mode": True,                # SIEMPRE activo: skill propia de nexus (no apagable)
     # ---- Voz ----
-    "tts_engine": "auto",              # auto | elevenlabs | local | off
+    "tts_engine": "auto",              # auto | chatterbox | elevenlabs | edge | local | off
     "tts_voice": "Rachel",
     "stt_engine": "auto",              # auto | whisper | mock
     "stt_device": "auto",              # auto (cuda→cpu) | cuda | cpu

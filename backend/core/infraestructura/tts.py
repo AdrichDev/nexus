@@ -2,11 +2,15 @@
 nexus — TTS (texto → voz) v3: voces REALES y seleccionables.
 
 Motores:
+  * chatterbox — Chatterbox Multilingual es-ES: voz LOCAL y muy natural
+                 (opcional; pip install chatterbox-tts + torch). El modelo pesa
+                 GB y tarda en cargar: se carga PEREZOSAMENTE la primera vez.
   * edge       — Edge-TTS: voces neuronales de Microsoft GRATUITAS (recomendado;
                  varias voces en español, suenan de verdad). pip install edge-tts
   * elevenlabs — premium con API key
   * local      — SAPI de Windows vía pyttsx3 (enumera las voces instaladas reales)
-  * auto       — edge → elevenlabs → local (lo primero que funcione)
+  * auto       — chatterbox → edge → elevenlabs → local (lo primero que funcione;
+                 chatterbox solo si está instalado, si no se comporta como hoy)
 
 El HUD pide /api/voices y pinta el selector con TODAS las voces disponibles;
 el cambio aplica al momento (settings tts_engine / tts_voice).
@@ -15,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import importlib.util
 import time
 import re
 import tempfile
@@ -37,6 +42,23 @@ try:
     HAS_EDGE = True
 except ImportError:
     HAS_EDGE = False
+
+
+def _hay_chatterbox() -> bool:
+    """¿Está instalado el motor es-ES? Solo MIRA el disco (find_spec): importar
+    torch aquí costaría segundos y GB en el arranque del HUD."""
+    try:
+        return importlib.util.find_spec("chatterbox") is not None
+    except Exception:
+        return False
+
+
+HAS_CHATTERBOX = _hay_chatterbox()
+
+# Chatterbox Multilingual: el checkpoint es-ES es de UNA sola voz (no hay catálogo
+# que elegir), así que `tts_voice` no lo cambia — se queda con su hablante es-ES.
+CHATTERBOX_VOICE = "Cuentista (España, local)"
+CHATTERBOX_LANG = "es"
 
 # Voces gratuitas Edge-TTS en español (neuronales, calidad alta)
 EDGE_VOICES = {
@@ -185,6 +207,13 @@ def _strip_md(text: str) -> str:
     return t.strip()
 
 
+def _audio_ext(data: bytes) -> str:
+    """Extensión REAL de lo que devuelve el motor: Chatterbox da WAV (RIFF) y
+    edge/elevenlabs MP3. /api/tts_audio saca de ahí el Content-Type, así que
+    anunciar «mp3» un WAV dejaría el navegador mudo. No se transcodifica nada."""
+    return "wav" if data[:4] == b"RIFF" else "mp3"
+
+
 def _serve_audio(data: bytes, ext: str = "mp3") -> str:
     """Guarda el audio y devuelve una URL local que el HUD reproduce EN LA APP."""
     import uuid
@@ -200,6 +229,7 @@ def _serve_audio(data: bytes, ext: str = "mp3") -> str:
 
 
 _pyttsx3_engine = None
+_chatterbox_model = None
 
 
 def _local_wav_bytes(text):
@@ -322,11 +352,55 @@ async def _eleven_bytes(text: str) -> bytes | None:
         return None
 
 
+def _chatterbox_wav(text: str) -> bytes:
+    """Sintetiza es-ES y devuelve los bytes WAV. El import de la librería y del
+    modelo es PEREZOSO y el motor se cachea (mismo patrón que _local_engine()): el
+    primer uso paga los segundos/GB de torch y los siguientes no. Si el motor no
+    está o revienta, esto LANZA: quien traduce ese fallo a None + aviso —igual que
+    edge/elevenlabs— es `_chatterbox_bytes`, para no romper el flujo del llamante."""
+    global _chatterbox_model
+    if _chatterbox_model is None:
+        from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+        _chatterbox_model = ChatterboxMultilingualTTS.from_pretrained(device="cpu")
+    model = _chatterbox_model
+    wav = model.generate(text, language_id=CHATTERBOX_LANG)
+    import os
+    import torchaudio
+    fd, path = tempfile.mkstemp(suffix=".wav", prefix="nexus_cb_")
+    os.close(fd)
+    try:
+        torchaudio.save(path, wav, model.sr)
+        with open(path, "rb") as fh:
+            return fh.read()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+async def _chatterbox_bytes(text: str) -> bytes | None:
+    """Genera el WAV es-ES con Chatterbox y devuelve los bytes (o None). La
+    síntesis corre en un HILO APARTE: torch bloquea segundos y el bucle de eventos
+    no se puede quedar esperando. Degrada EXACTAMENTE como edge/elevenlabs: sin
+    librería devuelve None en silencio, y con el motor caído avisa y devuelve None
+    — nunca lanza hacia el llamante."""
+    if not HAS_CHATTERBOX or not text:
+        return None
+    try:
+        return await asyncio.to_thread(_chatterbox_wav, text) or None
+    except ImportError:
+        return None                 # igual que `if not HAS_EDGE: return None`
+    except Exception as exc:
+        await bus.emit("log", {"level": "warn", "msg": f"Chatterbox falló: {exc}"})
+        return None
+
+
 async def synthesize(text: str) -> str | None:
     """Genera audio TTS y devuelve su URL local SIN emitir al bus. Sirve para que un
     cliente concreto (el MÓVIL) reproduzca la voz ÉL SOLO, sin eco en el PC. Usa la
-    MISMA voz/normalización que speak(); solo motores con archivo (edge/elevenlabs),
-    porque el SAPI local suena en el PC y no vale para el móvil."""
+    MISMA voz/normalización que speak(); solo motores con archivo (chatterbox/edge/
+    elevenlabs), porque el SAPI local suena en el PC y no vale para el móvil."""
     mode = settings.get("tts_engine", "auto")
     if mode == "off" or not text:
         return None
@@ -334,15 +408,25 @@ async def synthesize(text: str) -> str | None:
     if not text:
         return None
     _remember_spoken(text)                 # el móvil también habla: su eco también cuenta
+    # ORDEN de `auto` (el mismo en los tres llamantes, no improvisar):
+    #   chatterbox → edge → elevenlabs → local
+    # Primero la voz LOCAL natural (Chatterbox es-ES) si está instalada; si no,
+    # edge (la nube gratis de siempre) y, si tampoco, elevenlabs (de pago, con key).
+    # edge va ANTES de elevenlabs porque siempre fue así: un motor nuevo no
+    # reordena lo que ya funcionaba.
+    if mode in ("auto", "chatterbox"):
+        data = await _chatterbox_bytes(text)
+        if data:
+            return _serve_audio(data, _audio_ext(data))
     if mode in ("auto", "edge"):
         data = await _edge_bytes(text)
         if data:
-            return _serve_audio(data, "mp3")
+            return _serve_audio(data, _audio_ext(data))
     if mode in ("auto", "elevenlabs"):
         data = await _eleven_bytes(text)
         if data:
-            return _serve_audio(data, "mp3")
-    # RESPALDO MOVIL: sin edge/eleven -> WAV con la voz LOCAL (SAPI), misma voz del PC.
+            return _serve_audio(data, _audio_ext(data))
+    # RESPALDO MOVIL: sin chatterbox/edge/eleven -> WAV con la voz LOCAL (SAPI), misma voz del PC.
     if mode in ("auto", "local") and HAS_PYTTSX3:
         import asyncio as _a
         data = await _a.get_running_loop().run_in_executor(None, _local_wav_bytes, text)
@@ -504,16 +588,19 @@ async def speak(text: str, role: str = "assistant") -> float:
     spoke = False
     total_secs = 0.0
     t0 = None
-    if mode in ("auto", "edge", "elevenlabs"):
+    # `auto` y el modo de fichero: chatterbox → edge → elevenlabs (ver synthesize).
+    if mode in ("auto", "edge", "elevenlabs", "chatterbox"):
         chunks = _split_sentences(text)
         for i, ch in enumerate(chunks):
             data = None
-            if mode in ("auto", "edge"):
+            if mode in ("auto", "chatterbox"):
+                data = await _chatterbox_bytes(ch)
+            if not data and mode in ("auto", "edge"):
                 data = await _edge_bytes(ch)
             if not data and mode in ("auto", "elevenlabs"):
                 data = await _eleven_bytes(ch)
             if data:
-                url = _serve_audio(data, "mp3")
+                url = _serve_audio(data, _audio_ext(data))
                 if t0 is None:
                     t0 = loop.time()                 # el HUD arranca la reproducción aquí
                 total_secs += _estimate_secs(ch)
@@ -564,7 +651,7 @@ async def speak_stream(
     total = 0.0
     t0 = None
     first_text_at = None
-    can_files = mode in ("auto", "edge", "elevenlabs")
+    can_files = mode in ("auto", "edge", "elevenlabs", "chatterbox")
 
     async def _emit_sent(txt: str) -> bool:
         nonlocal seq, total, t0
@@ -579,7 +666,11 @@ async def speak_stream(
         data = None
         if not _owns_turn(turn):
             return False
-        if mode in ("auto", "edge"):
+        if mode in ("auto", "chatterbox"):
+            data = await _chatterbox_bytes(say)
+        if not _owns_turn(turn):
+            return False
+        if not data and mode in ("auto", "edge"):
             data = await _edge_bytes(say)
         if not _owns_turn(turn):
             return False
@@ -593,7 +684,7 @@ async def speak_stream(
                 _mark_turn(turn, "first_audio")
             if not _owns_turn(turn):
                 return False
-            await bus.emit("audio", {"url": _serve_audio(data, "mp3"),
+            await bus.emit("audio", {"url": _serve_audio(data, _audio_ext(data)),
                                      "seq": seq, "last": False})
             seq += 1
             return True
@@ -738,10 +829,15 @@ def all_voices() -> dict:
                        "note": "" if settings.elevenlabs_key else "requiere API key"},
         "local": {"available": HAS_PYTTSX3, "voices": local_voices(),
                   "note": "" if HAS_PYTTSX3 else "pip install pyttsx3"},
+        # es-ES local: una sola voz (el checkpoint no trae catálogo). Se anuncia
+        # SIEMPRE —como local— con `available` según esté o no instalada.
+        "chatterbox": {"available": HAS_CHATTERBOX, "voices": [CHATTERBOX_VOICE],
+                       "note": "" if HAS_CHATTERBOX
+                       else "pip install chatterbox-tts (voz es-ES local)"},
     }
 
 
 def tts_status() -> dict:
     return {"engine": settings.get("tts_engine"), "voice": settings.get("tts_voice"),
             "edge": HAS_EDGE, "elevenlabs": bool(settings.elevenlabs_key),
-            "local": HAS_PYTTSX3}
+            "local": HAS_PYTTSX3, "chatterbox": HAS_CHATTERBOX}

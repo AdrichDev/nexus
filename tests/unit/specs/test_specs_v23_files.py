@@ -2,6 +2,8 @@
 """Tests de las specs v23 — FASE 3 y FASE 9 (voz y archivos reales).
 
   T7  el TTS solo reproduce respuestas de nexus, nunca lo que escribe el operador
+  VOZ motor Chatterbox es-ES (specs S2-S5): el motor opcional se enchufa sin
+      cambiar auto/edge/elevenlabs/local/off y degrada como un edge caído
   T18 lectura REAL de .md, .txt, .docx, .pdf (y aviso claro si no es compatible)
   T19 CRUD real: crear, leer, actualizar, sobrescribir con confirmación
   T20 guardar en la ubicación indicada, con verificación física y ruta real
@@ -10,11 +12,14 @@
 Ejecutar:  python tests/unit/specs/test_specs_v23_files.py    (desde la carpeta nexus)
 """
 import asyncio
+import contextlib
 import importlib.util
 import os
 import re
 import sys
 import tempfile
+import threading
+import types
 from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -306,6 +311,338 @@ def test_brain_y_hud_no_mandan_al_tts_lo_del_operador():
           "al navegador solo se le pasa la RESPUESTA, nunca lo que escribió el operador")
 
 
+# ══════════════ VOZ: motor Chatterbox es-ES (specs S2-S5) ══════════════
+# El motor es-ES es OPCIONAL y se enchufa como un valor más de `tts_engine` sin
+# tocar lo que ya funcionaba: si la librería no está instalada o el motor revienta,
+# degrada exactamente igual que un edge-tts caído. Aquí NO se instala nada ni se
+# descarga ningún modelo: el envoltorio se dobla y la librería se simula.
+_FALTA = object()
+
+
+def _tts_modulo():
+    import backend.core.infraestructura.tts as tts
+    return tts
+
+
+def _restaurar(mod, previos):
+    """Deja el módulo como estaba (y borra lo que el test inventó)."""
+    for nombre, valor in previos.items():
+        if valor is _FALTA:
+            try:
+                delattr(mod, nombre)
+            except AttributeError:
+                pass
+        else:
+            setattr(mod, nombre, valor)
+
+
+class _SettingsFalso:
+    """settings.get() de mentira: el motor (y la key) los decide el test."""
+    elevenlabs_key = ""
+
+    def __init__(self, **valores):
+        self._valores = valores
+
+    def get(self, clave, defecto=None):
+        return self._valores.get(clave, defecto)
+
+
+class _BusFalso:
+    def __init__(self):
+        self.eventos = []
+
+    async def emit(self, tipo, data=None):
+        self.eventos.append((tipo, data))
+
+    def de(self, tipo):
+        return [d for t, d in self.eventos if t == tipo]
+
+
+class _Motor:
+    """Doble de un motor: apunta con qué texto se le llamó y qué devuelve."""
+
+    def __init__(self, datos=b""):
+        self.datos = datos
+        self.llamadas = []
+
+    async def __call__(self, texto):
+        self.llamadas.append(texto)
+        return self.datos
+
+
+@contextlib.contextmanager
+def _tts_motor(mode, *, edge=b"", eleven=b"", chatterbox=b"", local=b""):
+    """Motor de mentira de punta a punta: settings, bus, los tres motores, el SAPI
+    y la publicación de audio. Al salir, tts.py queda EXACTAMENTE como estaba."""
+    tts = _tts_modulo()
+    previos = {n: getattr(tts, n, _FALTA) for n in (
+        "settings", "bus", "_edge_bytes", "_eleven_bytes", "_chatterbox_bytes",
+        "_local_wav_bytes", "_serve_audio", "HAS_CHATTERBOX", "HAS_PYTTSX3")}
+    motores = {"edge": _Motor(edge), "eleven": _Motor(eleven),
+               "chatterbox": _Motor(chatterbox)}
+    servido = []
+    bus = _BusFalso()
+
+    def _servir(datos, ext="mp3"):
+        servido.append((datos, ext))
+        return f"/api/tts_audio/prueba{len(servido)}.{ext}"
+
+    tts.settings = _SettingsFalso(tts_engine=mode, tts_voice="Elvira (España)",
+                                  tts_enabled=True)
+    tts.bus = bus
+    tts._edge_bytes = motores["edge"]
+    tts._eleven_bytes = motores["eleven"]
+    tts._chatterbox_bytes = motores["chatterbox"]
+    tts._local_wav_bytes = lambda texto: local
+    tts._serve_audio = _servir
+    tts.HAS_CHATTERBOX = bool(chatterbox)
+    tts.HAS_PYTTSX3 = True
+    try:
+        yield {"motores": motores, "servido": servido, "bus": bus}
+    finally:
+        _restaurar(tts, previos)
+
+
+def test_chatterbox_llega_a_los_tres_llamantes():
+    """(a) con tts_engine='chatterbox' los TRES llamantes generan audio con el
+    envoltorio nuevo, sin caer a edge/elevenlabs, y el WAV se sirve como .wav
+    (servirlo como .mp3 dejaría el HUD mudo: /api/tts_audio saca de ahí el tipo)."""
+    tts = _tts_modulo()
+    WAV = b"RIFF\x24\x00\x00\x00WAVEfmt "
+    with _tts_motor("chatterbox", chatterbox=WAV) as e:
+        url = asyncio.run(tts.synthesize("Hola, soy nexus."))
+        check(bool(url), "synthesize: con motor chatterbox devuelve URL de audio")
+        check(bool(e["motores"]["chatterbox"].llamadas),
+              "synthesize: el audio lo genera _chatterbox_bytes")
+        check(not e["motores"]["edge"].llamadas and not e["motores"]["eleven"].llamadas,
+              "synthesize: con chatterbox no se cae a edge/elevenlabs")
+        check(bool(e["servido"]) and e["servido"][0][1] == "wav",
+              "el WAV de chatterbox se sirve con extensión .wav")
+        check(bool(e["servido"]) and e["servido"][0][0] == WAV,
+              "los bytes del motor llegan intactos al HUD (sin transcodificar)")
+    with _tts_motor("chatterbox", chatterbox=WAV) as e:
+        resto = asyncio.run(tts.speak("Hola, soy nexus."))
+        audio = e["bus"].de("audio")
+        check(len(audio) == 1 and audio[0]["url"].endswith(".wav"),
+              "speak: emite el audio de chatterbox al HUD")
+        check(resto > 0, "speak: devuelve los segundos que siguen sonando")
+        check(bool(e["motores"]["chatterbox"].llamadas)
+              and not e["motores"]["edge"].llamadas,
+              "speak: habla chatterbox, no edge")
+    with _tts_motor("chatterbox", chatterbox=WAV) as e:
+        async def _trozos():
+            yield "Hola, soy nexus. "
+            yield "Esto es una prueba."
+
+        texto, _resto = asyncio.run(tts.speak_stream(_trozos()))
+        audio = e["bus"].de("audio")
+        check(len(audio) == 2, f"speak_stream: un audio por frase (dio {len(audio)})")
+        check("prueba" in texto, "speak_stream: devuelve el texto completo")
+        check(not e["motores"]["edge"].llamadas,
+              "speak_stream: en modo chatterbox no toca edge")
+
+
+def test_chatterbox_caido_degrada_como_edge():
+    """(b,c) sin librería (ImportError) o con el modelo reventando, el flujo NO se
+    rompe: el envoltorio devuelve None y `auto` sigue al siguiente motor igual que
+    hoy cuando edge no está."""
+    tts = _tts_modulo()
+    previos = {n: getattr(tts, n, _FALTA) for n in (
+        "HAS_CHATTERBOX", "_chatterbox_model", "bus")}
+    try:
+        tts.HAS_CHATTERBOX = False
+        check(asyncio.run(tts._chatterbox_bytes("hola")) is None,
+              "sin la librería, _chatterbox_bytes devuelve None (no revienta)")
+        tts.bus = _BusFalso()
+        tts.HAS_CHATTERBOX = True
+        tts._chatterbox_model = None
+        paquete = types.ModuleType("chatterbox")
+        paquete.__path__ = []                    # que parezca un paquete de verdad
+        mtl = types.ModuleType("chatterbox.mtl_tts")
+
+        class _Revienta:
+            @staticmethod
+            def from_pretrained(**_kw):
+                raise RuntimeError("modelo no descargado")
+
+        mtl.ChatterboxMultilingualTTS = _Revienta
+        modulos = {k: sys.modules.get(k) for k in ("chatterbox", "chatterbox.mtl_tts")}
+        sys.modules["chatterbox"] = paquete
+        sys.modules["chatterbox.mtl_tts"] = mtl
+        try:
+            check(asyncio.run(tts._chatterbox_bytes("hola")) is None,
+                  "si el modelo no carga, devuelve None en vez de lanzar")
+            check(any(t == "log" for t, _ in tts.bus.eventos),
+                  "y lo avisa por el bus, en vez de callarse")
+        finally:
+            for modulo, valor in modulos.items():
+                if valor is None:
+                    sys.modules.pop(modulo, None)
+                else:
+                    sys.modules[modulo] = valor
+    finally:
+        _restaurar(tts, previos)
+    # (c) motor caído en `auto` → se sigue con el siguiente, como hoy
+    with _tts_motor("auto", chatterbox=b"", edge=b"ID3mp3") as e:
+        url = asyncio.run(tts.synthesize("Hola."))
+        check(bool(url), "auto con chatterbox caído sigue dando audio")
+        check(bool(e["motores"]["chatterbox"].llamadas)
+              and bool(e["motores"]["edge"].llamadas),
+              "auto: tras el fallo de chatterbox se prueba edge")
+        check(bool(e["servido"]) and e["servido"][0][1] == "mp3",
+              "el MP3 de edge se sigue sirviendo como .mp3")
+    with _tts_motor("auto", chatterbox=b"", edge=b"ID3mp3") as e:
+        asyncio.run(tts.speak("Hola."))
+        check(len(e["bus"].de("audio")) == 1,
+              "speak en auto con chatterbox caído sigue sonando con edge")
+
+
+def test_auto_conserva_el_orden_y_los_otros_motores():
+    """(d) lo que ya funcionaba no cambia. `auto` = chatterbox → edge → elevenlabs
+    → local: el motor nuevo gana a edge cuando está instalado, y edge sigue yendo
+    ANTES de elevenlabs, como siempre fue. edge/elevenlabs/local/off, idénticos."""
+    tts = _tts_modulo()
+    with _tts_motor("auto", chatterbox=b"RIFF....WAVE", edge=b"ID3edge",
+                    eleven=b"ID3eleven") as e:
+        asyncio.run(tts.synthesize("Hola."))
+        check(bool(e["motores"]["chatterbox"].llamadas)
+              and not e["motores"]["edge"].llamadas,
+              "auto: chatterbox instalado va ANTES de edge")
+    with _tts_motor("auto", edge=b"", eleven=b"ID3eleven") as e:
+        asyncio.run(tts.synthesize("Hola."))
+        check(bool(e["motores"]["edge"].llamadas)
+              and bool(e["motores"]["eleven"].llamadas),
+              "auto sin edge usa elevenlabs (respaldo de siempre)")
+    with _tts_motor("edge", edge=b"ID3edge", eleven=b"ID3eleven",
+                    chatterbox=b"RIFFx") as e:
+        asyncio.run(tts.synthesize("Hola."))
+        check(bool(e["motores"]["edge"].llamadas)
+              and not e["motores"]["eleven"].llamadas
+              and not e["motores"]["chatterbox"].llamadas,
+              "edge: solo edge, como siempre")
+    with _tts_motor("elevenlabs", eleven=b"ID3eleven", edge=b"ID3edge",
+                    chatterbox=b"RIFFx") as e:
+        asyncio.run(tts.synthesize("Hola."))
+        check(bool(e["motores"]["eleven"].llamadas)
+              and not e["motores"]["edge"].llamadas
+              and not e["motores"]["chatterbox"].llamadas,
+              "elevenlabs: solo elevenlabs, como siempre")
+    with _tts_motor("local", local=b"RIFFsapi", edge=b"ID3edge") as e:
+        url = asyncio.run(tts.synthesize("Hola."))
+        check(bool(url) and e["servido"][0][1] == "wav",
+              "local: sigue usando el SAPI del PC (WAV)")
+        check(not e["motores"]["edge"].llamadas
+              and not e["motores"]["chatterbox"].llamadas,
+              "local: no toca los motores de nube ni chatterbox")
+    with _tts_motor("off", edge=b"ID3", eleven=b"ID3", chatterbox=b"RIFF",
+                    local=b"RIFF") as e:
+        check(asyncio.run(tts.synthesize("Hola.")) is None, "off: no genera audio")
+        check(asyncio.run(tts.speak("Hola.")) == 0.0, "off: speak no dice nada")
+        check(not any(m.llamadas for m in e["motores"].values()),
+              "off: no llama a ningún motor")
+
+
+def test_catalogo_y_estado_publican_chatterbox():
+    """(e) S3: /api/voices y /api/status (y el selector del HUD) ofrecen el motor
+    nuevo, y siguen ofreciendo los tres de siempre. La disponibilidad se declara
+    como ya se hace con el SAPI local: entrada siempre, `available` según toque."""
+    tts = _tts_modulo()
+    previos = {n: getattr(tts, n, _FALTA) for n in ("HAS_CHATTERBOX",)}
+    try:
+        tts.HAS_CHATTERBOX = True
+        voces = tts.all_voices()
+        check(all(k in voces for k in ("chatterbox", "edge", "elevenlabs", "local")),
+              "all_voices(): chatterbox junto a los tres motores de siempre")
+        cb = voces.get("chatterbox") or {}
+        check(cb.get("available") is True,
+              "all_voices(): disponible cuando la librería está")
+        check(any("Espa" in v for v in cb.get("voices") or []),
+              "all_voices(): la voz es-ES se etiqueta como de España")
+        check((cb.get("note") or "") == "", "sin aviso si está instalada")
+        check(tts.tts_status().get("chatterbox") is True,
+              "tts_status(): reporta chatterbox")
+        check("edge" in tts.tts_status(), "tts_status(): mantiene edge")
+        tts.HAS_CHATTERBOX = False
+        cb = tts.all_voices().get("chatterbox") or {}
+        check(cb.get("available") is False, "sin librería: available = False")
+        check("pip install" in (cb.get("note") or ""),
+              "sin librería: dice cómo se instala (igual que local/edge)")
+        check(tts.tts_status().get("chatterbox") is False,
+              "tts_status(): False si no está instalada")
+    finally:
+        _restaurar(tts, previos)
+    js = Path(ROOT, "frontend", "js", "command.js").read_text(encoding="utf-8")
+    selector = next((l for l in js.splitlines() if 'id="m-tts"' in l), "")
+    check("'chatterbox'" in selector or 'value="chatterbox"' in selector,
+          "el selector #m-tts del HUD ofrece el motor chatterbox")
+    check(re.search(r"chatterbox[^<]{0,60}(es-ES|España|Castellano)", selector) is not None
+          or re.search(r'value="chatterbox"[^>]*>[^<]{3,}<', selector) is not None,
+          "y con una etiqueta legible, no el token pelado")
+
+
+def test_chatterbox_carga_una_vez_y_fuera_del_bucle():
+    """S4: el modelo se importa/carga PEREZOSAMENTE y una sola vez (patrón de
+    _local_engine), y la síntesis corre en un HILO: el bucle de eventos nunca se
+    queda esperando a torch."""
+    tts = _tts_modulo()
+    WAV = b"RIFF\x00\x00\x00\x00WAVE"
+    cargas, hilos, guardados, idiomas = [], [], [], []
+    paquete = types.ModuleType("chatterbox")
+    paquete.__path__ = []
+    mtl = types.ModuleType("chatterbox.mtl_tts")
+    ta = types.ModuleType("torchaudio")
+
+    class _Tensor:
+        pass
+
+    class _Modelo:
+        sr = 24000
+
+        def generate(self, texto, language_id=None):
+            idiomas.append(language_id)
+            hilos.append(threading.current_thread().name)
+            return _Tensor()
+
+    class _ModeloMultilingue:
+        @staticmethod
+        def from_pretrained(**_kw):
+            cargas.append(1)
+            return _Modelo()
+
+    def _save(ruta, wav, sr):
+        guardados.append((sr, type(wav).__name__))
+        Path(ruta).write_bytes(WAV)
+
+    mtl.ChatterboxMultilingualTTS = _ModeloMultilingue
+    ta.save = _save
+    previos = {n: getattr(tts, n, _FALTA) for n in ("HAS_CHATTERBOX", "_chatterbox_model")}
+    modulos = {k: sys.modules.get(k)
+               for k in ("chatterbox", "chatterbox.mtl_tts", "torchaudio")}
+    sys.modules.update({"chatterbox": paquete, "chatterbox.mtl_tts": mtl,
+                        "torchaudio": ta})
+    tts.HAS_CHATTERBOX = True
+    tts._chatterbox_model = None
+    try:
+        datos = asyncio.run(tts._chatterbox_bytes("Hola, soy nexus."))
+        check(datos == WAV, "el envoltorio devuelve los bytes WAV del motor")
+        check(bool(idiomas) and idiomas[0] == "es",
+              "sintetiza en castellano (es), que es el checkpoint es-ES")
+        asyncio.run(tts._chatterbox_bytes("Otra frase distinta."))
+        check(len(cargas) == 1,
+              f"el modelo se carga UNA vez y se cachea (cargas={len(cargas)})")
+        check(len(hilos) == 2 and all(h != threading.main_thread().name for h in hilos),
+              "la síntesis corre en un hilo aparte, no en el bucle de eventos")
+        check(bool(guardados) and guardados[0][0] == 24000,
+              "se escribe el WAV con la frecuencia real del modelo")
+    finally:
+        for modulo, valor in modulos.items():
+            if valor is None:
+                sys.modules.pop(modulo, None)
+            else:
+                sys.modules[modulo] = valor
+        _restaurar(tts, previos)
+
+
 # ══════════════ NORMA: LOS INFORMES SE CREAN EN .md ══════════════
 # Petición de Adri (30/07/2026): «todos los informes por defecto han de crearlos
 # en archivos .md salvo que se pida expresamente otra cosa».
@@ -343,6 +680,11 @@ if __name__ == "__main__":
              test_skill_archivos_routing_y_confirmacion, test_skill_lectura_no_miente,
              test_tts_solo_habla_respuestas,
              test_brain_y_hud_no_mandan_al_tts_lo_del_operador,
+             test_chatterbox_llega_a_los_tres_llamantes,
+             test_chatterbox_caido_degrada_como_edge,
+             test_auto_conserva_el_orden_y_los_otros_motores,
+             test_catalogo_y_estado_publican_chatterbox,
+             test_chatterbox_carga_una_vez_y_fuera_del_bucle,
              test_los_informes_salen_en_markdown]
     for t in tests:
         print(f"· {t.__name__}")
